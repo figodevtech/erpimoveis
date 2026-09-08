@@ -9,6 +9,7 @@ import { distribuirPorPesos } from "@/lib/financeiro/rateio";
 import { aplicarCamposDocumento, erroDeDocumento } from "./_lib/documento";
 import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "./_lib/bandeira";
 import { filtroDeBusca } from "./_lib/busca";
+import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 
 const WRITABLE_FIELDS = new Set([
   "ordemservicoid",
@@ -74,6 +75,12 @@ const ORDENAVEIS = new Set([
   "metodopagamento",
   "valor",
 ]);
+
+/**
+ * Valores aceitos em `vinculo`. Mesma lista da exportação, que já filtrava por
+ * origem do lançamento; qualquer outra coisa não filtra nada.
+ */
+const VINCULOS = new Set(["OS", "VENDA", "EVENTO", "AVULSO"]);
 
 const FORTALEZA_OFFSET = "-03:00";
 
@@ -261,6 +268,39 @@ export async function GET(req: Request) {
     const excluirEventosFinanceiros = parseBooleanParam(searchParams.get("excluirEventosFinanceiros"));
     const dateFrom = searchParams.get("dateFrom");
     const dateTo = searchParams.get("dateTo");
+    const nomePagador = (searchParams.get("nomePagador") ?? "").trim().slice(0, 120);
+    const documentoPagador = (searchParams.get("documentoPagador") ?? "").trim().slice(0, 40);
+    /*
+     * Faixa de valor, sobre o BRUTO — e é de propósito.
+     *
+     * O número que a conciliação bancária compara não é `valor`: é o líquido
+     * efetivo na linha já liquidada (venda no cartão entra na conta menos a taxa)
+     * e o saldo em aberto no título pago em partes. Nenhum dos dois é coluna —
+     * são um CASE sobre `valor`, `valorLiquido`, `valor_descontos` e
+     * `valor_baixado` —, e o PostgREST não filtra por expressão.
+     *
+     * Mas taxa e baixa parcial só descem: vale sempre `valor >= líquido >= saldo`.
+     * Então `valorMin` no bruto NUNCA descarta um candidato válido, e corta todo
+     * o resto. No caso comum — sem taxa, sem baixa parcial — `valor` é o próprio
+     * alvo, e `valorMin = valorMax` acha na primeira página.
+     *
+     * Quem for "corrigir" isto para `valorLiquido` some com as vendas no cartão
+     * da busca, que são exatamente as que mais precisam ser encontradas.
+     */
+    const valorMin = toNumberOrNull(searchParams.get("valorMin"));
+    const valorMax = toNumberOrNull(searchParams.get("valorMax"));
+    const vinculoRaw = (searchParams.get("vinculo") ?? "").trim().toUpperCase();
+    const vinculo = VINCULOS.has(vinculoRaw) ? vinculoRaw : "";
+    /*
+     * `incluirBaixas=true` traz de volta as baixas parciais sem exigir `comBanco`.
+     *
+     * A regra logo abaixo esconde a baixa parcial de qualquer visão que não seja
+     * o extrato, para o mesmo dinheiro não aparecer duas vezes. Na busca da
+     * conciliação isso tornava inalcançável uma linha que existe de verdade e
+     * pode ser a correspondência procurada — quem busca uma transação específica
+     * quer achá-la, não somar coluna nenhuma.
+     */
+    const incluirBaixas = parseBooleanParam(searchParams.get("incluirBaixas"));
 
     // Padrão: mais novo primeiro (extrato). "asc" serve às visões de contas a
     // pagar/receber, onde o que vence antes precisa aparecer antes.
@@ -340,13 +380,25 @@ export async function GET(req: Request) {
      * na tela e no total. Quem quiser ver os pagamentos de um título abre o
      * título.
      */
-    if (comBanco !== true) query = query.is("baixa_de_transacao_id", null);
+    if (comBanco !== true && incluirBaixas !== true) {
+      query = query.is("baixa_de_transacao_id", null);
+    }
     if (planoContaId != null) query = query.eq("plano_de_conta_id", planoContaId);
     if (centroCustoId != null) query = query.eq("centro_custo_id", centroCustoId);
     if (clienteId != null) query = query.eq("cliente_id", clienteId);
     if (pendenteBool !== null) query = query.eq("pendente", pendenteBool);
     if (dateFrom) query = query.gte("data", localDayStartToUtcIso(dateFrom));
     if (dateTo) query = query.lt("data", localNextDayStartToUtcIso(dateTo));
+    if (nomePagador) query = query.ilike("nomepagador", `%${nomePagador}%`);
+    if (documentoPagador) query = query.ilike("cpfcnpjpagador", `%${documentoPagador}%`);
+    if (valorMin != null && valorMin >= 0) query = query.gte("valor", valorMin);
+    if (valorMax != null && valorMax >= 0) query = query.lte("valor", valorMax);
+    if (vinculo === "OS") query = query.not("ordemservicoid", "is", null);
+    if (vinculo === "VENDA") query = query.not("vendaid", "is", null);
+    if (vinculo === "EVENTO") query = query.not("evento_financeiro_id", "is", null);
+    if (vinculo === "AVULSO") {
+      query = query.is("ordemservicoid", null).is("vendaid", null).is("evento_financeiro_id", null);
+    }
 
     const { data, error, count } = await query;
     if (error) throw error;
@@ -380,6 +432,12 @@ export async function GET(req: Request) {
         pendente: pendenteBool,
         dateFrom: dateFrom ?? null,
         dateTo: dateTo ?? null,
+        nomePagador: nomePagador || null,
+        documentoPagador: documentoPagador || null,
+        valorMin: valorMin ?? null,
+        valorMax: valorMax ?? null,
+        vinculo: vinculo || null,
+        incluirBaixas,
         ordem: ascending ? "asc" : "desc",
         ordenarPor,
       },
@@ -404,6 +462,11 @@ export async function POST(req: Request) {
     }
 
     const payload = sanitizeTransacaoPayload(json, { strict: true });
+
+    const problemaNoBanco = erroDeBancoNoLancamento(payload);
+    if (problemaNoBanco) {
+      return NextResponse.json({ error: problemaNoBanco }, { status: 400 });
+    }
 
     const problemaNoDocumento = erroDeDocumento(payload);
     if (problemaNoDocumento) {

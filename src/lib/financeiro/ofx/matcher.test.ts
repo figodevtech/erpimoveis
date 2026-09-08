@@ -1,0 +1,404 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  analisarMovimento,
+  casarComFluxo,
+  casarComTitulos,
+  motivoDeIncompatibilidade,
+  type CandidatoTransacao,
+} from "./matcher";
+import type { OfxMovimento } from "./types";
+
+const BANCO = 7;
+
+function movimento(parcial: Partial<OfxMovimento> = {}): OfxMovimento {
+  return {
+    sequencia: 1,
+    tipoOfx: "DEBIT",
+    dataPostagem: "2026-08-04",
+    dataDisponivel: null,
+    valorCentavos: -583_569,
+    fitid: "1",
+    checknum: null,
+    refnum: null,
+    nome: null,
+    memo: "PAGAMENTO DE BOLETO",
+    ...parcial,
+  };
+}
+
+function transacao(parcial: Partial<CandidatoTransacao> = {}): CandidatoTransacao {
+  return {
+    id: 1,
+    descricao: "Fornecedor XYZ",
+    valor: 5835.69,
+    tipo: "DESPESA",
+    pendente: false,
+    banco_id: BANCO,
+    data: "2026-08-04T15:00:00.000Z",
+    data_dia: "2026-08-04",
+    ...parcial,
+  };
+}
+
+/* ----------------------------------------------------- Fluxo de Caixa */
+
+test("débito encontra a despesa já liquidada da mesma conta", () => {
+  const analise = analisarMovimento(movimento(), [transacao()], BANCO);
+
+  assert.equal(analise.situacao, "MATCH_EXATO");
+  assert.equal(analise.score, 100);
+  assert.equal(analise.acaoSugerida, "VINCULAR");
+  assert.equal(analise.sugestoes[0].origem, "FLUXO");
+});
+
+test("crédito encontra a receita, e nunca uma despesa", () => {
+  const credito = movimento({ valorCentavos: 97_000, tipoOfx: "CREDIT", memo: "CRED PIX" });
+  const receita = transacao({ id: 2, tipo: "RECEITA", valor: 970 });
+  const despesa = transacao({ id: 3, tipo: "DESPESA", valor: 970 });
+
+  const analise = analisarMovimento(credito, [receita, despesa], BANCO);
+  assert.equal(analise.situacao, "MATCH_EXATO");
+  assert.equal(analise.sugestoes[0].transacaoId, 2);
+});
+
+test("débito não casa com receita liquidada de mesmo valor", () => {
+  const receita = transacao({ tipo: "RECEITA", valor: 5835.69 });
+  assert.equal(casarComFluxo(movimento(), [receita], BANCO).length, 0);
+});
+
+test("transação de outra conta bancária não é candidata", () => {
+  const outra = transacao({ banco_id: 99 });
+  assert.equal(casarComFluxo(movimento(), [outra], BANCO).length, 0);
+});
+
+test("valor diferente não casa: a comparação é em centavos exatos", () => {
+  const quase = transacao({ valor: 5835.7 });
+  assert.equal(casarComFluxo(movimento(), [quase], BANCO).length, 0);
+});
+
+test("compara o LÍQUIDO movimentado, não o bruto", () => {
+  // Venda de R$ 1.000 no cartão, taxa de R$ 30: o extrato mostra R$ 970. É o
+  // caso obrigatório — comparar com `valor` faria o usuário criar a receita de
+  // novo, em cima da que já existe.
+  const credito = movimento({ valorCentavos: 97_000, tipoOfx: "CREDIT", memo: "CRED CARTAO" });
+  const venda = transacao({ id: 5, tipo: "RECEITA", valor: 1000, valorLiquido: 970 });
+
+  const analise = analisarMovimento(credito, [venda], BANCO);
+  assert.equal(analise.situacao, "MATCH_EXATO");
+  assert.equal(analise.sugestoes[0].valorCentavos, 97_000);
+});
+
+test("as pernas de uma transferência conciliam como movimento de conta", () => {
+  // SAQUE na origem e DEPOSITO no destino movem a conta de verdade; o OFX de
+  // cada banco traz uma delas.
+  const saida = movimento({ valorCentavos: -250_000, memo: "TRANSFERENCIA ENTRE CONTAS" });
+  const perna = transacao({ id: 8, tipo: "SAQUE", valor: 2500, transferencia_id: 3 });
+
+  const analise = analisarMovimento(saida, [perna], BANCO);
+  assert.equal(analise.situacao, "MATCH_EXATO");
+  assert.equal(analise.sugestoes[0].transacaoId, 8);
+});
+
+test("dois movimentos liquidados iguais deixam a linha ambígua", () => {
+  const analise = analisarMovimento(
+    movimento(),
+    [transacao({ id: 1 }), transacao({ id: 2 })],
+    BANCO,
+  );
+
+  assert.equal(analise.situacao, "AMBIGUO");
+  assert.equal(analise.acaoSugerida, null);
+  assert.equal(analise.sugestoes.length, 2);
+});
+
+test("título abonado ou quitado por crédito do cliente não é movimento de caixa", () => {
+  const abonado = transacao({ abonado: true, banco_id: null });
+  const antecipado = transacao({ adiantamento_id: 4, banco_id: null, valor_baixado: 0 });
+
+  assert.equal(casarComFluxo(movimento(), [abonado, antecipado], BANCO).length, 0);
+});
+
+test("transações liquidadas conciliam sem limite de diferença entre as datas", () => {
+  for (const tipo of ["DESPESA", "RECEITA"]) {
+    for (const dia of ["2026-08-10", "2026-08-31", "2020-01-01"]) {
+      const distante = transacao({ tipo, data_dia: dia, data: `${dia}T15:00:00.000Z` });
+      const extrato = movimento({ valorCentavos: tipo === "RECEITA" ? 583_569 : -583_569 });
+      const analise = analisarMovimento(extrato, [distante], BANCO);
+      assert.equal(analise.situacao, "MATCH_EXATO");
+      assert.equal(analise.acaoSugerida, "VINCULAR");
+      assert.equal(analise.sugestoes[0].transacaoId, distante.id);
+      assert.equal(casarComFluxo(extrato, [{ ...distante, banco_id: 99 }], BANCO).length, 0);
+      assert.equal(casarComFluxo(extrato, [{ ...distante, valor: 100 }], BANCO).length, 0);
+    }
+  }
+});
+
+test("movimentos de mesmo valor em datas distantes continuam exigindo escolha", () => {
+  const antiga = transacao({ id: 60, data_dia: "2020-01-01" });
+  const analise = analisarMovimento(movimento(), [transacao(), antiga], BANCO);
+  assert.equal(analise.situacao, "AMBIGUO");
+  assert.equal(analise.acaoSugerida, null);
+  assert.deepEqual(analise.sugestoes.map((s) => s.transacaoId), [1, 60]);
+});
+
+/* --------------------------------------------------------- Títulos */
+
+test("título pendente vira sugestão quando não há nada no Fluxo", () => {
+  // Boleto que vence dia 05 e foi pago dia 04: data não bate, e é para isso
+  // que existe o score.
+  const titulo = transacao({
+    id: 20,
+    pendente: true,
+    banco_id: null,
+    data_dia: "2026-08-05",
+    data: "2026-08-05T15:00:00.000Z",
+    metodopagamento: "BOLETO",
+  });
+
+  const analise = analisarMovimento(movimento(), [titulo], BANCO);
+
+  assert.equal(analise.situacao, "MATCH_PROVAVEL");
+  assert.equal(analise.acaoSugerida, "LIQUIDAR");
+  assert.equal(analise.sugestoes[0].origem, "TITULO");
+  assert.equal(analise.sugestoes[0].diferencaEmDias, 1);
+  // 60 do valor exato, 25 de um dia de diferença, 10 do método compatível.
+  assert.equal(analise.sugestoes[0].score, 95);
+});
+
+test("crédito não procura conta a pagar, e débito não procura conta a receber", () => {
+  const aReceber = transacao({ id: 21, tipo: "RECEITA", pendente: true, banco_id: null });
+  assert.equal(casarComTitulos(movimento(), [aReceber]).length, 0);
+
+  const credito = movimento({ valorCentavos: 583_569, tipoOfx: "CREDIT" });
+  const aPagar = transacao({ id: 22, tipo: "DESPESA", pendente: true, banco_id: null });
+  assert.equal(casarComTitulos(credito, [aPagar]).length, 0);
+});
+
+test("três títulos de mesmo valor deixam o PIX ambíguo", () => {
+  const pix = movimento({ valorCentavos: -100_000, memo: "DEB PIX ENVIADO", dataPostagem: "2026-08-10" });
+  const titulos = [1, 2, 3].map((id) =>
+    transacao({
+      id: 30 + id,
+      valor: 1000,
+      pendente: true,
+      banco_id: null,
+      data_dia: "2026-08-10",
+      data: "2026-08-10T15:00:00.000Z",
+    }),
+  );
+
+  const analise = analisarMovimento(pix, titulos, BANCO);
+  assert.equal(analise.situacao, "AMBIGUO");
+  assert.equal(analise.sugestoes.length, 3);
+});
+
+test("movimento menor que o saldo vira sugestão de baixa parcial", () => {
+  const recebimento = movimento({
+    valorCentavos: 200_000,
+    tipoOfx: "CREDIT",
+    memo: "CRED PIX CLIENTE",
+    dataPostagem: "2026-08-04",
+  });
+  const titulo = transacao({
+    id: 40,
+    tipo: "RECEITA",
+    valor: 5000,
+    pendente: true,
+    banco_id: null,
+  });
+
+  const analise = analisarMovimento(recebimento, [titulo], BANCO);
+  assert.equal(analise.situacao, "MATCH_PROVAVEL");
+  assert.equal(analise.acaoSugerida, "BAIXA_PARCIAL");
+  assert.equal(analise.sugestoes[0].parcial, true);
+  assert.equal(analise.sugestoes[0].valorCentavos, 500_000);
+});
+
+test("o saldo de um título já pago em parte é o que conta", () => {
+  const titulo = transacao({
+    id: 41,
+    tipo: "RECEITA",
+    valor: 5000,
+    valor_baixado: 3000,
+    pendente: true,
+    banco_id: null,
+  });
+  const recebimento = movimento({ valorCentavos: 200_000, tipoOfx: "CREDIT" });
+
+  const sugestoes = casarComTitulos(recebimento, [titulo]);
+  assert.equal(sugestoes.length, 1);
+  assert.equal(sugestoes[0].parcial, false);
+  assert.equal(sugestoes[0].valorCentavos, 200_000);
+});
+
+test("movimento maior que o saldo não é candidato a nada", () => {
+  const titulo = transacao({ id: 42, pendente: true, banco_id: null, valor: 100 });
+  assert.equal(casarComTitulos(movimento(), [titulo]).length, 0);
+});
+
+test("pagamentos e recebimentos atrasados continuam candidatos sem limite de dias", () => {
+  for (const tipo of ["DESPESA", "RECEITA"]) {
+    for (const data of ["2026-07-19", "2026-06-01", "2020-01-01"]) {
+      const antigo = transacao({
+        id: 43,
+        tipo,
+        pendente: true,
+        banco_id: null,
+        data_dia: data,
+        data: `${data}T15:00:00.000Z`,
+      });
+      const extrato = movimento({ valorCentavos: tipo === "RECEITA" ? 583_569 : -583_569 });
+      const analise = analisarMovimento(extrato, [antigo], BANCO);
+      assert.equal(analise.situacao, "MATCH_PROVAVEL");
+      assert.equal(analise.acaoSugerida, "LIQUIDAR");
+      assert.equal(analise.sugestoes[0].transacaoId, antigo.id);
+      assert.ok(analise.sugestoes[0].diferencaEmDias > 15);
+    }
+  }
+});
+
+test("busca de título antigo aceita baixa parcial e continua exigindo saldo e direção", () => {
+  const antigo = transacao({
+    id: 43,
+    pendente: true,
+    banco_id: null,
+    data_dia: "2026-06-01",
+    data: "2026-06-01T15:00:00.000Z",
+  });
+  const pagamento = movimento({ valorCentavos: -100_000 });
+  const sugestoes = casarComTitulos(pagamento, [antigo]);
+  assert.equal(sugestoes.length, 1);
+  assert.equal(sugestoes[0].parcial, true);
+  assert.equal(casarComTitulos(pagamento, [{ ...antigo, valor: 999 }]).length, 0);
+  assert.equal(casarComTitulos(pagamento, [{ ...antigo, tipo: "RECEITA" }]).length, 0);
+  assert.equal(casarComTitulos(pagamento, [{ ...antigo, abonado: true }]).length, 0);
+});
+
+test("título de antecipação vai para revisão manual, não para baixa", () => {
+  const antecipado = transacao({
+    id: 44,
+    pendente: true,
+    banco_id: null,
+    adiantamento_id: 9,
+    data_dia: "2026-08-04",
+  });
+
+  const analise = analisarMovimento(movimento(), [antecipado], BANCO);
+  assert.equal(analise.situacao, "REVISAO_MANUAL");
+  assert.equal(analise.acaoSugerida, null);
+  assert.ok(analise.observacao);
+});
+
+test("sem nada correspondente, a sugestão é criar a transação", () => {
+  const iof = movimento({ valorCentavos: -3_157, memo: "DEBITO DE IOF", dataPostagem: "2026-08-03" });
+
+  const analise = analisarMovimento(iof, [], BANCO);
+  assert.equal(analise.situacao, "SEM_CORRESPONDENCIA");
+  assert.equal(analise.acaoSugerida, "CRIAR");
+  assert.equal(analise.sugestoes.length, 0);
+});
+
+test("o Fluxo é consultado antes dos títulos, nunca depois", () => {
+  // Havendo os dois, a resposta tem que ser o movimento que já existe: baixar o
+  // título criaria a segunda despesa que a conciliação existe para impedir.
+  const liquidada = transacao({ id: 50 });
+  const titulo = transacao({ id: 51, pendente: true, banco_id: null });
+
+  const analise = analisarMovimento(movimento(), [liquidada, titulo], BANCO);
+  assert.equal(analise.situacao, "MATCH_EXATO");
+  assert.equal(analise.sugestoes[0].transacaoId, 50);
+});
+
+/* ------------------------------------------ Motivo da incompatibilidade */
+
+test("compatível não tem motivo: null é o par de virar sugestão", () => {
+  // O contrato que a tela usa para decidir se a linha é clicável. Se um dia ele
+  // divergir de casarComFluxo, o seletor oferece o que o banco vai recusar.
+  const candidato = transacao();
+  assert.equal(motivoDeIncompatibilidade(movimento(), candidato, BANCO, "FLUXO"), null);
+  assert.equal(casarComFluxo(movimento(), [candidato], BANCO).length, 1);
+});
+
+test("no Fluxo, cada recusa tem a sua frase", () => {
+  const casos: Array<[Partial<CandidatoTransacao>, RegExp]> = [
+    [{ pendente: true }, /título em aberto/i],
+    [{ abonado: true }, /abonado/i],
+    [{ banco_id: 99 }, /outra conta bancária/i],
+    [{ adiantamento_id: 5, valor_baixado: 0 }, /antecipação/i],
+    [{ tipo: "RECEITA" }, /sentido oposto/i],
+    [{ valor: 1234.56 }, /valor difere/i],
+  ];
+
+  for (const [alteracao, esperado] of casos) {
+    const candidato = transacao(alteracao);
+    const motivo = motivoDeIncompatibilidade(movimento(), candidato, BANCO, "FLUXO");
+    assert.match(motivo ?? "", esperado);
+    // Toda frase corresponde a um candidato que casarComFluxo de fato descarta.
+    assert.equal(casarComFluxo(movimento(), [candidato], BANCO).length, 0);
+  }
+});
+
+test("o motivo de valor mostra os dois números, extrato e transação", () => {
+  const motivo =
+    motivoDeIncompatibilidade(movimento(), transacao({ valor: 5000 }), BANCO, "FLUXO") ?? "";
+  assert.match(motivo, /5\.835,69/);
+  assert.match(motivo, /5\.000,00/);
+});
+
+test("venda no cartão com taxa é compatível, e não vira motivo de valor", () => {
+  // O caso que obriga a comparação pelo líquido: R$ 1.000 de venda, R$ 30 de
+  // taxa, R$ 970 no extrato.
+  const credito = movimento({ valorCentavos: 97_000, tipoOfx: "CREDIT" });
+  const venda = transacao({ tipo: "RECEITA", valor: 1000, valorLiquido: 970 });
+  assert.equal(motivoDeIncompatibilidade(credito, venda, BANCO, "FLUXO"), null);
+});
+
+test("no título, cada recusa tem a sua frase", () => {
+  const pix = movimento({ valorCentavos: -100_000 });
+  const base: Partial<CandidatoTransacao> = { pendente: true, valor: 1000 };
+  const casos: Array<[Partial<CandidatoTransacao>, RegExp]> = [
+    [{ pendente: false }, /já baixado/i],
+    [{ abonado: true }, /abonado/i],
+    [{ eh_adiantamento: true }, /antecipação ou pagamento múltiplo/i],
+    [{ pagamento_multiplo_id: 3 }, /antecipação ou pagamento múltiplo/i],
+    [{ tipo: "RECEITA" }, /sentido oposto/i],
+    [{ valor: 800 }, /saldo de/i],
+  ];
+
+  for (const [alteracao, esperado] of casos) {
+    const candidato = transacao({ ...base, ...alteracao });
+    assert.match(motivoDeIncompatibilidade(pix, candidato, BANCO, "TITULO") ?? "", esperado);
+  }
+});
+
+test("título com saldo suficiente é compatível, inclusive para baixa parcial", () => {
+  const pix = movimento({ valorCentavos: -40_000 });
+  const titulo = transacao({ pendente: true, valor: 1000, banco_id: null });
+
+  assert.equal(motivoDeIncompatibilidade(pix, titulo, BANCO, "TITULO"), null);
+  const sugestoes = casarComTitulos(pix, [titulo]);
+  assert.equal(sugestoes.length, 1);
+  assert.equal(sugestoes[0].parcial, true);
+});
+
+test("título já pago em parte é medido pelo saldo, não pelo valor cheio", () => {
+  const pix = movimento({ valorCentavos: -60_000 });
+  const titulo = transacao({ pendente: true, valor: 1000, valor_baixado: 600 });
+
+  // Saldo de R$ 400: um movimento de R$ 600 não cabe mais.
+  const motivo = motivoDeIncompatibilidade(pix, titulo, BANCO, "TITULO") ?? "";
+  assert.match(motivo, /saldo de/i);
+  assert.match(motivo, /400,00/);
+  assert.equal(casarComTitulos(pix, [titulo]).length, 0);
+});
+
+test("a mesma transação pode ser incompatível num lado e compatível no outro", () => {
+  // Título em aberto: não serve como movimento já no Fluxo, serve como baixa.
+  const pix = movimento({ valorCentavos: -100_000 });
+  const titulo = transacao({ pendente: true, valor: 1000 });
+
+  assert.match(motivoDeIncompatibilidade(pix, titulo, BANCO, "FLUXO") ?? "", /título em aberto/i);
+  assert.equal(motivoDeIncompatibilidade(pix, titulo, BANCO, "TITULO"), null);
+});

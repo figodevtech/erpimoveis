@@ -3,6 +3,12 @@ import { z } from "zod";
 import { requireConfigAccess, requireConfigEdit } from "@/app/api/_authz/perms";
 import { isStockNotificationEvent, STOCK_NOTIFICATION_EVENT_VALUES } from "@/lib/estoque/telegram-stock-events";
 import { FISCAL_NOTIFICATION_EVENT_VALUES, isFiscalNotificationEvent } from "@/lib/fiscal/telegram-fiscal-events";
+import {
+  FINANCEIRO_NOTIFICATION_EVENT_VALUES,
+  FINANCEIRO_ORIGEM_VALUES,
+  isFinanceiroNotificationEvent,
+  isFinanceiroOrigem,
+} from "@/lib/financeiro/telegram-financeiro-events";
 import { normalizeTelegramUsername } from "@/lib/integrations/telegram";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -11,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 const statusValues = [
   "AGUARDANDO_CHECKLIST", "ORCAMENTO", "APROVACAO_ORCAMENTO", "ORCAMENTO_APROVADO",
-  "ORCAMENTO_RECUSADO", "EM_ANDAMENTO", "PAGAMENTO", "SEM_COBRANCA", "CONCLUIDO", "CANCELADO",
+  "ORCAMENTO_RECUSADO", "EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO", "SEM_COBRANCA", "CONCLUIDO", "CANCELADO",
 ] as const;
 
 const recipientSchema = z.object({
@@ -39,6 +45,17 @@ const recipientSchema = z.object({
     .max(FISCAL_NOTIFICATION_EVENT_VALUES.length)
     .refine((events) => events.every(isFiscalNotificationEvent)),
   notificarMarketplace: z.boolean(),
+  financeiroEventosSelecionados: z
+    .array(z.string())
+    .max(FINANCEIRO_NOTIFICATION_EVENT_VALUES.length)
+    .refine((events) => events.every(isFinanceiroNotificationEvent)),
+  // Zero é "sem piso"; vazio, em origens e bancos, é "todas".
+  financeiroValorMinimo: z.number().min(0).max(99_999_999),
+  financeiroOrigensSelecionadas: z
+    .array(z.string())
+    .max(FINANCEIRO_ORIGEM_VALUES.length)
+    .refine((origens) => origens.every(isFinanceiroOrigem)),
+  financeiroBancosSelecionados: z.array(z.number().int().positive()).max(100),
 });
 
 function errorResponse(error: unknown, fallback: string) {
@@ -66,19 +83,29 @@ async function userHasPermission(usuarioId: string, permissionName: string) {
 export async function GET() {
   try {
     await requireConfigAccess();
-    const [usersResult, preferencesResult, permissionsResult] = await Promise.all([
+    const [usersResult, preferencesResult, permissionsResult, banksResult] = await Promise.all([
       supabaseAdmin.from("usuario").select("id, nome, email, ativo, perfilid").order("nome", { ascending: true }),
       supabaseAdmin
         .from("telegram_usuario_preferencia")
-        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, notificar_receber_diario, horario_resumo_receber, receber_incluir_vencidas, receber_enviar_sem_contas, estoque_eventos_selecionados, fiscal_eventos_selecionados, notificar_marketplace, ultimo_erro")
+        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, notificar_receber_diario, horario_resumo_receber, receber_incluir_vencidas, receber_enviar_sem_contas, estoque_eventos_selecionados, fiscal_eventos_selecionados, notificar_marketplace, financeiro_eventos_selecionados, financeiro_valor_minimo, financeiro_origens_selecionadas, financeiro_bancos_selecionados, ultimo_erro")
         .order("updated_at", { ascending: false }),
       supabaseAdmin
         .from("permissao")
         .select("id, nome"),
+      // Contas ativas alimentam o filtro opcional dos avisos instantâneos.
+      supabaseAdmin
+        .from("bancoconta")
+        .select("id, titulo")
+        .eq("ativo", true)
+        .order("titulo", { ascending: true }),
     ]);
-    if (usersResult.error || preferencesResult.error || permissionsResult.error) {
-      throw usersResult.error ?? preferencesResult.error ?? permissionsResult.error;
+    if (usersResult.error || preferencesResult.error || permissionsResult.error || banksResult.error) {
+      throw usersResult.error ?? preferencesResult.error ?? permissionsResult.error ?? banksResult.error;
     }
+    const banks = (banksResult.data ?? []).map((bank) => ({
+      id: Number(bank.id),
+      titulo: String(bank.titulo ?? `Conta #${bank.id}`),
+    }));
 
     const relevantPermissionNames = new Set([
       "financeiro:visualizar",
@@ -154,9 +181,15 @@ export async function GET() {
       selectedStockEvents: Array.isArray(row.estoque_eventos_selecionados) ? row.estoque_eventos_selecionados : [],
       selectedFiscalEvents: Array.isArray(row.fiscal_eventos_selecionados) ? row.fiscal_eventos_selecionados : [],
       notifyMarketplace: row.notificar_marketplace === true,
+      selectedFinanceiroEvents: Array.isArray(row.financeiro_eventos_selecionados) ? row.financeiro_eventos_selecionados : [],
+      financeiroMinimumValue: Number(row.financeiro_valor_minimo ?? 0),
+      selectedFinanceiroOrigins: Array.isArray(row.financeiro_origens_selecionadas) ? row.financeiro_origens_selecionadas : [],
+      selectedFinanceiroBanks: Array.isArray(row.financeiro_bancos_selecionados)
+        ? row.financeiro_bancos_selecionados.map((id: unknown) => Number(id))
+        : [],
       lastError: row.ultimo_erro ? String(row.ultimo_erro) : null,
     }));
-    return NextResponse.json({ users, recipients });
+    return NextResponse.json({ users, recipients, banks });
   } catch (error) {
     return errorResponse(error, "Não foi possível carregar os destinatários.");
   }
@@ -192,9 +225,11 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Remova o vínculo atual antes de alterar o usuário do Telegram." }, { status: 409 });
     }
 
-    if ((parsed.data.notificarFinanceiroDiario || parsed.data.notificarReceberDiario)
+    if ((parsed.data.notificarFinanceiroDiario
+      || parsed.data.notificarReceberDiario
+      || parsed.data.financeiroEventosSelecionados.length > 0)
       && !(await userHasPermission(parsed.data.usuarioId, "financeiro:visualizar"))) {
-      return NextResponse.json({ error: "O usuário precisa ter acesso ao Financeiro para receber esse resumo." }, { status: 400 });
+      return NextResponse.json({ error: "O usuário precisa ter acesso ao Financeiro para receber esses avisos." }, { status: 400 });
     }
     if (parsed.data.estoqueEventosSelecionados.length > 0 && !(await userHasPermission(parsed.data.usuarioId, "estoque:visualizar"))) {
       return NextResponse.json({ error: "O usuário precisa ter acesso ao Estoque para receber essas movimentações." }, { status: 400 });
@@ -225,6 +260,10 @@ export async function PUT(request: Request) {
       estoque_eventos_selecionados: Array.from(new Set(parsed.data.estoqueEventosSelecionados)),
       fiscal_eventos_selecionados: Array.from(new Set(parsed.data.fiscalEventosSelecionados)),
       notificar_marketplace: parsed.data.notificarMarketplace,
+      financeiro_eventos_selecionados: Array.from(new Set(parsed.data.financeiroEventosSelecionados)),
+      financeiro_valor_minimo: parsed.data.financeiroValorMinimo,
+      financeiro_origens_selecionadas: Array.from(new Set(parsed.data.financeiroOrigensSelecionadas)),
+      financeiro_bancos_selecionados: Array.from(new Set(parsed.data.financeiroBancosSelecionados)),
       ultimo_erro: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "usuario_id" });
@@ -248,6 +287,7 @@ export async function DELETE(request: Request) {
       supabaseAdmin.from("os_notificacao_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
       supabaseAdmin.from("telegram_estoque_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
       supabaseAdmin.from("telegram_fiscal_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
+      supabaseAdmin.from("telegram_financeiro_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
       // Resumo diário ainda não enviado morre junto: sem preferência, o
       // processador não teria de onde ler o chat e a linha ficaria tentando.
       supabaseAdmin.from("telegram_resumo_financeiro_envio").update({ status: "SEM_MOVIMENTO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "PROCESSANDO", "ERRO"]),

@@ -19,6 +19,7 @@ function statusColors(s?: string | null) {
     return "bg-yellow-600/15 text-yellow-400 border-yellow-600/30";
   if (k === "EM_ANDAMENTO") return "bg-sky-600/15 text-sky-400 border-sky-600/30";
   if (k === "PAGAMENTO") return "bg-fuchsia-600/15 text-fuchsia-400 border-fuchsia-600/30";
+  if (k === "FATURAMENTO") return "bg-cyan-600/15 text-cyan-400 border-cyan-600/30";
   if (k === "CONCLUIDO") return "bg-emerald-600/15 text-emerald-400 border-emerald-600/30";
   if (k === "CANCELADO") return "bg-rose-600/15 text-rose-400 border-rose-600/30";
   return "bg-zinc-600/15 text-zinc-200 border-zinc-600/30";

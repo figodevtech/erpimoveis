@@ -1,11 +1,12 @@
 "use client"
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import OsTable from "./components/osTable";
 import { Ordem, StatusOS } from "../../ordens/types";
 import axios from "axios";
 import { PaymentListFilters } from "../components/payments-filter-sheet";
 
 export default function AssistentePagamento (){
+    const requestId = useRef(0);
     const [ordens, setOrdens] = useState<Ordem[]>([])
     const [pagination, setPagination] = useState({
     total: 0,
@@ -24,6 +25,7 @@ export default function AssistentePagamento (){
       search?: string,
       filters?: PaymentListFilters,
     ) => {
+    const request = ++requestId.current;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/ordens", {
@@ -50,20 +52,18 @@ export default function AssistentePagamento (){
           orcamentoMax: filters?.valorMax ?? "",
         },
       });
-      if (response.status === 200) {
+      if (request === requestId.current && response.status === 200) {
         const { data } = response;
         setOrdens(data.items);
         setPagination({...pagination, limit:data.limit, page: data.page, totalPages:data.totalPages, total: data.total});
       }
     } catch {
     } finally {
-      setIsLoading(false);
+      if (request === requestId.current) setIsLoading(false);
     }
   };
 
-  useEffect(()=> {
-    handleGetOrdens("PAGAMENTO");
-  },[])
+
 
     return (
 

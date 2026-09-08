@@ -56,6 +56,21 @@ const SELECT = `
   comissao_criacao:os_comissao_criacao ( usuarioid, valor_comissao )
 `;
 
+/**
+ * A comissão de criação desta pessoa nesta OS.
+ *
+ * São várias linhas — uma por item —, e o que a lista mostra é o total da
+ * ordem. O filtro por usuário não é redundante com o recorte: o criador é
+ * carimbado na primeira apuração e não acompanha troca de titularidade, então
+ * uma OS pode ser de alguém hoje e ter a comissão apurada em nome de quem a
+ * abriu.
+ */
+function comissaoDeCriacao(ordem: Record<string, unknown>, userId: string) {
+  return comoLista(ordem.comissao_criacao)
+    .filter((linha) => String(linha.usuarioid ?? "") === userId)
+    .reduce((soma, linha) => soma + num(linha.valor_comissao), 0);
+}
+
 export async function GET(req: Request) {
   const userId = await getMeUserId(req);
   if (isNextResponse(userId)) return userId;
@@ -140,22 +155,7 @@ export async function GET(req: Request) {
         | null
         | undefined;
 
-      // A comissão de quem abriu a ordem. O snapshot carimba o criador e não
-      // acompanha troca de titularidade, então uma OS que hoje é de outra
-      // pessoa pode ter a comissão apurada em nome de quem a abriu — daí a
-      // conferência do `usuarioid` em vez de confiar só no recorte da consulta.
-      // `ordemservicoid` é a PK de `os_comissao_criacao`, então o PostgREST
-      // resolve o vínculo como um-para-um e devolve objeto, não lista. Aceitar
-      // as duas formas evita depender dessa dedução continuar valendo.
-      const comissaoBruta = (
-        Array.isArray(ordem.comissao_criacao)
-          ? ordem.comissao_criacao[0]
-          : ordem.comissao_criacao
-      ) as Record<string, unknown> | null | undefined;
-      const comissaoCriacao =
-        comissaoBruta && String(comissaoBruta.usuarioid ?? "") === String(userId)
-          ? num(comissaoBruta.valor_comissao)
-          : 0;
+      const comissaoCriacao = comissaoDeCriacao(ordem, userId);
 
       return {
         id: Number(ordem.id),

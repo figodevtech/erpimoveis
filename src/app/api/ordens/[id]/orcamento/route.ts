@@ -153,7 +153,7 @@ export async function GET(
     // execução no modo EXECUCAO, o vínculo baixa o estoque na hora.
     const statusOS = String((osRow as any)?.status ?? "").toUpperCase();
     const baixaAoVincularAvulso =
-      ["EM_ANDAMENTO", "PAGAMENTO"].includes(statusOS) &&
+      ["EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO"].includes(statusOS) &&
       (await buscarModoBaixaEstoqueOS()) === "EXECUCAO";
 
     return NextResponse.json(
@@ -382,7 +382,7 @@ export async function PUT(
     // OS que consumiu por outro caminho. Só a baixa não bastaria: uma OS em
     // andamento que ficasse momentaneamente sem produtos voltaria a ser tratada
     // como se ainda não tivesse consumido.
-    const osEmExecucao = ["EM_ANDAMENTO", "PAGAMENTO"].includes(statusAtual);
+    const osEmExecucao = ["EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO"].includes(statusAtual);
     const sincronizarEstoque =
       modoBaixaEstoqueOS === "ORCAMENTO" || osEmExecucao || baixaMap.size > 0;
 
@@ -708,7 +708,7 @@ export async function PUT(
 
     let aviso: string | null = null;
 
-    if (["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO"].includes(statusAtual)) {
+    if (["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO"].includes(statusAtual)) {
       // A reconciliacao reescreve o valor de todo evento nao convertido, sem
       // olhar competencia. Se algum deles ja pertence a um mes fechado, a DRE
       // daquele periodo muda junto — o usuario precisa saber qual.
@@ -726,7 +726,7 @@ export async function PUT(
 
       const { error: reconciliacaoError } = await supabase.rpc("reconciliar_eventos_financeiros_os", {
         p_ordemservicoid: osId,
-        p_incluir_comissoes: ["EM_ANDAMENTO", "PAGAMENTO"].includes(statusAtual),
+        p_incluir_comissoes: ["EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO"].includes(statusAtual),
       });
       if (reconciliacaoError) throw reconciliacaoError;
 

@@ -1,4 +1,5 @@
 "use client";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronsUpDown, ClipboardList, Download, FileChartColumn, FileText, Loader2, Search, X } from "lucide-react";
@@ -34,6 +35,7 @@ const STATUS_OPTIONS = [
   ["ORCAMENTO_RECUSADO", "Orçamento recusado"],
   ["EM_ANDAMENTO", "Em andamento"],
   ["PAGAMENTO", "Pagamento"],
+  ["FATURAMENTO", "Faturamento"],
   ["SEM_COBRANCA", "Sem cobrança"],
   ["CONCLUIDO", "Concluída"],
   ["CANCELADO", "Cancelada"],
@@ -41,7 +43,7 @@ const STATUS_OPTIONS = [
 
 /** Atalhos para as perguntas que se repetem no balcão. */
 const STATUS_PRESETS: Array<[string, string[]]> = [
-  ["Em aberto", ["AGUARDANDO_CHECKLIST", "ORCAMENTO", "APROVACAO_ORCAMENTO", "ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO"]],
+  ["Em aberto", ["AGUARDANDO_CHECKLIST", "ORCAMENTO", "APROVACAO_ORCAMENTO", "ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO"]],
   ["Encerradas", ["CONCLUIDO", "SEM_COBRANCA"]],
   ["Perdidas", ["ORCAMENTO_RECUSADO", "CANCELADO"]],
 ];
@@ -315,6 +317,9 @@ function StatusMultiSelect({
   value: string[];
   onChange: (next: string[]) => void;
 }) {
+  const config = useConfig();
+  const options = STATUS_OPTIONS.filter(([codigo]) => codigo !== "FATURAMENTO" || config?.habilitar_faturamento_os);
+  const presets = STATUS_PRESETS.map(([label, codigos]) => [label, codigos.filter(codigo => codigo !== "FATURAMENTO" || config?.habilitar_faturamento_os)] as [string, string[]]);
   const [open, setOpen] = useState(false);
   const selecionados = useMemo(() => new Set(value), [value]);
 
@@ -330,7 +335,7 @@ function StatusMultiSelect({
     if (proximo.has(codigo)) proximo.delete(codigo);
     else proximo.add(codigo);
     // Marcar todos equivale a não filtrar — o estado volta a ser o vazio.
-    onChange(proximo.size === STATUS_OPTIONS.length ? [] : [...proximo]);
+    onChange(proximo.size === options.length ? [] : [...proximo]);
   }
 
   function aplicarPreset(codigos: string[]) {
@@ -364,7 +369,7 @@ function StatusMultiSelect({
                   <span className={value.length === 0 ? "font-medium" : ""}>Todos os status</span>
                   <Check className={`ml-auto h-4 w-4 ${value.length === 0 ? "opacity-100" : "opacity-0"}`} />
                 </CommandItem>
-                {STATUS_OPTIONS.map(([codigo, rotulo]) => (
+                {options.map(([codigo, rotulo]) => (
                   <CommandItem
                     key={codigo}
                     value={rotulo}
@@ -379,7 +384,7 @@ function StatusMultiSelect({
             </CommandList>
           </Command>
           <div className="flex flex-wrap gap-1 border-t p-2">
-            {STATUS_PRESETS.map(([rotulo, codigos]) => (
+            {presets.map(([rotulo, codigos]) => (
               <Button
                 key={rotulo}
                 type="button"

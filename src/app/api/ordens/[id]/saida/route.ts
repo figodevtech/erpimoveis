@@ -6,7 +6,7 @@ import { requireOSEdit } from "@/app/api/_authz/perms";
 type Params = { id: string };
 type ChecklistStatus = "OK" | "ALERTA" | "FALHA";
 
-const STATUS_PERMITIDOS = new Set(["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"]);
+const STATUS_PERMITIDOS = new Set(["PAGAMENTO", "FATURAMENTO", "CONCLUIDO", "SEM_COBRANCA"]);
 
 function statusChecklist(value: unknown): ChecklistStatus | null {
   const normalized = String(value ?? "").toUpperCase();

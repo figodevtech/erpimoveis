@@ -100,7 +100,9 @@ function formatDocument(value: string | null | undefined) {
  * identificável pelo nome, e nome parecido sem documento é justamente o que não
  * dá para diferenciar.
  */
-function counterparty(transaction: FinancialTransaction) {
+export type FinancialCounterparty = Pick<FinancialTransaction, "tipo" | "fornecedor" | "nomepagador" | "cpfcnpjpagador">;
+
+export function transactionCounterparty(transaction: FinancialCounterparty) {
   const label = String(transaction.tipo ?? "").toUpperCase() === "RECEITA" ? "Pagador" : "Recebedor";
   const supplier = relationOne(transaction.fornecedor);
   const registeredName = supplier?.nomefantasia || supplier?.nomerazaosocial;
@@ -113,7 +115,7 @@ function counterparty(transaction: FinancialTransaction) {
 }
 
 function transactionBlock(transaction: FinancialTransaction) {
-  const { label: counterpartyLabel, value: counterpartyName } = counterparty(transaction);
+  const { label: counterpartyLabel, value: counterpartyName } = transactionCounterparty(transaction);
   const reference = transaction.ordemservicoid
     ? `OS #${transaction.ordemservicoid}`
     : transaction.vendaid

@@ -105,3 +105,4 @@ export function erroInterno(escopo: string, e: unknown): NextResponse {
   const message = e instanceof Error ? e.message : "Erro ao carregar dados";
   return NextResponse.json({ error: message }, { status: 500 });
 }
+

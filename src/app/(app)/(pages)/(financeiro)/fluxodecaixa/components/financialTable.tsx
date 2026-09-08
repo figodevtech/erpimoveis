@@ -39,6 +39,7 @@ import {
   ChevronsRight,
   FileText,
   HandCoins,
+  Landmark,
   Loader,
   Loader2,
   MoreHorizontal,
@@ -99,6 +100,7 @@ import {
 import { getCategoryIcon, getTypeColor } from "../utils";
 import { ExportTransactionsButton } from "./ExportTransactionsButton";
 import { TransferenciaDialog } from "./transferencia-dialog";
+import { ConciliacaoOfxDialog } from "./conciliacao-ofx/conciliacao-ofx-dialog";
 import { VendaDetailsDialog } from "../../../(vendas)/historicovendas/components/venda-detail-dialog";
 import { OSDetalhesDialog } from "../../../ordens/components/dialogs/detalhes-os-dialog";
 import { DialogEntradaGeral } from "../../../estoque/components/dialog-entrada-geral/dialog-entrada-geral";
@@ -335,6 +337,7 @@ export default function FinancialTable({
   );
   const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
   const [transferenciaAberta, setTransferenciaAberta] = useState(false);
+  const [conciliacaoAberta, setConciliacaoAberta] = useState(false);
 
   /**
    * Dialogs de detalhes do documento de origem (venda/OS/entrada de estoque),
@@ -625,6 +628,22 @@ export default function FinancialTable({
                     >
                       <ArrowLeftRight className="h-4 w-4" />
                       Transferência entre contas
+                    </DropdownMenuItem>
+                  ) : null}
+
+                  {/*
+                    Conciliação bancária. Fica junto das outras operações que
+                    nascem aqui, e não no menu de cada linha: o extrato é sobre
+                    a conta inteira, e o que ele produz — vínculo, baixa ou
+                    lançamento novo — decide-se depois, movimento a movimento.
+                  */}
+                  {canCreate ? (
+                    <DropdownMenuItem
+                      className="hover:cursor-pointer"
+                      onSelect={() => setConciliacaoAberta(true)}
+                    >
+                      <Landmark className="h-4 w-4" />
+                      Conciliação bancária (OFX)
                     </DropdownMenuItem>
                   ) : null}
 
@@ -1416,6 +1435,17 @@ export default function FinancialTable({
         <TransferenciaDialog
           aberto={transferenciaAberta}
           setAberto={setTransferenciaAberta}
+          onConcluido={() => {
+            handleGetTransactions(pagination.page, pagination.limit);
+            revalidarIndicadores();
+          }}
+        />
+      ) : null}
+
+      {canCreate ? (
+        <ConciliacaoOfxDialog
+          aberto={conciliacaoAberta}
+          setAberto={setConciliacaoAberta}
           onConcluido={() => {
             handleGetTransactions(pagination.page, pagination.limit);
             revalidarIndicadores();

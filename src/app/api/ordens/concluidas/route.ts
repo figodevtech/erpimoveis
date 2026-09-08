@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { idDeBusca } from "@/lib/busca-numerica";
 
 export async function GET(req: Request) {
   try {
@@ -42,8 +43,8 @@ export async function GET(req: Request) {
 
     // Busca básica (descricao e id numérico)
     if (q) {
-      const asNumber = Number(q);
-      if (!Number.isNaN(asNumber)) {
+      const asNumber = idDeBusca(q);
+      if (asNumber !== null) {
         sel = sel.or(`id.eq.${asNumber},descricao.ilike.%${q}%`);
       } else {
         sel = sel.ilike("descricao", `%${q}%`);

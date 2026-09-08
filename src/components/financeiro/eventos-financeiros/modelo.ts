@@ -15,6 +15,9 @@ import { ordenarEventosDaOs } from "@/lib/ordens/eventos-financeiros";
 export type EventoFinanceiroBruto = {
   id: number;
   ordemservicoid?: number | null;
+  source_type?: string | null;
+  source_id?: number | null;
+  venda?: { id: number; status: string; cliente?: { id: number; nomerazaosocial?: string | null } | null } | null;
   /**
    * Texto livre, e não união fechada: o banco aceita origens que esta tela não
    * precisa conhecer (ENTRADA_FISCAL, por exemplo), e uma origem nova não pode
@@ -26,9 +29,11 @@ export type EventoFinanceiroBruto = {
   descricao: string;
   detalhe?: string | null;
   valor: number;
+  data_evento?: string | null;
   chave_origem?: string | null;
   produtoid?: number | null;
   servicoid?: number | null;
+  usuarioid?: string | null;
   /**
    * Saída de estoque que originou o consumo, quando existe.
    *
@@ -59,10 +64,13 @@ export type EventoFinanceiroBruto = {
 export type LinhaDeEvento = {
   id: number;
   osId: number | null;
+  vendaId?: number | null;
+  venda?: EventoFinanceiroBruto["venda"];
   tipo: "ENTRADA" | "SAIDA";
   descricao: string;
   detalhe: string;
   valor: number;
+  dataEvento: string | null;
   origem: string;
   natureza: "RECEITA" | "DESPESA";
   status: string;
@@ -82,15 +90,22 @@ export type LinhaDeEvento = {
   ordem: EventoFinanceiroBruto["ordem"];
 };
 
-export function montarLinhas(eventos: EventoFinanceiroBruto[]): LinhaDeEvento[] {
+export function montarLinhas(
+  eventos: EventoFinanceiroBruto[],
+  opcoes: { preservarOrdem?: boolean } = {},
+): LinhaDeEvento[] {
   const ativos = eventos.filter((evento) => evento.status !== "CANCELADO");
-  return ordenarEventosDaOs(ativos as any).map((evento: any) => ({
+  const ordenados = opcoes.preservarOrdem ? ativos : ordenarEventosDaOs(ativos as any);
+  return ordenados.map((evento: any) => ({
     id: evento.id,
     osId: evento.ordemservicoid ?? evento.ordem?.id ?? null,
+    vendaId: evento.source_type === "VENDA" ? Number(evento.source_id) : null,
+    venda: evento.venda ?? null,
     tipo: (evento.natureza === "RECEITA" ? "ENTRADA" : "SAIDA") as "ENTRADA" | "SAIDA",
     descricao: evento.descricao,
     detalhe: evento.detalhe || evento.origem,
     valor: Number(evento.valor || 0),
+    dataEvento: evento.data_evento ?? null,
     origem: evento.origem,
     natureza: evento.natureza,
     status: evento.status,
@@ -162,7 +177,9 @@ export function podeOferecerExclusao(linha: LinhaDeEvento) {
 
 /** As linhas de uma lista global, na ordem em que as OSs devem aparecer. */
 export type GrupoDeOs = {
-  osId: number;
+  osId: number | null;
+  chave: string;
+  rotulo: string;
   cliente: string | null;
   status: string | null;
   linhas: LinhaDeEvento[];
@@ -170,13 +187,16 @@ export type GrupoDeOs = {
 };
 
 export function agruparPorOrdem(linhas: LinhaDeEvento[]): GrupoDeOs[] {
-  const grupos = new Map<number, GrupoDeOs>();
+  const grupos = new Map<string, GrupoDeOs>();
   for (const linha of linhas) {
-    if (linha.osId == null) continue;
-    const atual = grupos.get(linha.osId) ?? {
+    if (linha.osId == null && linha.vendaId == null) continue;
+    const chave = linha.osId != null ? `OS:${linha.osId}` : `VENDA:${linha.vendaId}`;
+    const atual = grupos.get(chave) ?? {
       osId: linha.osId,
-      cliente: linha.ordem?.cliente?.nomerazaosocial ?? null,
-      status: linha.ordem?.status ?? null,
+      chave,
+      rotulo: linha.osId != null ? `OS #${linha.osId}` : `Venda #${linha.vendaId}`,
+      cliente: (linha.ordem ?? linha.venda)?.cliente?.nomerazaosocial ?? null,
+      status: (linha.ordem ?? linha.venda)?.status ?? null,
       linhas: [],
       total: 0,
     };
@@ -184,10 +204,14 @@ export function agruparPorOrdem(linhas: LinhaDeEvento[]): GrupoDeOs[] {
     // O total do cabeçalho é o que a OS custa, não o seu resultado: quem lê a
     // fila está decidindo quanto vai pagar, e receita ali só confundiria.
     if (linha.tipo === "SAIDA") atual.total += linha.valor;
-    grupos.set(linha.osId, atual);
+    grupos.set(chave, atual);
   }
   return [...grupos.values()].map((grupo) => ({
     ...grupo,
+    // A lista global chega agrupada por OS pelo servidor. Dentro de cada bloco,
+    // mantemos a leitura econômica da tela da OS: receita, custos e comissão do
+    // mesmo item permanecem juntos.
+    linhas: ordenarEventosDaOs(grupo.linhas),
     total: Math.round(grupo.total * 100) / 100,
   }));
 }

@@ -85,6 +85,13 @@ pode deixar um objeto órfão e é uma **limitação conhecida**.
 
 ## Integrações atuais
 
+A aba Vendas mostra a comissão apurada por venda e um indicador com a soma do
+período. Lista, indicador, relatório por setor e rentabilidade leem
+`venda_comissao`; não recalculam o valor pelo cadastro. O beneficiário é o
+vendedor, e a taxa fica congelada ao reconhecer a receita. Apuração não significa
+pagamento: a despesa segue pela fila de eventos financeiros. As vendas anteriores
+ao mês de implantação têm snapshot de leitura legado, sem nova despesa na DRE.
+
 O chat interno lê `usuario.foto_url` nas listas e conversas e mantém iniciais como fallback. Assim, a
 foto também aparece nos avatares e no toast de mensagem recebida após a próxima reconsulta do chat.
 Consulte [`chat.md`](./chat.md).

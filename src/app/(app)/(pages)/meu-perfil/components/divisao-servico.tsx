@@ -63,7 +63,7 @@ export function DivisaoDoServico({
         <p className="mt-0.5 text-xs">Valor do serviço: {formatarMoeda(valorDoServico)}</p>
 
         {explicacao.descontoAplicado && (
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs  text-amber-500">
             A comissão sai do líquido: o desconto da OS é rateado entre os itens antes do
             cálculo, então a base fica abaixo do valor cheio do serviço.
           </p>

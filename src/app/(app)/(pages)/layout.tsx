@@ -14,6 +14,7 @@ const CONFIG_CACHE_KEY = "erpoficina:config-cache";
 
 const DEFAULT_CONFIG: Config = {
   id: 0,
+  habilitar_faturamento_os: false,
   aviso_pagamento: false,
   checklist_obrigatorio: true,
   alerta_estoque_pdv: true,
@@ -122,8 +123,17 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
       setConfig(nextConfig);
     };
 
+    const refresh = () => {
+      if (document.visibilityState === "visible") void handleGetConfig(true);
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
     window.addEventListener("erpoficina:config-updated", handleConfigUpdated);
-    return () => window.removeEventListener("erpoficina:config-updated", handleConfigUpdated);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("erpoficina:config-updated", handleConfigUpdated);
+    };
   }, []);
 
   if (loadingConfigs) {

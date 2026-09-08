@@ -18,6 +18,7 @@ import {
   type AcaoRealizadores,
 } from "@/lib/ordens/realizadores";
 import { buscarServicosSemRealizador } from "@/lib/ordens/realizadores-server";
+import { buscarFaturamentoOsHabilitado } from "@/lib/ordens/faturamento-server";
 
 type DBStatusOS =
   | "AGUARDANDO_CHECKLIST"
@@ -27,6 +28,7 @@ type DBStatusOS =
   | "ORCAMENTO_RECUSADO"
   | "EM_ANDAMENTO"
   | "PAGAMENTO"
+  | "FATURAMENTO"
   | "SEM_COBRANCA"
   | "CONCLUIDO"
   | "CANCELADO";
@@ -37,6 +39,7 @@ type FormaPagamento = PlannedPayment["metodo"];
 type Body = {
   status: DBStatusOS;
   semCobranca?: boolean;
+  transicaoFaturamento?: boolean;
   motivoSemCobranca?: string | null;
   formaPagamento?: FormaPagamento | null;
   parcelasPagamento?: number | null;
@@ -60,7 +63,30 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
 
     const body = (await req.json()) as Body;
     const status = body.status;
+    let preservarCondicoes = false;
+    // Não reutilizar a finalização da execução para devolver uma OS: ela
+    // também salva condições comerciais que devem ser preservadas aqui.
+    if (status === "FATURAMENTO" || status === "PAGAMENTO") {
+      const atual = await supabaseAdmin.from("ordemservico").select("status, pagamentos_previstos, forma_pagamento")
+        .eq("id", osId).eq("is_deleted", false).maybeSingle();
+      if (atual.error) throw atual.error;
+      if (!atual.data) return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
+      // Uma mudança de etapa sem edição financeira mantém o acordo já salvo,
+      // inclusive nas OS anteriores à ativação do modo de faturamento.
+      const possuiCondicoes = Boolean(atual.data.forma_pagamento) ||
+        (Array.isArray(atual.data.pagamentos_previstos) && atual.data.pagamentos_previstos.length > 0);
+      const alterouCondicoes = ["pagamentosPrevistos", "formaPagamento", "parcelasPagamento", "descricaoFinanceiro", "garantia"]
+        .some(campo => Object.prototype.hasOwnProperty.call(body, campo));
+      preservarCondicoes = status === "FATURAMENTO" && possuiCondicoes && !alterouCondicoes;
+      if (status !== "FATURAMENTO" && (atual.data.status === "FATURAMENTO" || body.transicaoFaturamento)) {
+        const result = await supabaseAdmin.rpc("transicionar_faturamento_os", { p_os_id: osId, p_status: status });
+        if (result.error) return NextResponse.json({ error: result.error.message }, { status: 409 });
+        return NextResponse.json({ ok: true, status: result.data.status });
+      }
+    }
     const semCobranca = Boolean(body.semCobranca);
+    const faturamentoAtivo = status === "PAGAMENTO" || status === "FATURAMENTO"
+      ? await buscarFaturamentoOsHabilitado() : false;
     const motivoSemCobranca = (body.motivoSemCobranca ?? "").trim() || null;
     const formaPagamento = body.formaPagamento ?? null;
     const parcelasPagamento =
@@ -93,6 +119,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     const statusesBloqueadosPorAvulso: DBStatusOS[] = [
       "EM_ANDAMENTO",
       "PAGAMENTO",
+  "FATURAMENTO",
       "SEM_COBRANCA",
       "CONCLUIDO",
     ];
@@ -261,8 +288,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
 
     const updateData: any = { status };
     let statusFinal: DBStatusOS = status;
+    if (preservarCondicoes) {
+      const result = await supabaseAdmin.rpc("transicionar_faturamento_os", { p_os_id: osId, p_status: status });
+      if (result.error) return NextResponse.json({ error: result.error.message }, { status: 409 });
+      return NextResponse.json({ ok: true, status: result.data.status });
+    }
 
-    if (status === "PAGAMENTO") {
+    if (status === "FATURAMENTO" || (status === "PAGAMENTO" && !faturamentoAtivo)) {
       const resumoRes = await supabaseAdmin.rpc("resumo_financeiro_os", {
         p_ordemservicoid: osId,
       });
@@ -277,6 +309,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         0,
         Math.round(Number(resumoFinanceiro.saldo_disponivel_lancamento ?? 0) * 100),
       );
+
+      if (status === "FATURAMENTO" && saldoDisponivelCents > 0 && !pagamentosPrevistos?.length) {
+        return NextResponse.json({ error: "Informe as condições de pagamento acordadas com o cliente." }, { status: 400 });
+      }
 
       if (pagamentosPrevistos && pagamentosPrevistos.length > 0) {
         const totalPagamentosCents = pagamentosPrevistos.reduce(
@@ -304,6 +340,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         updateData.pagamentos_previstos = null;
       }
       updateData.descricao_financeiro = descricaoFinanceiro;
+      updateData.garantia = garantia;
+    }
+
+    if (status === "FATURAMENTO") {
+      const result = await supabaseAdmin.rpc("transicionar_faturamento_os", {
+        p_os_id: osId,
+        p_status: status,
+        p_condicoes: {
+          pagamentos_previstos: updateData.pagamentos_previstos,
+          forma_pagamento: updateData.forma_pagamento,
+          parcelas_pagamento: updateData.parcelas_pagamento,
+          descricao_financeiro: updateData.descricao_financeiro,
+          ...(body.garantia !== undefined ? { garantia: updateData.garantia } : {}),
+        },
+      });
+      if (result.error) return NextResponse.json({ error: result.error.message }, { status: 409 });
+      return NextResponse.json({ ok: true, status: result.data.status });
+    }
+    if (status === "PAGAMENTO" && faturamentoAtivo && body.garantia !== undefined) {
       updateData.garantia = garantia;
     }
 
@@ -434,7 +489,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         error: err?.message || "Falha ao atualizar status",
         codigo: err?.codigo,
       },
-      { status: err?.statusCode || 500 },
+      { status: err?.statusCode || (["P0001", "23514"].includes(err?.code) ? 409 : 500) },
     );
   }
 }

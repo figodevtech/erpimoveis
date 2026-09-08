@@ -69,6 +69,7 @@ import {
 import { statusClasses, prioClasses, fmtDate, fmtDuration, useNowTick, safeStatus } from "./ordens-utils";
 import { estiloDestaque } from "@/lib/ordens/destaque";
 import { useConfig } from "../../config-context";
+import { informarCondicoesPagamentoOs } from "@/lib/ordens/financeiro";
 import { RowActions } from "./row-actions";
 import OsFinancialDialog from "../../(financeiro)/pagamentodeordens/components/osFinancialDialog/osFinancialDialog";
 import OsStonePaymentDialog from "../../(financeiro)/pagamentodeordens/components/osStonePaymentDialog/osStonePaymentDialog";
@@ -566,6 +567,9 @@ export function OrdensTabela({
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmRow, setConfirmRow] = useState<OrdemComDatas | null>(null);
+  const confirmDestino = config?.habilitar_faturamento_os && confirmRow?.status === "PAGAMENTO"
+    ? "FATURAMENTO" : "PAGAMENTO";
+  const confirmCondicoes = informarCondicoesPagamentoOs(confirmDestino, config?.habilitar_faturamento_os === true);
   const [confirmPaymentMethods, setConfirmPaymentMethods] = useState<
     PaymentMethodOption[]
   >([]);
@@ -580,6 +584,10 @@ export function OrdensTabela({
   const [confirmGarantia, setConfirmGarantia] = useState("");
   const [confirmSaldoCents, setConfirmSaldoCents] = useState<number | null>(null);
   const [loadingConfirmSaldo, setLoadingConfirmSaldo] = useState(false);
+  const [confirmCondicoesOriginais, setConfirmCondicoesOriginais] = useState<string | null>(null);
+  const [erroConfirmSaldo, setErroConfirmSaldo] = useState(false);
+  const assinaturaCondicoes = (methods: string[], amounts: Partial<Record<string, number>>, installments: Partial<Record<string, number>>, descricao: string) =>
+    JSON.stringify([methods.map(method => [method, amounts[method] ?? 0, installments[method] ?? null]), descricao]);
 
   const confirmTotalCents = confirmSaldoCents ?? moneyToCents(calculateFinancialTotal(
       confirmRow?.orcamentototal,
@@ -601,14 +609,18 @@ export function OrdensTabela({
           .join(", ");
 
   useEffect(() => {
-    if (!confirmOpen || !confirmRow?.id) {
+    if (!confirmOpen || !confirmRow?.id || !confirmCondicoes) {
       setConfirmSaldoCents(null);
       setLoadingConfirmSaldo(false);
+      setErroConfirmSaldo(false);
+      setConfirmCondicoesOriginais(null);
       return;
     }
 
     const controller = new AbortController();
     setLoadingConfirmSaldo(true);
+    setErroConfirmSaldo(false);
+    setConfirmCondicoesOriginais(null);
     void fetch(`/api/ordens/${confirmRow.id}`, {
       cache: "no-store",
       signal: controller.signal,
@@ -616,12 +628,30 @@ export function OrdensTabela({
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload?.error || "Falha ao consultar o saldo da OS.");
+        if (controller.signal.aborted) return;
         setConfirmSaldoCents(
           moneyToCents(payload?.resumoFinanceiro?.saldoDisponivelParaLancamento ?? 0),
         );
+        if (confirmDestino !== "FATURAMENTO") return;
+        const previstos: Array<{ metodo: string; valor: number; parcelas?: number | null }> =
+          Array.isArray(payload.os?.pagamentos_previstos) && payload.os.pagamentos_previstos.length
+            ? payload.os.pagamentos_previstos
+            : payload.os?.forma_pagamento
+              ? [{ metodo: payload.os.forma_pagamento, valor: Number(payload?.resumoFinanceiro?.saldoDisponivelParaLancamento ?? 0), parcelas: payload.os.parcelas_pagamento }]
+              : [];
+        const methods = previstos.map(p => p.metodo);
+        const amounts = Object.fromEntries(previstos.map(p => [p.metodo, Number(p.valor)]));
+        const installments = Object.fromEntries(previstos.filter(p => p.parcelas != null).map(p => [p.metodo, Number(p.parcelas)]));
+        const descricao = payload.os?.descricao_financeiro ?? "";
+        setConfirmPaymentMethods(methods);
+        setConfirmPaymentAmounts(amounts);
+        setConfirmPaymentInstallments(installments);
+        setConfirmDescricaoFinanceiro(descricao);
+        if (previstos.length) setConfirmCondicoesOriginais(assinaturaCondicoes(methods, amounts, installments, descricao));
       })
       .catch((error) => {
         if (error?.name !== "AbortError") {
+          setErroConfirmSaldo(true);
           toast.error(error?.message || "Falha ao consultar o saldo da OS.");
         }
       })
@@ -630,7 +660,7 @@ export function OrdensTabela({
       });
 
     return () => controller.abort();
-  }, [confirmOpen, confirmRow?.id]);
+  }, [confirmOpen, confirmRow?.id, confirmCondicoes, confirmDestino]);
 
   const toggleConfirmPaymentMethod = (method: PaymentMethodOption) => {
     setConfirmPaymentMethods((current) => {
@@ -786,7 +816,8 @@ export function OrdensTabela({
     status: StatusOS,
     extras?: ExtrasStatusOS,
   ): Promise<boolean> {
-    const exigeRealizadores = status === "EM_ANDAMENTO" || status === "PAGAMENTO";
+    const transicaoFaturamento = status === "FATURAMENTO" || (status === "PAGAMENTO" && rows.some(r => r.id === id && r.status === "FATURAMENTO"));
+    const exigeRealizadores = !transicaoFaturamento && (status === "EM_ANDAMENTO" || status === "PAGAMENTO");
 
     const loadingToastId = exigeRealizadores
       ? toast.loading("Preparando atribuição de realizadores...", {
@@ -850,7 +881,7 @@ export function OrdensTabela({
       const r = await fetch(`/api/ordens/${id}/status`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, ...extras }),
+        body: JSON.stringify({ status, transicaoFaturamento, ...extras }),
       });
 
       if (!r.ok) {
@@ -1279,7 +1310,7 @@ export function OrdensTabela({
                   const policy = buildPolicy(st);
                   const dataEntradaFmt = fmtDate((r as any).dataEntrada ?? (r as any).dataentrada);
                   const dataSaidaRaw = (r as any).dataSaida ?? (r as any).datasaida;
-                  const isSaidaConcluida = ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase());
+                  const isSaidaConcluida = ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase());
                   // O destaque manual é a palavra final: quem marcou a OS à mão
                   // sabe de algo que a regra do status não sabe.
                   const regraDestaque = regrasDestaque[st];
@@ -1756,7 +1787,7 @@ export function OrdensTabela({
                         <TableCell>
                           {((r as any).dataSaida ?? (r as any).datasaida)
                             ? fmtDate((r as any).dataSaida ?? (r as any).datasaida)
-                            : ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase())
+                            : ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(String(r.status ?? "").toUpperCase())
                               ? <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">Saída não registrada</Badge>
                               : "—"}
                         </TableCell>
@@ -1910,14 +1941,19 @@ export function OrdensTabela({
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-amber-500" />
-                Confirmar envio ao Financeiro
+                {confirmDestino === "FATURAMENTO" ? "Enviar para faturamento" : "Encerrar execução da OS"}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                Esta ação encerra a execução da OS <b>#{confirmRow?.id}</b>. Se pagamentos ou títulos já cobrirem todo o valor, ela será concluída; caso contrário, seguirá para <b>PAGAMENTO</b>.
+                {confirmDestino === "FATURAMENTO"
+                  ? <>Informe as condições acertadas com o cliente para enviar a OS <b>#{confirmRow?.id}</b> ao faturamento.</>
+                  : <>Esta ação encerra a execução da OS <b>#{confirmRow?.id}</b>. Se pagamentos ou títulos já cobrirem todo o valor, ela será concluída; caso contrário, aguardará pagamento. {config?.habilitar_faturamento_os ? "As condições de pagamento serão informadas ao enviar para faturamento." : ""}</>}
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="space-y-4 py-2 bg-card rounded-2xl p-4">
+            <fieldset disabled={loadingConfirmSaldo || erroConfirmSaldo} className="space-y-4 py-2 bg-card rounded-2xl p-4">
+              {confirmDestino === "FATURAMENTO" && confirmCondicoesOriginais && <p className="text-sm text-muted-foreground">As condições já registradas foram carregadas. Se enviar sem alterações, todos os dados de pagamento serão preservados.</p>}
+              {erroConfirmSaldo && <p className="text-sm text-destructive">Não foi possível carregar os dados da OS. Feche e abra novamente para tentar de novo.</p>}
               <div className="space-y-2">
+                {confirmCondicoes && <>
                 <Label>Formas de pagamento</Label>
                 {loadingConfirmSaldo ? (
                   <div className="flex items-center gap-2 rounded-md border p-3 text-sm text-muted-foreground">
@@ -2077,9 +2113,10 @@ export function OrdensTabela({
                     )}
                   </div>
                 )}
+                </>}
               </div>
 
-              <div className="space-y-2">
+              {confirmCondicoes && <div className="space-y-2">
                 <Label>Descrição para o financeiro</Label>
                 <Textarea
                   value={confirmDescricaoFinanceiro}
@@ -2089,9 +2126,9 @@ export function OrdensTabela({
                   placeholder="Ex.: cobrar entrada, vencimento combinado ou outras orientações"
                   rows={3}
                 />
-              </div>
+              </div>}
 
-              <div className="space-y-2">
+              {confirmDestino !== "FATURAMENTO" && <div className="space-y-2">
                 <Label>Garantia</Label>
                 <Input
                   value={confirmGarantia}
@@ -2102,15 +2139,31 @@ export function OrdensTabela({
                 <p className="text-right text-xs text-muted-foreground">
                   {confirmGarantia.length}/500
                 </p>
-              </div>
-            </div>
+              </div>}
+            </fieldset>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                disabled={loadingConfirmSaldo}
+                disabled={loadingConfirmSaldo || erroConfirmSaldo}
                 onClick={async (event) => {
                   event.preventDefault();
                   if (!confirmRow) return;
+                  if (confirmDestino === "FATURAMENTO" && confirmCondicoesOriginais !== null &&
+                    confirmCondicoesOriginais === assinaturaCondicoes(confirmPaymentMethods, confirmPaymentAmounts, confirmPaymentInstallments, confirmDescricaoFinanceiro)) {
+                    const updated = await setStatus(confirmRow.id, confirmDestino);
+                    if (updated) setConfirmOpen(false);
+                    return;
+                  }
+
+                  if (!confirmCondicoes) {
+                    const updated = await setStatus(confirmRow.id, "PAGAMENTO", { garantia: confirmGarantia.trim() || null });
+                    if (updated || barradoPorRealizadorRef.current) setConfirmOpen(false);
+                    return;
+                  }
+                  if (confirmDestino === "FATURAMENTO" && confirmTotalCents > 0 && confirmPaymentMethods.length === 0) {
+                    toast.error("Informe as condições de pagamento acordadas com o cliente.");
+                    return;
+                  }
 
                   const pagamentosPrevistos = confirmPaymentMethods.map(
                     (method) => ({
@@ -2148,11 +2201,11 @@ export function OrdensTabela({
                     return;
                   }
 
-                  const updated = await setStatus(confirmRow.id, "PAGAMENTO", {
+                  const updated = await setStatus(confirmRow.id, confirmDestino, {
                     pagamentosPrevistos,
                     descricaoFinanceiro:
                       confirmDescricaoFinanceiro.trim() || null,
-                    garantia: confirmGarantia.trim() || null,
+                    ...(confirmDestino !== "FATURAMENTO" ? { garantia: confirmGarantia.trim() || null } : {}),
                   });
                   // Falta de executor abre o seletor por cima deste dialog: sai
                   // da frente, que a ação guardada retoma o envio com estes
@@ -2160,7 +2213,7 @@ export function OrdensTabela({
                   if (updated || barradoPorRealizadorRef.current) setConfirmOpen(false);
                 }}
               >
-                Enviar p/ pagamento
+                {confirmDestino === "FATURAMENTO" ? "Enviar para faturamento" : "Enviar p/ pagamento"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

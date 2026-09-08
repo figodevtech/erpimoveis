@@ -22,7 +22,7 @@ const OS_STATUS_ORCAMENTO = new Set([
 ]);
 
 /** Status de OS em que a assinatura vale como aceite da entrega/saída. */
-const OS_STATUS_ENTREGA = new Set(["PAGAMENTO", "SEM_COBRANCA", "CONCLUIDO"]);
+const OS_STATUS_ENTREGA = new Set(["PAGAMENTO", "FATURAMENTO", "SEM_COBRANCA", "CONCLUIDO"]);
 
 /** Status de venda em que a assinatura vale como aprovação do orçamento. */
 const VENDA_STATUS_ORCAMENTO = new Set([

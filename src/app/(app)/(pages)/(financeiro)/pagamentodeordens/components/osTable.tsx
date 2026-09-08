@@ -105,7 +105,10 @@ function alvoDoReparo(ordem: Ordem) {
 
 export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading, search }: OsTableProps) {
   // ID estável para o Select de "itens por página"
-  const [selectedStatus, setSelectedStatus] = useState<StatusOS>("PAGAMENTO");
+  const config = useConfig();
+  const statusAberto: StatusOS = config?.habilitar_faturamento_os ? "FATURAMENTO" : "PAGAMENTO";
+  const [concluidas, setConcluidas] = useState(false);
+  const selectedStatus: StatusOS = concluidas ? "CONCLUIDO" : statusAberto;
   const limitUid = React.useId();
   const [openEmissao, setOpenEmissao] = useState(false);
   const [emissaoId, setEmissaoId] = useState<number | undefined>(undefined);
@@ -190,7 +193,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
     }).saldoDisponivelParaLancamento;
 
   const podeSelecionar = (ordem: Ordem) =>
-    podeRegistrarPagamentoOs(ordem.status) && saldoDaOrdem(ordem) > 0;
+    podeRegistrarPagamentoOs(ordem.status, config?.habilitar_faturamento_os) && saldoDaOrdem(ordem) > 0;
 
   const documentosSelecionados: DocumentoSelecionavel[] = ordens
     .filter((ordem) => selecionadas.has(ordem.id))
@@ -232,8 +235,6 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
     handleGetOrdens(selectedStatus, 1, pagination.limit, search, filters);
   }, [selectedStatus]);
 
-  const config = useConfig();
-
   return (
     <Card className="bg-card">
       <CardHeader className="border-b-2 pb-4">
@@ -241,7 +242,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
           <div className="min-w-0">
             <CardTitle>
               Ordens de Serviço{" "}
-              <span className="text-muted-foreground text-xs font-mono font-extralight">|EM PAGAMENTO</span>
+              <span className="text-muted-foreground text-xs font-mono font-extralight">| {config?.habilitar_faturamento_os ? "FATURAMENTO" : "EM PAGAMENTO"}</span>
             </CardTitle>
             <CardDescription className="flex items-center gap-2">
               <button
@@ -262,8 +263,8 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
             <div className="inline-flex h-auto items-center justify-center gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
               <button
                 type="button"
-                onClick={() => setSelectedStatus("PAGAMENTO")}
-                className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${selectedStatus === "PAGAMENTO"
+                onClick={() => setConcluidas(false)}
+                className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${!concluidas
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "hover:bg-background/50 hover:text-foreground"
                   }`}
@@ -272,7 +273,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
               </button>
               <button
                 type="button"
-                onClick={() => setSelectedStatus("CONCLUIDO")}
+                onClick={() => setConcluidas(true)}
                 className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${selectedStatus === "CONCLUIDO"
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "hover:bg-background/50 hover:text-foreground"
@@ -618,7 +619,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                           {
                             config?.habilitar_emissao_nfe &&
                             (config?.emissao_nf_ordens_nao_pagas ? o.status === "PAGAMENTO" ||
-                              o.status === "CONCLUIDO" : o.status === "CONCLUIDO") && (
+                              o.status === "FATURAMENTO" || o.status === "CONCLUIDO" : o.status === "CONCLUIDO") && (
                               <DropdownMenuItem
                                 onClick={() => {
                                   setEmissaoId(o.id);

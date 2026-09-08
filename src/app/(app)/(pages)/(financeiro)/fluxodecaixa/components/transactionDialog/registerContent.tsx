@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Calendar } from "@/components/ui/calendar";
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
@@ -104,6 +105,12 @@ import {
   TransactionBadge,
   TransactionSection,
 } from "./transaction-dialog-ui";
+import {
+  tiposDaConciliacao,
+  validarTransacaoOfx,
+  type ContextoConciliacaoOfx,
+} from "./conciliacao-ofx";
+import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 
 interface ParcelaFormulario {
   id: number;
@@ -199,6 +206,7 @@ interface RegisterContentProps {
   internalCompanyExpense?: boolean;
   lockValue?: boolean;
   maximumAmount?: number;
+  conciliacaoOfx?: ContextoConciliacaoOfx;
 }
 
 export default function RegisterContent({
@@ -218,10 +226,18 @@ export default function RegisterContent({
   internalCompanyExpense = false,
   lockValue = false,
   maximumAmount,
+  conciliacaoOfx,
 }: RegisterContentProps) {
+  const conciliandoOfx = Boolean(conciliacaoOfx);
   const [isCustomerSelectOpen, setIsCustomerSelectOpen] = useState(false);
   const [isFornecedorSelectOpen, setIsFornecedorSelectOpen] = useState(false);
-  const [selectedFornecedor, setSelectedFornecedor] = useState<TransactionFornecedor | undefined>(undefined);
+  const [selectedFornecedor, setSelectedFornecedor] = useState<TransactionFornecedor | undefined>(
+    () => conciliacaoOfx && newTransaction.fornecedor_id ? {
+      id: newTransaction.fornecedor_id,
+      nomerazaosocial: newTransaction.nomepagador,
+      cpfcnpj: newTransaction.cpfcnpjpagador,
+    } : undefined,
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [confirmarVencidaAberto, setConfirmarVencidaAberto] = useState(false);
   const [isLoadingBanks, setIsLoadingBanks] = useState(false);
@@ -252,9 +268,20 @@ export default function RegisterContent({
    * que ele sabe estar errado. Ligar isto destrava o campo e marca a linha.
    */
   const [taxaAjustada, setTaxaAjustada] = useState(false);
-  const { bandeiras, loadingBandeiras, errorBandeiras } = useBandeiras(
+  const {
+    bandeiras,
+    loadingBandeiras,
+    carregandoAbertura,
+    errorBandeiras,
+    recarregarBandeiras,
+  } = useBandeiras(
     newTransaction.banco_id,
     newTransaction.metodopagamento,
+    // `dialogOpen` é opcional: sem ele o diálogo abre pelo próprio gatilho, e
+    // esperar por um `true` que nunca vem esconderia o campo de bandeira para
+    // sempre. Só o `false` explícito — diálogo montado e fechado — segura a
+    // consulta.
+    dialogOpen !== false && !conciliacaoOfx && !pagamentoMultiplo,
   );
   // O hook ja garante lista nao vazia: ele mesmo cai na lista padrao enquanto a
   // do banco nao chega ou se ela falhar.
@@ -360,7 +387,13 @@ export default function RegisterContent({
     field: keyof NewTransaction,
     value: string | number | null,
   ) => {
-    setNewTransaction({ ...newTransaction, [field]: value });
+    setNewTransaction({
+      ...newTransaction,
+      [field]: value,
+      ...(conciliacaoOfx && field === "categoria"
+        ? { categoria_id: categorias.find((categoria) => categoria.nome === value)?.id ?? null }
+        : {}),
+    });
   };
 
   const setParcelas = (
@@ -641,8 +674,24 @@ export default function RegisterContent({
   ]);
 
   const handleCreateTransaction = async (opts?: { ignorarVencida?: boolean }) => {
+    if (isSubmitting) return;
     setIsSubmitting(true);
     try {
+      if (conciliacaoOfx) {
+        const erro = validarTransacaoOfx(newTransaction, conciliacaoOfx);
+        if (erro) {
+          toast.error(erro);
+          return;
+        }
+        conciliacaoOfx.onPreparar(newTransaction);
+        setOpen?.(false);
+        return;
+      }
+      const problemaNoBanco = erroDeBancoNoLancamento(newTransaction);
+      if (problemaNoBanco) {
+        toast.error(problemaNoBanco);
+        return;
+      }
       if (
         !newTransaction.nomepagador?.trim() ||
         !newTransaction.cpfcnpjpagador?.trim()
@@ -1054,11 +1103,12 @@ export default function RegisterContent({
   }, [newTransaction.tipo]);
 
   useEffect(() => {
-    setNewTransaction({
-      ...newTransaction,
+    if (conciliandoOfx) return;
+    setNewTransaction((atual) => ({
+      ...atual,
       data: undefined,
-    });
-  }, [newTransaction.pendente]);
+    }));
+  }, [newTransaction.pendente, conciliandoOfx, setNewTransaction]);
 
   const Content = isDesktop ? DialogContent : DrawerContent;
   const Header = isDesktop ? DialogHeader : DrawerHeader;
@@ -1066,6 +1116,36 @@ export default function RegisterContent({
   const Title = isDesktop ? DialogTitle : DrawerTitle;
   const Description = isDesktop ? DialogDescription : DrawerDescription;
   const Close = isDesktop ? DialogClose : DrawerClose;
+
+  /*
+   * As taxas chegam antes do formulário para que o campo de bandeira já nasça
+   * no lugar certo. Só a primeira carga de cada abertura espera: falha não
+   * segura o lançamento — quem não usa maquineta não tem nada a ver com isso —,
+   * e o aviso vai para dentro do próprio campo.
+   */
+  if (carregandoAbertura) {
+    return (
+      <Content className={classesDoConteudo(Boolean(isDesktop))}>
+        <div className={COLUNA_CHEIA}>
+          <Header className={CABECALHO_FIXO}>
+            <Title>Nova transação</Title>
+            <Description>Carregando os dados do formulário.</Description>
+          </Header>
+          <div className={`${MIOLO_ROLAVEL} space-y-4 p-6`}>
+            <div role="status" aria-label="Carregando formulário de transação" className="space-y-4">
+              <Skeleton className="h-24 w-full" />
+              <div className="grid gap-4 sm:grid-cols-3">
+                {Array.from({ length: 6 }, (_, indice) => <Skeleton key={indice} className="h-16 w-full" />)}
+              </div>
+            </div>
+          </div>
+          <Footer className={RODAPE_FIXO}>
+            <Close asChild><Button variant="outline">Cancelar</Button></Close>
+          </Footer>
+        </div>
+      </Content>
+    );
+  }
 
   return (
     <>
@@ -1095,9 +1175,11 @@ export default function RegisterContent({
             ) : null}
           </div>
           <Description className="max-w-3xl text-xs leading-relaxed sm:text-sm">
-            {pagamentoMultiplo
-              ? "Um lançamento só, rateado entre os documentos selecionados"
-              : "Defina a movimentação, classifique o lançamento e identifique a contraparte."}
+            {conciliacaoOfx
+              ? "Complete os dados da transação do extrato. A criação será aplicada ao confirmar a conciliação."
+              : pagamentoMultiplo
+                ? "Um lançamento só, rateado entre os documentos selecionados"
+                : "Defina a movimentação, classifique o lançamento e identifique a contraparte."}
           </Description>
         </Header>
         <div className={`${MIOLO_ROLAVEL} space-y-4 bg-muted/25 px-4 py-4 sm:px-6 sm:py-5`}>
@@ -1142,7 +1224,7 @@ export default function RegisterContent({
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.values(Tipo_transacao).map((u) => (
+                        {(conciliacaoOfx ? tiposDaConciliacao(conciliacaoOfx.valorCentavos) : Object.values(Tipo_transacao)).map((u) => (
                           <SelectItem key={u} value={u}>
                             {u}
                           </SelectItem>
@@ -1175,7 +1257,7 @@ export default function RegisterContent({
                     <Switch
                       className="rounded-none hover:cursor-pointer"
                       disabled={
-                        newTransaction.tipo === Tipo_transacao.SAQUE ||
+                        Boolean(conciliacaoOfx) || newTransaction.tipo === Tipo_transacao.SAQUE ||
                         newTransaction.tipo === Tipo_transacao.DEPOSITO
                           ? true
                           : false
@@ -1237,7 +1319,7 @@ export default function RegisterContent({
                     {/* Com bandeira escolhida a chave some: quem decide se há taxa
                         é a tabela dela, e deixar as duas coisas mandando no mesmo
                         campo seria uma segunda verdade sobre o mesmo número. */}
-                    {!bandeiraSelecionada &&
+                    {!conciliacaoOfx && !bandeiraSelecionada &&
                       (newTransaction.tipo === Tipo_transacao.RECEITA ||
                       newTransaction.tipo === Tipo_transacao.SAQUE) && (
                       <div className="flex flex-row gap-2">
@@ -1267,7 +1349,7 @@ export default function RegisterContent({
                   <ValueInput
                     price={newTransaction.valor || 0}
                     setPrice={(v) => handleChange("valor", v)}
-                    disabled={lockValue}
+                    disabled={lockValue || Boolean(conciliacaoOfx)}
                   ></ValueInput>
                   {maximumAmount != null ? (
                     <div
@@ -1352,12 +1434,35 @@ export default function RegisterContent({
                   )}
                 </div>
                 {/*
+                  A carga falhou: sem o catálogo não dá para saber se este par
+                  tem maquineta, então o aviso ocupa o lugar do campo e o
+                  lançamento segue — a bandeira é opcional, e travar o caixa por
+                  causa dela seria pior do que registrar sem a taxa.
+                */}
+                {!conciliacaoOfx && !pagamentoMultiplo && errorBandeiras && (
+                  <div className="flex w-full flex-wrap items-center gap-3 border border-destructive/40 bg-destructive/10 p-4 sm:col-span-3">
+                    <p role="alert" className="flex-1 text-xs text-destructive">
+                      {errorBandeiras} Dá para registrar assim mesmo, sem a taxa
+                      da maquineta.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={loadingBandeiras}
+                      onClick={recarregarBandeiras}
+                    >
+                      {loadingBandeiras ? "Carregando..." : "Tentar novamente"}
+                    </Button>
+                  </div>
+                )}
+                {/*
                   Só aparece quando há bandeira cadastrada para o par (conta,
                   forma de pagamento). Quem não usa maquineta, ou não cadastrou
                   bandeira nenhuma, não vê diferença alguma no formulário.
                 */}
-                {!pagamentoMultiplo &&
-                  (bandeiras.length > 0 || loadingBandeiras || errorBandeiras) && (
+                {!conciliacaoOfx && !pagamentoMultiplo &&
+                  bandeiras.length > 0 && (
                   <div className="w-full space-y-3 border border-border bg-background p-4 sm:col-span-3">
                     <div className="flex items-center gap-2">
                       <CreditCard className="size-4 text-primary" aria-hidden="true" />
@@ -1368,8 +1473,6 @@ export default function RegisterContent({
                       <div className="space-y-2 w-full">
                         <Label htmlFor="bandeira">Bandeira</Label>
                         <SearchCombobox
-                          disabled={loadingBandeiras || !!errorBandeiras}
-                          loading={loadingBandeiras}
                           value={newTransaction.bandeira_id?.toString() || ""}
                           onValueChange={(value) => {
                             const escolhida = bandeiras.find(
@@ -1394,9 +1497,7 @@ export default function RegisterContent({
 
                             if (!escolhida) setIsChecked(false);
                           }}
-                          placeholder={
-                            errorBandeiras ? "Erro ao carregar" : "Selecione"
-                          }
+                          placeholder="Selecione"
                           searchPlaceholder="Pesquisar bandeira..."
                           emptyMessage="Nenhuma bandeira encontrada."
                           clearable
@@ -1482,6 +1583,7 @@ export default function RegisterContent({
                     </Label>
                     <DatePickerField
                       value={newTransaction.data}
+                      disabled={Boolean(conciliacaoOfx)}
                       onChange={(selecionada) => {
                         if (!selecionada) {
                           setNewTransaction({
@@ -1543,9 +1645,12 @@ export default function RegisterContent({
                   </div>
                 )}
                 <div className="space-y-2 w-full">
-                  <Label htmlFor="banco">Banco</Label>
+                  <Label htmlFor="banco">
+                    Banco {!newTransaction.pendente && <span className="text-red-500">*</span>}
+                  </Label>
                   <SearchCombobox
                     value={newTransaction.banco_id?.toString() || ""}
+                    disabled={Boolean(conciliacaoOfx)}
                     onValueChange={(value) => handleChange("banco_id", Number(value))}
                     loading={isLoadingBanks}
                     placeholder="Selecione"
@@ -1560,6 +1665,11 @@ export default function RegisterContent({
                       searchText: `${bank.proprietario ?? ""} ${bank.tipo ?? ""}`,
                     }))}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {newTransaction.pendente
+                      ? "Opcional agora. Informe a conta utilizada ao dar baixa."
+                      : "Obrigatório para identificar a conta movimentada."}
+                  </p>
                 </div>
                 <div className="space-y-2 w-full">
                   <Label htmlFor="categoria-topo">Categoria</Label>
@@ -1634,6 +1744,13 @@ export default function RegisterContent({
                     loading={loadingPlanos}
                     groups={gruposPlanosDeConta}
                     value={newTransaction.plano_de_conta_id?.toString() || ""}
+                    natureza={
+                      newTransaction.tipo === Tipo_transacao.RECEITA
+                        ? "RECEITA"
+                        : newTransaction.tipo === Tipo_transacao.DESPESA
+                          ? "DESPESA"
+                          : undefined
+                    }
                     placeholder="Selecione"
                     onValueChange={(_, selected) => {
                       setNewTransaction({
@@ -1690,7 +1807,7 @@ export default function RegisterContent({
                 </div>
                 {/* Sempre editavel: a descricao acima fica travada quando o lancamento
                     vem de OS/venda, entao este e o unico campo livre nesses casos. */}
-                <div className="space-y-2 w-full col-span-full">
+                {!conciliacaoOfx && <div className="space-y-2 w-full col-span-full">
                   <Label htmlFor="descricao-pagamento">
                     Descrição do pagamento
                   </Label>
@@ -1703,8 +1820,8 @@ export default function RegisterContent({
                     placeholder="Ex.: entrada de 50%, sinal, restante na entrega"
                     className="w-full"
                   />
-                </div>
-                {metodoPermiteParcelas && !newTransaction.pendente && (
+                </div>}
+                {!conciliacaoOfx && metodoPermiteParcelas && !newTransaction.pendente && (
                     <div className="w-full border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground sm:col-span-3">
                       Ative `Lançamento futuro` para habilitar o parcelamento do
                       {" "}{nomeMetodoParcelado}.
@@ -2098,11 +2215,11 @@ export default function RegisterContent({
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2 w-full">
                   <Label htmlFor="nomepagador">
-                    Nome do pagador/recebedor <span className="text-red-500">*</span>
+                    Nome do pagador/recebedor {!conciliacaoOfx && <span className="text-red-500">*</span>}
                   </Label>
                   <Input
                     disabled={Boolean(selectedCustomer) || Boolean(selectedFornecedor)}
-                    id="descricao"
+                    id="nomepagador"
                     value={newTransaction.nomepagador || ""}
                     onChange={(e) =>
                       handleChange("nomepagador", e.target.value)
@@ -2113,7 +2230,7 @@ export default function RegisterContent({
                 </div>
                 <div className="space-y-2 w-full">
                   <Label htmlFor="cpfcnpjpagador">
-                    CPF/CNPJ do pagador/recebedor <span className="text-red-500">*</span>
+                    CPF/CNPJ do pagador/recebedor {!conciliacaoOfx && <span className="text-red-500">*</span>}
                   </Label>
                   <Input
                     disabled={Boolean(selectedCustomer) || Boolean(selectedFornecedor)}
@@ -2135,7 +2252,7 @@ export default function RegisterContent({
 
           </TransactionSection>
 
-          <TransactionSection
+          {!conciliacaoOfx && <TransactionSection
             eyebrow="Comprovação"
             title="Documento relacionado"
             description="Nota, recibo ou comprovante que justifica este lançamento."
@@ -2269,7 +2386,7 @@ export default function RegisterContent({
                   Ative a opção acima para informar os dados do documento.
                 </div>
               ) : null}
-          </TransactionSection>
+          </TransactionSection>}
         </div>
         <Footer className={RODAPE_FIXO}>
           <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:gap-3">
@@ -2293,7 +2410,7 @@ export default function RegisterContent({
               ) : (
                 <>
                   <Save className="h-4 w-4" />
-                  Registrar
+                  {conciliacaoOfx ? "Preparar nova transação" : "Registrar"}
                 </>
               )}
             </Button>

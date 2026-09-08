@@ -5,6 +5,7 @@ export const STATUS_OS_COM_LANCAMENTO_FINANCEIRO = [
   "ORCAMENTO_APROVADO",
   "EM_ANDAMENTO",
   "PAGAMENTO",
+  "FATURAMENTO",
 ] as const;
 
 export type StatusOsComLancamentoFinanceiro =
@@ -49,10 +50,10 @@ export type ResumoFinanceiroOs = {
 const moeda = (valor: number) =>
   Math.round((Number.isFinite(valor) ? valor : 0) * 100) / 100;
 
-export function podeRegistrarPagamentoOs(status: unknown): status is StatusOsComLancamentoFinanceiro {
-  return STATUS_OS_COM_LANCAMENTO_FINANCEIRO.includes(
-    String(status ?? "").toUpperCase() as StatusOsComLancamentoFinanceiro,
-  );
+export function podeRegistrarPagamentoOs(status: unknown, habilitarFaturamento = false): status is StatusOsComLancamentoFinanceiro {
+  const atual = String(status ?? "").toUpperCase();
+  return atual === "ORCAMENTO_APROVADO" || atual === "EM_ANDAMENTO" ||
+    atual === (habilitarFaturamento ? "FATURAMENTO" : "PAGAMENTO");
 }
 
 export function calcularResumoFinanceiroOs({
@@ -115,4 +116,8 @@ export function calcularResumoFinanceiroOs({
 
 export function statusAposEncerrarExecucao(quitada: boolean) {
   return quitada ? "CONCLUIDO" : "PAGAMENTO";
+}
+
+export function informarCondicoesPagamentoOs(statusDestino: string, habilitarFaturamento: boolean) {
+  return statusDestino === (habilitarFaturamento ? "FATURAMENTO" : "PAGAMENTO");
 }

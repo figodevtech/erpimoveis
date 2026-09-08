@@ -138,7 +138,7 @@ function statusVenda(status: string) {
   if (["CANCELADA", "CANCELADO"].includes(normalizado)) {
     return "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300";
   }
-  if (["PAGAMENTO", "PENDENTE"].includes(normalizado)) {
+  if (["PAGAMENTO", "FATURAMENTO", "PENDENTE"].includes(normalizado)) {
     return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300";
   }
   return "border-border bg-muted text-muted-foreground";

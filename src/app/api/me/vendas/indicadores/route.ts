@@ -5,6 +5,7 @@ export const revalidate = 0;
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { lerComissaoVenda } from "@/lib/vendas/comissao";
 import {
   erroInterno,
   getMeUserId,
@@ -46,7 +47,7 @@ export async function GET(req: Request) {
     // período em `pagamento_em`.
     let query = supabaseAdmin
       .from("venda")
-      .select("id, sub_total, valor_frete, valortotal", { count: "exact" })
+      .select("id, sub_total, valor_frete, valortotal, comissao:venda_comissao(base,percentual,valor_comissao)", { count: "exact" })
       .eq("vendedor", userId)
       .in("status", STATUS_VENDAS_REALIZADAS)
       .not("pagamento_em", "is", null);
@@ -64,9 +65,11 @@ export async function GET(req: Request) {
     let frete = 0;
     let descontos = 0;
     let total = 0;
+    let comissao = 0;
 
     for (const registro of linhas) {
       const venda = registro as Record<string, unknown>;
+      comissao += lerComissaoVenda(venda.comissao)?.valor_comissao ?? 0;
       const valorTotal = num(venda.valortotal);
       const valorFrete = num(venda.valor_frete);
       // Venda antiga pode não ter `sub_total` gravado; sem o resgate pelo total
@@ -89,6 +92,7 @@ export async function GET(req: Request) {
         frete,
         descontos,
         total,
+        comissao: Math.round(comissao * 100) / 100,
         parcial: totalVendas > linhas.length,
       },
       { headers: { "Cache-Control": "no-store" } },

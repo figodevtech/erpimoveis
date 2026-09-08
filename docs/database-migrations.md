@@ -3,6 +3,25 @@
 Os quatro bancos usam as mesmas migrations e o mesmo schema. Somente os dados de
 cada empresa são independentes.
 
+## Stone em stand-by — 07/09/2026
+
+Por orientação do responsável pelo projeto, a integração Stone permanece em
+stand-by. A migration `20260907100000_corrigir_confirmacao_e_estorno_stone.sql`
+foi aplicada somente à Demonstração antes dessa orientação. Demir, AlphaGarage
+e Garage Premium permanecem na versão `20260905110000`; essa diferença é
+intencional enquanto a Stone estiver em espera.
+
+As correções de confirmação, estorno e conciliação estão preservadas no código,
+com testes SQL executados na Demonstração e revertidos por rollback. As novas
+rotas e os campos de pendências Stone dependem dessa migration; sua publicação
+nos clientes fica adiada junto com a integração. O comando de deploy dos
+clientes aplica todas as migrations pendentes, incluindo essa, e não deve ser
+usado para publicar apenas a proteção de Configurações Gerais.
+
+A proteção contra uma tela antiga alterar o modo de faturamento é independente
+da Stone e não exige uma nova migration. A consulta feita após a retomada
+confirmou `habilitar_faturamento_os = false` nos quatro bancos.
+
 ## Configuração local
 
 Copie `.env.migrations.example` para `.env.migrations.local` e configure as URLs

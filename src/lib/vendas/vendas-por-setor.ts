@@ -2,7 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
-import { calcularBaseLiquidaDosItens } from "@/lib/ordens/totais";
+import { lerComissaoVenda } from "./comissao";
 
 /**
  * Vendas realizadas, agrupadas por setor e vendedor.
@@ -162,6 +162,7 @@ export async function carregarVendasPorSetor(
       .from("venda")
       .select(`
         id, status, datavenda, valortotal, valor_frete, comissao_venda_percent_aplicada,
+        comissao:venda_comissao ( usuarioid, base, percentual, valor_comissao, integrada ),
         cliente:clienteid ( id, nomerazaosocial ),
         vendedor_rel:vendedor ( id, nome, email, setorid )
       `)
@@ -218,14 +219,11 @@ export async function carregarVendasPorSetor(
 
     const valorTotal = toNum(venda.valortotal);
     const valorFrete = toNum(venda.valor_frete);
-    const percentualComissao = toNum(venda.comissao_venda_percent_aplicada);
-    // O frete fica fora da base: é repasse de transporte, não venda de produto,
-    // e comissioná-lo pagava o vendedor por um custo que ele não gerou. A conta
-    // sai de `calcularBaseLiquidaDosItens`, cujo comentário no módulo de totais
-    // já dizia que essa é a base de desconto, margem e comissão — ela só não
-    // estava sendo usada do lado das vendas.
-    const baseComissao = calcularBaseLiquidaDosItens(valorTotal, valorFrete);
-    const valorComissao = (baseComissao * percentualComissao) / 100;
+    const snapshot = lerComissaoVenda(venda.comissao);
+    const percentualComissao = snapshot?.percentual ?? 0;
+    // Valor persistido: papel, planilha, Central Pessoal e DRE usam o mesmo carimbo.
+    const baseComissao = snapshot?.base ?? 0;
+    const valorComissao = snapshot?.valor_comissao ?? 0;
 
     grupoDoVendedor.itens.push({
       vendaId: Number(venda.id),

@@ -21,40 +21,11 @@ import { resolveOrdemCustomer } from "@/lib/ordens/customer-snapshot";
 const LOCAL_OFFSET = "-03:00";
 const PAGE_SIZE = 1000;
 
-/** Status válidos de OS. Filtro fora desta lista é descartado, não aplicado. */
-const STATUS_OS = new Set([
-  "AGUARDANDO_CHECKLIST",
-  "ORCAMENTO",
-  "APROVACAO_ORCAMENTO",
-  "ORCAMENTO_APROVADO",
-  "ORCAMENTO_RECUSADO",
-  "EM_ANDAMENTO",
-  "PAGAMENTO",
-  "SEM_COBRANCA",
-  "CONCLUIDO",
-  "CANCELADO",
-]);
+import { statusSelecionados } from "./status-filter";
 
 const PRIORIDADES = new Set(["ALTA", "NORMAL", "BAIXA"]);
 const ALVOS = new Set(["VEICULO", "PECA", "EQUIPAMENTO"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Lista de status vinda da tela: `CONCLUIDO,PAGAMENTO`.
- *
- * Antes o filtro era um status só, e a pergunta mais comum do balcão — "tudo
- * que ainda não fechou" — exigia gerar um relatório por status e juntar à mão.
- */
-function statusSelecionados(valor: string | null) {
-  return [
-    ...new Set(
-      (valor ?? "")
-        .split(",")
-        .map((item) => item.trim().toUpperCase())
-        .filter((item) => STATUS_OS.has(item)),
-    ),
-  ];
-}
 
 function integer(value: string | null) {
   if (!value) return null;
@@ -298,7 +269,39 @@ type LinhaEventoOs = EventoFinanceiroOs & {
   ordemservicoid: number;
   descricao: string | null;
   detalhe: string | null;
+  dados_snapshot: Record<string, unknown> | null;
 };
+
+/**
+ * Quanto desta comissão veio de produto.
+ *
+ * A folha impressa precisa separar comissão de produto da de serviço, e a
+ * planilha é o único canal entre esta rota e ela. Um evento de comissão hoje
+ * pertence a um item só, então a coluna repete o valor ou fica zerada.
+ *
+ * Produto avulso conta como produto: ele não tem `produtoid`, mas é venda de
+ * mercadoria igual — por isso a leitura é pelo tipo gravado no snapshot, e não
+ * pela coluna do id.
+ *
+ * O histórico anterior a 20260904150000 tem eventos de criação que somavam
+ * produto e serviço; ali `valor_produtos` continua sendo a parte de produto, e
+ * `comissoesPorTipoDeItem` a aplica como proporção.
+ */
+function comissaoDeProduto(evento: LinhaEventoOs) {
+  if (evento.origem !== "COMISSAO") return 0;
+  const snapshot = evento.dados_snapshot;
+  if (!snapshot || snapshot.comissao_de_criacao !== true) return 0;
+
+  const tipo = String(snapshot.tipo_item ?? "");
+  const valor = tipo
+    ? tipo === "SERVICO"
+      ? 0
+      : Number(evento.valor ?? 0)
+    : // Evento antigo, que somava os dois: a parte de produto vem do rateio.
+      Number(snapshot.valor_produtos ?? 0);
+
+  return Number.isFinite(valor) && valor > 0 ? arredondarMoeda(valor) : 0;
+}
 
 /**
  * Os eventos financeiros de cada OS, já sem os cancelados e na ordem em que o
@@ -315,7 +318,7 @@ async function carregarEventosPorOs(ids: number[]) {
   const linhas = await fetchAllSupabaseRowsByChunks<LinhaEventoOs, number>(ids, (chunk) =>
     supabaseAdmin
       .from("eventos_financeiros")
-      .select("id, ordemservicoid, origem, natureza, status, descricao, detalhe, valor, produtoid, servicoid, chave_origem")
+      .select("id, ordemservicoid, origem, natureza, status, descricao, detalhe, valor, produtoid, servicoid, chave_origem, dados_snapshot")
       .in("ordemservicoid", chunk)
       .order("ordemservicoid", { ascending: true })
       .order("id", { ascending: true }),
@@ -519,13 +522,26 @@ export async function GET(request: Request) {
             texto(evento.descricao),
             texto(evento.detalhe),
             arredondarMoeda(Number(evento.valor ?? 0)),
+            comissaoDeProduto(evento),
           ]),
         );
         abas.push({
           name: "Eventos",
-          headers: ["OS", "Origem", "Natureza", "Situação", "Descrição", "Detalhe", "Valor (R$)"],
+          headers: [
+            "OS",
+            "Origem",
+            "Natureza",
+            "Situação",
+            "Descrição",
+            "Detalhe",
+            "Valor (R$)",
+            // Zero em tudo que não é comissão de produto. A coluna existe
+            // porque a folha impressa precisa separar a comissão de produto da
+            // de serviço, e a planilha é o único canal até ela.
+            "Comissão de produtos (R$)",
+          ],
           rows: linhasDeEventos,
-          widths: [9, 16, 12, 14, 45, 32, 16],
+          widths: [9, 16, 12, 14, 45, 32, 16, 20],
         });
       }
 

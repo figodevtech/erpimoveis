@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 import {
   comCriadoPor,
   criarEventoDaOs,
@@ -11,9 +12,19 @@ import {
   responder,
   responderFalha,
 } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/servico";
+import {
+  excedeLimiteSelecaoDeEventos,
+  LIMITE_SELECAO_EVENTOS,
+} from "@/lib/financeiro/eventos-financeiros-selection";
+
+import {
+  aplicarElegibilidadeDePagamento,
+  aplicarFiltrosDeEventos,
+  lerFiltrosDeEventos,
+} from "./_lib/filtros";
 
 /**
- * Todos os eventos financeiros de OS num lugar só.
+ * Eventos financeiros de OS e comissões de vendas numa fila única.
  *
  * A recepção lança despesa na OS o dia inteiro; quem transforma isso em título
  * no a pagar é o financeiro. Sem esta lista, o único caminho até um evento era
@@ -24,108 +35,15 @@ import {
  * de ser um relatório.
  */
 
-const FORTALEZA_OFFSET = "-03:00";
-
-function localDayStartToUtcIso(dateStr: string) {
-  return new Date(`${dateStr}T00:00:00${FORTALEZA_OFFSET}`).toISOString();
-}
-
-function localNextDayStartToUtcIso(dateStr: string) {
-  const day = new Date(`${dateStr}T00:00:00${FORTALEZA_OFFSET}`);
-  return new Date(day.getTime() + 24 * 60 * 60 * 1000).toISOString();
-}
-
 const EVENTO_FIELDS =
   "id, ordemservicoid, origem, natureza, natureza_dre, status, descricao, detalhe, valor, "
   + "data_evento, competencia_em, produtoid, servicoid, chave_origem, dados_snapshot, is_manual, "
-  + "created_by, pode_gerar_transacao, transacaoid, lancamento_id, consumo_saida_id, "
-  + "consumo_usoconsumo_saida_id, quantidade_snapshot";
+  + "created_by, usuarioid, pode_gerar_transacao, transacaoid, lancamento_id, consumo_saida_id, "
+  + "consumo_usoconsumo_saida_id, quantidade_snapshot, source_type, source_id, documento_tipo, documento_id";
 
-const ORDEM_FIELDS =
-  "ordem:ordemservicoid!inner ( id, status, is_deleted, dataentrada, "
-  + "cliente:clienteid ( id, nomerazaosocial ) )";
+const ORDEM_FIELDS = "ordem, venda";
 
 const ORDENAVEIS = new Set(["data_evento", "valor", "ordemservicoid", "id"]);
-
-const SITUACOES = new Set(["NAO_LANCADO", "LANCADO", "TODOS"]);
-
-const ORIGENS = new Set([
-  "PRODUTO", "SERVICO", "COMISSAO", "AVULSO", "DESCONTO", "FRETE", "CONSUMO", "ENTRADA_FISCAL",
-]);
-
-/**
- * O recorte de cada situação, aplicado igual na lista e nos totais.
- *
- * "Não lançado" é a tripla que o resto do sistema já usa — `registrar_lancamento_
- * de_eventos` valida exatamente isto antes de converter. `pode_gerar_transacao`
- * fica dentro dela porque custo de produto e desconto nunca viram transação:
- * mostrá-los na fila do financeiro seria pendência que não existe.
- */
-function aplicarSituacao<T extends { eq: any; is: any; neq: any }>(query: T, situacao: string): T {
-  if (situacao === "NAO_LANCADO") {
-    return query
-      .eq("status", "ATIVO")
-      .eq("pode_gerar_transacao", true)
-      .is("transacaoid", null)
-      .is("lancamento_id", null);
-  }
-  if (situacao === "LANCADO") return query.eq("status", "CONVERTIDO");
-  return query.neq("status", "CANCELADO");
-}
-
-/** Os filtros que valem para a lista e para os totais. Um lugar só, para os dois não divergirem. */
-function aplicarFiltros(query: any, f: ReturnType<typeof lerFiltros>) {
-  let q = aplicarSituacao(query, f.situacao)
-    // `source_type` só existe desde 20260802160000 e é nulo em linha antiga; a
-    // presença da OS é o teste que vale para todo o histórico.
-    .not("ordemservicoid", "is", null)
-    .eq("ordem.is_deleted", false);
-
-  if (f.natureza) q = q.eq("natureza", f.natureza);
-  if (f.origem) q = q.eq("origem", f.origem);
-  if (f.osId) q = q.eq("ordemservicoid", f.osId);
-  if (f.clienteId) q = q.eq("ordem.clienteid", f.clienteId);
-  if (f.dateFrom) q = q.gte("data_evento", localDayStartToUtcIso(f.dateFrom));
-  if (f.dateTo) q = q.lt("data_evento", localNextDayStartToUtcIso(f.dateTo));
-  if (f.buscaEm) q = q.or(f.buscaEm);
-  return q;
-}
-
-function lerFiltros(searchParams: URLSearchParams) {
-  const situacaoBruta = String(searchParams.get("situacao") ?? "").toUpperCase();
-  const situacao = SITUACOES.has(situacaoBruta) ? situacaoBruta : "NAO_LANCADO";
-
-  const naturezaBruta = String(searchParams.get("natureza") ?? "").toUpperCase();
-  const natureza = ["RECEITA", "DESPESA"].includes(naturezaBruta) ? naturezaBruta : "";
-
-  const origemBruta = String(searchParams.get("origem") ?? "").toUpperCase();
-  const origem = ORIGENS.has(origemBruta) ? origemBruta : "";
-
-  const search = (searchParams.get("search") ?? searchParams.get("q") ?? "").trim().slice(0, 200);
-  // `#123` procura a OS, não o texto: é como o operador se refere a uma ordem, e
-  // digitá-lo na busca livre não acharia nada.
-  const osDaBusca = /^#?\d+$/.test(search) ? Number(search.replace("#", "")) : null;
-  const escapado = search.replace(/[%,()]/g, " ").trim();
-  const buscaEm = escapado
-    ? [
-        `descricao.ilike.%${escapado}%`,
-        `detalhe.ilike.%${escapado}%`,
-        ...(osDaBusca ? [`ordemservicoid.eq.${osDaBusca}`] : []),
-      ].join(",")
-    : "";
-
-  return {
-    situacao,
-    natureza,
-    origem,
-    osId: idValido(searchParams.get("osId")),
-    clienteId: idValido(searchParams.get("clienteId")),
-    dateFrom: (searchParams.get("dateFrom") ?? "").trim(),
-    dateTo: (searchParams.get("dateTo") ?? "").trim(),
-    search,
-    buscaEm,
-  };
-}
 
 export async function GET(req: NextRequest) {
   try {
@@ -141,20 +59,64 @@ export async function GET(req: NextRequest) {
     const ordenarPor = ORDENAVEIS.has(ordenarBruto) ? ordenarBruto : "data_evento";
     const ascending = String(searchParams.get("ordem") ?? "desc").toLowerCase() === "asc";
 
-    const filtros = lerFiltros(searchParams);
+    const filtros = lerFiltrosDeEventos(searchParams);
 
-    const query = aplicarFiltros(
+    if (filtros.selecionarTodos) {
+      const consultaSelecionaveis = aplicarElegibilidadeDePagamento(
+        aplicarFiltrosDeEventos(
+          supabaseAdmin
+            .from("eventos_financeiros_fila")
+            .select(
+              "id, ordemservicoid, source_type, source_id, descricao, valor",
+              { count: "exact" },
+            ),
+          filtros,
+        ),
+      )
+        .order("data_evento", { ascending: false })
+        .order("id", { ascending: false })
+        // Busca uma linha além do limite também quando o count não estiver
+        // disponível, para nunca selecionar parcialmente em silêncio.
+        .range(0, LIMITE_SELECAO_EVENTOS);
+
+      const { data, error, count } = await consultaSelecionaveis;
+      if (error) throw error;
+
+      const total = count ?? data?.length ?? 0;
+      if (excedeLimiteSelecaoDeEventos(total)) {
+        return NextResponse.json(
+          {
+            error: `O filtro encontrou ${total} despesas elegíveis. Refine o filtro para selecionar no máximo ${LIMITE_SELECAO_EVENTOS}.`,
+            total,
+            limite: LIMITE_SELECAO_EVENTOS,
+          },
+          { status: 422 },
+        );
+      }
+
+      return NextResponse.json({
+        data: (data ?? []).map((evento: any) => ({
+          id: Number(evento.id),
+          ordemservicoid: evento.ordemservicoid == null ? null : Number(evento.ordemservicoid),
+          vendaid: evento.source_type === "VENDA" ? Number(evento.source_id) : null,
+          descricao: String(evento.descricao ?? "Despesa"),
+          valor: Number(evento.valor ?? 0),
+        })),
+        total,
+        limite: LIMITE_SELECAO_EVENTOS,
+      });
+    }
+
+    let query = aplicarFiltrosDeEventos(
       supabaseAdmin
-        .from("eventos_financeiros")
+        .from("eventos_financeiros_fila")
         .select(`${EVENTO_FIELDS}, ${ORDEM_FIELDS}`, { count: "exact" }),
       filtros,
-    )
-      // A OS entra na ordenação sempre: as linhas são lidas agrupadas por ordem,
-      // e sem isso duas despesas da mesma OS cairiam separadas na página.
-      .order("ordemservicoid", { ascending: false })
-      .order(ordenarPor, { ascending })
-      .order("id", { ascending: true })
-      .range(from, to);
+    );
+
+    query = query.order(ordenarPor, { ascending }).order("id", { ascending: false });
+
+    query = query.range(from, to);
 
     const { data, error, count } = await query;
     if (error) throw error;
@@ -164,17 +126,11 @@ export async function GET(req: NextRequest) {
     // Os totais valem para o filtro inteiro, não para a página: o financeiro abre
     // a tela para saber quanto falta lançar, e o número da página responderia
     // outra pergunta. Vem sem `range` e só com as colunas da soma.
-    const { data: paraTotais, error: totaisError } = await aplicarFiltros(
-      // Os filtros de OS exigem que `ordem` seja um recurso embutido no
-      // PostgREST, ainda que seus campos não participem da soma.
-      supabaseAdmin
-        .from("eventos_financeiros")
-        .select("natureza, valor, ordemservicoid, ordem:ordemservicoid!inner ( id )"),
-      filtros,
-    );
-    if (totaisError) throw totaisError;
-
-    const linhas = paraTotais ?? [];
+    const linhas = await fetchAllSupabaseRows<any>(() => aplicarFiltrosDeEventos(
+      supabaseAdmin.from("eventos_financeiros_fila").select(
+        "id, natureza, status, valor, ordemservicoid, documento_tipo, documento_id, pode_gerar_transacao, transacaoid, lancamento_id",
+      ), filtros,
+    ).order("id", { ascending: true }));
     const somar = (natureza: string) =>
       Math.round(
         linhas
@@ -183,6 +139,14 @@ export async function GET(req: NextRequest) {
       ) / 100;
     const receita = somar("RECEITA");
     const despesa = somar("DESPESA");
+    const selecionaveis = linhas.filter(
+      (linha: any) =>
+        linha.natureza === "DESPESA"
+        && linha.status === "ATIVO"
+        && linha.pode_gerar_transacao === true
+        && linha.transacaoid == null
+        && linha.lancamento_id == null,
+    ).length;
 
     return NextResponse.json({
       data: eventos,
@@ -197,7 +161,9 @@ export async function GET(req: NextRequest) {
         despesa,
         liquido: Math.round((receita - despesa) * 100) / 100,
         quantidade: linhas.length,
-        ordens: new Set(linhas.map((linha: any) => linha.ordemservicoid)).size,
+        ordens: new Set(linhas.filter((linha: any) => linha.ordemservicoid != null).map((linha: any) => linha.ordemservicoid)).size,
+        vendas: new Set(linhas.filter((linha: any) => linha.documento_tipo === "VENDA").map((linha: any) => linha.documento_id)).size,
+        selecionaveis,
       },
       filters: filtros,
     });

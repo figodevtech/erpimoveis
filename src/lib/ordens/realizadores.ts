@@ -94,6 +94,7 @@ export const STATUS_EDITAM_REALIZADOR = [
   "ORCAMENTO_APROVADO",
   "EM_ANDAMENTO",
   "PAGAMENTO",
+  "FATURAMENTO",
 ] as const;
 
 export function podeEditarRealizadores(status: unknown): boolean {
@@ -108,5 +109,5 @@ export function podeEditarRealizadores(status: unknown): boolean {
  */
 export function podeFicarSemRealizador(status: unknown): boolean {
   const atual = String(status ?? "").toUpperCase();
-  return atual !== "EM_ANDAMENTO" && atual !== "PAGAMENTO";
+  return atual !== "EM_ANDAMENTO" && atual !== "PAGAMENTO" && atual !== "FATURAMENTO";
 }

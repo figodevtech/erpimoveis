@@ -34,17 +34,41 @@ export function eventosAtivos<T extends { status: string }>(eventos: T[]) {
 }
 
 /**
+ * O produto avulso que uma comissão de criação cobre, quando é o caso.
+ *
+ * Produto avulso não tem `produtoid` — a referência dele é a linha da OS —,
+ * então a comissão dele não pode ser agrupada pela coluna do id. A chave de
+ * origem carrega o vínculo (`CRIACAO:<uuid>:A<id>`), e a receita correspondente
+ * usa `AVULSO:<id>`: é por aí que os dois se encontram.
+ */
+function avulsoDaComissao(chaveOrigem?: string | null) {
+  const encontrado = /^CRIACAO:[^:]+:A(\d+)$/.exec(String(chaveOrigem ?? ""));
+  return encontrado ? encontrado[1] : null;
+}
+
+/**
  * Grupo de exibição do evento.
  *
  * Receita e despesa do mesmo item ficam juntas, e o que as une é o
  * `produtoid`/`servicoid` — nunca a `chave_origem`. É isso que faz uma despesa
  * manual de serviço, cuja chave é `MANUAL:<uuid>`, cair sob o serviço dela em
- * vez de virar um grupo solto. A comissão entra no grupo do serviço porque
- * carrega o mesmo `servicoid`.
+ * vez de virar um grupo solto.
+ *
+ * Comissão segue o item que a gerou: a de produto entra no bloco do produto, a
+ * de serviço no do serviço. Enquanto só existia comissão de realização isso era
+ * o mesmo que dizer "vai para o serviço", e a regra podia ser escrita assim; a
+ * comissão de criação, que também cobra sobre produto, tornou a distinção
+ * necessária — sem ela a comissão de um produto caía num grupo de serviço que
+ * não existe.
  */
 function grupoDoEvento(evento: EventoFinanceiroOs) {
   if (evento.origem === "PRODUTO") {
     return `0-produto-${evento.produtoid ?? evento.chave_origem ?? evento.id}`;
+  }
+  if (evento.origem === "COMISSAO") {
+    if (evento.produtoid != null) return `0-produto-${evento.produtoid}`;
+    const avulso = avulsoDaComissao(evento.chave_origem);
+    if (avulso) return `0-produto-AVULSO:${avulso}`;
   }
   if (evento.origem === "SERVICO" || evento.origem === "COMISSAO") {
     return `1-servico-${evento.servicoid ?? evento.chave_origem?.split(":")[0] ?? evento.id}`;
@@ -57,17 +81,20 @@ function grupoDoEvento(evento: EventoFinanceiroOs) {
 }
 
 /**
- * Posição dentro do grupo.
+ * Posição dentro do grupo: a receita abre, as despesas vêm sob ela, e a
+ * comissão fecha.
  *
- * Em produto o custo vem antes da venda; em serviço a receita vem antes do
- * custo. Não é capricho: no produto se lê "comprei por, vendi por", e no
- * serviço "cobrei, e me custou".  A comissão fecha o grupo do serviço.
+ * Vale igual para produto e para serviço — lê-se "cobrei isto, e me custou
+ * aquilo" nos dois. Produto já foi ao contrário, com o custo antes da venda
+ * ("comprei por, vendi por"); com a comissão de criação passando a incidir
+ * sobre produto, as duas ordens diferentes deixavam o bloco de produto
+ * ilegível: a comissão aparecia solta, longe da receita que a gerou.
  */
 function ordemNoGrupo(evento: EventoFinanceiroOs) {
-  if (evento.origem === "PRODUTO") return evento.natureza === "DESPESA" ? 0 : 1;
-  if (evento.origem === "SERVICO") return evento.natureza === "RECEITA" ? 0 : 1;
   if (evento.origem === "COMISSAO") return 2;
-  if (evento.origem === "FRETE") return evento.natureza === "RECEITA" ? 0 : 1;
+  if (evento.origem === "PRODUTO" || evento.origem === "SERVICO" || evento.origem === "FRETE") {
+    return evento.natureza === "RECEITA" ? 0 : 1;
+  }
   return 0;
 }
 
@@ -234,6 +261,78 @@ export function deducoesDaOs(eventos: EventoSomavel[]): DeducaoDaOs[] {
     .map(([origem, valor]) => ({ origem, valor }));
 
   return [...conhecidas, ...restantes];
+}
+
+/** Comissão, com a parte que veio de produto. Ver `comissoesPorTipoDeItem`. */
+export type EventoComissionavel = EventoSomavel & {
+  /**
+   * Quanto deste evento de comissão veio de **produto**.
+   *
+   * Desde `20260904150000` toda comissão sai por item, então na prática isto é
+   * o valor inteiro (comissão de produto) ou zero (comissão de serviço). Segue
+   * numérico, e não um booleano, porque o histórico anterior tem eventos de
+   * criação que somavam produto e serviço num só — e eles precisam continuar
+   * sendo repartidos na proporção certa.
+   *
+   * Produto avulso conta como produto: ele não tem `produtoid`, mas é venda de
+   * mercadoria igual, e classificá-lo pela coluna do id o jogaria em serviços.
+   */
+  comissaoProdutos?: number | null;
+};
+
+export type ComissaoPorTipoDeItem = {
+  /** Líquido, no mesmo sinal de `deducoesDaOs`: despesa vem negativa. */
+  produtos: number;
+  servicos: number;
+};
+
+/**
+ * A comissão repartida entre o que ela cobrou de produto e o que cobrou de
+ * serviço.
+ *
+ * Enquanto só existia comissão de realização, toda comissão era mão de obra de
+ * serviço e o relatório podia somá-la inteira no líquido de serviços. A
+ * comissão por criação quebrou isso: ela paga também sobre os produtos da OS, e
+ * lançada como uma linha só inflava o líquido de produtos e afundava o de
+ * serviços na mesma medida — dois números errados, com o lucro real certo,
+ * que é o jeito mais difícil de perceber o problema.
+ *
+ * A parte de produto é aplicada como **proporção** do valor pago, não como
+ * valor absoluto. Com a comissão por item isso é degenerado — a proporção é 1
+ * ou 0 —, mas continua sendo o que mantém a conta fechando em dois casos: no
+ * histórico anterior a `20260904150000`, em que um evento de criação somava
+ * produto e serviço, e depois de uma correção manual, em que `valor` deixa de
+ * ser o apurado. Somando as duas partes sempre se chega a `valor`, e é isso que
+ * faz os cards do relatório fecharem com o lucro real.
+ */
+export function comissoesPorTipoDeItem(
+  eventos: EventoComissionavel[],
+): ComissaoPorTipoDeItem {
+  let produtos = 0;
+  let servicos = 0;
+
+  for (const evento of eventosAtivos(eventos)) {
+    if (evento.origem !== "COMISSAO") continue;
+
+    const valor = Number(evento.valor ?? 0);
+    const efeito = evento.natureza === "RECEITA" ? valor : -valor;
+    const doProduto = Number(evento.comissaoProdutos ?? 0);
+
+    const fatia =
+      valor > 0 && Number.isFinite(doProduto) && doProduto > 0
+        ? Math.min(1, doProduto / valor)
+        : 0;
+    const parteProduto = arredondar(efeito * fatia);
+
+    produtos += parteProduto;
+    servicos += efeito - parteProduto;
+  }
+
+  return { produtos: arredondar(produtos), servicos: arredondar(servicos) };
+}
+
+function arredondar(valor: number) {
+  return Math.round(valor * 100) / 100;
 }
 
 /**

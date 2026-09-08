@@ -35,7 +35,9 @@ export async function GET(_req: NextRequest, ctx: Params) {
         parcelas,
         comprovante,
         criado_em,
-        atualizado_em
+        atualizado_em,
+        financeiro_pendente,
+        financeiro_erro
       `
       )
       .eq("id", id)

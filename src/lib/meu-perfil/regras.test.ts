@@ -49,7 +49,7 @@ test("usa o fallback quando o servico nao possui nenhum texto", () => {
 });
 
 test("mantem somente os status definidos para OS e vendas realizadas", () => {
-  assert.deepEqual(STATUS_OS_FINALIZADAS, ["PAGAMENTO", "CONCLUIDO"]);
+  assert.deepEqual(STATUS_OS_FINALIZADAS, ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO"]);
   assert.deepEqual(STATUS_VENDAS_REALIZADAS, ["PAGAMENTO", "FINALIZADA"]);
 });
 

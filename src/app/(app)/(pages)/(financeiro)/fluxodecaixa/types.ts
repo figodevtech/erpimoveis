@@ -79,6 +79,24 @@ export interface Banco {
   proprietario: string;
 }
 
+export interface Plano_de_conta_classificacao {
+  codigo: string;
+  nome: string;
+  familia?: string | null;
+  tratamento?: string | null;
+  /** Naturezas de caixa aceitas. Vazio significa que a API é antiga e não filtra. */
+  naturezas?: string[];
+  herdada?: boolean;
+}
+
+export interface Plano_de_conta_destino {
+  /** CLASSIFICADO, EXCLUIDO ou PENDENTE. */
+  situacao: string;
+  linha_codigo?: string | null;
+  linha_nome?: string | null;
+  motivo?: string | null;
+}
+
 export interface Plano_de_conta {
   id: number;
   codigo?: string | null;
@@ -87,6 +105,8 @@ export interface Plano_de_conta {
   ativo: boolean;
   grupo_id: number;
   grupo?: Plano_de_conta_grupo | null;
+  classificacao?: Plano_de_conta_classificacao | null;
+  destino?: Plano_de_conta_destino | null;
 }
 
 export interface Plano_de_conta_grupo {

@@ -561,6 +561,13 @@ export function DetalhesTab({
             loading={loadingPlanos}
             groups={gruposPlanosDeConta}
             value={form.plano_de_conta_id?.toString() || ""}
+            natureza={
+              form.tipo === Tipo_transacao.RECEITA
+                ? "RECEITA"
+                : form.tipo === Tipo_transacao.DESPESA
+                  ? "DESPESA"
+                  : undefined
+            }
             onValueChange={(_, selecionado) => {
               setForm((atual) =>
                 atual

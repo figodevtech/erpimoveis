@@ -35,7 +35,8 @@ export function MeuPerfilClient() {
   const padrao = useMemo(() => periodoPadrao(), []);
   const de = searchParams.get("de") ?? padrao.de;
   const ate = searchParams.get("ate") ?? padrao.ate;
-  const aba = abaValida(searchParams.get("tab"));
+  const abaDaUrl = abaValida(searchParams.get("tab"));
+  const [aba, setAba] = useState<AbaCentral>(abaDaUrl);
   const usuarioId = searchParams.get("usuarioId") ?? undefined;
   const usuarioLogadoId = String((session?.user as { id?: string } | undefined)?.id ?? "");
   const podeVerUsuarios = permissionSetHas(
@@ -78,6 +79,31 @@ export function MeuPerfilClient() {
     },
     [aba, ate, de, pathname, router, searchParams],
   );
+
+  // A aba e uma visao inteiramente client-side. Usar `router.replace` aqui
+  // faria o controle esperar uma navegacao do App Router (esta pagina e
+  // force-dynamic) antes de refletir o clique. O estado local troca a tela no
+  // mesmo frame; a History API mantem a URL compartilhavel e continua
+  // sincronizada com `useSearchParams` pelo proprio Next.js.
+  const trocarAba = useCallback(
+    (valor: string) => {
+      const proximaAba = abaValida(valor);
+      setAba(proximaAba);
+
+      const params = new URLSearchParams(window.location.search);
+      params.set("de", de);
+      params.set("ate", ate);
+      params.set("tab", proximaAba);
+      window.history.replaceState(null, "", `${pathname}?${params.toString()}`);
+    },
+    [ate, de, pathname],
+  );
+
+  // Links internos, historico do navegador e qualquer outra atualizacao
+  // externa da URL ainda comandam a aba exibida.
+  useEffect(() => {
+    setAba(abaDaUrl);
+  }, [abaDaUrl]);
 
   useEffect(() => {
     if (!podeVerUsuarios) return;
@@ -193,7 +219,7 @@ export function MeuPerfilClient() {
         )}
 
         <motion.div variants={itemQueSobe}>
-          <Tabs value={aba} onValueChange={(valor) => atualizarUrl({ tab: abaValida(valor) })}>
+          <Tabs value={aba} onValueChange={trocarAba}>
             <ListaDeAbas />
 
             {/* Os paineis ficam montados: a busca e controlada pelo prop

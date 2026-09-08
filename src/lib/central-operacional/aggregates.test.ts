@@ -9,7 +9,7 @@ import {
 } from "./aggregates";
 
 test("OS concluídas incluem pagamento e concluído, somando quantidade e valor", () => {
-  assert.deepEqual(COMPLETED_ORDER_STATUSES, ["PAGAMENTO", "CONCLUIDO"]);
+  assert.deepEqual(COMPLETED_ORDER_STATUSES, ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO"]);
   assert.deepEqual(summarizeCompletedOrders([
     { orcamentototal: 120.5 },
     { orcamentototal: "79.50" },

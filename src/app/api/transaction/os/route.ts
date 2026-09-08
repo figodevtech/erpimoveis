@@ -1,3 +1,4 @@
+import { buscarFaturamentoOsHabilitado } from "@/lib/ordens/faturamento-server";
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -8,6 +9,7 @@ import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_au
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { distribuirPorPesos } from "@/lib/financeiro/rateio";
 import { valorDeFace } from "@/lib/financeiro/transacao";
+import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 import { podeRegistrarPagamentoOs } from "@/lib/ordens/financeiro";
 import { aplicarCamposDocumento, erroDeDocumento } from "../_lib/documento";
 import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "../_lib/bandeira";
@@ -314,7 +316,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: problemaNaBandeira }, { status: 400 });
     }
 
-    if (!payload.pendente && (payload.banco_id == null || payload.metodopagamento == null)) {
+    if (erroDeBancoNoLancamento(payload) || (!payload.pendente && payload.metodopagamento == null)) {
       return NextResponse.json(
         { error: "Informe a conta bancária e o método de pagamento para registrar uma transação já realizada." },
         { status: 400 }
@@ -420,7 +422,7 @@ export async function POST(req: Request) {
       if (!os) {
         return NextResponse.json({ error: "Ordem de serviço não encontrada." }, { status: 404 });
       }
-      if (!podeRegistrarPagamentoOs(os.status)) {
+      if (!podeRegistrarPagamentoOs(os.status, await buscarFaturamentoOsHabilitado())) {
         return NextResponse.json(
           {
             error:

@@ -1,6 +1,6 @@
 import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 
-export const COMPLETED_ORDER_STATUSES = ["PAGAMENTO", "CONCLUIDO"] as const;
+export const COMPLETED_ORDER_STATUSES = ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO"] as const;
 
 export type CompletedOrderRow = {
   orcamentototal: number | string | null;

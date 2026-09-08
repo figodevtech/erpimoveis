@@ -88,15 +88,15 @@ const STATUS_MESSAGE: Record<Exclude<ChecklistConviteStatus, "ATIVO">, string> =
 // usando o tema escuro. Classes explícitas evitam que os tokens globais do tema
 // deixem campos e botões sem contraste na experiência pública de assinatura.
 const LIGHT_INPUT_CLASS =
-  "select-text border-slate-300 bg-white text-slate-950 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-500/25";
+  "h-11 select-text border-slate-300 bg-white text-base text-slate-950 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-500/25 md:h-9 md:text-sm";
 const LIGHT_SELECT_CLASS =
-  "h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25";
+  "h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-base text-slate-950 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25 md:h-9 md:text-sm";
 const LIGHT_PRIMARY_BUTTON_CLASS =
-  "bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500/30";
+  "min-h-11 whitespace-normal bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-500/30";
 const LIGHT_OUTLINE_BUTTON_CLASS =
-  "border-slate-300 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-950";
+  "min-h-11 whitespace-normal border-slate-300 bg-white text-slate-900 hover:bg-slate-100 hover:text-slate-950";
 const LIGHT_GHOST_BUTTON_CLASS =
-  "text-slate-700 hover:bg-slate-100 hover:text-slate-950";
+  "min-h-11 text-slate-700 hover:bg-slate-100 hover:text-slate-950";
 
 function preventPageSelection(event: Event) {
   event.preventDefault();
@@ -119,11 +119,14 @@ function statusClass(value: string) {
 function Stepper({ stage }: { stage: Stage }) {
   const current = stage === "ACCESS" ? 1 : stage === "REVIEW" ? 2 : stage === "SIGN" ? 3 : 4;
   return (
-    <ol className="grid grid-cols-4 gap-1" aria-label={`Etapa ${current} de 4`}>
+    <ol className="grid grid-cols-4 gap-1.5 sm:gap-3" aria-label={`Etapa ${current} de 4`}>
       {["Identificação", "Revisão", "Assinatura", "Confirmação"].map((label, index) => (
-        <li key={label} className="min-w-0">
-          <div className={`h-1.5 rounded-full ${index + 1 <= current ? "bg-blue-600" : "bg-slate-200"}`} />
-          <span className={`mt-1 hidden text-[11px] sm:block ${index + 1 === current ? "font-semibold text-blue-700" : "text-slate-500"}`}>{label}</span>
+        <li key={label} className="flex min-w-0 flex-col items-center gap-1.5" aria-current={index + 1 === current ? "step" : undefined}>
+          <span aria-hidden="true" className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${index + 1 <= current ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"}`}>
+            {index + 1 < current ? <CheckCircle2 className="h-4 w-4" /> : index + 1}
+          </span>
+          <span className={`text-[11px] leading-4 sm:text-xs ${index + 1 === current ? "font-semibold text-blue-700" : "text-slate-500"}`}>{label}</span>
+          <div aria-hidden="true" className={`h-1 w-full rounded-full ${index + 1 <= current ? "bg-blue-600" : "bg-slate-200"}`} />
         </li>
       ))}
     </ol>
@@ -147,7 +150,7 @@ function ReviewDocument({ token, content }: { token: string; content: PublicCont
   const assetUrl = (asset: PublicAsset) => `/api/assinar/checklist/${encodeURIComponent(token)}/ativos/${asset.key}`;
   return (
     <article
-      className="overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-slate-200"
+      className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200"
       style={{
         ["--brand-primary" as string]: content.empresa.cores.primaria,
         ["--brand-secondary" as string]: content.empresa.cores.secundaria,
@@ -191,8 +194,8 @@ function ReviewDocument({ token, content }: { token: string; content: PublicCont
               <section className="overflow-hidden rounded-xl border border-slate-200 bg-white" key={`${item.ordem}-${index}`}>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
-                    <h3 className="font-bold text-slate-950">{index + 1}. {item.titulo}</h3>
-                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${statusClass(item.resposta)}`}>{item.resposta}</span>
+                    <h3 className="min-w-0 font-bold text-slate-950">{index + 1}. {item.titulo}</h3>
+                    <span className={`max-w-[45%] shrink-0 rounded-full px-2.5 py-1 text-center text-xs font-bold ${statusClass(item.resposta)}`}>{item.resposta}</span>
                   </div>
                   {item.descricao && <p className="mt-2 text-sm text-slate-600">{item.descricao}</p>}
                   {item.observacao && <p className="mt-2 text-sm"><b>Observação:</b> {item.observacao}</p>}
@@ -235,6 +238,8 @@ function ReviewDocument({ token, content }: { token: string; content: PublicCont
 }
 
 export function ChecklistOnlineSigning({ token }: { token: string }) {
+  const shellRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const selectionLockRef = useRef<{
@@ -258,6 +263,30 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
   const [result, setResult] = useState<{ protocolo: string; pdfPendente: boolean; pdfUrl: string | null; verificacaoUrl: string } | null>(null);
 
   const apiBase = `/api/assinar/checklist/${encodeURIComponent(token)}`;
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (loading || !viewport) return;
+    // O teclado virtual nem sempre reduz 100dvh (especialmente no Safari).
+    // Acompanhe a área visível sem interferir no zoom por gesto.
+    const resize = () => {
+      if (shellRef.current && viewport.scale === 1) {
+        shellRef.current.style.height = `${viewport.height}px`;
+      }
+    };
+    resize();
+    viewport.addEventListener("resize", resize);
+    return () => viewport.removeEventListener("resize", resize);
+  }, [loading]);
+
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+    contentRef.current?.focus({ preventScroll: true });
+  }, [stage]);
+
+  useEffect(() => {
+    if (error) contentRef.current?.scrollTo({ top: 0 });
+  }, [error]);
 
   const loadContent = useCallback(async () => {
     const response = await fetch(`${apiBase}/conteudo`, { cache: "no-store" });
@@ -343,8 +372,13 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
   }, [stage]);
 
   function pointer(event: ReactPointerEvent<HTMLCanvasElement>) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const canvas = event.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const scale = canvas.getContext("2d")?.getTransform().a || 1;
+    return {
+      x: (event.clientX - rect.left) * canvas.width / rect.width / scale,
+      y: (event.clientY - rect.top) * canvas.height / rect.height / scale,
+    };
   }
 
   function lockPageSelection() {
@@ -478,25 +512,28 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
 
   const unavailable = status && status !== "ATIVO" && status !== "UTILIZADO";
   return (
-    <main className="min-h-screen bg-slate-100 px-3 py-5 text-slate-950 [color-scheme:light] sm:px-6 sm:py-9">
-      <div className="mx-auto w-full max-w-6xl space-y-5">
-        <header className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-5">
-          <div className="mb-4 flex items-center gap-3">
-            <span className="rounded-xl bg-blue-600 p-2 text-white"><ShieldCheck className="h-6 w-6" /></span>
-            <div><p className="text-xs font-bold uppercase tracking-widest text-blue-700">Ambiente de assinatura</p><h1 className="text-lg font-bold">Revisão e assinatura de checklist</h1></div>
+    <main ref={shellRef} className="flex h-dvh min-h-0 flex-col overflow-hidden bg-slate-100 text-slate-950 [color-scheme:light] sm:p-4 sm:[@media(max-height:500px)]:p-2">
+      <div className="mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col sm:gap-3">
+        <header className="z-10 shrink-0 border-b border-slate-200 bg-white px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] shadow-sm sm:rounded-2xl sm:border sm:p-5 sm:[@media(max-height:500px)]:p-3">
+          <div className="mb-3 flex items-center gap-3 [@media(max-height:500px)]:mb-2">
+            <span className="shrink-0 rounded-xl bg-blue-600 p-2 text-white [@media(max-height:500px)]:hidden"><ShieldCheck className="h-5 w-5 sm:h-6 sm:w-6" /></span>
+            <div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-widest text-blue-700 sm:text-xs [@media(max-height:500px)]:hidden">Ambiente de assinatura</p><h1 className="text-sm font-bold sm:text-lg">Revisão e assinatura de checklist</h1></div>
           </div>
           <Stepper stage={stage} />
         </header>
 
+        <div ref={contentRef} tabIndex={-1} aria-label="Conteúdo da etapa" className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] outline-none [overflow-wrap:anywhere] sm:p-1">
+          <div className="space-y-4 sm:space-y-5">
+
         {(error || unavailable) && (
-          <div className="flex gap-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">
+          <div role="alert" className="flex gap-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900">
             <AlertTriangle className="h-5 w-5 shrink-0" />
             <span>{error || (status && status !== "ATIVO" ? STATUS_MESSAGE[status as Exclude<ChecklistConviteStatus, "ATIVO">] : "Convite indisponível.")}</span>
           </div>
         )}
 
         {stage === "ACCESS" && !unavailable && status === "ATIVO" && (
-          <section className="mx-auto w-full max-w-lg select-none rounded-2xl bg-white p-6 shadow-xl ring-1 ring-slate-200 sm:p-8">
+          <section className="mx-auto w-full max-w-lg select-none rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-8">
             <LockKeyhole className="mb-4 h-10 w-10 text-blue-600" />
             <h2 className="text-xl font-bold">Confirme sua identidade</h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">Informe o CPF indicado pela oficina e a senha numérica recebida em mensagem separada.</p>
@@ -519,15 +556,10 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
           </section>
         )}
 
-        {stage === "REVIEW" && content && <>
-          <ReviewDocument token={token} content={content} />
-          <div className="sticky bottom-3 z-20 flex justify-end rounded-xl border bg-white/95 p-3 shadow-xl backdrop-blur">
-            <Button className={LIGHT_PRIMARY_BUTTON_CLASS} onClick={() => setStage("SIGN")}><PenLine className="mr-2 h-4 w-4" />Li o checklist e quero assinar</Button>
-          </div>
-        </>}
+        {stage === "REVIEW" && content && <ReviewDocument token={token} content={content} />}
 
         {stage === "SIGN" && content && (
-          <section className="mx-auto w-full max-w-3xl select-none rounded-2xl bg-white p-5 shadow-xl ring-1 ring-slate-200 sm:p-8">
+          <section className="mx-auto w-full max-w-3xl select-none rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:p-8">
             <h2 className="text-xl font-bold">Identificação e assinatura</h2>
             <p className="mt-2 text-sm text-slate-600">O CPF foi validado no acesso e está bloqueado para esta assinatura.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -550,12 +582,8 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
                 onLostPointerCapture={(event) => { if (!event.isPrimary) return; drawingRef.current = false; unlockPageSelection(); }}
               />
             </div>
-            <label className="mt-5 flex items-start gap-3 rounded-xl border bg-slate-50 p-4 text-sm leading-relaxed"><input className="mt-1 h-4 w-4 shrink-0 accent-blue-600" type="checkbox" checked={aware} onChange={(event) => setAware(event.target.checked)} /><span>{content.declaracao}</span></label>
+            <label className="mt-5 flex items-start gap-3 rounded-xl border bg-slate-50 p-4 text-sm leading-relaxed"><input className="mt-1 h-5 w-5 shrink-0 accent-blue-600" type="checkbox" checked={aware} onChange={(event) => setAware(event.target.checked)} /><span>{content.declaracao}</span></label>
             <p className="mt-3 text-xs text-slate-500">Método: assinatura eletrônica simples remota — link secreto, CPF e senha. Este fluxo não declara certificação ICP-Brasil.</p>
-            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-              <Button className={LIGHT_OUTLINE_BUTTON_CLASS} variant="outline" onClick={() => setStage("REVIEW")} disabled={submitting}><ArrowLeft className="mr-2 h-4 w-4" />Voltar à revisão</Button>
-              <Button className={LIGHT_PRIMARY_BUTTON_CLASS} onClick={() => void sign()} disabled={submitting || !aware || name.trim().length < 3}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PenLine className="mr-2 h-4 w-4" />}Confirmar assinatura</Button>
-            </div>
           </section>
         )}
 
@@ -573,6 +601,21 @@ export function ChecklistOnlineSigning({ token }: { token: string }) {
             <div className="mt-4"><Button className={LIGHT_OUTLINE_BUTTON_CLASS} variant="outline" asChild><a href={result.verificacaoUrl} target="_blank" rel="noreferrer"><FileCheck2 className="mr-2 h-4 w-4" />Verificar autenticidade</a></Button></div>
             <p className="mt-6 text-xs leading-relaxed text-slate-500">Quando esta sessão terminar, o PDF continuará disponível na página permanente de verificação mediante informação do CPF completo usado na assinatura.</p>
           </section>
+        )}
+          </div>
+        </div>
+
+        {(stage === "REVIEW" || stage === "SIGN") && content && (
+          <footer className="z-10 shrink-0 border-t border-slate-200 bg-white px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:rounded-2xl sm:border sm:p-3">
+            <div className="mx-auto flex w-full max-w-3xl flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              {stage === "REVIEW" ? (
+                <Button className={`w-full sm:w-auto ${LIGHT_PRIMARY_BUTTON_CLASS}`} onClick={() => setStage("SIGN")}><PenLine className="mr-2 h-4 w-4" />Li o checklist e quero assinar</Button>
+              ) : <>
+                <Button className={LIGHT_OUTLINE_BUTTON_CLASS} variant="outline" onClick={() => setStage("REVIEW")} disabled={submitting}><ArrowLeft className="mr-2 h-4 w-4" />Voltar à revisão</Button>
+                <Button className={LIGHT_PRIMARY_BUTTON_CLASS} onClick={() => void sign()} disabled={submitting || !aware || name.trim().length < 3}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PenLine className="mr-2 h-4 w-4" />}Confirmar assinatura</Button>
+              </>}
+            </div>
+          </footer>
         )}
       </div>
     </main>

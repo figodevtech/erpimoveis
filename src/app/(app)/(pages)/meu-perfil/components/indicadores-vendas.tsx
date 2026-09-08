@@ -35,6 +35,9 @@ type Tile = {
 
 function montar(dados: IndicadoresVendas): Tile[] {
   return [
+    { chave: "comissao", rotulo: "Comissão apurada", icone: TicketPercent,
+      valor: dados.comissao ?? 0, tom: "text-violet-600 dark:text-violet-400",
+      nota: "Valor registrado para o vendedor. A comissão apurada ainda pode estar aguardando lançamento ou pagamento pelo financeiro." },
     {
       chave: "produtos",
       rotulo: "Produtos",
@@ -70,7 +73,7 @@ function montar(dados: IndicadoresVendas): Tile[] {
   ];
 }
 
-const GRADE = "grid grid-cols-2 gap-2 xl:grid-cols-4";
+const GRADE = "grid grid-cols-2 gap-2 xl:grid-cols-5";
 
 export function IndicadoresDeVendas({
   dados,
@@ -82,7 +85,7 @@ export function IndicadoresDeVendas({
   if (!dados) {
     return (
       <div className={GRADE}>
-        {Array.from({ length: 4 }).map((_, indice) => (
+        {Array.from({ length: 5 }).map((_, indice) => (
           <div key={indice} className="rounded-lg border bg-card p-3">
             <Skeleton className="mb-2 h-3 w-24" />
             <Skeleton className="h-5 w-20" />

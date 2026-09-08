@@ -75,7 +75,8 @@ export async function GET(req: Request) {
         .in("ordemservicoid", ids),
       // A comissão paga por ter aberto a ordem. Vem do snapshot, nunca de um
       // cálculo refeito aqui: é o mesmo número que o evento financeiro publica
-      // e que o financeiro lança no a pagar.
+      // e que o financeiro lança no a pagar. São várias linhas por OS — uma por
+      // item —, e o card mostra o total.
       //
       // O filtro por `usuarioid` não é redundante com o recorte das OS: o
       // criador é carimbado na primeira apuração e não acompanha troca de
@@ -83,7 +84,7 @@ export async function GET(req: Request) {
       // apurada em nome de quem a abriu.
       supabaseAdmin
         .from("os_comissao_criacao")
-        .select("valor_comissao")
+        .select("ordemservicoid, valor_comissao")
         .eq("usuarioid", userId)
         .in("ordemservicoid", ids),
     ]);
@@ -111,6 +112,7 @@ export async function GET(req: Request) {
       if (geraComissao !== false) servicosComComissao += subtotal;
     }
 
+    // Várias linhas por OS — uma por item —, e o card mostra o total.
     const comissaoCriacao = (comissaoRes.data ?? []).reduce(
       (acc, item) => acc + num((item as Record<string, unknown>).valor_comissao),
       0,

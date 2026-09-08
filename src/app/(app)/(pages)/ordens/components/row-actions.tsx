@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { useSession } from "next-auth/react";
 
 import { Button } from "@/components/ui/button";
@@ -121,6 +122,8 @@ export function RowActions<TRow extends RowBase>({
 }) {
   const { data: session } = useSession();
   const config = useConfig();
+  const [transicao, setTransicao] = React.useState<"FATURAMENTO" | "PAGAMENTO" | null>(null);
+  const [salvando, setSalvando] = React.useState(false);
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.ORDENS_EDITAR);
   const canFinanceiroEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO_EDITAR);
   const canNotasFiscais = permissionSetHas(
@@ -138,7 +141,7 @@ export function RowActions<TRow extends RowBase>({
   const isFinalState = st === "CANCELADO" || st === "FINALIZADA" || st === "CONCLUIDO" || st === "SEM_COBRANCA";
 
   // Checklist editável até EM_ANDAMENTO. A partir de PAGAMENTO não aparece.
-  const showChecklist = canEdit && !isFinalState && st !== "PAGAMENTO";
+  const showChecklist = canEdit && !isFinalState && st !== "PAGAMENTO" && st !== "FATURAMENTO";
 
   // ✅ reset: exceto aguardando_orcamento e orcamento, e exceto finais
   const showResetOS = canEdit && !isFinalState && st !== "AGUARDANDO_ORCAMENTO" && st !== "ORCAMENTO" && st !== "AGUARDANDO_CHECKLIST";
@@ -163,17 +166,18 @@ export function RowActions<TRow extends RowBase>({
   // Enviar p/ aprovação
   const showSendToApproval = canEdit && policy.showSendToApproval && (st === "ORCAMENTO" || st === "ORCAMENTO_RECUSADO");
 
-  const showEmissaoDeNota = !migrada && (config?.emissao_nf_ordens_nao_pagas ? st === "CONCLUIDO" || st === "PAGAMENTO" : st === "CONCLUIDO");
+  const showEmissaoDeNota = !migrada && (config?.emissao_nf_ordens_nao_pagas ? st === "CONCLUIDO" || st === "PAGAMENTO" || st === "FATURAMENTO" : st === "CONCLUIDO");
 
   // Produção / Pagamento
   const showStart = canEdit && policy.showStart && st === "ORCAMENTO_APROVADO";
   const showSendToPayment = canEdit && policy.showSendToPayment && st === "EM_ANDAMENTO";
-  const showReceivePayment = canFinanceiroEdit && policy.showReceivePayment && st === "PAGAMENTO";
+  const showReceivePayment = canFinanceiroEdit && policy.showReceivePayment && st === (config?.habilitar_faturamento_os ? "FATURAMENTO" : "PAGAMENTO");
   const showFinishNoCharge = canEdit && canFinishNoCharge && st === "EM_ANDAMENTO";
-  const showRegistrarSaida = !migrada && canEdit && ["PAGAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(st)
+  const showRegistrarSaida = !migrada && canEdit && ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO", "SEM_COBRANCA"].includes(st)
     && !(row.dataSaida ?? row.datasaida);
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="h-8 w-8 p-0">
@@ -184,6 +188,17 @@ export function RowActions<TRow extends RowBase>({
 
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>Ações</DropdownMenuLabel>
+        {canEdit && config?.habilitar_faturamento_os && (st === "PAGAMENTO" || st === "FATURAMENTO") && (
+          <DropdownMenuItem onClick={() => {
+            if (st === "PAGAMENTO") {
+              setConfirmRow(row);
+              setConfirmOpen(true);
+            } else setTransicao("PAGAMENTO");
+          }}>
+            <Send className="mr-2 h-4 w-4" />
+            {st === "PAGAMENTO" ? "Enviar para faturamento" : "Devolver para pagamento"}
+          </DropdownMenuItem>
+        )}
 
         {showChecklist && (
           <DropdownMenuItem
@@ -356,5 +371,28 @@ export function RowActions<TRow extends RowBase>({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <AlertDialog open={transicao !== null} onOpenChange={(open) => { if (!open && !salvando) setTransicao(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{transicao === "FATURAMENTO" ? "Enviar para faturamento" : "Devolver para pagamento"} — OS #{row.id}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {transicao === "FATURAMENTO"
+              ? "Confirme que o pagamento ou acordo com o cliente foi acertado. A OS ficará disponível para registrar recebimentos ou títulos no financeiro."
+              : "A OS voltará a aguardar pagamento. Todos os lançamentos existentes serão preservados."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={salvando}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction disabled={salvando} onClick={async (event) => {
+            event.preventDefault();
+            if (!transicao) return;
+            setSalvando(true);
+            try { const ok = await setStatus(row.id, transicao); if (ok !== false) setTransicao(null); }
+            finally { setSalvando(false); }
+          }}>{salvando ? "Salvando..." : "Confirmar"}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

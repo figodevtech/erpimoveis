@@ -155,7 +155,11 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
   function point(event: ReactPointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
-    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const scale = canvas.getContext("2d")?.getTransform().a || 1;
+    return {
+      x: (event.clientX - rect.left) * canvas.width / rect.width / scale,
+      y: (event.clientY - rect.top) * canvas.height / rect.height / scale,
+    };
   }
 
   function lockPageSelection() {
@@ -260,13 +264,14 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[94vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[calc(100dvh-1rem)] max-w-[calc(100%-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b p-4 pr-10 text-left sm:p-6 sm:pr-10">
           <DialogTitle>Assinar presencialmente</DialogTitle>
           <DialogDescription>
             O cliente ou responsável assina neste dispositivo. O operador autenticado ficará registrado como coletor.
           </DialogDescription>
         </DialogHeader>
+        <div className="min-h-0 space-y-4 overflow-y-auto overscroll-y-contain p-4 [overflow-wrap:anywhere] [&_input:not([type=checkbox])]:h-11 sm:p-6">
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1.5 text-sm">
             <span className="font-medium">Nome completo</span>
@@ -278,7 +283,7 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
           </label>
           <label className="space-y-1.5 text-sm">
             <span className="font-medium">Função</span>
-            <select className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm" value={quality} onChange={(event) => setQuality(event.target.value as ChecklistSignatarioQualidade)}>
+            <select className="border-input bg-background h-11 w-full rounded-md border px-3 text-base md:text-sm" value={quality} onChange={(event) => setQuality(event.target.value as ChecklistSignatarioQualidade)}>
               {Object.entries(CHECKLIST_QUALIDADE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
@@ -292,7 +297,7 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
         <div className="space-y-2 select-none [-webkit-touch-callout:none]">
           <div className="flex items-center justify-between gap-3">
             <span className="text-sm font-medium">Assinatura desenhada</span>
-            <Button type="button" variant="ghost" size="sm" onClick={prepareCanvas}><RotateCcw className="mr-1.5 h-4 w-4" />Limpar</Button>
+            <Button className="min-h-11" type="button" variant="ghost" size="sm" onClick={prepareCanvas}><RotateCcw className="mr-1.5 h-4 w-4" />Limpar</Button>
           </div>
           <canvas
             ref={canvasRef}
@@ -308,13 +313,14 @@ function SignatureDialog({ publicId, open, onOpenChange }: { publicId: string; o
           />
         </div>
         <label className="flex items-start gap-3 rounded-md border bg-muted/30 p-3 text-sm leading-relaxed">
-          <input className="mt-1 h-4 w-4" type="checkbox" checked={aware} onChange={(event) => setAware(event.target.checked)} />
+          <input className="mt-1 h-5 w-5 shrink-0" type="checkbox" checked={aware} onChange={(event) => setAware(event.target.checked)} />
           <span>{CHECKLIST_DECLARACAO}</span>
         </label>
         <p className="text-xs text-muted-foreground">
           Método: assinatura eletrônica simples presencial.
         </p>
-        <DialogFooter>
+        </div>
+        <DialogFooter className="shrink-0 border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] [&_button]:h-auto [&_button]:min-h-11 [&_button]:whitespace-normal sm:p-4">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancelar</Button>
           <Button type="button" onClick={() => void submit()} disabled={saving}>
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PenLine className="mr-2 h-4 w-4" />}
@@ -395,7 +401,7 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
   }
 
   const actions = official ? (
-    <div className="print:hidden flex flex-wrap items-center gap-2">
+    <div className="checklist-actions print:hidden flex flex-wrap items-center gap-2">
       <Button asChild variant="outline" size="sm"><Link href="/ordens">Voltar</Link></Button>
       <Button asChild size="sm"><a href={`/api/checklist-documentos/${document.publicId}/pdf`} target="_blank" rel="noreferrer"><FileCheck2 className="mr-2 h-4 w-4" />Abrir / imprimir PDF oficial</a></Button>
       <Button asChild variant="outline" size="sm"><a href={`/api/checklist-documentos/${document.publicId}/pdf`} download><Download className="mr-2 h-4 w-4" />Baixar oficial</a></Button>
@@ -407,7 +413,7 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
       )}
     </div>
   ) : signed ? (
-    <div className="print:hidden flex flex-wrap items-center gap-2">
+    <div className="checklist-actions print:hidden flex flex-wrap items-center gap-2">
       <Button asChild variant="outline" size="sm"><Link href="/ordens">Voltar</Link></Button>
       <Button size="sm" onClick={() => void retryPdf()} disabled={!canSign || retrying}>
         {retrying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
@@ -415,7 +421,7 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
       </Button>
     </div>
   ) : (
-    <div className="print:hidden flex flex-wrap items-center gap-2">
+    <div className="checklist-actions print:hidden flex flex-wrap items-center gap-2">
       <A4PdfActions filename={`${document.codigo}-PROVISORIO.pdf`} backHref="/ordens" selector=".print-generated-page.checklist-report-sheet" />
       <Button size="sm" onClick={() => setSignatureOpen(true)} disabled={!canSign || !document.maisRecente} title={!document.maisRecente ? "Somente a versão mais recente pode ser assinada." : undefined}>
         <PenLine className="mr-2 h-4 w-4" />Assinar presencialmente
@@ -432,7 +438,7 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
 
   return (
     <main className="checklist-print-page min-h-screen bg-slate-100 px-3 py-4 text-slate-950 sm:px-6">
-      <div className="mx-auto mb-4 flex max-w-[210mm] flex-col gap-3">
+      <div className="mx-auto mb-4 flex max-w-[210mm] flex-col gap-3 print:hidden">
         {actions}
         {outdatedOfficial && (
           <div className="print:hidden flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
@@ -454,6 +460,8 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
         )}
       </div>
 
+      <p className="mx-auto mb-2 max-w-[210mm] text-xs text-slate-600 min-[850px]:hidden print:hidden">Prévia A4 · deslize o documento para os lados para ver todos os detalhes.</p>
+      <div className="max-w-full overflow-x-auto overscroll-x-contain pb-4 print:overflow-visible print:pb-0" role="region" aria-label="Prévia do checklist em formato A4" tabIndex={0}>
       <div data-print-pagination-root data-print-pagination-repeat-header data-print-pagination-number-pages>
         <PrintA4Paginator />
         <div data-print-pagination-source-holder>
@@ -575,6 +583,7 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
           </article>
         </div>
       </div>
+      </div>
       <SignatureDialog publicId={document.publicId} open={signatureOpen} onOpenChange={setSignatureOpen} />
       <style jsx global>{`
         ${PRINT_DOCUMENT_HEADER_CSS}
@@ -588,7 +597,12 @@ export function ChecklistReport({ document, assetUrls, canSign }: {
         .checklist-context dl>div{min-width:0;padding:3px 6px;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;font-size:7.2px;line-height:1.2}.checklist-context dt{color:#64748b;font-size:5.8px;font-weight:700;text-transform:uppercase}.checklist-context dd{margin:1px 0 0;overflow-wrap:anywhere}
         .checklist-items-table{width:100%;margin-top:5px;border-collapse:collapse;table-layout:fixed}.checklist-items-table th{padding:5px 8px;background:#e2e8f0;text-align:left;font-size:7.5px;text-transform:uppercase}.checklist-items-table td{padding:8px;border:1px solid #dbe1e8;font-size:8.3px;line-height:1.35;overflow-wrap:anywhere;break-inside:avoid}.item-title{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;font-size:9.3px;font-weight:700}.item-title span{min-width:0}.item-title strong{flex:none;border-radius:999px;padding:2px 7px;font-size:7px}.item-copy p{margin:4px 0 0}.status-ok{background:#dcfce7;color:#166534}.status-alerta{background:#fef3c7;color:#92400e}.status-falha{background:#fee2e2;color:#991b1b}.status-outro{background:#e2e8f0;color:#334155}.item-description{color:#64748b}.item-meta{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px;color:#64748b;font-size:7px}.compact-items-cell{padding:8px!important}.compact-items-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-items:stretch}.compact-items-grid-single .compact-item-card{grid-column:1/-1;width:calc(50% - 4px);justify-self:center}.compact-item-card{display:flex;min-width:0;flex-direction:column;padding:8px;border:1px solid #dbe1e8;border-radius:5px;background:#fff;break-inside:avoid}.compact-item-card .item-title strong{max-width:46%;white-space:normal;text-align:center}.compact-photo-card{margin-top:auto;padding-top:7px;border-top:1px solid #e2e8f0}.photo-cell{text-align:center}.photo-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.photo-grid-single .photo-card{grid-column:1/-1;width:calc(50% - 4px);justify-self:center}.photo-card{min-width:0;break-inside:avoid}.photo-context{margin-bottom:6px;text-align:left;font-size:8px;font-weight:700}.photo-card img{display:block;width:100%;height:210px;object-fit:contain;background:#f8fafc}.compact-photo-card img{height:155px}.photo-card p{margin:4px 0 0;color:#64748b;font-size:7.5px}.checklist-final-block{padding-top:8px;font-size:8px;line-height:1.4}.signature-image{display:block;width:260px;height:90px;object-fit:contain;border-bottom:1px solid #0f172a}.signature-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 15px;margin-top:7px}.hashes{margin-top:7px;color:#64748b;font-family:monospace;font-size:6.3px;overflow-wrap:anywhere}.provisional-notice{border:2px dashed #ef4444;padding:12px;text-align:center;color:#991b1b}.checklist-provisional::after{content:"PROVISÓRIO";position:absolute;left:50%;top:55%;z-index:0;transform:translate(-50%,-50%) rotate(-32deg);color:rgba(220,38,38,.075);font-size:76px;font-weight:900;letter-spacing:.12em;pointer-events:none}.checklist-provisional>*{position:relative;z-index:1}
         @media print{body{background:#fff!important}.checklist-print-page{padding:0!important;background:#fff!important}.checklist-report-sheet{box-shadow:none!important}.print-generated-page-number{bottom:4mm}.checklist-report-sheet .conteudo{padding-bottom:24px}@page{size:A4;margin:0}}
-        @media(max-width:850px){.checklist-report-sheet{transform-origin:top left}.checklist-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+        @media screen and (max-width:639px){
+          .checklist-actions{display:grid;grid-template-columns:minmax(0,1fr);width:100%;padding:12px;border:1px solid #e2e8f0;border-radius:12px;background:#fff}
+          .checklist-actions>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+          .checklist-actions [data-slot=button]{width:100%;height:auto;min-height:44px;white-space:normal;padding:8px;font-size:12px;gap:4px}
+          .checklist-actions [data-slot=button] svg{margin-right:0}
+        }
       `}</style>
     </main>
   );
