@@ -12,9 +12,12 @@
     }
   },
   "crons": [
-    {
-      "path": "/api/integracoes/mercadolivre/cron",
-      "schedule": "*/15 * * * *"
-    }
+    { "path": "/api/integracoes/mercadolivre/cron?job=notifications", "schedule": "0,15,30,45 * * * *" },
+    { "path": "/api/integracoes/mercadolivre/cron?job=stock", "schedule": "5,20,35,50 * * * *" },
+    { "path": "/api/integracoes/mercadolivre/cron?job=orders", "schedule": "2,32 * * * *" },
+    { "path": "/api/integracoes/mercadolivre/cron?job=shipments", "schedule": "7,37 * * * *" },
+    { "path": "/api/integracoes/mercadolivre/cron?job=invoices", "schedule": "12,42 * * * *" },
+    { "path": "/api/integracoes/mercadolivre/cron?job=items", "schedule": "17 * * * *" },
+    { "path": "/api/integracoes/mercadolivre/cron?job=metrics", "schedule": "22 */6 * * *" }
   ]
 }

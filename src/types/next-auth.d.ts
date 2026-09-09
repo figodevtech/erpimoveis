@@ -28,6 +28,8 @@ declare module "next-auth" {
     supabaseAccessToken?: string | null;
     supabaseRefreshToken?: string | null;
     supabaseAccessTokenExpiresAt?: number | null;
+    supabaseRefreshFailures?: number | null;
+    supabaseRefreshRetryAt?: number | null;
   }
 }
 
@@ -44,5 +46,7 @@ declare module "next-auth/jwt" {
     supabaseAccessToken?: string | null;
     supabaseRefreshToken?: string | null;
     supabaseAccessTokenExpiresAt?: number | null;
+    supabaseRefreshFailures?: number | null;
+    supabaseRefreshRetryAt?: number | null;
   }
 }

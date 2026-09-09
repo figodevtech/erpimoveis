@@ -15,6 +15,7 @@ import {
   registerLoginFailure,
 } from "@/lib/login-rate-limit";
 import { createSupabasePasswordAuthClient } from "@/lib/supabase-password-auth";
+import { isTerminalSupabaseRefreshFailure, supabaseRefreshRetryDelayMs } from "@/lib/auth-refresh-policy";
 
 const MAX_AGE_SECONDS = 60 * 60 * 24; // 24h
 
@@ -91,6 +92,7 @@ async function renovarSessaoSupabaseSeNecessario(token: any) {
   const expiresAt = Number(token.supabaseAccessTokenExpiresAt ?? 0);
   if (token.supabaseAccessToken && expiresAt > Date.now() + 60_000) return token;
   if (!token.supabaseRefreshToken) return token;
+  if (Number(token.supabaseRefreshRetryAt ?? 0) > Date.now()) return token;
 
   try {
     const passwordAuth = createSupabasePasswordAuthClient();
@@ -102,13 +104,22 @@ async function renovarSessaoSupabaseSeNecessario(token: any) {
     token.supabaseAccessToken = data.session.access_token;
     token.supabaseRefreshToken = data.session.refresh_token;
     token.supabaseAccessTokenExpiresAt = (data.session.expires_at ?? 0) * 1_000;
+    token.supabaseRefreshFailures = 0;
+    token.supabaseRefreshRetryAt = null;
   } catch (error) {
-    // A sessao principal continua valida. Somente o Realtime fica indisponivel
-    // ate um novo login, sem ampliar a falha para as demais funcoes do ERP.
     console.warn("[auth] nao foi possivel renovar a sessao Supabase do Realtime:", error);
-    token.supabaseAccessToken = null;
-    token.supabaseRefreshToken = null;
-    token.supabaseAccessTokenExpiresAt = null;
+    if (isTerminalSupabaseRefreshFailure(error)) {
+      token.supabaseAccessToken = null;
+      token.supabaseRefreshToken = null;
+      token.supabaseAccessTokenExpiresAt = null;
+      token.supabaseRefreshFailures = 0;
+      token.supabaseRefreshRetryAt = null;
+    } else {
+      const failures = Number(token.supabaseRefreshFailures ?? 0) + 1;
+      token.supabaseRefreshFailures = failures;
+      token.supabaseRefreshRetryAt = Date.now() + supabaseRefreshRetryDelayMs(failures);
+      if (expiresAt <= Date.now()) token.supabaseAccessToken = null;
+    }
   }
 
   return token;
