@@ -29,7 +29,7 @@ import {
 } from "../../src/lib/financeiro/plano-contas/sugestao";
 import { projectRoot } from "./lib";
 
-const BANCOS = ["demo", "demir", "alpha", "garage"] as const;
+const BANCOS = ["demo", "demir", "garage"] as const;
 
 type Grupo = {
   id: number;

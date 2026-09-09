@@ -9,7 +9,7 @@ const { Client } = pg;
 
 export const projectRoot = path.resolve(import.meta.dirname, "../..");
 
-export type DatabaseKey = "demo" | "demir" | "alpha" | "garage";
+export type DatabaseKey = "demo" | "demir" | "garage";
 
 export type DatabaseConfig = {
   key: DatabaseKey;
@@ -50,16 +50,6 @@ const DATABASES: Omit<DatabaseConfig, "url">[] = [
     label: "Demir",
     projectRef: "lkpwaiynvnfedvxcjmrp",
     envName: "ERP_DB_DEMIR",
-    poolerHosts: [
-      "aws-0-sa-east-1.pooler.supabase.com",
-      "aws-1-sa-east-1.pooler.supabase.com",
-    ],
-  },
-  {
-    key: "alpha",
-    label: "AlphaGarage",
-    projectRef: "mbiztfbgsctkuutaldph",
-    envName: "ERP_DB_ALPHA",
     poolerHosts: [
       "aws-0-sa-east-1.pooler.supabase.com",
       "aws-1-sa-east-1.pooler.supabase.com",

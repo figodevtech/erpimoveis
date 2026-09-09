@@ -19,7 +19,7 @@ import {
   type DatabaseKey,
 } from "./lib";
 
-const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "alpha", "garage"];
+const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "garage"];
 
 async function main() {
   const [arquivoArg, bancoArg] = process.argv.slice(2);

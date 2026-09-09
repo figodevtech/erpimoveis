@@ -27,7 +27,7 @@ import {
   type DatabaseKey,
 } from "./lib";
 
-const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "alpha", "garage"];
+const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "garage"];
 
 type Consulta = { nome: string; sql: string; params?: unknown[] };
 

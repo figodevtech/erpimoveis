@@ -9,7 +9,7 @@ import {
   type DatabaseKey,
 } from "./lib";
 
-const VALID_DATABASES: DatabaseKey[] = ["demo", "demir", "alpha", "garage"];
+const VALID_DATABASES: DatabaseKey[] = ["demo", "demir", "garage"];
 const MIGRATION = "supabase/migrations/20260901233000_entrada_fiscal_hibrida.sql";
 const CHECKS = "supabase/tests/entrada_fiscal_hibrida.sql";
 
