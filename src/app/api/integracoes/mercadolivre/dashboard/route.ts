@@ -85,7 +85,7 @@ export async function GET() {
           .from("mercadolivre_sync_run")
           .select("id, job_name, trigger_source, status, summary, error, started_at, completed_at, duration_ms")
           .order("started_at", { ascending: false })
-          .limit(20),
+          .limit(50),
         supabaseAdmin
           .from("mercadolivre_price_sync_log")
           .select("id, produto_id, ml_item_id, direction, source, status, erp_price_before, erp_price_after, ml_price_before, ml_price_after, message, created_at, completed_at")
@@ -281,18 +281,39 @@ function buildDiagnostics(params: {
     ? { id: "environment", label: "Configuração do ambiente", status: "error", message: `Variáveis ausentes: ${requiredEnvironment.join(", ")}.` }
     : { id: "environment", label: "Configuração do ambiente", status: "ok", message: "Credenciais OAuth e chave do agendador configuradas." });
 
-  const latestRun = params.syncRuns[0];
-  const latestRunAt = latestRun?.completed_at || latestRun?.started_at;
-  const runAgeMinutes = latestRunAt ? (now - new Date(latestRunAt).getTime()) / 60_000 : Number.POSITIVE_INFINITY;
-  checks.push(!latestRun
+  const expectedJobs = ["NOTIFICATIONS", "ORDERS", "ITEMS", "SHIPMENTS", "STOCK", "INVOICES", "METRICS"];
+  const hasSplitRuns = params.syncRuns.some((run) => expectedJobs.includes(String(run.job_name).toUpperCase()));
+  const latestByJob = new Map<string, any>();
+  for (const run of params.syncRuns) {
+    const name = String(run.job_name).toUpperCase();
+    if (!latestByJob.has(name)) latestByJob.set(name, run);
+  }
+  const relevantRuns = hasSplitRuns ? expectedJobs.map((job) => latestByJob.get(job)).filter(Boolean) : params.syncRuns.slice(0, 1);
+  const failedJobs = relevantRuns.filter((run) => run.status === "ERRO" || run.status === "PARCIAL");
+  const stuckJobs = relevantRuns.filter((run) => run.status === "PROCESSANDO" && now - new Date(run.started_at).getTime() > 12 * 60_000);
+  const missingJobs = hasSplitRuns ? expectedJobs.filter((job) => !latestByJob.has(job)) : [];
+  const staleJobs = relevantRuns.filter((run) => {
+    const at = run.completed_at || run.started_at;
+    const jobName = String(run.job_name).toUpperCase();
+    const allowedMinutes = jobName === "METRICS"
+      ? 390
+      : jobName === "ITEMS"
+        ? 90
+        : ["ORDERS", "SHIPMENTS", "INVOICES"].includes(jobName)
+          ? 65
+          : 35;
+    return at && now - new Date(at).getTime() > allowedMinutes * 60_000;
+  });
+  const latestRunAt = relevantRuns.map((run) => run.completed_at || run.started_at).filter(Boolean).sort().at(-1) ?? null;
+  checks.push(!relevantRuns.length
     ? { id: "scheduler", label: "Agendador", status: "warning", message: "Nenhuma execução automática foi registrada." }
-    : latestRun.status === "PROCESSANDO" && runAgeMinutes > 15
-      ? { id: "scheduler", label: "Agendador", status: "error", message: "A última execução está presa em processamento há mais de 15 minutos.", updatedAt: latestRunAt }
-    : latestRun.status === "ERRO"
-      ? { id: "scheduler", label: "Agendador", status: "error", message: latestRun.error || "A última execução falhou.", updatedAt: latestRunAt }
-      : runAgeMinutes > 30
-        ? { id: "scheduler", label: "Agendador", status: "warning", message: `Última execução há ${Math.floor(runAgeMinutes)} minutos.`, updatedAt: latestRunAt }
-        : { id: "scheduler", label: "Agendador", status: latestRun.status === "PARCIAL" ? "warning" : "ok", message: latestRun.status === "PARCIAL" ? "A última execução terminou com falhas parciais." : "Rotina automática executada recentemente.", updatedAt: latestRunAt });
+    : stuckJobs.length
+      ? { id: "scheduler", label: "Agendador", status: "error", message: `Etapa(s) presa(s): ${stuckJobs.map((run) => run.job_name).join(", ")}.`, updatedAt: latestRunAt }
+      : failedJobs.length
+        ? { id: "scheduler", label: "Agendador", status: "error", message: `Falha em: ${failedJobs.map((run) => run.job_name).join(", ")}.`, updatedAt: latestRunAt }
+        : missingJobs.length || staleJobs.length
+          ? { id: "scheduler", label: "Agendador", status: "warning", message: `Etapas sem execução recente: ${[...missingJobs, ...staleJobs.map((run) => run.job_name)].join(", ")}.`, updatedAt: latestRunAt }
+          : { id: "scheduler", label: "Agendador", status: "ok", message: hasSplitRuns ? "Todas as etapas automáticas estão sendo executadas." : "Rotina automática executada recentemente.", updatedAt: latestRunAt });
 
   const notificationErrors = params.notifications.filter((row) => String(row.status).toUpperCase() === "ERRO");
   const notificationPending = params.notifications.filter((row) => ["RECEBIDA", "PROCESSANDO"].includes(String(row.status).toUpperCase()));
