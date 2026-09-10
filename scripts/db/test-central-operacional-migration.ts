@@ -15,7 +15,7 @@ import {
   type DatabaseKey,
 } from "./lib";
 
-const VALID_DATABASES: DatabaseKey[] = ["demo", "demir", "alpha", "garage"];
+const VALID_DATABASES: DatabaseKey[] = ["demo", "demir", "garage"];
 const MIGRATION = "supabase/migrations/20260828140000_central_operacional_fase1.sql";
 const CHECKS = "supabase/tests/central_operacional.sql";
 

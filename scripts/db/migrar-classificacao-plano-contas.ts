@@ -30,7 +30,7 @@ import {
 } from "../../src/lib/financeiro/plano-contas/sugestao";
 import { connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "./lib";
 
-const BANCOS: DatabaseKey[] = ["demo", "demir", "alpha", "garage"];
+const BANCOS: DatabaseKey[] = ["demo", "demir", "garage"];
 
 type Proposta = {
   entidade: "GRUPO" | "CONTA";

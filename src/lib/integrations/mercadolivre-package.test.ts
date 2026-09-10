@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { extractMercadoLivrePackageSnapshot } from "./mercadolivre-package";
 
-test("extrai medidas do formato de shipping do Mercado Livre", () => {
+test("extrai medidas no formato documentado altura x largura x comprimento, peso", () => {
   assert.deepEqual(extractMercadoLivrePackageSnapshot({ shipping: { dimensions: "20x15x10,300" } }), {
-    package_length_cm: 20,
+    package_length_cm: 10,
     package_width_cm: 15,
-    package_height_cm: 10,
+    package_height_cm: 20,
     package_weight_grams: 300,
   });
 });

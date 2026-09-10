@@ -13,20 +13,10 @@ export async function GET() {
     await requireVendasEdit();
     const empresaId = await requireEmpresaId();
     const account = await getDefaultAccount(empresaId);
-    const searches = await Promise.all(
-      ["active", "paused", "closed"].map((status) =>
-        mercadoLivreApiGet<any>(
-          account.access_token,
-          `/users/${account.ml_user_id}/items/search?status=${status}&limit=100`,
-        ),
-      ),
-    );
+    // A busca devolve no máximo 100 ids por chamada. Sem paginar, uma conta com
+    // mais de 100 anúncios em qualquer status perdia o excedente silenciosamente.
     const itemIds = Array.from(
-      new Set(
-        searches.flatMap((search) =>
-          Array.isArray(search?.results) ? search.results.map(String).filter(Boolean) : [],
-        ),
-      ),
+      new Set((await Promise.all(["active", "paused", "closed"].map((status) => searchAllItems(account, status)))).flat()),
     );
 
     const { data: links, error: linksError } = await supabaseAdmin
@@ -155,6 +145,24 @@ export async function DELETE(req: Request) {
     console.error("DELETE /api/integracoes/mercadolivre/product-links", e);
     return NextResponse.json({ error: e?.message || "Falha ao remover vínculo." }, { status: errorStatus(e) });
   }
+}
+
+const SEARCH_PAGE_SIZE = 100;
+/** O `offset` da busca de itens é limitado a 1000 pelo Mercado Livre. */
+const SEARCH_MAX_OFFSET = 1000;
+
+async function searchAllItems(account: { access_token: string; ml_user_id: number | string }, status: string) {
+  const ids: string[] = [];
+  for (let offset = 0; offset <= SEARCH_MAX_OFFSET; offset += SEARCH_PAGE_SIZE) {
+    const page = await mercadoLivreApiGet<any>(
+      account.access_token,
+      `/users/${account.ml_user_id}/items/search?status=${encodeURIComponent(status)}&limit=${SEARCH_PAGE_SIZE}&offset=${offset}`,
+    ).catch(() => null);
+    const results = Array.isArray(page?.results) ? page.results.map(String).filter(Boolean) : [];
+    ids.push(...results);
+    if (results.length < SEARCH_PAGE_SIZE) break;
+  }
+  return ids;
 }
 
 async function getDefaultAccount(empresaId: number) {

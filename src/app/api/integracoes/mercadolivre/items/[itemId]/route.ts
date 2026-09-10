@@ -109,6 +109,30 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       editLogId = editLog?.id ? Number(editLog.id) : null;
     }
 
+    if (action === "delete") {
+      const item = await deleteMercadoLivreItem(accessToken, itemId);
+      await supabaseAdmin
+        .from("mercadolivre_product_link")
+        .update({
+          status: item?.status ?? "closed",
+          item_tags: Array.isArray(item?.tags) ? item.tags : [],
+          raw_item: item ?? {},
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", link.id);
+      return NextResponse.json({ data: item, status: item?.status ?? "closed", deleted: true });
+    }
+
+    if (action === "relist") {
+      const relisted = await relistMercadoLivreItem(accessToken, itemId, link);
+      return NextResponse.json({
+        data: relisted.item,
+        status: relisted.item?.status ?? null,
+        relistedItemId: relisted.item?.id ?? null,
+        previousItemId: itemId.toUpperCase(),
+      });
+    }
+
     let payload: Record<string, unknown>;
     let currentItemBefore: any = null;
     if (action === "pause") payload = { status: "paused" };
@@ -142,12 +166,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       if (shippingSelectionChanged && shippingMode === "me2") {
         const categoryId = String(currentItem?.category_id ?? "").trim();
         if (!categoryId) throw new Error("O anúncio não possui categoria para validar o Mercado Envios.");
-        await validateMercadoLivreShippingSelection(
-          account,
-          categoryId,
-          shippingMode,
-          String(effectiveBody?.logisticType ?? currentItem?.shipping?.logistic_type ?? ""),
-        );
+        await validateMercadoLivreShippingSelection(account, categoryId, shippingMode);
       }
       const userProductEnabled = Boolean(currentItem?.family_name || currentItem?.user_product_id);
       payload = buildListingUpdatePayload(effectiveBody, userProductEnabled);
@@ -269,6 +288,99 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       { status: Number(e?.status) || errorStatus(e) },
     );
   }
+}
+
+/**
+ * Exclusão documentada: fecha o anúncio e só então marca `deleted`. Itens em
+ * `under_review`/`forbidden` não respondem ao fechamento e aceitam apenas o
+ * segundo PUT. O 409 "item optimistic locking error" significa que o Mercado
+ * Livre ainda não propagou o fechamento — a documentação manda esperar e repetir.
+ */
+async function deleteMercadoLivreItem(accessToken: string, itemId: string) {
+  const path = `/items/${encodeURIComponent(itemId)}`;
+  const current = await mercadoLivreApiGet<any>(accessToken, path).catch(() => null);
+  const status = String(current?.status ?? "").toLowerCase();
+  const subStatus = (Array.isArray(current?.sub_status) ? current.sub_status : []).map((entry: unknown) =>
+    String(entry).toLowerCase(),
+  );
+
+  if (subStatus.includes("deleted")) return current;
+
+  const moderationOnly = status === "under_review" && subStatus.includes("forbidden");
+  if (!moderationOnly && status !== "closed") {
+    await mercadoLivreApiPut(accessToken, path, { status: "closed" });
+  }
+
+  let lastError: any = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await mercadoLivreApiPut<any>(accessToken, path, { deleted: true });
+    } catch (error: any) {
+      lastError = error;
+      if (!/optimistic locking|conflict|\b409\b/i.test(String(error?.message ?? ""))) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1200 + attempt * 800));
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Um anúncio encerrado não volta a ficar ativo: o Mercado Livre só permite
+ * republicar, o que cria um item novo com id próprio. O vínculo do produto passa
+ * a apontar para esse novo anúncio.
+ */
+async function relistMercadoLivreItem(accessToken: string, itemId: string, link: any) {
+  const path = `/items/${encodeURIComponent(itemId)}`;
+  const current = await mercadoLivreApiGet<any>(accessToken, path);
+  const status = String(current?.status ?? "").toLowerCase();
+  const subStatus = (Array.isArray(current?.sub_status) ? current.sub_status : []).map((entry: unknown) =>
+    String(entry).toLowerCase(),
+  );
+
+  if (subStatus.includes("deleted")) {
+    throw fieldRestriction("general", "Este anúncio foi excluído no Mercado Livre e não pode ser republicado.");
+  }
+  if (status !== "closed") {
+    throw fieldRestriction("general", "Só é possível republicar um anúncio já finalizado.");
+  }
+
+  const { data: product } = await supabaseAdmin
+    .from("produto")
+    .select("precovenda, estoque")
+    .eq("id", link.produto_id)
+    .maybeSingle();
+
+  const price = Number(product?.precovenda ?? current?.price ?? 0);
+  const quantity = Math.max(Math.trunc(Number(product?.estoque ?? 0)), 0);
+  if (!Number.isFinite(price) || price <= 0) {
+    throw fieldRestriction("price", "Informe um preço de venda no produto antes de republicar o anúncio.");
+  }
+  if (quantity <= 0) {
+    throw fieldRestriction("stock", "Não é possível republicar um anúncio sem estoque disponível.");
+  }
+
+  const item = await mercadoLivreApiPost<any>(accessToken, `${path}/relist`, {
+    price,
+    quantity,
+    listing_type_id: current?.listing_type_id ?? "gold_special",
+  });
+
+  if (!item?.id) throw new Error("O Mercado Livre não retornou o código do anúncio republicado.");
+
+  await supabaseAdmin
+    .from("mercadolivre_product_link")
+    .update({
+      ml_item_id: String(item.id),
+      status: item?.status ?? null,
+      title: item?.title ?? link.title,
+      permalink: item?.permalink ?? null,
+      item_tags: Array.isArray(item?.tags) ? item.tags : [],
+      raw_item: item ?? {},
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", link.id);
+
+  return { item };
 }
 
 function normalizeItemForEdit(item: any, description: any, userProduct?: any, family?: any, link?: any) {

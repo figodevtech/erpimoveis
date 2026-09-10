@@ -1,3 +1,5 @@
+/* eslint-disable @next/next/no-img-element -- imagens de produtos usam URLs dinâmicas do cadastro. */
+
 import {
   Dialog,
   DialogContent,
@@ -23,7 +25,6 @@ import {
   ArrowRight,
   BadgeCheck,
   Barcode,
-  Boxes,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronsLeft,
@@ -53,7 +54,6 @@ import { SelectSearchInput } from "./select-search-input";
 import { Pagination, Produto } from "../(pages)/estoque/types";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { DialogProduto } from "../(pages)/estoque/components/dialog-produto/dialog-produto";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 interface ProductSelectProps {
@@ -62,6 +62,9 @@ interface ProductSelectProps {
   setOpen?: (value: boolean) => void;
   open?: boolean;
   permitirCriacao?: boolean;
+  apiEndpoint?: string;
+  isProductDisabled?: (product: Produto) => boolean;
+  getProductDisabledReason?: (product: Produto) => string | undefined;
 }
 
 export default function ProductSelect({
@@ -70,6 +73,9 @@ export default function ProductSelect({
   setOpen,
   open,
   permitirCriacao = true,
+  apiEndpoint = "/api/products/select",
+  isProductDisabled,
+  getProductDisabledReason,
 }: ProductSelectProps) {
   const { data: session } = useSession();
   const canCreateProduct = permissionSetHas(
@@ -108,7 +114,7 @@ export default function ProductSelect({
     setIsLoading(true);
 
     try {
-      const response = await axios.get("/api/products/select", {
+      const response = await axios.get(apiEndpoint, {
         signal: controller.signal,
         params: {
           page: pageNumber || 1,
@@ -169,6 +175,7 @@ export default function ProductSelect({
   };
 
   const handleSelectProduct = (product: Produto) => {
+    if (isProductDisabled?.(product)) return;
     if (OnSelect) OnSelect(product);
     if (setOpen) {
       setOpen(false);
@@ -352,12 +359,16 @@ export default function ProductSelect({
                 const estoqueQty = Number(p.estoque ?? 0);
                 const semEstoque = estoqueQty <= 0;
                 const precovenda = Number(p.precovenda ?? 0);
+                const disabled = isProductDisabled?.(p) ?? false;
+                const disabledReason = disabled ? getProductDisabledReason?.(p) : undefined;
 
                 return (
                   <div
                     key={p.id}
                     onClick={() => handleSelectProduct(p)}
-                    className={`group relative flex flex-col justify-between rounded-2xl border p-4 bg-card transition-all hover:shadow-md hover:cursor-pointer ${semEstoque
+                    aria-disabled={disabled}
+                    title={disabledReason}
+                    className={`group relative flex flex-col justify-between rounded-2xl border p-4 bg-card transition-all ${disabled ? "cursor-not-allowed opacity-55" : "hover:shadow-md hover:cursor-pointer"} ${semEstoque
                         ? "border-rose-500/30 bg-rose-500/5 hover:border-rose-500/60"
                         : "border-border/60 hover:border-primary/50 hover:bg-accent/20"
                       }`}
@@ -474,6 +485,11 @@ export default function ProductSelect({
                           {p.descricao}
                         </p>
                       ) : null}
+                      {disabledReason ? (
+                        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                          {disabledReason}
+                        </p>
+                      ) : null}
                     </div>
 
                     {/* Rodapé do Card: Preço & Estoque */}
@@ -519,12 +535,16 @@ export default function ProductSelect({
                     const estoqueQty = Number(p.estoque ?? 0);
                     const semEstoque = estoqueQty <= 0;
                     const precovenda = Number(p.precovenda ?? 0);
+                    const disabled = isProductDisabled?.(p) ?? false;
+                    const disabledReason = disabled ? getProductDisabledReason?.(p) : undefined;
 
                     return (
                       <TableRow
                         key={p.id}
                         onClick={() => handleSelectProduct(p)}
-                        className={`hover:cursor-pointer ${semEstoque ? "bg-rose-500/5 hover:bg-rose-500/10" : ""
+                        aria-disabled={disabled}
+                        title={disabledReason}
+                        className={`${disabled ? "cursor-not-allowed opacity-55" : "hover:cursor-pointer"} ${semEstoque ? "bg-rose-500/5 hover:bg-rose-500/10" : ""
                           }`}
                       >
                         <TableCell className="font-mono text-muted-foreground">
@@ -596,8 +616,9 @@ export default function ProductSelect({
                             size="sm"
                             variant="ghost"
                             className="h-7 px-2 text-xs text-primary hover:bg-primary/10 hover:cursor-pointer"
+                            disabled={disabled}
                           >
-                            Selecionar
+                            {disabled ? "Indisponível" : "Selecionar"}
                           </Button>
                         </TableCell>
                       </TableRow>

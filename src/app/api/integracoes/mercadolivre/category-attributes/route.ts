@@ -3,6 +3,12 @@ import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { requireEmpresaId } from "@/lib/empresa-context";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
+import {
+  mercadoEnviosLogisticLabel,
+  pickMercadoEnviosLogisticType,
+  type MercadoLivreShippingPreferences,
+} from "@/lib/integrations/mercadolivre-mercado-envios";
+import { buildPreferencesInspection } from "@/lib/integrations/mercadolivre-shipping-preferences";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,17 +47,7 @@ type CategoryDetail = {
   };
 };
 
-type ShippingPreferences = {
-  dimensions?: { height?: number; width?: number; length?: number; weight?: number } | null;
-  modes?: string[];
-  option?: string | null;
-  restricted?: boolean;
-  me2_restrictions?: string[] | string | null;
-  logistics?: Array<{
-    mode?: string;
-    types?: Array<string | { type?: string }>;
-  }>;
-};
+type ShippingPreferences = MercadoLivreShippingPreferences;
 
 export async function GET(req: NextRequest) {
   try {
@@ -67,8 +63,10 @@ export async function GET(req: NextRequest) {
     const [attributes, detail, categoryShipping, userShipping] = await Promise.all([
       mercadoLivreApiGet<MercadoLivreAttribute[]>(account.access_token, `/categories/${encodeURIComponent(categoryId)}/attributes`),
       mercadoLivreApiGet<CategoryDetail>(account.access_token, `/categories/${encodeURIComponent(categoryId)}`),
-      mercadoLivreApiGet<ShippingPreferences>(account.access_token, `/categories/${encodeURIComponent(categoryId)}/shipping_preferences`),
-      mercadoLivreApiGet<ShippingPreferences>(account.access_token, `/users/${account.ml_user_id}/shipping_preferences`),
+      // Uma preferência indisponível não pode derrubar os atributos da categoria:
+      // sem resposta, quem decide o Mercado Envios é o `shipping_modes` do anúncio.
+      mercadoLivreApiGet<ShippingPreferences>(account.access_token, `/categories/${encodeURIComponent(categoryId)}/shipping_preferences`).catch(() => null),
+      mercadoLivreApiGet<ShippingPreferences>(account.access_token, `/users/${account.ml_user_id}/shipping_preferences`).catch(() => null),
     ]);
     const data = (attributes ?? [])
       .filter((attribute) => attribute.id && attribute.name && !attribute.tags?.hidden && !attribute.tags?.read_only)
@@ -93,28 +91,42 @@ export async function GET(req: NextRequest) {
       }))
       .sort((a, b) => Number(b.required) - Number(a.required));
 
-    const categoryModes = unique((categoryShipping.logistics ?? []).map((logistic) => logistic.mode));
-    const userModes = unique([...(userShipping.modes ?? []), ...(userShipping.logistics ?? []).map((logistic) => logistic.mode)]);
-    const availableModes = categoryModes.filter((mode) => userModes.includes(mode));
-    const categoryMe2Types = logisticTypes(categoryShipping, "me2");
-    const userMe2Types = logisticTypes(userShipping, "me2");
-    const availableMe2Types = userMe2Types.length
-      ? categoryMe2Types.filter((type) => userMe2Types.includes(type))
-      : categoryMe2Types;
+    const inspection = buildPreferencesInspection(categoryShipping, userShipping);
+
+    // Sem esse registro não há como saber, depois, qual lado recusou o Mercado
+    // Envios. Nenhum token entra no log.
+    console.info("mercado-envios preferences", {
+      empresa_id: account.empresa_id,
+      ml_user_id: account.ml_user_id,
+      category_id: categoryId,
+      category_modes: inspection.categoryModes,
+      user_modes: inspection.userModes,
+      category_me2_types: inspection.categoryLogistics.map((option) => option.type),
+      user_me2_types: inspection.userLogistics.map((option) => option.type),
+      me2_restricted: inspection.me2Restricted,
+      category_preferences_ok: categoryShipping != null,
+      user_preferences_ok: userShipping != null,
+    });
 
     return NextResponse.json({
       data,
       settings: {
-        shippingOptions: availableModes,
-        categoryShippingOptions: categoryModes,
-        userShippingOptions: userModes,
-        logisticOptions: availableMe2Types,
-        categoryLogisticOptions: categoryMe2Types,
-        userLogisticOptions: userMe2Types,
-        me2Restricted: Boolean(categoryShipping.restricted),
-        me2Restrictions: normalizeRestrictions(categoryShipping.me2_restrictions),
-        userShippingOption: userShipping.option ?? null,
-        defaultDimensions: categoryShipping.dimensions ?? null,
+        shippingOptions: inspection.availableModes,
+        categoryShippingOptions: inspection.categoryModes,
+        userShippingOptions: inspection.userModes,
+        logisticOptions: inspection.logistics.map((option) => option.type),
+        logistics: inspection.logistics.map((option) => ({
+          type: option.type,
+          default: option.default,
+          label: mercadoEnviosLogisticLabel(option.type),
+        })),
+        defaultLogisticOption: pickMercadoEnviosLogisticType(inspection.logistics),
+        categoryLogisticOptions: inspection.categoryLogistics.map((option) => option.type),
+        userLogisticOptions: inspection.userLogistics.map((option) => option.type),
+        me2Restricted: inspection.me2Restricted,
+        me2Restrictions: inspection.me2Restrictions,
+        userShippingOption: inspection.userShippingOption,
+        defaultDimensions: inspection.defaultDimensions,
         simpleShipping: detail.settings?.simple_shipping ?? null,
         shippingProfile: detail.settings?.shipping_profile ?? null,
         conditionOptions: detail.settings?.item_conditions ?? null,
@@ -126,20 +138,5 @@ export async function GET(req: NextRequest) {
   }
 }
 
-function unique(values: Array<string | undefined>) {
-  return Array.from(new Set(values.map((value) => String(value ?? "").trim().toLowerCase()).filter(Boolean)));
-}
 
-function logisticTypes(preferences: ShippingPreferences, mode: string) {
-  const logistics = (preferences.logistics ?? []).filter((logistic) => String(logistic.mode ?? "").toLowerCase() === mode);
-  return unique(
-    logistics.flatMap((logistic) =>
-      (logistic.types ?? []).map((type) => (typeof type === "string" ? type : type?.type)),
-    ),
-  );
-}
 
-function normalizeRestrictions(value: ShippingPreferences["me2_restrictions"]) {
-  if (Array.isArray(value)) return value.map(String);
-  return value ? [String(value)] : [];
-}

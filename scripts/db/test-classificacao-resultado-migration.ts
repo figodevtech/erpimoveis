@@ -20,7 +20,7 @@ import {
   type DatabaseKey,
 } from "./lib";
 
-const BANCOS: DatabaseKey[] = ["demo", "demir", "alpha", "garage"];
+const BANCOS: DatabaseKey[] = ["demo", "demir", "garage"];
 const MIGRATION = "supabase/migrations/20260908100000_classificacao_resultado_catalogo.sql";
 const CHECKS = "supabase/tests/classificacao_resultado_catalogo.sql";
 

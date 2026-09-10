@@ -3,6 +3,14 @@ export type MercadoLivrePackageAttribute = {
   value_name: string;
 };
 
+const ENABLED_MERCADO_LIVRE_LISTING_TYPES = new Set(["gold_special", "gold_pro"]);
+
+export function isMercadoLivreListingTypeEnabled(listingTypeId: string | null | undefined) {
+  return ENABLED_MERCADO_LIVRE_LISTING_TYPES.has(String(listingTypeId ?? "").trim().toLowerCase());
+}
+
+export const disabledMercadoLivreListingTypeMessage = "Esta modalidade de anúncio está desabilitada. Selecione Clássico ou Premium.";
+
 export function buildMercadoLivrePackageAttributes(params: {
   shippingMode: string;
   lengthCm: number;

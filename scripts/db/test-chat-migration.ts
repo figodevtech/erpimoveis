@@ -19,7 +19,7 @@ import {
   type DatabaseKey,
 } from "./lib";
 
-const VALID_DATABASES: DatabaseKey[] = ["demo", "demir", "alpha", "garage"];
+const VALID_DATABASES: DatabaseKey[] = ["demo", "demir", "garage"];
 
 function unwrapTransaction(sql: string, closingStatement: "commit" | "rollback") {
   const normalized = sql.replace(/^\uFEFF/, "");

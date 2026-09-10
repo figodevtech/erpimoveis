@@ -1,6 +1,6 @@
 /**
  * Fase 0, passo final: aplica o catálogo e o motor de sugestão ao inventário
- * lido dos quatro bancos e produz o mapa de migração por cliente.
+ * lido dos três bancos e produz o mapa de migração por cliente.
  *
  * Uso:
  *   npm run db:inventario:dre       # gera/atualiza o inventário
@@ -29,7 +29,7 @@ import {
 } from "../../src/lib/financeiro/plano-contas/sugestao";
 import { projectRoot } from "./lib";
 
-const BANCOS = ["demo", "demir", "alpha", "garage"] as const;
+const BANCOS = ["demo", "demir", "garage"] as const;
 
 type Grupo = {
   id: number;

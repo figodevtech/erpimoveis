@@ -1,7 +1,7 @@
 # Fluxo de migrations dos bancos
 
-Os quatro bancos usam as mesmas migrations e o mesmo schema. Somente os dados de
-cada empresa são independentes.
+Os três bancos ativos (Demonstração, Demir e Garage Premium) usam as mesmas
+migrations e o mesmo schema. Somente os dados de cada empresa são independentes.
 
 ## Stone em stand-by — 07/09/2026
 
@@ -22,10 +22,16 @@ A proteção contra uma tela antiga alterar o modo de faturamento é independent
 da Stone e não exige uma nova migration. A consulta feita após a retomada
 confirmou `habilitar_faturamento_os = false` nos quatro bancos.
 
+## Cliente desativado — 09/09/2026
+
+AlphaGarage foi removido dos alvos dos scripts de banco. A variável
+`ERP_DB_ALPHA` não é mais necessária nem utilizada. As referências anteriores
+a esse cliente neste documento são registros históricos.
+
 ## Configuração local
 
 Copie `.env.migrations.example` para `.env.migrations.local` e configure as URLs
-PostgreSQL de Demonstração, Demir, AlphaGarage e Garage Premium. O arquivo local é ignorado pelo
+PostgreSQL de Demonstração, Demir e Garage Premium. O arquivo local é ignorado pelo
 Git. Por compatibilidade, os comandos também reconhecem as URLs antigas do
 `.env.local`, identificando cada projeto pelo project ref.
 
@@ -55,7 +61,7 @@ npm run db:deploy
 
 O fluxo faz dry-run e aplica primeiro na Demonstração. Em seguida, fica parado
 para permitir o teste do ERP. Somente depois da confirmação `CLIENTES` ele faz
-dry-run e aplica, em sequência, no Demir, no AlphaGarage e no Garage Premium. Qualquer erro
+dry-run e aplica, em sequência, no Demir e no Garage Premium. Qualquer erro
 interrompe o processo.
 
 O fluxo também pode ser executado em duas etapas independentes:
@@ -64,7 +70,7 @@ O fluxo também pode ser executado em duas etapas independentes:
 # Aplica somente na Demonstração
 npm run db:deploy:demo
 
-# Depois dos testes, aplica nos três bancos de clientes
+# Depois dos testes, aplica nos dois bancos de clientes
 npm run db:deploy:clients
 ```
 

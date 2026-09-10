@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildMercadoLivrePackageAttributes,
   hasOnlyMercadoLivreValidationWarnings,
+  isMercadoLivreListingTypeEnabled,
   resolveMercadoLivreDefaultListingType,
 } from "./mercadolivre-listing-validation";
 
@@ -67,4 +68,13 @@ test("usa o tipo padrão da conta quando ele está disponível para a categoria"
 
 test("volta para Clássico quando o padrão da conta não está disponível", () => {
   assert.equal(resolveMercadoLivreDefaultListingType("free", ["gold_special", "gold_pro"]), "gold_special");
+});
+
+test("habilita somente os tipos Clássico e Premium para novos anúncios", () => {
+  assert.equal(isMercadoLivreListingTypeEnabled("gold_special"), true);
+  assert.equal(isMercadoLivreListingTypeEnabled("gold_pro"), true);
+
+  for (const disabledType of ["free", "gold_premium", "gold", "silver", "bronze"]) {
+    assert.equal(isMercadoLivreListingTypeEnabled(disabledType), false, disabledType);
+  }
 });

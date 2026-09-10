@@ -1,7 +1,7 @@
 /**
  * Fase 0 do plano `docs/plano-execucao-plano-contas-dinamico-dre.md`:
  * inventário SOMENTE LEITURA do plano de contas e da classificação da DRE nos
- * quatro bancos.
+ * três bancos.
  *
  * Uso:
  *   npm run db:inventario:dre
@@ -27,7 +27,7 @@ import {
   type DatabaseKey,
 } from "./lib";
 
-const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "alpha", "garage"];
+const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "garage"];
 
 type Consulta = { nome: string; sql: string; params?: unknown[] };
 
@@ -275,7 +275,7 @@ function consultas(janela: { de: string; ate: string }): Consulta[] {
       /*
        * Natureza incompatível: evento de DESPESA numa linha de RECEITA e
        * vice-versa. A revisão encontrou três casos na Demonstração; aqui o
-       * inventário mede o problema nos quatro bancos.
+       * inventário mede o problema nos três bancos.
        */
       nome: "natureza_incompativel",
       sql: `

@@ -10,6 +10,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import ValueInput from "@/components/ui/value-input";
 import { Label } from "@/components/ui/label";
@@ -18,12 +28,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
+  BadgeDollarSign,
   BadgePercent,
   CarFront,
   Check,
@@ -53,14 +64,47 @@ import {
   Search,
   Send,
   Store,
+  Tags,
   Trash2,
   TrendingUp,
   Unlink,
   XCircle,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import {
+  disabledMercadoLivreListingTypeMessage,
+  isMercadoLivreListingTypeEnabled,
+} from "@/lib/integrations/mercadolivre-listing-validation";
+import { preferencesAllowShippingMode } from "@/lib/integrations/mercadolivre-mercado-envios";
+import { parseModerationText } from "@/lib/integrations/mercadolivre-listing-status";
+
+type EditListingStep = "content" | "media" | "attributes" | "offer";
+
+const editListingSteps: ListingStepDefinition<EditListingStep>[] = [
+  { value: "content", title: "Conteúdo do anúncio", short: "Conteúdo", description: "Textos e dados", icon: FileText },
+  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Imagens e ordem", icon: ImageIcon },
+  { value: "attributes", title: "Categoria e características", short: "Categoria", description: "Classifique o item", icon: Tags },
+  { value: "offer", title: "Oferta e envio", short: "Oferta", description: "Preço e logística", icon: BadgeDollarSign },
+];
+
+// A edição salva um diff: nenhuma etapa trava a seguinte nem o botão Salvar.
+const EDIT_STEP_VALIDITY: Record<EditListingStep, boolean> = {
+  content: true,
+  media: true,
+  attributes: true,
+  offer: true,
+};
 import { MarketplaceAttentionCenter, MarketplaceChatLauncher, MarketplaceHeader, MarketplaceListToolbar, MarketplaceLoadingLine, MarketplacePagination, MarketplaceSectionNav, useMarketplaceQueryValue, useMarketplaceSection, type MarketplaceAttentionItem } from "./marketplace-layout";
 import { MarketplaceConversationPanel } from "./marketplace-conversation-panel";
+import { ListingMediaManager } from "./mercadolivre/listing-media/listing-media-manager";
+import { ListingStepper, type ListingStepDefinition } from "./mercadolivre/listing-stepper";
+import { AttributeCard, AttributeGroup, FormSection, StepHeading, listingFieldClass } from "./mercadolivre/listing-form-fields";
+import { ListingDialogContent } from "./mercadolivre/listing-dialog-content";
+import {
+  MercadoLivreCreateListingDialog,
+  type CreateListingIssue,
+  type CreateListingStep,
+} from "./mercadolivre/create-listing/create-listing-dialog";
 
 type MlMarketplaceSection = "overview" | "products" | "listings" | "orders" | "performance" | "atendimento" | "logs";
 const ML_MARKETPLACE_SECTIONS: readonly MlMarketplaceSection[] = ["overview", "products", "listings", "orders", "performance", "atendimento", "logs"];
@@ -426,7 +470,7 @@ type MlChatConversation = {
   error?: string | null;
 };
 
-type ProductRow = {
+export type ProductRow = {
   id: number;
   titulo: string;
   descricao?: string | null;
@@ -504,7 +548,7 @@ const EMPTY_PERFORMANCE: MarketplacePerformance = {
   daily: [],
 };
 
-type CategoryOption = {
+export type CategoryOption = {
   id: string;
   name: string;
   domainId?: string | null;
@@ -518,9 +562,9 @@ type CategoryOption = {
   shippingProfile?: string | null;
 };
 
-type MarketplaceVertical = "products" | "vehicles" | "real_estate" | "services";
+export type MarketplaceVertical = "products" | "vehicles" | "real_estate" | "services";
 
-type ListingTypeOption = {
+export type ListingTypeOption = {
   id: string;
   name: string;
   available?: boolean;
@@ -537,7 +581,7 @@ type ListingTypeOption = {
   paymentDescription?: string | null;
 };
 
-type ListingCommercialInfo = {
+export type ListingCommercialInfo = {
   seller: {
     canList: boolean;
     restrictions: string[];
@@ -555,11 +599,12 @@ type ListingCommercialInfo = {
   error?: string | null;
 };
 
-type ShippingEligibility = {
+export type ShippingEligibility = {
   loaded: boolean;
   categoryModes: string[];
   userModes: string[];
   logisticOptions: string[];
+  logistics: MercadoEnviosLogistic[];
   me2Restricted: boolean;
   me2Restrictions: string[];
   userShippingOption: string | null;
@@ -567,16 +612,106 @@ type ShippingEligibility = {
   error: string | null;
 };
 
-type ShippingQuote = {
+export type ShippingQuote = {
   currencyId: string;
-  listCost: number | null;
-  sellerCost: number | null;
+  sellerShippingCost: number | null;
   billableWeight: number | null;
+  freeShipping: boolean;
+  logisticType: string;
+  listCostBeforeDiscount?: number | null;
+  discountRate?: number | null;
   origin?: MarketplaceShippingAddress | null;
-  raw: any;
+  raw?: any;
 };
 
-type MlCategoryAttribute = {
+export type MercadoEnviosLogistic = { type: string; default: boolean; label: string };
+
+export type MercadoEnviosQuoteScenario = {
+  available: boolean;
+  freeShipping: boolean;
+  sellerShippingCost: number | null;
+  currencyId: string;
+  billableWeight: number | null;
+  error: string | null;
+};
+
+export type FreeShippingPolicy = "mandatory" | "optional" | "unavailable" | "unknown";
+
+export type MercadoEnviosState = {
+  loading: boolean;
+  loaded: boolean;
+  available: boolean;
+  mode: "me2" | null;
+  logisticType: string | null;
+  logistics: MercadoEnviosLogistic[];
+  freeShippingPolicy: FreeShippingPolicy;
+  quotes: { buyerPaysShipping: MercadoEnviosQuoteScenario | null; freeShipping: MercadoEnviosQuoteScenario | null };
+  physicalWeight: number | null;
+  billableWeight: number | null;
+  origin: MarketplaceShippingAddress | null;
+  warnings: string[];
+  message: string | null;
+  error: string | null;
+};
+
+export const EMPTY_MERCADO_ENVIOS: MercadoEnviosState = {
+  loading: false,
+  loaded: false,
+  available: false,
+  mode: null,
+  logisticType: null,
+  logistics: [],
+  freeShippingPolicy: "unknown",
+  quotes: { buyerPaysShipping: null, freeShipping: null },
+  physicalWeight: null,
+  billableWeight: null,
+  origin: null,
+  warnings: [],
+  message: null,
+  error: null,
+};
+
+export type ListingValidationState = "idle" | "loading" | "valid" | "invalid" | "stale";
+
+export type ListingValidationCheck = {
+  id: string;
+  label: string;
+  status: "ok" | "warning" | "error" | "skipped";
+  detail: string | null;
+};
+
+export type ListingCosts = {
+  price: number;
+  marketplaceCost: number | null;
+  fixedFee: number | null;
+  percentageFee: number | null;
+  financingFee: number | null;
+  listingFeeAmount: number | null;
+  sellerShippingCost: number | null;
+  estimatedNetAmount: number | null;
+  currencyId: string;
+};
+
+export type ListingValidation = {
+  state: ListingValidationState;
+  checks: ListingValidationCheck[];
+  errors: string[];
+  warnings: string[];
+  costs: ListingCosts | null;
+  /** Assinatura dos dados validados; qualquer mudança marca a validação como stale. */
+  signature: string | null;
+};
+
+export const EMPTY_LISTING_VALIDATION: ListingValidation = {
+  state: "idle",
+  checks: [],
+  errors: [],
+  warnings: [],
+  costs: null,
+  signature: null,
+};
+
+export type MlCategoryAttribute = {
   id: string;
   name: string;
   valueType: string;
@@ -590,7 +725,7 @@ type MlCategoryAttribute = {
   role?: "parent" | "child" | "variation" | "standard";
 };
 
-type ListingForm = {
+export type ListingForm = {
   produtoId: string;
   title: string;
   categoryId: string;
@@ -675,14 +810,6 @@ function formatSignedPercent(value: unknown) {
   return `${number > 0 ? "+" : ""}${number.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 }
 
-function sellerLevelLabel(value: string) {
-  const labels: Record<string, string> = {
-    silver: "MercadoLíder",
-    gold: "MercadoLíder Gold",
-    platinum: "MercadoLíder Platinum",
-  };
-  return labels[value.toLowerCase()] || value;
-}
 
 function SellerReputationMeter({ levelId, label }: { levelId?: string | null; label?: string | null }) {
   const normalized = String(levelId ?? "").toLowerCase();
@@ -814,16 +941,21 @@ function getListingAttributeValue(form: Pick<ListingForm, "brand" | "model" | "p
   return "";
 }
 
-function buildListingFamilyName(form: Pick<ListingForm, "title" | "brand" | "model" | "partNumber" | "familyName" | "dynamicAttributes" | "gtin">) {
-  const manual = form.familyName.trim();
-  if (manual) return manual.replace(/\s+/g, " ").trim().slice(0, 60);
+/**
+ * Contas User Products publicam por `family_name` em vez de `title`. O usuário
+ * edita um campo só — o título do anúncio — e é dele que sai a família; marca,
+ * modelo e peça ficam como reserva para quando o título estiver vazio.
+ */
+function buildListingFamilyName(form: Pick<ListingForm, "title" | "brand" | "model" | "partNumber" | "dynamicAttributes" | "gtin">) {
+  const title = form.title.replace(/\s+/g, " ").trim();
+  if (title) return title.slice(0, 60);
 
   const value = [getListingAttributeValue(form, "BRAND"), getListingAttributeValue(form, "MODEL"), getListingAttributeValue(form, "PART_NUMBER")]
     .map((part) => part.trim())
     .filter(Boolean)
     .join(" ");
 
-  return (value || form.title).replace(/\s+/g, " ").trim().slice(0, 60);
+  return value.replace(/\s+/g, " ").trim().slice(0, 60);
 }
 
 function normalizeGtin(value?: string | null) {
@@ -854,18 +986,6 @@ function parsePictureUrls(value: string) {
     });
 }
 
-function formatAttributeValue(attribute: MlCategoryAttribute, values: Record<string, string>) {
-  const value = values[attribute.id] ?? "";
-  if (!value) return "";
-  if (attribute.valueType === "number_unit") {
-    const unit = values[`${attribute.id}__unit`] || attribute.defaultUnit || attribute.allowedUnits[0]?.id || "";
-    return `${value}${unit ? ` ${unit}` : ""}`;
-  }
-  if (attribute.valueType === "boolean") {
-    return value === "true" ? "Sim" : value === "false" ? "Não" : value;
-  }
-  return value;
-}
 
 function ControlledAttributeInput({
   attribute,
@@ -1018,6 +1138,31 @@ function CompatibilityOptionInput({
 const listingFieldClassStatic =
   "border-border/80 bg-white shadow-sm ring-1 ring-border/50 focus-visible:border-primary/50 focus-visible:ring-primary/20 dark:bg-input/40";
 
+/** As frases de moderação vêm com âncoras HTML; só links http(s) viram link. */
+function ModerationText({ value }: { value: string | null | undefined }) {
+  const segments = parseModerationText(value);
+  if (!segments.length) return null;
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.type === "link" ? (
+          <a
+            key={`${segment.href}:${index}`}
+            href={segment.href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary underline underline-offset-2"
+          >
+            {segment.text}
+          </a>
+        ) : (
+          <span key={`text:${index}`}>{index > 0 ? " " : ""}{segment.text}{index < segments.length - 1 ? " " : ""}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 function statusBadge(status?: string | null) {
   const value = String(status ?? "sem_status").toUpperCase();
   const label = statusLabel(value);
@@ -1028,6 +1173,8 @@ function statusBadge(status?: string | null) {
         ? "bg-blue-600 text-white"
       : value === "PAUSED" || value === "PENDING" || value === "IN_PROCESS" || value === "PAYMENT_REQUIRED" || value === "PROCESSANDO" || value === "PARCIAL"
         ? "bg-yellow-600 text-white"
+        : value === "UNDER_REVIEW" || value === "INACTIVE"
+          ? "bg-amber-600 text-white"
         : value === "CLOSED" || value === "CANCELLED" || value === "CANCELED" || value === "REFUNDED" || value === "CHARGED_BACK"
           ? "bg-red-600 text-white"
           : "bg-slate-600 text-white";
@@ -1099,7 +1246,7 @@ function statusLabel(value: string) {
     PENDING: "Pendente",
     OPENED: "Aberta",
     OPEN: "Aberta",
-    UNDER_REVIEW: "Em análise",
+    UNDER_REVIEW: "Em análise pelo Mercado Livre",
     CLOSED_BY_MEDIATION: "Encerrada por mediação",
     NOT_DELIVERED: "Não entregue",
     OUT_FOR_DELIVERY: "Saiu para entrega",
@@ -1832,13 +1979,18 @@ export default function MarketplacePage() {
   const [linkingProductId, setLinkingProductId] = useState<number | null>(null);
   const [linkValue, setLinkValue] = useState("");
   const [publishedListings, setPublishedListings] = useState<PublishedListing[]>([]);
+  // Produtos vinculados completos: a aba de anúncios não pode depender da
+  // página atual da lista de produtos.
+  const [linkedListingProducts, setLinkedListingProducts] = useState<ProductRow[]>([]);
+  const [linkableProducts, setLinkableProducts] = useState<ProductRow[]>([]);
   const [loadingPublishedListings, setLoadingPublishedListings] = useState(false);
   const [publishedProductByItem, setPublishedProductByItem] = useState<Record<string, string>>({});
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [createDialogTab, setCreateDialogTab] = useState("dados");
+  const [createListingStep, setCreateListingStep] = useState<CreateListingStep>("product");
   const [listingFieldErrors, setListingFieldErrors] = useState<Record<string, string>>({});
   const [creatingListing, setCreatingListing] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editStep, setEditStep] = useState<EditListingStep>("content");
   const [editingListing, setEditingListing] = useState(false);
   const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
   const [loadingListingPerformance, setLoadingListingPerformance] = useState(false);
@@ -1869,6 +2021,8 @@ export default function MarketplacePage() {
   const [cancelSaleForm, setCancelSaleForm] = useState({ reason: "BUYER_REGRETS", message: "Venda não concretizada a pedido do comprador." });
   const [answeringQuestionId, setAnsweringQuestionId] = useState<number | null>(null);
   const [answerText, setAnswerText] = useState("");
+  const categoryRequestRef = useRef<AbortController | null>(null);
+  const categoryAttributesRequestRef = useRef<AbortController | null>(null);
   const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false);
   const [categorySearch, setCategorySearch] = useState("");
   const [loadingCategories, setLoadingCategories] = useState(false);
@@ -1878,11 +2032,9 @@ export default function MarketplacePage() {
   const [listingTypeOptions, setListingTypeOptions] = useState<ListingTypeOption[]>([
     { id: "gold_special", name: "Clássico" },
     { id: "gold_pro", name: "Premium" },
-    { id: "free", name: "Grátis" },
   ]);
   const [listingCommercialInfo, setListingCommercialInfo] = useState<ListingCommercialInfo>({ seller: null, payment: null });
   const [loadingListingCommercialInfo, setLoadingListingCommercialInfo] = useState(false);
-  const [userProductSeller, setUserProductSeller] = useState(false);
   const [conditionOptions, setConditionOptions] = useState<string[]>(["new", "used", "not_specified"]);
   const [categoryAttributes, setCategoryAttributes] = useState<MlCategoryAttribute[]>([]);
   const [loadingAttributes, setLoadingAttributes] = useState(false);
@@ -1891,14 +2043,18 @@ export default function MarketplacePage() {
     categoryModes: [],
     userModes: [],
     logisticOptions: [],
+    logistics: [],
     me2Restricted: false,
     me2Restrictions: [],
     userShippingOption: null,
     defaultDimensions: null,
     error: null,
   });
-  const [shippingQuote, setShippingQuote] = useState<ShippingQuote | null>(null);
-  const [loadingShippingQuote, setLoadingShippingQuote] = useState(false);
+  const [mercadoEnvios, setMercadoEnvios] = useState<MercadoEnviosState>(EMPTY_MERCADO_ENVIOS);
+  const [listingValidation, setListingValidation] = useState<ListingValidation>(EMPTY_LISTING_VALIDATION);
+  // Sequenciamento: uma resposta antiga nunca sobrescreve a consulta mais recente.
+  const mercadoEnviosRequestRef = useRef<{ controller: AbortController | null; id: number }>({ controller: null, id: 0 });
+  const listingValidationRequestRef = useRef<{ controller: AbortController | null; id: number }>({ controller: null, id: 0 });
   const [previewImageIndex, setPreviewImageIndex] = useState(0);
   const [listingForm, setListingForm] = useState<ListingForm>({
     produtoId: "",
@@ -1923,7 +2079,7 @@ export default function MarketplacePage() {
     warranty: "",
     warrantyTime: "",
     shippingMode: "me2",
-    logisticType: "drop_off",
+    logisticType: "",
     freeShipping: false,
     localPickup: false,
     customShippingDescription: "Correios personalizado",
@@ -1954,7 +2110,7 @@ export default function MarketplacePage() {
     warranty: "",
     warrantyTime: "",
     shippingMode: "me2",
-    logisticType: "drop_off",
+    logisticType: "",
     freeShipping: false,
     localPickup: false,
     widthCm: "",
@@ -1980,14 +2136,27 @@ export default function MarketplacePage() {
     description: true,
     familyName: true,
   });
+  const editTitleField = editForm.userProductEnabled ? "familyName" : "title";
+  const editTitleMaxLength = editForm.userProductEnabled ? 120 : 60;
+  const editTitleEditable = editCapabilities[editTitleField];
+  const editRestrictions = [
+    !editCapabilities.price && "preço com automação ativa",
+    !editCapabilities.stock && "estoque administrado pela logística Full/multiorigem",
+    !editTitleEditable && "título controlado pelo catálogo/família",
+    !editCapabilities.pictures && "imagens controladas pelo catálogo",
+  ].filter(Boolean);
 
   const activeAccount = accounts[0] ?? null;
   const requiresReconnect = Boolean(activeAccount?.needs_reconnect);
   const connected = Boolean(activeAccount) && !requiresReconnect;
-  const linkedCount = products.filter((product) => product.mercadolivre).length;
-  const unlinkedCount = Math.max(products.length - linkedCount, 0);
-  const linkedProducts = products.filter((product) => product.mercadolivre);
-  const publishableProducts = products.filter((product) => !product.mercadolivre);
+  const linkedCount = linkedListingProducts.length;
+  const unlinkedCount = Math.max(productsTotal - linkedCount, 0);
+  const linkedProducts = linkedListingProducts.filter((product) => product.mercadolivre);
+  // Os seletores de vínculo listam todo o catálogo publicável; usar `products`
+  // limitava a escolha aos itens da página aberta na lista de produtos.
+  const publishableProducts = linkableProducts.length
+    ? linkableProducts
+    : products.filter((product) => !product.mercadolivre);
   const unlinkedPublishedListings = publishedListings.filter((listing) => !listing.produtoId);
   const listingRows = [
     ...unlinkedPublishedListings.map((listing) => ({ kind: "unlinked" as const, listing })),
@@ -2068,12 +2237,7 @@ export default function MarketplacePage() {
     if (productsPage > productsTotalPages) setProductsPage(productsTotalPages);
   }, [productsPage, productsTotalPages]);
   useEffect(() => { setOrderPage(1); }, [orderSearch, orderStatusFilter, orderPageSize]);
-  const previewImages = listingForm.pictureUrl
-    .split(/\r?\n/)
-    .map((url) => url.trim())
-    .filter(Boolean);
   const validPreviewImages = parsePictureUrls(listingForm.pictureUrl);
-  const selectedPreviewImage = previewImages[Math.min(previewImageIndex, Math.max(previewImages.length - 1, 0))] ?? "";
   const requiredMissingAttributes = categoryAttributes.filter((attribute) => {
     if (!attribute.required) return false;
     if (attribute.id === "BRAND" && listingForm.brand.trim()) return false;
@@ -2092,24 +2256,38 @@ export default function MarketplacePage() {
       .every((value) => Number.isFinite(value) && value > 0) ||
       !Number.isInteger(Number(listingForm.weightGrams)) ||
       Number(listingForm.weightGrams) <= 0);
-  const categoryShippingOptions = listingForm.categoryShippingOptions.map((option) => option.toLowerCase());
-  const categorySupportsMercadoEnvios =
-    !listingForm.categoryId || !shippingEligibility.loaded || categoryShippingOptions.includes("me2");
-  const categorySupportsCustomShipping = !listingForm.categoryId || !shippingEligibility.loaded || categoryShippingOptions.includes("custom");
-  const categoryBlocksMercadoEnvios =
-    listingForm.categoryId && listingForm.shippingMode === "me2" && !categorySupportsMercadoEnvios;
-  const categoryShippingIssue = categoryBlocksMercadoEnvios
-    ? shippingEligibility.error
-      ? shippingEligibility.error
-      : !shippingEligibility.userModes.includes("me2")
-        ? "A conta vendedora conectada não possui Mercado Envios ativo. Revise as preferências de envio e o endereço de origem no Mercado Livre."
-        : !shippingEligibility.categoryModes.includes("me2")
-          ? "A categoria selecionada não oferece Mercado Envios. Escolha uma categoria compatível ou uma alternativa de envio disponível."
-          : "O Mercado Envios não está disponível para esta combinação de conta, categoria e logística."
-    : "";
+  const categoryPreferenceModes = shippingEligibility.categoryModes.map((option) => option.toLowerCase());
+  const userPreferenceModes = shippingEligibility.userModes.map((option) => option.toLowerCase());
+  // Mesma função usada pela API ao recusar a publicação, para tela e backend não discordarem.
+  const preferencesUnknown = !listingForm.categoryId || !shippingEligibility.loaded;
+  const preferenceModes = { categoryModes: categoryPreferenceModes, userModes: userPreferenceModes };
+  const mercadoEnviosPreferenceCheck = preferencesUnknown
+    ? { allowed: true, blockedBy: null as "category" | "seller" | null }
+    : preferencesAllowShippingMode("me2", preferenceModes);
+  const categorySupportsCustomShipping =
+    preferencesUnknown || preferencesAllowShippingMode("custom", preferenceModes).allowed;
+  /**
+   * Explica por que a opção Mercado Envios está desabilitada. Independe do modo
+   * atualmente selecionado: um controle bloqueado sem motivo à vista não dá ao
+   * usuário como agir.
+   */
+  const mercadoEnviosBlockedReason =
+    listingForm.categoryId && shippingEligibility.loaded && !mercadoEnviosPreferenceCheck.allowed
+      ? mercadoEnviosPreferenceCheck.blockedBy === "category"
+        ? `As preferências da categoria ${listingForm.categoryId} não listaram Mercado Envios (retornou: ${categoryPreferenceModes.join(", ") || "nenhum modo"}). A disponibilidade real deste anúncio será confirmada ao consultar o Mercado Envios com preço, dimensões e peso.`
+        : mercadoEnviosPreferenceCheck.blockedBy === "seller"
+          ? `As preferências da conta não listaram Mercado Envios (retornou: ${userPreferenceModes.join(", ") || "nenhum modo"}). A disponibilidade real deste anúncio será confirmada ao consultar o Mercado Envios com preço, dimensões e peso.`
+          : shippingEligibility.error || ""
+      : "";
+  const mercadoEnviosRestrictionNote =
+    shippingEligibility.me2Restricted && listingForm.categoryId
+      ? `Esta categoria é marcada como restrita pelo Mercado Livre${
+          shippingEligibility.me2Restrictions.length ? ` (${shippingEligibility.me2Restrictions.join(", ")})` : ""
+        }. Categorias restritas exigem acordo comercial na conta para usar o Mercado Envios.`
+      : "";
   const customShippingIssue =
     listingForm.shippingMode === "custom" && !categorySupportsCustomShipping
-      ? `A categoria selecionada não retornou suporte a envio personalizado. Opções retornadas: ${listingForm.categoryShippingOptions.join(", ") || "não informadas"}.`
+      ? `A categoria selecionada não retornou suporte a envio personalizado. Modos retornados: ${categoryPreferenceModes.join(", ") || "não informados"}.`
       : listingForm.shippingMode === "custom" &&
           (!listingForm.customShippingDescription.trim() ||
             Number(listingForm.customShippingDeadlineDays) <= 0 ||
@@ -2117,34 +2295,104 @@ export default function MarketplacePage() {
         ? "Informe descrição, prazo e valor válido para o envio personalizado."
       : "";
   const listingGtin = getListingAttributeValue(listingForm, "GTIN").replace(/\D/g, "");
+  const familyNamePreview = buildListingFamilyName(listingForm);
+  // Assinatura de tudo que influencia o anúncio: mudou, a validação vira stale.
+  const listingSignature = JSON.stringify({
+    categoryId: listingForm.categoryId,
+    title: listingForm.title,
+    familyName: familyNamePreview,
+    price: parseCurrencyInput(listingForm.price),
+    availableQuantity: Number(listingForm.availableQuantity),
+    condition: listingForm.condition,
+    listingTypeId: listingForm.listingTypeId,
+    pictureUrl: listingForm.pictureUrl,
+    gtin: listingGtin,
+    warranty: listingForm.warranty,
+    warrantyTime: listingForm.warrantyTime,
+    attributes: listingForm.dynamicAttributes,
+    shippingMode: listingForm.shippingMode,
+    logisticType: listingForm.logisticType,
+    freeShipping: listingForm.freeShipping,
+    widthCm: listingForm.widthCm,
+    heightCm: listingForm.heightCm,
+    lengthCm: listingForm.lengthCm,
+    weightGrams: listingForm.weightGrams,
+    customShippingDescription: listingForm.customShippingDescription,
+    customShippingCost: listingForm.customShippingCost,
+    customShippingDeadlineDays: listingForm.customShippingDeadlineDays,
+  });
+  const listingValidationCurrent = listingValidation.signature === listingSignature;
+  const listingValidationState: ListingValidationState =
+    listingValidation.state === "valid" || listingValidation.state === "invalid"
+      ? listingValidationCurrent
+        ? listingValidation.state
+        : "stale"
+      : listingValidation.state;
+
+  const selectedShippingQuote =
+    listingForm.shippingMode === "me2"
+      ? listingForm.freeShipping
+        ? mercadoEnvios.quotes.freeShipping
+        : mercadoEnvios.quotes.buyerPaysShipping
+      : null;
+  const freeShippingMandatory = mercadoEnvios.freeShippingPolicy === "mandatory";
+  const mercadoEnviosIssue =
+    listingForm.shippingMode === "me2" && mercadoEnvios.loaded && !mercadoEnvios.available
+      ? mercadoEnvios.error || mercadoEnvios.message || "Mercado Envios não está disponível para este anúncio."
+      : listingForm.shippingMode === "me2" &&
+          mercadoEnvios.available &&
+          listingForm.logisticType &&
+          !mercadoEnvios.logistics.some((option) => option.type === listingForm.logisticType)
+        ? "A logística selecionada não está disponível para este anúncio."
+        : "";
   const selectedListingType = listingTypeOptions.find((option) => option.id === listingForm.listingTypeId) ?? null;
+  const selectedListingProduct = products.find((product) => String(product.id) === listingForm.produtoId) ?? null;
+  const selectedListingProductImageUrls = Array.from(
+    new Set(
+      [
+        ...(selectedListingProduct?.imageUrls ?? []),
+        selectedListingProduct?.imgUrl,
+      ].filter(Boolean) as string[],
+    ),
+  );
   const sellerListingIssue = listingCommercialInfo.seller?.canList === false
     ? listingCommercialInfo.seller.restrictions.join(" ") || "A conta conectada não está autorizada a publicar anúncios."
     : "";
-  const listingTypeIssue = selectedListingType?.available === false
-    ? selectedListingType.restrictionReason || "O tipo de anúncio selecionado não está disponível para esta conta e categoria."
-    : "";
+  const listingTypeIssue = listingForm.listingTypeId && !isMercadoLivreListingTypeEnabled(listingForm.listingTypeId)
+    ? disabledMercadoLivreListingTypeMessage
+    : selectedListingType?.available === false
+      ? selectedListingType.restrictionReason || "O tipo de anúncio selecionado não está disponível para esta conta e categoria."
+      : "";
   const freeListingStockIssue = listingForm.listingTypeId === "free" && Number(listingForm.availableQuantity) > 1
     ? "Anúncios grátis permitem estoque máximo de 1 unidade."
     : "";
-  const listingIssues = [
-    !listingForm.produtoId ? "Selecione um produto do ERP." : "",
-    !listingForm.title.trim() ? "Informe o título do anúncio." : "",
-    !listingForm.categoryId ? "Selecione a categoria Mercado Livre." : "",
-    !listingForm.listingTypeId ? "Selecione um tipo de anúncio disponível para a conta." : "",
-    parseCurrencyInput(listingForm.price) <= 0 ? "Informe um preço válido." : "",
-    Number(listingForm.availableQuantity) <= 0 ? "Informe estoque disponível." : "",
-    freeListingStockIssue,
-    validPreviewImages.length === 0 ? "Informe ao menos uma imagem pública válida." : "",
-    listingGtin && !isValidGtin(listingGtin) ? "Informe um GTIN/EAN válido ou deixe o campo vazio." : "",
-    ...requiredMissingAttributes.map((attribute) => `Preencha o atributo obrigatório: ${attribute.name}.`),
-    categoryShippingIssue,
-    customShippingIssue,
-    missingShippingDimensions ? "Informe comprimento, largura e altura maiores que zero e o peso inteiro em gramas." : "",
-    sellerListingIssue,
-    listingTypeIssue,
-  ].filter(Boolean);
-  const canPublishListing = listingIssues.length === 0;
+  const clientListingIssues: Array<CreateListingIssue | null> = [
+    !listingForm.produtoId ? { step: "product", message: "Selecione um produto do ERP." } : null,
+    selectedListingProduct?.mercadolivre ? { step: "product", message: "Este produto já possui anúncio Mercado Livre vinculado." } : null,
+    !listingForm.title.trim() ? { step: "content", message: "Informe o título do anúncio." } : null,
+    validPreviewImages.length === 0 ? { step: "media", message: "Informe ao menos uma imagem pública válida." } : null,
+    listingGtin && !isValidGtin(listingGtin) ? { step: "content", message: "Informe um GTIN/EAN válido ou deixe o campo vazio." } : null,
+    !listingForm.categoryId ? { step: "category", message: "Selecione a categoria Mercado Livre." } : null,
+    ...requiredMissingAttributes.map((attribute) => ({ step: "category" as const, message: `Preencha o atributo obrigatório: ${attribute.name}.` })),
+    !listingForm.listingTypeId ? { step: "offer", message: "Selecione um tipo de anúncio disponível para a conta." } : null,
+    parseCurrencyInput(listingForm.price) <= 0 ? { step: "offer", message: "Informe um preço válido." } : null,
+    Number(listingForm.availableQuantity) <= 0 ? { step: "offer", message: "Informe estoque disponível." } : null,
+    freeListingStockIssue ? { step: "offer", message: freeListingStockIssue } : null,
+    mercadoEnviosIssue ? { step: "offer", message: mercadoEnviosIssue } : null,
+    customShippingIssue ? { step: "offer", message: customShippingIssue } : null,
+    missingShippingDimensions ? { step: "offer", message: "Informe comprimento, largura e altura maiores que zero e o peso inteiro em gramas." } : null,
+    sellerListingIssue ? { step: "offer", message: sellerListingIssue } : null,
+    listingTypeIssue ? { step: "offer", message: listingTypeIssue } : null,
+  ];
+  const listingIssueDetails = [...clientListingIssues.filter((issue): issue is CreateListingIssue => Boolean(issue))];
+  for (const [field, message] of Object.entries(listingFieldErrors)) {
+    const issue = { step: listingErrorStep({ [field]: message }), message } satisfies CreateListingIssue;
+    if (!listingIssueDetails.some((current) => current.step === issue.step && current.message === issue.message)) listingIssueDetails.push(issue);
+  }
+  const listingIssues = listingIssueDetails.map((issue) => issue.message);
+  const listingReadyToValidate = listingIssues.length === 0;
+  // A publicacao exige validacao aprovada sobre exatamente os dados atuais.
+  const canPublishListing = listingReadyToValidate && listingValidationState === "valid";
   const notificationErrors = notifications.filter((notification) => String(notification.status ?? "").toUpperCase() === "ERRO").length;
   const diagnosticAlerts = diagnostics.checks.filter((check) => check.status !== "ok").length;
   const integrationAlerts = Math.max(notificationErrors + stockSync.failed, diagnosticAlerts);
@@ -2157,15 +2405,7 @@ export default function MarketplacePage() {
   if (ordersWithoutSale > 0) marketplaceAttentionItems.push({ id: "orders", title: "Pedidos sem venda no ERP", description: "Revise pedidos que ainda não foram vinculados ao fluxo interno.", count: ordersWithoutSale, actionLabel: "Revisar", onAction: () => { setOrderStatusFilter("pending_erp"); changeMainTab("orders"); } });
   if (unlinkedPublishedListings.length > 0) marketplaceAttentionItems.push({ id: "listings", title: "Anúncios sem vínculo", description: "Anúncios do Mercado Livre ainda não apontam para um produto do ERP.", count: unlinkedPublishedListings.length, actionLabel: "Vincular", onAction: () => changeMainTab("listings") });
 
-  const listingFieldClass =
-    "border-border/80 bg-white shadow-sm ring-1 ring-border/50 focus-visible:border-primary/50 focus-visible:ring-primary/20 dark:bg-input/40";
-  const listingSelectClass = `h-10 w-full ${listingFieldClass}`;
-  const listingErrorClass = "border-destructive ring-destructive/40 focus-visible:border-destructive focus-visible:ring-destructive/30";
-  const familyNamePreview = buildListingFamilyName(listingForm);
-
-  function fieldClass(field: string, base = listingFieldClass) {
-    return `${base} ${listingFieldErrors[field] ? listingErrorClass : ""}`;
-  }
+  const listingSelectClass = listingFieldClass;
 
   function clearListingErrors(...fields: string[]) {
     setListingFieldErrors((current) => {
@@ -2175,13 +2415,13 @@ export default function MarketplacePage() {
     });
   }
 
-  function listingErrorTab(errors: Record<string, string>) {
-    if (errors.title || errors.price || errors.stock || errors.product) return "dados";
-    if (errors.category || errors.listingType || errors.condition || errors.warranty) return "categoria";
-    if (errors.family || errors.gtin || Object.keys(errors).some((key) => key.startsWith("attr:"))) return "atributos";
-    if (errors.images) return "midia";
-    if (errors.shipping || errors.dimensions) return "envio";
-    return "revisao";
+  function listingErrorStep(errors: Record<string, string>): CreateListingStep {
+    if (errors.product) return "product";
+    if (errors.images) return "media";
+    if (errors.title || errors.family || errors.gtin || errors["attr:GTIN"]) return "content";
+    if (errors.category || Object.keys(errors).some((key) => key.startsWith("attr:"))) return "category";
+    if (errors.listingType || errors.condition || errors.warranty || errors.price || errors.stock || errors.shipping || errors.dimensions) return "offer";
+    return "review";
   }
 
   function mapListingApiError(message: string) {
@@ -2222,6 +2462,18 @@ export default function MarketplacePage() {
     }
     if (normalized.includes("preço") || normalized.includes("price")) {
       errors.price = message;
+    }
+    if (normalized.includes("estoque") || normalized.includes("stock")) {
+      errors.stock = message;
+    }
+    if (normalized.includes("condição") || normalized.includes("condition")) {
+      errors.condition = message;
+    }
+    if (normalized.includes("garantia") || normalized.includes("warranty")) {
+      errors.warranty = message;
+    }
+    if (normalized.includes("produto") && normalized.includes("vinculad")) {
+      errors.product = message;
     }
     if (normalized.includes("tipo de anúncio") || normalized.includes("listing_type") || normalized.includes("listing type")) {
       errors.listingType = message;
@@ -2384,7 +2636,7 @@ export default function MarketplacePage() {
   }
 
   async function loadListingOptions(
-    filters?: { categoryId?: string; price?: number; shippingMode?: string; logisticType?: string; billableWeight?: number },
+    filters?: { categoryId?: string; price?: number; shippingMode?: string; logisticType?: string; sellerShippingCost?: number },
     signal?: AbortSignal,
   ) {
     const hasCommercialFilters = Boolean(filters?.categoryId && Number(filters?.price) > 0);
@@ -2395,7 +2647,7 @@ export default function MarketplacePage() {
       if (Number(filters?.price) > 0) params.set("price", String(filters?.price));
       if (filters?.shippingMode) params.set("shippingMode", filters.shippingMode);
       if (filters?.logisticType) params.set("logisticType", filters.logisticType);
-      if (Number(filters?.billableWeight) > 0) params.set("billableWeight", String(filters?.billableWeight));
+      if (Number(filters?.sellerShippingCost) > 0) params.set("sellerShippingCost", String(filters?.sellerShippingCost));
       const response = await fetch(`/api/integracoes/mercadolivre/listing-options${params.size ? `?${params.toString()}` : ""}`, {
         cache: "no-store",
         signal,
@@ -2403,14 +2655,16 @@ export default function MarketplacePage() {
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar opções de anúncio.");
       if (Array.isArray(json.listingTypes) && json.listingTypes.length > 0) {
-        setListingTypeOptions(json.listingTypes);
+        const enabledListingTypes = (json.listingTypes as ListingTypeOption[]).filter((option) => isMercadoLivreListingTypeEnabled(option.id));
+        setListingTypeOptions(enabledListingTypes);
         setListingForm((current) => {
-          const selected = json.listingTypes.find((option: ListingTypeOption) => option.id === current.listingTypeId);
-          const fallbackId = json.defaultListingTypeId || json.listingTypes.find((option: ListingTypeOption) => option.available !== false)?.id;
+          const selected = enabledListingTypes.find((option) => option.id === current.listingTypeId);
+          const fallbackId = enabledListingTypes.find((option) => option.id === json.defaultListingTypeId && option.available !== false)?.id
+            || enabledListingTypes.find((option) => option.available !== false)?.id;
           if (!filters?.categoryId && fallbackId && current.listingTypeId !== fallbackId) {
             return { ...current, listingTypeId: fallbackId };
           }
-          if (!selected || selected.available === false) {
+          if (!selected || selected.available === false || !isMercadoLivreListingTypeEnabled(selected.id)) {
             return fallbackId ? { ...current, listingTypeId: fallbackId } : current;
           }
           return current;
@@ -2422,7 +2676,6 @@ export default function MarketplacePage() {
         source: json.source ?? null,
         error: null,
       });
-      setUserProductSeller(Boolean(json.userProductSeller));
     } catch (e: any) {
       if (e?.name === "AbortError") return;
       const message = marketplaceErrorMessage(e);
@@ -2434,22 +2687,36 @@ export default function MarketplacePage() {
   }
 
   async function loadCategoryAttributes(categoryId: string) {
+    categoryAttributesRequestRef.current?.abort();
+    const controller = new AbortController();
+    categoryAttributesRequestRef.current = controller;
     setLoadingAttributes(true);
     setShippingEligibility((current) => ({ ...current, loaded: false, error: null }));
     try {
       const response = await fetch(`/api/integracoes/mercadolivre/category-attributes?categoryId=${encodeURIComponent(categoryId)}`, {
         cache: "no-store",
+        signal: controller.signal,
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar atributos.");
       const attrs = (json.data ?? []) as MlCategoryAttribute[];
       const shippingOptions = Array.isArray(json.settings?.shippingOptions) ? json.settings.shippingOptions.filter(Boolean) : [];
       const logisticOptions = Array.isArray(json.settings?.logisticOptions) ? json.settings.logisticOptions.filter(Boolean) : [];
+      const logistics: MercadoEnviosLogistic[] = Array.isArray(json.settings?.logistics)
+        ? json.settings.logistics
+        : logisticOptions.map((type: string) => ({ type, default: false, label: shippingLogisticLabel(type) }));
+      const categoryModes: string[] = Array.isArray(json.settings?.categoryShippingOptions)
+        ? json.settings.categoryShippingOptions.map((mode: string) => String(mode).toLowerCase())
+        : [];
+      const userModes: string[] = Array.isArray(json.settings?.userShippingOptions)
+        ? json.settings.userShippingOptions.map((mode: string) => String(mode).toLowerCase())
+        : [];
       setShippingEligibility({
         loaded: true,
-        categoryModes: Array.isArray(json.settings?.categoryShippingOptions) ? json.settings.categoryShippingOptions : [],
-        userModes: Array.isArray(json.settings?.userShippingOptions) ? json.settings.userShippingOptions : [],
+        categoryModes,
+        userModes,
         logisticOptions,
+        logistics,
         me2Restricted: Boolean(json.settings?.me2Restricted),
         me2Restrictions: Array.isArray(json.settings?.me2Restrictions) ? json.settings.me2Restrictions : [],
         userShippingOption: json.settings?.userShippingOption ?? null,
@@ -2460,11 +2727,18 @@ export default function MarketplacePage() {
       setListingForm((current) => ({
         ...current,
         categoryShippingOptions: shippingOptions,
+        // Só abandona o Mercado Envios quando a categoria ou a conta responderam
+        // e nenhuma das duas trouxe me2. Lista vazia significa desconhecido.
         shippingMode:
-          !shippingOptions.includes("me2") && shippingOptions.includes("custom")
-            ? "custom"
+          (categoryModes.length && !categoryModes.includes("me2")) || (userModes.length && !userModes.includes("me2"))
+            ? shippingOptions.includes("custom")
+              ? "custom"
+              : current.shippingMode
             : current.shippingMode,
-        logisticType: logisticOptions.includes(current.logisticType) ? current.logisticType : logisticOptions[0] ?? "",
+        // Preferência do Mercado Livre (default = true) antes de qualquer palpite local.
+        logisticType: logisticOptions.includes(current.logisticType)
+          ? current.logisticType
+          : json.settings?.defaultLogisticOption ?? logisticOptions[0] ?? "",
         dynamicAttributes: attrs.reduce(
           (acc, attribute) => {
             if (acc[attribute.id]) return acc;
@@ -2478,6 +2752,7 @@ export default function MarketplacePage() {
         ),
       }));
     } catch (e: any) {
+      if (e?.name === "AbortError") return;
       const message = marketplaceErrorMessage(e);
       toast.error("Erro ao carregar atributos e envios da categoria", { description: message });
       setCategoryAttributes([]);
@@ -2486,6 +2761,7 @@ export default function MarketplacePage() {
         categoryModes: [],
         userModes: [],
         logisticOptions: [],
+        logistics: [],
         me2Restricted: false,
         me2Restrictions: [],
         userShippingOption: null,
@@ -2494,7 +2770,10 @@ export default function MarketplacePage() {
       });
       setListingForm((current) => ({ ...current, categoryShippingOptions: [] }));
     } finally {
-      setLoadingAttributes(false);
+      if (categoryAttributesRequestRef.current === controller) {
+        categoryAttributesRequestRef.current = null;
+        setLoadingAttributes(false);
+      }
     }
   }
 
@@ -2575,19 +2854,80 @@ export default function MarketplacePage() {
     }
   }
 
-  async function simulateShippingQuote() {
-    setLoadingShippingQuote(true);
-    setShippingQuote(null);
+  /** Corpo unico enviado por "Validar anuncio" e por "Publicar anuncio". */
+  function buildListingRequestBody() {
+    return {
+      produtoId: Number(listingForm.produtoId),
+      title: listingForm.title,
+      categoryId: listingForm.categoryId,
+      price: parseCurrencyInput(listingForm.price),
+      availableQuantity: Number(listingForm.availableQuantity),
+      condition: listingForm.condition,
+      listingTypeId: listingForm.listingTypeId,
+      description: listingForm.description,
+      pictureUrl: listingForm.pictureUrl,
+      brand: getListingAttributeValue(listingForm, "BRAND"),
+      model: getListingAttributeValue(listingForm, "MODEL"),
+      partNumber: getListingAttributeValue(listingForm, "PART_NUMBER"),
+      familyName: familyNamePreview,
+      gtin: getListingAttributeValue(listingForm, "GTIN").replace(/\D/g, ""),
+      sku: listingForm.sku,
+      warranty: listingForm.warranty,
+      warrantyTime: listingForm.warrantyTime,
+      attributes: listingForm.dynamicAttributes,
+      attributeDefinitions: categoryAttributes,
+      shippingMode: listingForm.shippingMode,
+      logisticType: listingForm.logisticType,
+      freeShipping: listingForm.freeShipping,
+      localPickup: listingForm.shippingMode === "pickup",
+      customShippingDescription: listingForm.customShippingDescription,
+      customShippingCost: listingForm.freeShipping ? 0 : parseCurrencyInput(listingForm.customShippingCost),
+      customShippingDeadlineDays: Number(listingForm.customShippingDeadlineDays),
+      widthCm: Number(listingForm.widthCm.replace(",", ".")),
+      heightCm: Number(listingForm.heightCm.replace(",", ".")),
+      lengthCm: Number(listingForm.lengthCm.replace(",", ".")),
+      weightGrams: Number(listingForm.weightGrams),
+    };
+  }
+
+  /**
+   * Consulta o Mercado Envios no Mercado Livre. Cada chamada cancela a anterior e
+   * so a resposta da consulta mais recente e aplicada ao formulario.
+   */
+  async function loadMercadoEnvios() {
+    const price = parseCurrencyInput(listingForm.price);
+    if (
+      listingForm.shippingMode !== "me2" ||
+      !listingForm.categoryId ||
+      !listingForm.listingTypeId ||
+      price <= 0 ||
+      missingShippingDimensions
+    ) {
+      mercadoEnviosRequestRef.current.controller?.abort();
+      mercadoEnviosRequestRef.current = { controller: null, id: mercadoEnviosRequestRef.current.id + 1 };
+      setMercadoEnvios(EMPTY_MERCADO_ENVIOS);
+      return;
+    }
+
+    mercadoEnviosRequestRef.current.controller?.abort();
+    const controller = new AbortController();
+    const requestId = mercadoEnviosRequestRef.current.id + 1;
+    mercadoEnviosRequestRef.current = { controller, id: requestId };
+    setMercadoEnvios((current) => ({ ...current, loading: true, error: null }));
+
     try {
-      const response = await fetch("/api/integracoes/mercadolivre/shipping-quote", {
+      const response = await fetch("/api/integracoes/mercadolivre/mercado-envios", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
-          itemPrice: parseCurrencyInput(listingForm.price),
+          title: listingForm.title,
+          categoryId: listingForm.categoryId,
+          price,
           listingTypeId: listingForm.listingTypeId,
           condition: listingForm.condition,
           logisticType: listingForm.logisticType,
-          freeShipping: listingForm.freeShipping,
+          localPickup: false,
           lengthCm: Number(listingForm.lengthCm.replace(",", ".")),
           widthCm: Number(listingForm.widthCm.replace(",", ".")),
           heightCm: Number(listingForm.heightCm.replace(",", ".")),
@@ -2595,12 +2935,105 @@ export default function MarketplacePage() {
         }),
       });
       const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json?.error || "Falha ao simular frete.");
-      setShippingQuote(json.data ?? null);
-    } catch (error: any) {
-      toast.error("Erro ao simular Mercado Envios", { description: marketplaceErrorMessage(error) });
-    } finally {
-      setLoadingShippingQuote(false);
+      if (mercadoEnviosRequestRef.current.id !== requestId) return;
+      if (!response.ok) throw new Error(json?.error || "Falha ao consultar o Mercado Envios.");
+
+      const data = json.data ?? {};
+      const logistics: MercadoEnviosLogistic[] = Array.isArray(data.logistics) ? data.logistics : [];
+      setMercadoEnvios({
+        loading: false,
+        loaded: true,
+        available: Boolean(data.available),
+        mode: data.mode ?? null,
+        logisticType: data.logisticType ?? null,
+        logistics,
+        freeShippingPolicy: (data.freeShippingPolicy ?? "unknown") as FreeShippingPolicy,
+        quotes: data.quotes ?? { buyerPaysShipping: null, freeShipping: null },
+        physicalWeight: data.physicalWeight ?? null,
+        billableWeight: data.billableWeight ?? null,
+        origin: data.origin ?? null,
+        warnings: Array.isArray(data.warnings) ? data.warnings : [],
+        message: data.message ?? null,
+        error: null,
+      });
+
+      // O Mercado Livre e a fonte de verdade da logistica e da obrigatoriedade do frete gratis.
+      setListingForm((current) => {
+        const next = { ...current };
+        if (logistics.length && !logistics.some((option) => option.type === current.logisticType)) {
+          next.logisticType = data.logisticType ?? logistics[0].type;
+        }
+        if (data.freeShippingPolicy === "mandatory") next.freeShipping = true;
+        return next.logisticType === current.logisticType && next.freeShipping === current.freeShipping ? current : next;
+      });
+      if (data.available) clearListingErrors("shipping");
+    } catch (e: any) {
+      if (e?.name === "AbortError" || mercadoEnviosRequestRef.current.id !== requestId) return;
+      setMercadoEnvios({ ...EMPTY_MERCADO_ENVIOS, loaded: true, error: marketplaceErrorMessage(e) });
+    }
+  }
+
+  /** Etapa explicita de validacao: roda na hora, sem debounce. */
+  async function validateListing() {
+    listingValidationRequestRef.current.controller?.abort();
+    const controller = new AbortController();
+    const requestId = listingValidationRequestRef.current.id + 1;
+    listingValidationRequestRef.current = { controller, id: requestId };
+    const signature = listingSignature;
+    setListingValidation((current) => ({ ...current, state: "loading", errors: [], warnings: [] }));
+
+    try {
+      const response = await fetch("/api/integracoes/mercadolivre/items/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify(buildListingRequestBody()),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (listingValidationRequestRef.current.id !== requestId) return;
+      if (!response.ok) throw new Error(json?.error || "Falha ao validar o anuncio no Mercado Livre.");
+
+      const data = json.data ?? {};
+      const valid = data.state === "valid";
+      setListingValidation({
+        state: valid ? "valid" : "invalid",
+        checks: Array.isArray(data.checks) ? data.checks : [],
+        errors: Array.isArray(data.errors) ? data.errors.filter(Boolean) : [],
+        warnings: Array.isArray(data.warnings) ? data.warnings.filter(Boolean) : [],
+        costs: data.costs ?? null,
+        signature,
+      });
+      const fieldErrors = (data.fieldErrors && typeof data.fieldErrors === "object" ? data.fieldErrors : {}) as Record<string, string>;
+      setListingFieldErrors(valid ? {} : fieldErrors);
+      if (data.shipping) {
+        setMercadoEnvios((current) => ({
+          ...current,
+          loaded: true,
+          available: Boolean(data.shipping.available),
+          mode: data.shipping.mode ?? null,
+          logisticType: data.shipping.logisticType ?? current.logisticType,
+          logistics: Array.isArray(data.shipping.logistics) ? data.shipping.logistics : current.logistics,
+          freeShippingPolicy: (data.shipping.freeShippingPolicy ?? current.freeShippingPolicy) as FreeShippingPolicy,
+          quotes: data.shipping.quotes ?? current.quotes,
+          physicalWeight: data.shipping.physicalWeight ?? current.physicalWeight,
+          billableWeight: data.shipping.billableWeight ?? current.billableWeight,
+          message: data.shipping.message ?? null,
+        }));
+      }
+
+      if (valid) {
+        toast.success("Anuncio validado pelo Mercado Livre.");
+      } else {
+        toast.error("O Mercado Livre recusou o anuncio.", {
+          description: (Array.isArray(data.errors) ? data.errors[0] : null) || "Revise os campos destacados.",
+        });
+        setCreateListingStep(listingErrorStep(fieldErrors));
+      }
+    } catch (e: any) {
+      if (e?.name === "AbortError" || listingValidationRequestRef.current.id !== requestId) return;
+      const message = marketplaceErrorMessage(e);
+      setListingValidation({ state: "invalid", checks: [], errors: [message], warnings: [], costs: null, signature });
+      toast.error("Erro ao validar anuncio", { description: message });
     }
   }
 
@@ -2613,6 +3046,7 @@ export default function MarketplacePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           itemPrice: parseCurrencyInput(editForm.price),
+          categoryId: editForm.categoryId,
           listingTypeId: editForm.listingTypeId,
           condition: editForm.condition,
           logisticType: editForm.logisticType,
@@ -3095,7 +3529,7 @@ export default function MarketplacePage() {
       toast.success("Anúncio vinculado ao produto.");
       setLinkingProductId(null);
       setLinkValue("");
-      await loadProducts();
+      await Promise.all([loadProducts(), loadLinkedListingProducts()]);
     } catch (e: any) {
       toast.error("Erro ao vincular anúncio", { description: marketplaceErrorMessage(e) });
     } finally {
@@ -3112,7 +3546,7 @@ export default function MarketplacePage() {
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao remover vínculo.");
       toast.success("Vínculo removido.");
-      await loadProducts();
+      await Promise.all([loadProducts(), loadLinkedListingProducts()]);
     } catch (e: any) {
       toast.error("Erro ao remover vínculo", { description: marketplaceErrorMessage(e) });
     } finally {
@@ -3120,7 +3554,80 @@ export default function MarketplacePage() {
     }
   }
 
-  async function itemAction(itemId: string, action: "pause" | "activate" | "close" | "sync_stock_price") {
+  const [listingConfirm, setListingConfirm] = useState<
+    { itemId: string; action: "close" | "delete" | "relist" } | null
+  >(null);
+  const [moderationDialog, setModerationDialog] = useState<{ itemId: string } | null>(null);
+  const [refreshingListingStatus, setRefreshingListingStatus] = useState(false);
+
+  /** Relê no Mercado Livre a situação de todos os anúncios vinculados. */
+  async function refreshListingStatuses() {
+    setRefreshingListingStatus(true);
+    try {
+      const response = await fetch("/api/integracoes/mercadolivre/items/refresh-status", { method: "POST" });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao atualizar a situação dos anúncios.");
+
+      const changed = Array.isArray(json?.data?.changed) ? json.data.changed : [];
+      if (!changed.length) {
+        toast.success("Situação dos anúncios conferida.", { description: "Nada mudou no Mercado Livre." });
+      } else {
+        toast.warning(`${changed.length} anúncio(s) mudaram de situação no Mercado Livre.`, {
+          description: changed
+            .slice(0, 3)
+            .map((entry: any) => `${entry.itemId}: ${entry.label}`)
+            .join(" · "),
+          duration: 8000,
+        });
+        await Promise.all([loadProducts(), loadLinkedListingProducts()]);
+      }
+    } catch (error: any) {
+      toast.error("Erro ao conferir os anúncios", { description: marketplaceErrorMessage(error) });
+    } finally {
+      setRefreshingListingStatus(false);
+    }
+  }
+  const [moderationInfo, setModerationInfo] = useState<any>(null);
+  const [loadingModeration, setLoadingModeration] = useState(false);
+
+  /** Busca no Mercado Livre por que o anúncio está nesse estado. */
+  async function openListingModeration(itemId: string) {
+    setModerationDialog({ itemId });
+    setModerationInfo(null);
+    setLoadingModeration(true);
+    try {
+      const response = await fetch(
+        `/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}/moderation`,
+        { cache: "no-store" },
+      );
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao consultar a situação do anúncio.");
+      setModerationInfo(json.data ?? null);
+
+      // O vínculo guardava o último status conhecido, que fica velho quando o
+      // Mercado Livre muda o anúncio por conta própria. A consulta traz o atual.
+      const freshStatus = String(json?.data?.status ?? "").toLowerCase();
+      if (freshStatus) {
+        setProducts((current) =>
+          current.map((product) =>
+            product.mercadolivre?.ml_item_id === itemId
+              ? { ...product, mercadolivre: { ...product.mercadolivre, status: freshStatus } }
+              : product,
+          ),
+        );
+      }
+    } catch (error: any) {
+      toast.error("Erro ao consultar o Mercado Livre", { description: marketplaceErrorMessage(error) });
+      setModerationDialog(null);
+    } finally {
+      setLoadingModeration(false);
+    }
+  }
+
+  async function itemAction(
+    itemId: string,
+    action: "pause" | "activate" | "close" | "sync_stock_price" | "delete" | "relist",
+  ) {
     setActionKey(`${action}:${itemId}`);
     try {
       const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}`, {
@@ -3130,6 +3637,21 @@ export default function MarketplacePage() {
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao atualizar anúncio.");
+
+      // Republicar cria um anúncio novo: o vínculo do produto passa a ser outro id.
+      if (action === "relist" && json?.relistedItemId) {
+        toast.success("Anúncio republicado no Mercado Livre.", {
+          description: `Novo código: ${json.relistedItemId}.`,
+        });
+        await Promise.all([loadProducts(), loadLinkedListingProducts()]);
+        return;
+      }
+      if (action === "delete") {
+        toast.success("Anúncio excluído no Mercado Livre.");
+        await Promise.all([loadProducts(), loadLinkedListingProducts()]);
+        return;
+      }
+
       const returnedStatus = String(json?.data?.status || json?.status || "").toLowerCase();
       if (returnedStatus) {
         setProducts((current) =>
@@ -3158,7 +3680,7 @@ export default function MarketplacePage() {
               ? "Anúncio finalizado."
               : "Anúncio atualizado.",
       );
-      await loadProducts();
+      await Promise.all([loadProducts(), loadLinkedListingProducts()]);
     } catch (e: any) {
       toast.error("Erro ao atualizar anúncio", { description: marketplaceErrorMessage(e) });
     } finally {
@@ -3170,6 +3692,9 @@ export default function MarketplacePage() {
     const query = params?.query?.trim() ?? "";
     const parentId = params?.parentId ?? "";
     const vertical = params?.vertical ?? listingForm.categoryVertical;
+    categoryRequestRef.current?.abort();
+    const controller = new AbortController();
+    categoryRequestRef.current = controller;
     setLoadingCategories(true);
     try {
       const searchParams = new URLSearchParams({ limit: "8", vertical });
@@ -3178,19 +3703,28 @@ export default function MarketplacePage() {
 
       const response = await fetch(`/api/integracoes/mercadolivre/categories?${searchParams.toString()}`, {
         cache: "no-store",
+        signal: controller.signal,
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao buscar categorias.");
+      if (controller.signal.aborted) return;
       setCategoryOptions(json.data ?? []);
       setCategoryParent(json.parent ?? null);
     } catch (e: any) {
+      if (e?.name === "AbortError") return;
       toast.error("Erro ao buscar categorias", { description: marketplaceErrorMessage(e) });
     } finally {
-      setLoadingCategories(false);
+      if (categoryRequestRef.current === controller) {
+        categoryRequestRef.current = null;
+        setLoadingCategories(false);
+      }
     }
   }, [listingForm.categoryVertical]);
 
   function fillListingForm(product?: ProductRow | null) {
+    categoryAttributesRequestRef.current?.abort();
+    categoryAttributesRequestRef.current = null;
+    setLoadingAttributes(false);
     setListingForm((current) => ({
       ...current,
       produtoId: product ? String(product.id) : "",
@@ -3199,6 +3733,7 @@ export default function MarketplacePage() {
       categoryName: "",
       categoryPath: "",
       categoryShippingOptions: [],
+      categoryVertical: "products",
       price: product ? formatCurrencyInputFromNumber(product.precovenda) : "",
       availableQuantity: product ? String(Math.max(Number(product.estoque ?? 0), 0)) : "",
       condition: mapConditionFromProduct(product?.conservacao),
@@ -3210,6 +3745,20 @@ export default function MarketplacePage() {
       partNumber: product?.referencia || "",
       familyName: "",
       gtin: normalizeGtin(product?.codigobarras),
+      warranty: "",
+      warrantyTime: "",
+      shippingMode: "me2",
+      logisticType: "",
+      freeShipping: false,
+      localPickup: false,
+      customShippingDescription: "Correios personalizado",
+      customShippingCost: "",
+      customShippingDeadlineDays: "7",
+      customShippingQuoteZip: "",
+      widthCm: "",
+      heightCm: "",
+      lengthCm: "",
+      weightGrams: "",
       dynamicAttributes: initialDynamicAttributesFromProduct(product),
     }));
     setCategorySearch(product?.tituloMarketplace || product?.titulo || "");
@@ -3217,8 +3766,9 @@ export default function MarketplacePage() {
     setCategoryStack([]);
     setCategoryAttributes([]);
     setPreviewImageIndex(0);
-    setShippingEligibility({ loaded: false, categoryModes: [], userModes: [], logisticOptions: [], me2Restricted: false, me2Restrictions: [], userShippingOption: null, defaultDimensions: null, error: null });
-    setShippingQuote(null);
+    setShippingEligibility({ loaded: false, categoryModes: [], userModes: [], logisticOptions: [], logistics: [], me2Restricted: false, me2Restrictions: [], userShippingOption: null, defaultDimensions: null, error: null });
+    setMercadoEnvios(EMPTY_MERCADO_ENVIOS);
+    setListingValidation(EMPTY_LISTING_VALIDATION);
   }
 
   function openCreateListing(selectedProduct?: ProductRow | null) {
@@ -3232,11 +3782,10 @@ export default function MarketplacePage() {
       return;
     }
 
-    fillListingForm(selectedProduct ?? publishableProducts[0] ?? null);
-    setCreateDialogTab("dados");
+    fillListingForm(selectedProduct ?? null);
+    setCreateListingStep("product");
     setListingFieldErrors({});
     setCreateDialogOpen(true);
-    loadCategories({ vertical: "products" });
     loadListingOptions();
   }
 
@@ -3262,7 +3811,7 @@ export default function MarketplacePage() {
       warranty: "",
       warrantyTime: "",
       shippingMode: "me2",
-      logisticType: "drop_off",
+      logisticType: "",
       freeShipping: false,
       localPickup: false,
       widthCm: "",
@@ -3282,6 +3831,7 @@ export default function MarketplacePage() {
     setEditInitialAttributes({});
     setEditShippingQuote(null);
     setEditCapabilities({ title: !fallbackForm.userProductEnabled, price: true, stock: true, pictures: true, description: true, familyName: true });
+    setEditStep("content");
     setEditDialogOpen(true);
 
     setLoadingEditListing(true);
@@ -3573,7 +4123,7 @@ export default function MarketplacePage() {
 
   async function saveEditedListing() {
     if (!editForm.itemId) return;
-    if (!editForm.userProductEnabled && !editForm.title.trim()) {
+    if (!editForm[editTitleField].trim()) {
       toast.error("Informe o título do anúncio.");
       return;
     }
@@ -3672,7 +4222,7 @@ export default function MarketplacePage() {
         toast.success("Alterações confirmadas pelo Mercado Livre.");
         setEditDialogOpen(false);
       }
-      await loadProducts();
+      await Promise.all([loadProducts(), loadLinkedListingProducts()]);
     } catch (e: any) {
       toast.error("Erro ao editar anúncio", { description: marketplaceErrorMessage(e) });
     } finally {
@@ -3696,63 +4246,98 @@ export default function MarketplacePage() {
     }
   }
 
-  function selectListingProduct(produtoId: string) {
-    const product = products.find((item) => String(item.id) === produtoId);
-    fillListingForm(product ?? null);
+  function selectListingProduct(product: ProductRow) {
+    if (product.mercadolivre) {
+      toast.info("Este produto já possui um anúncio Mercado Livre vinculado.");
+      return;
+    }
+    setProducts((current) => current.some((item) => item.id === product.id) ? current : [product, ...current]);
+    setListingFieldErrors({});
+    fillListingForm(product);
   }
 
   function selectCategory(category: CategoryOption) {
-    updateListingForm("categoryId", category.id);
-    updateListingForm("categoryName", category.name);
-    updateListingForm("categoryPath", category.path ?? "");
-    updateListingForm("categoryShippingOptions", []);
     const nextConditions = category.conditionOptions?.length ? category.conditionOptions : ["new", "used", "not_specified"];
     setConditionOptions(nextConditions);
-    if (!nextConditions.includes(listingForm.condition)) {
-      updateListingForm("condition", nextConditions[0] as ListingForm["condition"]);
-    }
-    setCategorySearch(category.name);
+    clearListingErrors("category", "listingType", "general");
+    setListingForm((current) => ({
+      ...current,
+      categoryId: category.id,
+      categoryName: category.name,
+      categoryPath: category.path ?? "",
+      categoryShippingOptions: [],
+      condition: nextConditions.includes(current.condition) ? current.condition : nextConditions[0] as ListingForm["condition"],
+      dynamicAttributes: {
+        BRAND: current.brand,
+        MODEL: current.model,
+        PART_NUMBER: current.partNumber,
+        GTIN: normalizeGtin(current.gtin),
+      },
+    }));
+    setCategoryAttributes([]);
+    setMercadoEnvios(EMPTY_MERCADO_ENVIOS);
+    setListingValidation(EMPTY_LISTING_VALIDATION);
+    setCategorySearch("");
     setCategoryPopoverOpen(false);
     loadCategoryAttributes(category.id);
   }
 
   function changeCategoryVertical(value: MarketplaceVertical) {
-    updateListingForm("categoryVertical", value);
-    updateListingForm("categoryId", "");
-    updateListingForm("categoryName", "");
-    updateListingForm("categoryPath", "");
-    updateListingForm("categoryShippingOptions", []);
-    setShippingEligibility({ loaded: false, categoryModes: [], userModes: [], logisticOptions: [], me2Restricted: false, me2Restrictions: [], userShippingOption: null, defaultDimensions: null, error: null });
-    setShippingQuote(null);
+    clearListingErrors("category", "listingType", "general");
+    setListingForm((current) => ({
+      ...current,
+      categoryVertical: value,
+      categoryId: "",
+      categoryName: "",
+      categoryPath: "",
+      categoryShippingOptions: [],
+      dynamicAttributes: {
+        BRAND: current.brand,
+        MODEL: current.model,
+        PART_NUMBER: current.partNumber,
+        GTIN: normalizeGtin(current.gtin),
+      },
+    }));
+    setCategoryAttributes([]);
+    setShippingEligibility({ loaded: false, categoryModes: [], userModes: [], logisticOptions: [], logistics: [], me2Restricted: false, me2Restrictions: [], userShippingOption: null, defaultDimensions: null, error: null });
+    setMercadoEnvios(EMPTY_MERCADO_ENVIOS);
+    setListingValidation(EMPTY_LISTING_VALIDATION);
     setCategorySearch("");
     setCategoryParent(null);
     setCategoryStack([]);
-    loadCategories({ vertical: value });
   }
 
   function browseCategory(category: CategoryOption) {
     if (categoryParent) setCategoryStack((current) => [...current, categoryParent]);
+    categoryRequestRef.current?.abort();
+    setLoadingCategories(true);
+    setCategoryOptions([]);
+    setCategoryParent(category);
     setCategorySearch("");
-    loadCategories({ parentId: category.id, vertical: listingForm.categoryVertical });
   }
 
   function backCategoryLevel() {
     const previous = categoryStack.at(-1);
+    categoryRequestRef.current?.abort();
+    setLoadingCategories(true);
+    setCategoryOptions([]);
     setCategoryStack((current) => current.slice(0, -1));
     setCategorySearch("");
 
-    if (previous?.id) {
-      loadCategories({ parentId: previous.id, vertical: listingForm.categoryVertical });
-    } else {
-      setCategoryParent(null);
-      loadCategories({ vertical: listingForm.categoryVertical });
-    }
+    setCategoryParent(previous ?? null);
   }
 
   async function createListing() {
-    if (!canPublishListing) {
-      toast.error("Revise o anúncio antes de publicar.", {
-        description: listingIssues[0],
+    if (!listingReadyToValidate) {
+      toast.error("Revise o anúncio antes de publicar.", { description: listingIssues[0] });
+      return;
+    }
+    if (listingValidationState !== "valid") {
+      toast.error("Valide o anúncio no Mercado Livre antes de publicar.", {
+        description:
+          listingValidationState === "stale"
+            ? "Os dados mudaram depois da última validação. Execute Validar anúncio novamente."
+            : "Use o botão Validar anúncio na etapa de revisão.",
       });
       return;
     }
@@ -3768,45 +4353,10 @@ export default function MarketplacePage() {
 
     setCreatingListing(true);
     try {
-      const listingBrand = getListingAttributeValue(listingForm, "BRAND");
-      const listingModel = getListingAttributeValue(listingForm, "MODEL");
-      const listingPartNumber = getListingAttributeValue(listingForm, "PART_NUMBER");
-      const listingGtin = getListingAttributeValue(listingForm, "GTIN").replace(/\D/g, "");
       const response = await fetch("/api/integracoes/mercadolivre/items", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          produtoId: Number(listingForm.produtoId),
-          title: listingForm.title,
-          categoryId: listingForm.categoryId,
-          price: parseCurrencyInput(listingForm.price),
-          availableQuantity: Number(listingForm.availableQuantity),
-          condition: listingForm.condition,
-          listingTypeId: listingForm.listingTypeId,
-          description: listingForm.description,
-          pictureUrl: listingForm.pictureUrl,
-          brand: listingBrand,
-          model: listingModel,
-          partNumber: listingPartNumber,
-          familyName: familyNamePreview,
-          gtin: listingGtin,
-          sku: listingForm.sku,
-          warranty: listingForm.warranty,
-          warrantyTime: listingForm.warrantyTime,
-          attributes: listingForm.dynamicAttributes,
-          attributeDefinitions: categoryAttributes,
-          shippingMode: listingForm.shippingMode,
-          logisticType: listingForm.logisticType,
-          freeShipping: listingForm.freeShipping,
-          localPickup: listingForm.shippingMode === "pickup",
-          customShippingDescription: listingForm.customShippingDescription,
-          customShippingCost: listingForm.freeShipping ? 0 : parseCurrencyInput(listingForm.customShippingCost),
-          customShippingDeadlineDays: Number(listingForm.customShippingDeadlineDays),
-          widthCm: Number(listingForm.widthCm.replace(",", ".")),
-          heightCm: Number(listingForm.heightCm.replace(",", ".")),
-          lengthCm: Number(listingForm.lengthCm.replace(",", ".")),
-          weightGrams: Number(listingForm.weightGrams),
-        }),
+        body: JSON.stringify(buildListingRequestBody()),
       });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -3815,22 +4365,28 @@ export default function MarketplacePage() {
         throw apiError;
       }
 
-      const confirmedShipping = json?.item?.shipping;
-      const confirmedLogisticType = String(confirmedShipping?.logistic_type ?? "").trim().toLowerCase();
+      const confirmed = json?.shipping;
       toast.success("Anúncio criado no Mercado Livre.", {
         description:
-          String(confirmedShipping?.mode ?? "").toLowerCase() === "me2" && confirmedLogisticType
-            ? `Mercado Envios confirmado: ${shippingLogisticLabel(confirmedLogisticType)}.`
+          confirmed?.mode === "me2" && confirmed?.logisticType
+            ? `Mercado Envios confirmado: ${confirmed.logisticLabel || shippingLogisticLabel(confirmed.logisticType)}.`
             : undefined,
       });
+      if (confirmed?.logisticMismatch) {
+        toast.warning("O Mercado Livre aplicou uma logística diferente da prevista.", {
+          description: `Prevista: ${shippingLogisticLabel(confirmed.expectedLogisticType)} · aplicada: ${confirmed.logisticLabel || shippingLogisticLabel(confirmed.logisticType)}.`,
+        });
+      }
+      setListingValidation(EMPTY_LISTING_VALIDATION);
+      setMercadoEnvios(EMPTY_MERCADO_ENVIOS);
       setCreateDialogOpen(false);
       setListingFieldErrors({});
-      await loadProducts();
+      await Promise.all([loadProducts(), loadLinkedListingProducts()]);
     } catch (e: any) {
       const message = marketplaceErrorMessage(e);
       const fieldErrors = { ...mapListingApiError(message), ...((e as any)?.fieldErrors ?? {}) };
       setListingFieldErrors(fieldErrors);
-      setCreateDialogTab(listingErrorTab(fieldErrors));
+      setCreateListingStep(listingErrorStep(fieldErrors));
       toast.error("Erro ao criar anúncio", {
         description: "Corrija os campos destacados no formulário.",
       });
@@ -3845,6 +4401,9 @@ export default function MarketplacePage() {
     if (key === "familyName") clearListingErrors("family", "general");
     if (key === "gtin") clearListingErrors("gtin", "attr:GTIN", "general");
     if (key === "price") clearListingErrors("price", "general");
+    if (key === "availableQuantity") clearListingErrors("stock", "general");
+    if (key === "condition") clearListingErrors("condition", "general");
+    if (key === "warranty" || key === "warrantyTime") clearListingErrors("warranty", "general");
     if (key === "categoryId" || key === "categoryName" || key === "categoryPath") clearListingErrors("category", "listingType", "general");
     if (key === "listingTypeId") clearListingErrors("listingType", "general");
     if (key === "pictureUrl") clearListingErrors("images", "general");
@@ -3864,8 +4423,7 @@ export default function MarketplacePage() {
       ].includes(String(key))
     ) {
       clearListingErrors("shipping", "dimensions", "general");
-      setShippingQuote(null);
-    }
+      }
 
     setListingForm((current) => ({
       ...current,
@@ -3910,6 +4468,26 @@ export default function MarketplacePage() {
     }
   }
 
+  /** Todos os produtos com anúncio vinculado, fora da paginação da lista. */
+  async function loadLinkedListingProducts() {
+    try {
+      const response = await fetch("/api/integracoes/mercadolivre/products?linked=1&includeOutOfStock=1", {
+        cache: "no-store",
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao carregar os produtos vinculados.");
+      setLinkedListingProducts(Array.isArray(json?.data) ? json.data : []);
+
+      const publishable = await fetch("/api/integracoes/mercadolivre/products?unlinked=1&includeOutOfStock=1", {
+        cache: "no-store",
+      });
+      const publishableJson = await publishable.json().catch(() => ({}));
+      if (publishable.ok) setLinkableProducts(Array.isArray(publishableJson?.data) ? publishableJson.data : []);
+    } catch (e: any) {
+      toast.error("Erro ao carregar anúncios vinculados", { description: marketplaceErrorMessage(e) });
+    }
+  }
+
   async function loadPublishedListings() {
     setLoadingPublishedListings(true);
     try {
@@ -3919,6 +4497,7 @@ export default function MarketplacePage() {
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao buscar anúncios publicados.");
       setPublishedListings(Array.isArray(json?.data) ? json.data : []);
+      await loadLinkedListingProducts();
     } catch (e: any) {
       toast.error("Erro ao buscar anúncios", { description: marketplaceErrorMessage(e) });
     } finally {
@@ -3946,7 +4525,7 @@ export default function MarketplacePage() {
       setPublishedListings((current) =>
         current.map((item) => (item.id === itemId ? { ...item, produtoId } : item)),
       );
-      await loadProducts();
+      await Promise.all([loadProducts(), loadLinkedListingProducts()]);
     } catch (e: any) {
       toast.error("Erro ao vincular anúncio", { description: marketplaceErrorMessage(e) });
     } finally {
@@ -3954,16 +4533,19 @@ export default function MarketplacePage() {
     }
   }
 
+  const categoryParentId = categoryParent?.id;
   useEffect(() => {
-    if (!createDialogOpen) return;
-    if (categoryParent && categorySearch.trim().length === 0) return;
-
+    if (!createDialogOpen || !categoryPopoverOpen) return;
     const timer = window.setTimeout(() => {
-      loadCategories({ query: categorySearch, vertical: listingForm.categoryVertical });
-    }, 350);
+      loadCategories({ query: categorySearch, parentId: categoryParentId, vertical: listingForm.categoryVertical });
+    }, categorySearch.trim() ? 350 : 0);
 
-    return () => window.clearTimeout(timer);
-  }, [categoryParent, categorySearch, createDialogOpen, listingForm.categoryVertical, loadCategories]);
+    return () => {
+      window.clearTimeout(timer);
+      categoryRequestRef.current?.abort();
+      categoryRequestRef.current = null;
+    };
+  }, [categoryParentId, categoryPopoverOpen, categorySearch, createDialogOpen, listingForm.categoryVertical, loadCategories]);
 
   useEffect(() => {
     if (!createDialogOpen || !listingForm.categoryId || parseCurrencyInput(listingForm.price) <= 0) return;
@@ -3975,7 +4557,7 @@ export default function MarketplacePage() {
           price: parseCurrencyInput(listingForm.price),
           shippingMode: listingForm.shippingMode,
           logisticType: listingForm.logisticType,
-          billableWeight: Number(listingForm.weightGrams),
+          sellerShippingCost: selectedShippingQuote?.sellerShippingCost ?? undefined,
         },
         controller.signal,
       );
@@ -3991,14 +4573,42 @@ export default function MarketplacePage() {
     listingForm.price,
     listingForm.shippingMode,
     listingForm.logisticType,
+    selectedShippingQuote?.sellerShippingCost,
+  ]);
+
+  // Debounce curto para o recalculo automatico do Mercado Envios.
+  useEffect(() => {
+    if (!createDialogOpen) return;
+    const timer = window.setTimeout(() => {
+      void loadMercadoEnvios();
+    }, 500);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    createDialogOpen,
+    listingForm.shippingMode,
+    listingForm.categoryId,
+    listingForm.listingTypeId,
+    listingForm.condition,
+    listingForm.price,
+    listingForm.widthCm,
+    listingForm.heightCm,
+    listingForm.lengthCm,
     listingForm.weightGrams,
   ]);
 
   useEffect(() => {
-    if (previewImageIndex > 0 && previewImageIndex >= previewImages.length) {
+    return () => {
+      mercadoEnviosRequestRef.current.controller?.abort();
+      listingValidationRequestRef.current.controller?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (previewImageIndex > 0 && previewImageIndex >= validPreviewImages.length) {
       setPreviewImageIndex(0);
     }
-  }, [previewImageIndex, previewImages.length]);
+  }, [previewImageIndex, validPreviewImages.length]);
 
   useEffect(() => {
     if (!selectedOrderDetails) return;
@@ -4013,9 +4623,19 @@ export default function MarketplacePage() {
     });
   }, [selectedOrderDetails]);
 
+  // A aba de anúncios carrega o próprio conjunto assim que é aberta: antes ela
+  // só exibia o que estivesse na página corrente da lista de produtos.
+  const listingsLoadedRef = useRef(false);
+  useEffect(() => {
+    if (activeTab !== "listings" || listingsLoadedRef.current) return;
+    listingsLoadedRef.current = true;
+    void loadPublishedListings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
   useEffect(() => {
     let mounted = true;
-    Promise.all([loadDashboard(), loadProducts(""), loadListingOptions()]).finally(() => {
+    Promise.all([loadDashboard(), loadProducts(""), loadListingOptions(), loadLinkedListingProducts()]).finally(() => {
       if (mounted) setInitialLoading(false);
     });
     return () => {
@@ -4216,6 +4836,11 @@ export default function MarketplacePage() {
     }
 
     const listingStatus = String(link.status ?? "").toLowerCase();
+    // Um anúncio excluído não volta: nem republicar nem excluir de novo se aplicam.
+    const listingDeleted = (Array.isArray((link as any).item_tags) ? (link as any).item_tags : [])
+      .concat(Array.isArray((link as any).raw_item?.sub_status) ? (link as any).raw_item.sub_status : [])
+      .map((entry: unknown) => String(entry).toLowerCase())
+      .includes("deleted");
 
     return (
       <div className={`flex ${compact ? "justify-end" : "justify-end"}`}>
@@ -4269,14 +4894,36 @@ export default function MarketplacePage() {
               <Unlink className="mr-2 h-4 w-4" />
               Remover vínculo
             </DropdownMenuItem>
+            {listingStatus !== "active" && (
+              <DropdownMenuItem onClick={() => openListingModeration(link.ml_item_id)} disabled={Boolean(busy)}>
+                <Info className="mr-2 h-4 w-4" />
+                Por que está assim?
+              </DropdownMenuItem>
+            )}
+            {listingStatus === "closed" && !listingDeleted && (
+              <DropdownMenuItem onClick={() => setListingConfirm({ itemId: link.ml_item_id, action: "relist" })} disabled={Boolean(busy)}>
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Republicar anúncio
+              </DropdownMenuItem>
+            )}
             {listingStatus !== "closed" && (
               <DropdownMenuItem
-                onClick={() => itemAction(link.ml_item_id, "close")}
+                onClick={() => setListingConfirm({ itemId: link.ml_item_id, action: "close" })}
+                disabled={Boolean(busy)}
+                className="text-destructive focus:text-destructive"
+              >
+                <XCircle className="mr-2 h-4 w-4" />
+                Finalizar anúncio
+              </DropdownMenuItem>
+            )}
+            {!listingDeleted && (
+              <DropdownMenuItem
+                onClick={() => setListingConfirm({ itemId: link.ml_item_id, action: "delete" })}
                 disabled={Boolean(busy)}
                 className="text-destructive focus:text-destructive"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                Finalizar anúncio
+                Excluir anúncio
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
@@ -4470,6 +5117,18 @@ export default function MarketplacePage() {
                   </Button>
                 )}
                 {(activeTab === "products" || activeTab === "listings") && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={refreshListingStatuses}
+                    disabled={!connected || refreshingListingStatus}
+                    title="Relê no Mercado Livre a situação de cada anúncio vinculado"
+                  >
+                    {refreshingListingStatus ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                    Conferir situação
+                  </Button>
+                )}
+                {(activeTab === "products" || activeTab === "listings") && (
                   <Button size="sm" onClick={() => openCreateListing()} disabled={!connected}>
                     <Plus className="h-4 w-4" />
                     Criar anúncio
@@ -4521,7 +5180,7 @@ export default function MarketplacePage() {
             items={[
               { value: "overview", label: "Visão geral", icon: LayoutDashboard },
               { value: "products", label: "Produtos", icon: PackageCheck, count: productsTotal },
-              { value: "listings", label: "Anúncios", icon: Store, count: publishedListings.length || linkedCount },
+              { value: "listings", label: "Anúncios", icon: Store, count: listingRows.length },
               { value: "orders", label: "Pedidos", icon: ClipboardList, count: orders.length },
               { value: "performance", label: "Desempenho", icon: TrendingUp },
               { value: "atendimento", label: "Atendimento", icon: MessageCircle, count: unansweredQuestions, attention: unansweredQuestions > 0 },
@@ -5531,1026 +6190,145 @@ export default function MarketplacePage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <MercadoLivreCreateListingDialog
         open={createDialogOpen}
         onOpenChange={(open) => {
           setCreateDialogOpen(open);
-          if (!open) setListingFieldErrors({});
+          if (!open) {
+            categoryRequestRef.current?.abort();
+            categoryAttributesRequestRef.current?.abort();
+            mercadoEnviosRequestRef.current.controller?.abort();
+            listingValidationRequestRef.current.controller?.abort();
+            setLoadingCategories(false);
+            setLoadingAttributes(false);
+            setListingFieldErrors({});
+            setMercadoEnvios(EMPTY_MERCADO_ENVIOS);
+            setListingValidation(EMPTY_LISTING_VALIDATION);
+          }
         }}
-      >
-        <DialogContent className="flex h-[92dvh] w-[100dvw] max-w-[100dvw] flex-col overflow-hidden p-4 sm:h-[850px] sm:max-h-[92dvh] sm:w-[95vw] sm:max-w-[1100px] sm:p-6">
-          <DialogHeader className="shrink-0">
-            <DialogTitle>Criar anúncio Mercado Livre</DialogTitle>
-            <DialogDescription>
-              Publique um produto do ERP como novo anúncio e salve o vínculo automaticamente.
-            </DialogDescription>
-          </DialogHeader>
-          {listingFieldErrors.general && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {listingFieldErrors.general}
-            </div>
-          )}
-
-          <div className="grid min-h-0 flex-1 gap-5 overflow-hidden lg:grid-cols-[minmax(0,1fr)_320px]">
-            <Tabs value={createDialogTab} onValueChange={setCreateDialogTab} className="flex min-h-0 min-w-0 flex-col">
-              <TabsList className="h-auto w-full shrink-0 justify-start gap-1 overflow-x-auto rounded-2xl border bg-muted/40 p-1">
-                <TabsTrigger value="dados" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                  Dados
-                </TabsTrigger>
-                <TabsTrigger value="categoria" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                  Categoria e venda
-                </TabsTrigger>
-                <TabsTrigger value="atributos" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                  Atributos
-                </TabsTrigger>
-                <TabsTrigger value="midia" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                  Mídia
-                </TabsTrigger>
-                <TabsTrigger value="envio" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                  Envio
-                </TabsTrigger>
-                <TabsTrigger value="revisao" className="rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                  Revisão
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="dados" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-                <div className="space-y-2">
-                  <Label>Produto do ERP</Label>
-                  <Select
-                    value={listingForm.produtoId}
-                    onValueChange={selectListingProduct}
-                    disabled={creatingListing || publishableProducts.length === 0}
-                  >
-                    <SelectTrigger className={fieldClass("product", listingSelectClass)}>
-                      <SelectValue placeholder="Selecione um produto" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {publishableProducts.map((product) => (
-                        <SelectItem key={product.id} value={String(product.id)}>
-                          #{product.id} - {product.tituloMarketplace || product.titulo}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {publishableProducts.length === 0 && (
-                    <p className="text-xs text-muted-foreground">Nenhum produto disponível para publicar.</p>
-                  )}
-                  {listingFieldErrors.product && <p className="text-xs text-destructive">{listingFieldErrors.product}</p>}
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                  <Label>{userProductSeller ? "Título cadastrado no ERP" : "Título do anúncio"}</Label>
-                    <span className="text-xs text-muted-foreground">{listingForm.title.length}/60</span>
-                  </div>
-                  <Input
-                    value={listingForm.title}
-                    onChange={(event) => updateListingForm("title", event.target.value)}
-                    disabled={creatingListing}
-                    maxLength={60}
-                    className={fieldClass("title")}
-                  />
-                  {listingFieldErrors.title && <p className="text-xs text-destructive">{listingFieldErrors.title}</p>}
-                  {userProductSeller && (
-                    <div className="flex gap-2 rounded-md border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-xs leading-relaxed text-foreground">
-                      <Info className="mt-0.5 size-4 shrink-0 text-blue-600" />
-                      <p>
-                        Esta conta usa o modelo User Products. Este título identifica o produto no ERP, mas não é enviado como
-                        título final. O nome público será baseado na <strong>Família do produto</strong>, configurada na próxima etapa.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label>Preço</Label>
-                    <div>
-                      <ValueInput
-                        value={parseCurrencyInput(listingForm.price)}
-                        onValueChange={(value) => updateListingForm("price", formatCurrencyInputFromNumber(value))}
-                        disabled={creatingListing}
-                        className={fieldClass("price")}
-                      />
-                    </div>
-                    {listingFieldErrors.price && <p className="text-xs text-destructive">{listingFieldErrors.price}</p>}
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Estoque</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={listingForm.availableQuantity}
-                      onChange={(event) => updateListingForm("availableQuantity", event.target.value)}
-                      disabled={creatingListing}
-                      className={`${fieldClass("stock")} ${freeListingStockIssue ? listingErrorClass : ""}`}
-                    />
-                    {(listingFieldErrors.stock || freeListingStockIssue) && (
-                      <p className="text-xs text-destructive">{listingFieldErrors.stock || freeListingStockIssue}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label>SKU interno</Label>
-                    <Input
-                      value={listingForm.sku}
-                      onChange={(event) => updateListingForm("sku", event.target.value)}
-                      disabled={creatingListing}
-                      placeholder="Referência do ERP"
-                      className={listingFieldClass}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Descrição</Label>
-                  <Textarea
-                    value={listingForm.description}
-                    onChange={(event) => updateListingForm("description", event.target.value)}
-                    disabled={creatingListing}
-                    className={`min-h-40 ${listingFieldClass}`}
-                  />
-                </div>
-              </TabsContent>
-
-              <TabsContent value="categoria" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-                <div className={`flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border px-3 py-2 text-xs ${
-                  listingCommercialInfo.seller?.canList === false
-                    ? "border-destructive/40 bg-destructive/5 text-destructive"
-                    : "bg-muted/20 text-muted-foreground"
-                }`}>
-                  <span className="flex items-center gap-1.5 font-medium text-foreground">
-                    {loadingListingCommercialInfo ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : listingCommercialInfo.seller?.canList === false ? (
-                      <XCircle className="h-3.5 w-3.5 text-destructive" />
-                    ) : (
-                      <Check className="h-3.5 w-3.5 text-emerald-600" />
-                    )}
-                    Conta vendedora
-                  </span>
-                  <span>
-                    {listingCommercialInfo.seller?.canList === false
-                      ? listingCommercialInfo.seller.restrictions.join(" ") || "Publicação bloqueada pelo Mercado Livre."
-                      : "Autorizada a publicar"}
-                  </span>
-                  {listingCommercialInfo.seller?.powerSellerStatus && (
-                    <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
-                      {sellerLevelLabel(listingCommercialInfo.seller.powerSellerStatus)}
-                    </Badge>
-                  )}
-                  {listingCommercialInfo.error && <span className="text-destructive">{listingCommercialInfo.error}</span>}
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Tipo no Mercado Livre</Label>
-                    <Select
-                      value={listingForm.categoryVertical}
-                      onValueChange={(value) => changeCategoryVertical(value as MarketplaceVertical)}
-                      disabled={creatingListing}
-                    >
-                      <SelectTrigger className={fieldClass("listingType", listingSelectClass)}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="products">Produtos</SelectItem>
-                        <SelectItem value="vehicles">Veículos</SelectItem>
-                        <SelectItem value="real_estate">Imóveis</SelectItem>
-                        <SelectItem value="services">Serviços</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Categoria Mercado Livre</Label>
-                    <Popover open={categoryPopoverOpen} onOpenChange={setCategoryPopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          role="combobox"
-                          className={`h-10 w-full justify-between px-3 py-2 text-left ${fieldClass("category")}`}
-                          disabled={creatingListing}
-                        >
-                          <span className="min-w-0">
-                            {listingForm.categoryId ? (
-                              <span className="block truncate">
-                                {listingForm.categoryName || listingForm.categoryId}
-                                <span className="ml-2 font-mono text-xs text-muted-foreground">{listingForm.categoryId}</span>
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">Selecionar categoria</span>
-                            )}
-                          </span>
-                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-                        <Command shouldFilter={false}>
-                          <CommandInput
-                            value={categorySearch}
-                            onValueChange={setCategorySearch}
-                            placeholder="Buscar categoria..."
-                          />
-                          <div className="flex items-center justify-between gap-2 border-b px-2 py-2">
-                            <div className="min-w-0 text-xs text-muted-foreground">
-                              {categoryParent ? (
-                                <span className="block truncate">{categoryParent.path || categoryParent.name}</span>
-                              ) : (
-                                <span>Categorias iniciais</span>
-                              )}
-                            </div>
-                            {categoryParent && (
-                              <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={backCategoryLevel}>
-                                Voltar
-                              </Button>
-                            )}
-                          </div>
-                          <CommandList>
-                            <CommandEmpty>
-                              {loadingCategories ? "Buscando categorias..." : "Nenhuma categoria encontrada."}
-                            </CommandEmpty>
-                            <CommandGroup>
-                              {categoryOptions.map((category) => (
-                                <CommandItem
-                                  key={category.id}
-                                  value={`${category.id} ${category.name}`}
-                                  onSelect={() => {
-                                    if (category.childrenCount && category.childrenCount > 0) browseCategory(category);
-                                    else selectCategory(category);
-                                  }}
-                                  className="items-start gap-3"
-                                >
-                                  <Check
-                                    className={`mt-1 h-4 w-4 ${
-                                      listingForm.categoryId === category.id ? "opacity-100" : "opacity-0"
-                                    }`}
-                                  />
-                                  <span className="min-w-0">
-                                    <span className="block truncate font-medium">{category.name}</span>
-                                    <span className="block truncate text-xs text-muted-foreground">
-                                      {category.path || category.domainName || category.id}
-                                    </span>
-                                    <span className="font-mono text-xs text-muted-foreground">
-                                      {category.id}
-                                      {typeof category.totalItems === "number" ? ` · ${category.totalItems.toLocaleString("pt-BR")} anúncios` : ""}
-                                    </span>
-                                  </span>
-                                  <span className="ml-auto flex shrink-0 gap-1">
-                                    {category.childrenCount && category.childrenCount > 0 ? (
-                                      <Button
-                                        type="button"
-                                        size="sm"
-                                        variant="ghost"
-                                        className="h-7 px-2 text-xs"
-                                        onClick={(event) => {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          browseCategory(category);
-                                        }}
-                                      >
-                                        Abrir
-                                      </Button>
-                                    ) : null}
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 bg-transparent px-2 text-xs"
-                                      onClick={(event) => {
-                                        event.preventDefault();
-                                        event.stopPropagation();
-                                        selectCategory(category);
-                                      }}
-                                    >
-                                      Selecionar
-                                    </Button>
-                                  </span>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    {listingFieldErrors.category && <p className="text-xs text-destructive">{listingFieldErrors.category}</p>}
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Tipo de anúncio</Label>
-                    <Select
-                      value={listingForm.listingTypeId}
-                      onValueChange={(value) => updateListingForm("listingTypeId", value)}
-                      disabled={creatingListing}
-                    >
-                      <SelectTrigger className={fieldClass("listingType", listingSelectClass)}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {listingTypeOptions.map((option) => (
-                          <SelectItem key={option.id} value={option.id} disabled={option.available === false}>
-                            {option.name}
-                            {option.remainingListings != null ? ` · ${option.remainingListings} restante(s)` : ""}
-                            {option.saleFee != null ? ` · taxa ${formatCurrency(option.saleFee)}` : ""}
-                            {option.available === false ? " · indisponível" : ""}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {listingFieldErrors.listingType && <p className="text-xs text-destructive">{listingFieldErrors.listingType}</p>}
-                    {selectedListingType?.restrictionReason && selectedListingType.available === false && (
-                      <p className="text-xs text-destructive">{selectedListingType.restrictionReason}</p>
-                    )}
-                  </div>
-                </div>
-
-                {selectedListingType && (
-                  <div className="grid gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="bg-background px-3 py-2.5">
-                      <div className="text-[11px] text-muted-foreground">Tarifa estimada</div>
-                      <div className="mt-0.5 text-sm font-semibold">
-                        {selectedListingType.saleFee != null ? formatCurrency(selectedListingType.saleFee) : "A calcular"}
-                      </div>
-                      {selectedListingType.saleFeePercentage != null && (
-                        <div className="text-[11px] text-muted-foreground">{selectedListingType.saleFeePercentage.toLocaleString("pt-BR")}% do valor</div>
-                      )}
-                      {selectedListingType.fixedFee != null && selectedListingType.fixedFee > 0 && (
-                        <div className="text-[11px] text-muted-foreground">Inclui custo fixo de {formatCurrency(selectedListingType.fixedFee)}</div>
-                      )}
-                    </div>
-                    <div className="bg-background px-3 py-2.5">
-                      <div className="text-[11px] text-muted-foreground">Recebimento estimado</div>
-                      <div className="mt-0.5 text-sm font-semibold">
-                        {selectedListingType.netAmount != null ? formatCurrency(selectedListingType.netAmount) : "A calcular"}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">Antes do custo de envio</div>
-                    </div>
-                    <div className="bg-background px-3 py-2.5">
-                      <div className="text-[11px] text-muted-foreground">Parcelamento</div>
-                      <div className="mt-0.5 text-sm font-semibold">
-                        {selectedListingType.interestFreeInstallments ? "Sem juros" : "Com juros do comprador"}
-                      </div>
-                      {selectedListingType.financingFee != null && selectedListingType.financingFee > 0 && (
-                        <div className="text-[11px] text-muted-foreground">Custo incluído: {formatCurrency(selectedListingType.financingFee)}</div>
-                      )}
-                    </div>
-                    <div className="bg-background px-3 py-2.5">
-                      <div className="text-[11px] text-muted-foreground">Pagamentos</div>
-                      <div className="mt-0.5 line-clamp-2 text-xs font-medium">
-                        {listingCommercialInfo.payment?.methods.length
-                          ? listingCommercialInfo.payment.methods.map((method) => method.name).join(", ")
-                          : "Definidos pelo Mercado Pago"}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {selectedListingType?.paymentDescription && (
-                  <p className="text-xs text-muted-foreground">{selectedListingType.paymentDescription}</p>
-                )}
-
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label>Condição</Label>
-                    <Select
-                      value={listingForm.condition}
-                      onValueChange={(value) => updateListingForm("condition", value as ListingForm["condition"])}
-                      disabled={creatingListing}
-                    >
-                      <SelectTrigger className={listingSelectClass}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {conditionOptions.map((condition) => (
-                          <SelectItem key={condition} value={condition}>
-                            {condition === "new" ? "Novo" : condition === "used" ? "Usado" : "Não especificado"}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Tipo de garantia</Label>
-                    <Select
-                      value={listingForm.warranty}
-                      onValueChange={(value) => {
-                        updateListingForm("warranty", value);
-                        if (value === "Sem garantia") updateListingForm("warrantyTime", "");
-                      }}
-                      disabled={creatingListing}
-                    >
-                      <SelectTrigger className={listingSelectClass}>
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Sem garantia">Sem garantia</SelectItem>
-                        <SelectItem value="Garantia de fábrica">Garantia de fábrica</SelectItem>
-                        <SelectItem value="Garantia do vendedor">Garantia do vendedor</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Prazo da garantia</Label>
-                    <Select
-                      value={listingForm.warrantyTime}
-                      onValueChange={(value) => updateListingForm("warrantyTime", value)}
-                      disabled={creatingListing || listingForm.warranty === "Sem garantia"}
-                    >
-                      <SelectTrigger className={listingSelectClass}>
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="30 dias">30 dias</SelectItem>
-                        <SelectItem value="60 dias">60 dias</SelectItem>
-                        <SelectItem value="90 dias">90 dias</SelectItem>
-                        <SelectItem value="6 meses">6 meses</SelectItem>
-                        <SelectItem value="12 meses">12 meses</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="atributos" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-                {userProductSeller && <div className={`rounded-md border border-primary/30 bg-primary/[0.035] p-3 text-sm ${listingFieldErrors.family ? "border-destructive bg-destructive/10" : ""}`}>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 font-medium">
-                      Família do produto
-                      <Badge variant="secondary" className="text-[10px]">Define o título público</Badge>
-                    </div>
-                    <span className="font-mono text-xs text-muted-foreground">{familyNamePreview.length}/60</span>
-                  </div>
-                  <Input
-                    value={listingForm.familyName}
-                    onChange={(event) => updateListingForm("familyName", event.target.value.slice(0, 60))}
-                    disabled={creatingListing}
-                    className={`mt-2 ${fieldClass("family")}`}
-                    placeholder={buildListingFamilyName({ ...listingForm, familyName: "" }) || "Ex.: Wega WO-120"}
-                  />
-                  <div className="mt-2 space-y-1.5 text-xs leading-relaxed text-muted-foreground">
-                    <p>
-                      Este é o nome enviado ao Mercado Livre. Se ficar vazio, o ERP gera usando Marca + Modelo + Número da peça.
-                    </p>
-                    <p>
-                      <strong className="text-foreground">Nome que será enviado:</strong>{" "}
-                      <span className="font-mono text-foreground">{familyNamePreview || "Não gerada"}</span>
-                    </p>
-                    <p>O Mercado Livre ainda poderá padronizar letras maiúsculas, termos e ordem das palavras.</p>
-                  </div>
-                  {listingFieldErrors.family && <p className="mt-2 text-xs text-destructive">{listingFieldErrors.family}</p>}
-                </div>}
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-medium">Atributos da categoria</h3>
-                      <p className="text-xs text-muted-foreground">
-                        O Mercado Livre define estes campos conforme a categoria selecionada.
-                      </p>
-                    </div>
-                    {loadingAttributes && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                  </div>
-
-                  {!listingForm.categoryId && (
-                    <div className="rounded-md border bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
-                      Selecione uma categoria para carregar os atributos específicos do Mercado Livre.
-                    </div>
-                  )}
-
-                  {listingForm.categoryId && !loadingAttributes && categoryAttributes.length === 0 && (
-                    <div className="rounded-md border bg-muted/30 px-3 py-3 text-sm text-muted-foreground">
-                      Nenhum atributo adicional retornado para esta categoria.
-                    </div>
-                  )}
-
-                  {categoryAttributes.length > 0 && (
-                    <div className="grid gap-3 xl:grid-cols-2">
-                      {categoryAttributes.map((attribute) => {
-                        const value = listingForm.dynamicAttributes[attribute.id] ?? "";
-                        const disabledAttribute = creatingListing || (attribute.fixed && Boolean(value));
-                        const attributeError = listingFieldErrors[`attr:${attribute.id}`];
-                        return (
-                          <div
-                            key={attribute.id}
-                            className={`flex min-h-[112px] flex-col gap-2 rounded-md border bg-background p-3 shadow-sm ${
-                              attributeError ? "border-destructive bg-destructive/10" : ""
-                            }`}
-                          >
-                            <div className="flex min-h-5 items-start justify-between gap-3">
-                              <Label className="leading-5">
-                                {attribute.name}
-                                {attribute.required && <span className="ml-1 text-destructive">*</span>}
-                              </Label>
-                              <div className="flex shrink-0 items-center gap-1">
-                                {attribute.role && attribute.role !== "standard" && (
-                                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                                    {attribute.role === "parent" ? "Família" : attribute.role === "child" ? "Variação" : "Variável"}
-                                  </Badge>
-                                )}
-                                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                                  {attribute.id}
-                                </span>
-                              </div>
-                            </div>
-                            {attribute.values.length > 0 ? (
-                              <ControlledAttributeInput
-                                attribute={attribute}
-                                value={value}
-                                disabled={disabledAttribute}
-                                onChange={(nextValue) => updateDynamicAttribute(attribute.id, nextValue)}
-                              />
-                            ) : attribute.valueType === "boolean" ? (
-                              <Select value={value} onValueChange={(nextValue) => updateDynamicAttribute(attribute.id, nextValue)} disabled={disabledAttribute}>
-                                <SelectTrigger className={listingSelectClass}>
-                                  <SelectValue placeholder="Selecione" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="true">Sim</SelectItem>
-                                  <SelectItem value="false">Não</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            ) : attribute.valueType === "number_unit" ? (
-                              <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
-                                <Input
-                                  type="number"
-                                  value={value}
-                                  onChange={(event) => updateDynamicAttribute(attribute.id, event.target.value)}
-                                  disabled={disabledAttribute}
-                                  className={listingFieldClass}
-                                />
-                                <Select
-                                  value={listingForm.dynamicAttributes[`${attribute.id}__unit`] || attribute.defaultUnit || attribute.allowedUnits[0]?.id || attribute.allowedUnits[0]?.name || ""}
-                                  onValueChange={(nextValue) => updateDynamicAttribute(`${attribute.id}__unit`, nextValue)}
-                                  disabled={disabledAttribute || attribute.allowedUnits.length === 0}
-                                >
-                                  <SelectTrigger className={listingSelectClass}>
-                                    <SelectValue placeholder="Un." />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {(attribute.allowedUnits.length ? attribute.allowedUnits : [{ id: attribute.defaultUnit ?? "", name: attribute.defaultUnit ?? "Un." }]).map((unit) => (
-                                      <SelectItem key={`${attribute.id}:${unit.id ?? unit.name}`} value={unit.id ?? unit.name}>
-                                        {unit.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            ) : (
-                              <Input
-                                value={value}
-                                onChange={(event) => updateDynamicAttribute(attribute.id, event.target.value)}
-                                disabled={disabledAttribute}
-                                className={listingFieldClass}
-                                placeholder={attribute.defaultUnit ? `Valor em ${attribute.defaultUnit}` : undefined}
-                              />
-                            )}
-                            {attributeError && <p className="text-xs text-destructive">{attributeError}</p>}
-                            {attribute.hint && <p className="line-clamp-2 text-xs text-muted-foreground">{attribute.hint}</p>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="midia" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-                <div className="space-y-2">
-                  <Label>Imagens do anúncio</Label>
-                  <Textarea
-                    value={listingForm.pictureUrl}
-                    onChange={(event) => updateListingForm("pictureUrl", event.target.value)}
-                    placeholder="Uma URL por linha"
-                    disabled={creatingListing}
-                    className={`min-h-28 ${fieldClass("images")}`}
-                  />
-                  {listingFieldErrors.images && <p className="text-xs text-destructive">{listingFieldErrors.images}</p>}
-                  <p className="text-xs text-muted-foreground">Use URLs públicas das imagens. A primeira será usada na pré-visualização.</p>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="envio" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Modo de envio</Label>
-                    <Select
-                      value={listingForm.shippingMode}
-                      onValueChange={(value) => updateListingForm("shippingMode", value)}
-                      disabled={creatingListing || loadingAttributes || !listingForm.categoryId}
-                    >
-                      <SelectTrigger className={`${fieldClass("shipping", listingSelectClass)} ${categoryBlocksMercadoEnvios ? listingErrorClass : ""}`}>
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="me2" disabled={!categorySupportsMercadoEnvios}>
-                          Mercado Envios
-                        </SelectItem>
-                        <SelectItem value="custom">Envio personalizado</SelectItem>
-                        <SelectItem value="pickup">Retirada / própria</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{listingForm.shippingMode === "me2" ? "Logística" : "Alternativa"}</Label>
-                    {listingForm.shippingMode === "me2" ? (
-                      <Select
-                        value={listingForm.logisticType}
-                        onValueChange={(value) => updateListingForm("logisticType", value)}
-                        disabled={creatingListing || loadingAttributes || shippingEligibility.logisticOptions.length === 0}
-                      >
-                        <SelectTrigger className={fieldClass("shipping", listingSelectClass)}>
-                          <SelectValue placeholder="Selecione" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {shippingEligibility.logisticOptions.map((option) => (
-                            <SelectItem key={option} value={option}>{shippingLogisticLabel(option)}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <Input
-                        value={listingForm.shippingMode === "custom" ? listingForm.customShippingDescription : "Retirada / entrega própria"}
-                        onChange={(event) => updateListingForm("customShippingDescription", event.target.value)}
-                        disabled={creatingListing || listingForm.shippingMode === "pickup"}
-                        className={fieldClass("shipping")}
-                      />
-                    )}
-                  </div>
-                </div>
-
-                {listingForm.shippingMode === "me2" && (
-                  <div className="space-y-3">
-                    <div className="grid gap-4 sm:grid-cols-4">
-                      <div className="space-y-2">
-                        <Label>Comprimento (cm)</Label>
-                        <Input value={listingForm.lengthCm} onChange={(event) => updateListingForm("lengthCm", event.target.value)} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="decimal" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Largura (cm)</Label>
-                        <Input value={listingForm.widthCm} onChange={(event) => updateListingForm("widthCm", event.target.value)} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="decimal" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Altura (cm)</Label>
-                        <Input value={listingForm.heightCm} onChange={(event) => updateListingForm("heightCm", event.target.value)} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="decimal" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Peso (g)</Label>
-                        <Input value={listingForm.weightGrams} onChange={(event) => updateListingForm("weightGrams", event.target.value.replace(/\D/g, ""))} disabled={creatingListing} className={fieldClass("dimensions")} inputMode="numeric" />
-                      </div>
-                    </div>
-                    {shippingEligibility.defaultDimensions ? (
-                      <p className="text-xs text-muted-foreground">
-                        Referência da categoria: {shippingEligibility.defaultDimensions.length ?? "-"} × {shippingEligibility.defaultDimensions.width ?? "-"} × {shippingEligibility.defaultDimensions.height ?? "-"} cm, {shippingEligibility.defaultDimensions.weight ?? "-"} g. Informe as medidas reais da embalagem.
-                      </p>
-                    ) : null}
-                    <div className="flex flex-wrap items-center gap-3">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="bg-transparent"
-                        onClick={simulateShippingQuote}
-                        disabled={creatingListing || loadingShippingQuote || Boolean(missingShippingDimensions) || !listingForm.logisticType || !categorySupportsMercadoEnvios}
-                      >
-                        {loadingShippingQuote ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrendingUp className="h-4 w-4" />}
-                        Simular custo do vendedor
-                      </Button>
-                      {shippingQuote ? (
-                        <div className="text-sm">
-                          Custo estimado: <strong>{formatCurrency(shippingQuote.sellerCost ?? shippingQuote.listCost ?? 0)}</strong>
-                          {shippingQuote.listCost != null && shippingQuote.sellerCost != null && shippingQuote.listCost !== shippingQuote.sellerCost
-                            ? ` (tabela ${formatCurrency(shippingQuote.listCost)})`
-                            : ""}
-                          {shippingQuote.billableWeight != null ? ` · peso tarifado ${shippingQuote.billableWeight} g` : ""}
-                          {shippingOriginLabel(shippingQuote.origin) ? ` · origem ${shippingOriginLabel(shippingQuote.origin)}` : ""}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-                {listingForm.categoryId && shippingEligibility.loaded && !categoryShippingIssue && listingForm.shippingMode === "me2" && (
-                  <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                    Mercado Envios validado para esta conta e categoria. Logística disponível: {shippingEligibility.logisticOptions.map(shippingLogisticLabel).join(", ") || "definida automaticamente pelo Mercado Livre"}.
-                  </div>
-                )}
-                {listingForm.shippingMode === "custom" && (
-                  <div className="grid gap-4 sm:grid-cols-4">
-                    <div className="space-y-2">
-                      <Label>Valor do frete</Label>
-                      <div>
-                        <ValueInput
-                          value={parseCurrencyInput(listingForm.customShippingCost)}
-                          onValueChange={(value) =>
-                            updateListingForm("customShippingCost", formatCurrencyInputFromNumber(value))
-                          }
-                          disabled={creatingListing || listingForm.freeShipping}
-                          className={fieldClass("shipping")}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Prazo</Label>
-                      <Input
-                        value={listingForm.customShippingDeadlineDays}
-                        onChange={(event) => updateListingForm("customShippingDeadlineDays", event.target.value.replace(/\D/g, ""))}
-                        disabled={creatingListing}
-                        className={fieldClass("shipping")}
-                        inputMode="numeric"
-                        placeholder="Dias úteis"
-                      />
-                    </div>
-                    <div className="space-y-2 sm:col-span-2">
-                      <Label>Consulta por CEP</Label>
-                      <Input
-                        value={listingForm.customShippingQuoteZip}
-                        onChange={(event) => updateListingForm("customShippingQuoteZip", event.target.value.replace(/\D/g, "").slice(0, 8))}
-                        disabled={creatingListing}
-                        className={fieldClass("shipping")}
-                        inputMode="numeric"
-                        placeholder="Digite o CEP para simular"
-                      />
-                    </div>
-                    <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm sm:col-span-4">
-                      {listingForm.customShippingQuoteZip.length === 8 ? (
-                        <span>
-                          Para o CEP {listingForm.customShippingQuoteZip.replace(/^(\d{5})(\d{3})$/, "$1-$2")}:{" "}
-                          <strong>{listingForm.freeShipping ? "Frete grátis" : formatCurrency(parseCurrencyInput(listingForm.customShippingCost))}</strong>
-                          {Number(listingForm.customShippingDeadlineDays) > 0 ? ` em até ${listingForm.customShippingDeadlineDays} dia(s) úteis.` : "."}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          A consulta usa o valor e prazo configurados neste anúncio. Para cálculo real por transportadora, será necessário integrar Correios, Melhor Envio ou outro provedor.
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {categoryShippingIssue && (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                    {categoryShippingIssue}
-                  </div>
-                )}
-                {customShippingIssue && (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                    {customShippingIssue}
-                  </div>
-                )}
-                {(listingFieldErrors.shipping || listingFieldErrors.dimensions) && (
-                  <p className="text-xs text-destructive">{listingFieldErrors.shipping || listingFieldErrors.dimensions}</p>
-                )}
-
-                <div className="grid gap-3 sm:grid-cols-1">
-                  <label className="flex items-center gap-3 rounded-md border bg-background px-3 py-3 text-sm">
-                    <Checkbox checked={listingForm.freeShipping} onCheckedChange={(checked) => updateListingForm("freeShipping", checked === true)} disabled={creatingListing} />
-                    Oferecer frete grátis
-                  </label>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="revisao" className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-2">
-                <div className="rounded-md border bg-background p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold">Checklist de publicação</h3>
-                      <p className="text-xs text-muted-foreground">Corrija os itens pendentes antes de publicar no Mercado Livre.</p>
-                    </div>
-                    {canPublishListing ? (
-                      <Badge className="bg-emerald-600 text-white">Pronto</Badge>
-                    ) : (
-                      <Badge className="bg-yellow-600 text-white">{listingIssues.length} pendência(s)</Badge>
-                    )}
-                  </div>
-                  <div className="mt-4 space-y-2">
-                    {listingIssues.length > 0 ? (
-                      listingIssues.map((issue) => (
-                        <div key={issue} className="flex items-center gap-2 rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm">
-                          <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                          {issue}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm">
-                        <Check className="h-4 w-4 text-emerald-600" />
-                        Os dados mínimos estão preenchidos para tentar publicar.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="grid gap-3 text-sm sm:grid-cols-2">
-                  <div className="rounded-md border bg-background p-3">
-                    <div className="text-xs text-muted-foreground">{userProductSeller ? "Título cadastrado no ERP" : "Produto"}</div>
-                    <div className="font-medium">{listingForm.title || "-"}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{listingForm.sku || "SKU não informado"}</div>
-                  </div>
-                  {userProductSeller && (
-                    <div className="rounded-md border border-primary/30 bg-primary/[0.035] p-3">
-                      <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
-                        <Info className="size-3.5" />
-                        Nome enviado ao Mercado Livre
-                      </div>
-                      <div className="mt-1 font-medium">{familyNamePreview || "-"}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">O título público será baseado nesta família e poderá ser padronizado pelo Mercado Livre.</div>
-                    </div>
-                  )}
-                  <div className="rounded-md border bg-background p-3">
-                    <div className="text-xs text-muted-foreground">Categoria</div>
-                    <div className="font-medium">{listingForm.categoryName || listingForm.categoryId || "-"}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{listingForm.categoryPath || listingForm.categoryId || "-"}</div>
-                  </div>
-                  <div className="rounded-md border bg-background p-3">
-                    <div className="text-xs text-muted-foreground">Preço e estoque</div>
-                    <div className="font-medium">{formatCurrency(parseCurrencyInput(listingForm.price))}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{listingForm.availableQuantity || 0} unidade(s)</div>
-                  </div>
-                  <div className="rounded-md border bg-background p-3">
-                    <div className="text-xs text-muted-foreground">Envio</div>
-                    <div className="font-medium">{listingForm.shippingMode === "me2" ? "Mercado Envios" : listingForm.shippingMode === "custom" ? "Personalizado" : "Não especificado"}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {listingForm.lengthCm || "-"} x {listingForm.widthCm || "-"} x {listingForm.heightCm || "-"} cm, {listingForm.weightGrams || "-"} g
-                    </div>
-                  </div>
-                </div>
-
-                {categoryAttributes.length > 0 && (
-                  <div className="rounded-md border bg-background p-4">
-                    <h3 className="text-sm font-semibold">Atributos enviados</h3>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                      {categoryAttributes
-                        .filter((attribute) => formatAttributeValue(attribute, listingForm.dynamicAttributes))
-                        .map((attribute) => (
-                          <div key={attribute.id} className="rounded-md border bg-muted/20 px-3 py-2 text-xs">
-                            <div className="text-muted-foreground">{attribute.name}</div>
-                            <div className="font-medium text-foreground">{formatAttributeValue(attribute, listingForm.dynamicAttributes)}</div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </TabsContent>
-            </Tabs>
-
-            <div className="min-h-0 overflow-hidden lg:self-start">
-              <div className="max-h-full overflow-y-auto rounded-md border bg-background">
-                <div className="aspect-[4/3] bg-muted">
-                  {selectedPreviewImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={selectedPreviewImage}
-                      alt={listingForm.title || "Prévia do anúncio"}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                      <ImageIcon className="h-8 w-8" />
-                    </div>
-                  )}
-                </div>
-                {previewImages.length > 1 && (
-                  <div className="flex gap-2 overflow-x-auto border-t p-2">
-                    {previewImages.map((url, index) => (
-                      <button
-                        key={`${url}:${index}`}
-                        type="button"
-                        onClick={() => setPreviewImageIndex(index)}
-                        className={`h-12 w-12 shrink-0 overflow-hidden rounded-md border bg-muted ${
-                          index === previewImageIndex ? "ring-2 ring-primary ring-offset-2" : "opacity-75 hover:opacity-100"
-                        }`}
-                        aria-label={`Visualizar imagem ${index + 1}`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="" className="h-full w-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <div className="space-y-3 p-4 pb-5">
-                  <div>
-                    <div className="line-clamp-2 text-sm font-medium">
-                      {(userProductSeller ? familyNamePreview : listingForm.title) || "Título do anúncio"}
-                    </div>
-                    {userProductSeller && <div className="mt-1 text-[10px] text-muted-foreground">Prévia baseada na família do produto</div>}
-                    <div className="mt-2 text-2xl font-semibold">{formatCurrency(parseCurrencyInput(listingForm.price))}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-md border bg-muted/30 px-2 py-1.5">
-                      <div className="text-muted-foreground">Estoque</div>
-                      <div className="font-semibold">{listingForm.availableQuantity || "0"}</div>
-                    </div>
-                    <div className="rounded-md border bg-muted/30 px-2 py-1.5">
-                      <div className="text-muted-foreground">Tipo</div>
-                      <div className="font-semibold">
-                        {selectedListingType?.name || listingForm.listingTypeId || "Não definido"}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="space-y-1 text-xs text-muted-foreground">
-                    <div>Categoria: {listingForm.categoryName || listingForm.categoryId || "Não informada"}</div>
-                    {listingForm.categoryPath && <div className="line-clamp-2">Caminho: {listingForm.categoryPath}</div>}
-                    {listingForm.categoryId && <div>Código: {listingForm.categoryId}</div>}
-                    <div>SKU: {listingForm.sku || "Não informado"}</div>
-                    <div>Marca: {listingForm.brand || "Não informada"}</div>
-                    <div>Modelo: {listingForm.model || "Não informado"}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className="shrink-0 border-t bg-background pt-4">
-            <Button variant="outline" className="bg-transparent" onClick={() => setCreateDialogOpen(false)} disabled={creatingListing}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={createListing}
-              disabled={creatingListing || !canPublishListing}
-            >
-              {creatingListing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Publicar anúncio
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        step={createListingStep}
+        onStepChange={setCreateListingStep}
+        form={listingForm}
+        updateForm={updateListingForm}
+        updateDynamicAttribute={updateDynamicAttribute}
+        fieldErrors={listingFieldErrors}
+        creating={creatingListing}
+        selectedProduct={selectedListingProduct}
+        onSelectProduct={selectListingProduct}
+        issues={listingIssueDetails}
+        onPublish={createListing}
+        categoryPopoverOpen={categoryPopoverOpen}
+        onCategoryPopoverOpenChange={setCategoryPopoverOpen}
+        categorySearch={categorySearch}
+        onCategorySearchChange={(query) => {
+          categoryRequestRef.current?.abort();
+          setLoadingCategories(true);
+          setCategoryOptions([]);
+          setCategoryParent(null);
+          setCategoryStack([]);
+          setCategorySearch(query);
+        }}
+        loadingCategories={loadingCategories}
+        categoryOptions={categoryOptions}
+        categoryParent={categoryParent}
+        onBackCategoryLevel={backCategoryLevel}
+        onBrowseCategory={browseCategory}
+        onSelectCategory={selectCategory}
+        onChangeCategoryVertical={changeCategoryVertical}
+        categoryAttributes={categoryAttributes}
+        loadingAttributes={loadingAttributes}
+        listingTypeOptions={listingTypeOptions}
+        listingCommercialInfo={listingCommercialInfo}
+        loadingListingCommercialInfo={loadingListingCommercialInfo}
+        conditionOptions={conditionOptions}
+        selectedListingType={selectedListingType}
+        shippingEligibility={shippingEligibility}
+        mercadoEnviosBlockedReason={mercadoEnviosBlockedReason}
+        mercadoEnviosRestrictionNote={mercadoEnviosRestrictionNote}
+        customShippingIssue={customShippingIssue}
+        missingShippingDimensions={Boolean(missingShippingDimensions)}
+        mercadoEnvios={mercadoEnvios}
+        onRefreshMercadoEnvios={loadMercadoEnvios}
+        freeShippingMandatory={freeShippingMandatory}
+        selectedShippingQuote={selectedShippingQuote}
+        mercadoEnviosIssue={mercadoEnviosIssue}
+        validation={listingValidation}
+        validationState={listingValidationState}
+        onValidate={validateListing}
+        canValidate={listingReadyToValidate}
+        canPublish={canPublishListing}
+        previewImages={validPreviewImages}
+        productImageUrls={selectedListingProductImageUrls}
+        previewImageIndex={previewImageIndex}
+        onPreviewImageIndexChange={setPreviewImageIndex}
+      />
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-[100dvw] max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 sm:h-[92dvh] sm:max-h-[850px] sm:w-[95vw] sm:max-w-[1100px] sm:rounded-lg sm:border">
+        <ListingDialogContent
+          mode="edit"
+          stepCount={editListingSteps.length}
+          notice={editRestrictions.length ? `Alguns campos estão bloqueados pelas regras do Mercado Livre: ${editRestrictions.join("; ")}.` : undefined}
+        >
           {loadingEditListing && (
             <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg bg-background">
               <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />
               <span className="text-primary">Carregando...</span>
             </div>
           )}
-          <DialogHeader className="shrink-0 border-b px-4 py-4 pr-12 text-left sm:px-6 sm:py-5 sm:pr-12">
-            <DialogTitle>Editar anúncio Mercado Livre</DialogTitle>
-            <DialogDescription>
-              Atualize os dados principais do anúncio publicado e sincronize com o Mercado Livre.
-            </DialogDescription>
-          </DialogHeader>
-          {(!editCapabilities.price || !editCapabilities.stock || !editCapabilities.title || !editCapabilities.pictures) && (
-            <div className="mx-4 mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 sm:mx-6">
-              Alguns campos estão bloqueados pelas regras do Mercado Livre:
-              {!editCapabilities.price && " preço com automação ativa;"}
-              {!editCapabilities.stock && " estoque administrado pela logística Full/multiorigem;"}
-              {!editCapabilities.title && " título controlado pelo catálogo/família;"}
-              {!editCapabilities.pictures && " imagens controladas pelo catálogo;"}
+          <ListingStepper
+            steps={editListingSteps}
+            step={editStep}
+            onStepChange={setEditStep}
+            stepValidity={EDIT_STEP_VALIDITY}
+            footerNote={<p className="mr-auto text-left text-xs text-muted-foreground">As alterações são enviadas ao Mercado Livre apenas quando você salva.</p>}
+            footerActions={<>
+              <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={editingListing}>
+                Cancelar
+              </Button>
+              {editStep !== editListingSteps[0].value ? (
+                <Button variant="outline" onClick={() => setEditStep(editListingSteps[editListingSteps.findIndex((item) => item.value === editStep) - 1].value)} disabled={editingListing || loadingEditListing}>
+                  <ChevronLeft className="h-4 w-4" />Voltar
+                </Button>
+              ) : null}
+              {editStep !== editListingSteps[editListingSteps.length - 1].value ? (
+                <Button onClick={() => setEditStep(editListingSteps[editListingSteps.findIndex((item) => item.value === editStep) + 1].value)} disabled={editingListing || loadingEditListing}>
+                  Avançar<ChevronRight className="h-4 w-4" />
+                </Button>
+              ) : null}
+              <Button onClick={saveEditedListing} disabled={editingListing || loadingEditListing || !editForm.itemId}>
+                {editingListing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Salvar alterações
+              </Button>
+            </>}
+          >
+            <TabsContent value="content" className="m-0 space-y-5">
+              <StepHeading number="1" title="Conteúdo do anúncio" description="Ajuste os dados comerciais do anúncio já publicado." />
+              <FormSection title="Dados do anúncio">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between"><Label htmlFor="edit-listing-title">Título do anúncio</Label><span className="text-xs text-muted-foreground">{editForm[editTitleField].length}/{editTitleMaxLength}</span></div>
+                <Input
+                  id="edit-listing-title"
+                  value={editForm[editTitleField]}
+                  onChange={(event) => updateEditForm(editTitleField, event.target.value.slice(0, editTitleMaxLength))}
+                  disabled={editingListing || loadingEditListing || !editTitleEditable}
+                  maxLength={editTitleMaxLength}
+                  className={listingFieldClass}
+                />
+              </div>
+            <div className="space-y-2">
+              <Label>Descrição</Label>
+              <Textarea
+                value={editForm.description}
+                onChange={(event) => updateEditForm("description", event.target.value)}
+                disabled={editingListing || loadingEditListing || !editCapabilities.description}
+                rows={7}
+                className={listingFieldClass}
+              />
             </div>
-          )}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2 md:col-span-2">
-                <Label>Título do anúncio</Label>
-                <Input
-                  value={editForm.title}
-                  onChange={(event) => updateEditForm("title", event.target.value)}
-                  disabled={editingListing || loadingEditListing || !editCapabilities.title}
-                  maxLength={60}
-                  className={listingFieldClass}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Código ML</Label>
-                <Input value={editForm.itemId} disabled className={listingFieldClass} />
-              </div>
-              {editForm.userProductEnabled && (
-                <>
-                  <div className="space-y-2 md:col-span-2">
-                    <Label>Família do produto</Label>
-                    <Input
-                      value={editForm.familyName}
-                      onChange={(event) => updateEditForm("familyName", event.target.value.slice(0, 120))}
-                      disabled={editingListing || loadingEditListing}
-                      maxLength={120}
-                      className={listingFieldClass}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>User Product</Label>
-                    <Input value={editForm.userProductId || "Gerado pelo Mercado Livre"} disabled className={listingFieldClass} />
-                  </div>
-                </>
-              )}
-              <div className="space-y-2">
-                <Label>Preço</Label>
-                <div>
-                  <ValueInput
-                    value={parseCurrencyInput(editForm.price)}
-                    onValueChange={(value) => updateEditForm("price", formatCurrencyInputFromNumber(value))}
-                    disabled={editingListing || loadingEditListing || !editCapabilities.price}
-                    className={listingFieldClass}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Estoque disponível</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={editForm.availableQuantity}
-                  onChange={(event) => updateEditForm("availableQuantity", event.target.value)}
-                    disabled={editingListing || loadingEditListing || !editCapabilities.stock}
-                  className={listingFieldClass}
-                />
-              </div>
+
+              </FormSection>
+              <FormSection title="Garantia">
+                <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Tipo de garantia</Label>
                 <Select
@@ -6592,70 +6370,79 @@ export default function MarketplacePage() {
                   </SelectContent>
                 </Select>
               </div>
+                </div>
+              </FormSection>
+              <FormSection title="Identificação do anúncio">
+                <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Modo de envio</Label>
-                <Select value={editForm.shippingMode} onValueChange={(value) => updateEditForm("shippingMode", value)} disabled={editingListing || loadingEditListing}>
-                  <SelectTrigger className={listingSelectClass}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {editShippingModes.map((mode) => (
-                      <SelectItem key={mode} value={mode} disabled={mode !== "me2" && mode !== editForm.shippingMode}>
-                        {mode === "me2" ? "Mercado Envios" : mode === "custom" ? "Envio personalizado atual" : rawStatusLabel(mode)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Categoria Mercado Livre</Label>
+                <Input value={editForm.categoryId} disabled className={listingFieldClass} />
+                {/* O Mercado Livre não aceita category_id em PUT /items para anúncios
+                    de marketplace; trocar de categoria exige publicar de novo. */}
+                <p className="text-xs text-muted-foreground">
+                  A categoria não pode ser alterada em um anúncio publicado. Para mudar, finalize este anúncio e publique o produto na categoria correta.
+                </p>
               </div>
               <div className="space-y-2">
-                <Label>Logística</Label>
-                <Select
-                  value={editForm.logisticType}
-                  onValueChange={(value) => updateEditForm("logisticType", value)}
-                  disabled={editingListing || loadingEditListing || editForm.shippingMode !== "me2" || editLogisticOptions.length === 0}
-                >
-                  <SelectTrigger className={listingSelectClass}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {editLogisticOptions.map((option) => (
-                      <SelectItem key={option} value={option}>{shippingLogisticLabel(option)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Código do anúncio</Label>
+                <Input value={editForm.itemId} disabled className={listingFieldClass} />
+              </div>
+              {editForm.userProductEnabled && (
+                  <div className="space-y-2">
+                    <Label>Identificador do produto no Mercado Livre</Label>
+                    <Input value={editForm.userProductId || "Gerado pelo Mercado Livre"} disabled className={listingFieldClass} />
+                  </div>
+              )}
+                </div>
+              </FormSection>
+            </TabsContent>
+
+            <TabsContent value="media" className="m-0 space-y-5">
+              <StepHeading number="2" title="Mídia do anúncio" description="Envie, reordene e escolha a capa. A primeira imagem é a principal no Mercado Livre." />
+            <div className="space-y-2">
+              <ListingMediaManager
+                value={editForm.pictureUrl}
+                onChange={(value) => updateEditForm("pictureUrl", value)}
+                produtoId={Number(editForm.produtoId) || null}
+                productImageUrls={editingProductImageUrls}
+                disabled={editingListing || loadingEditListing || !editCapabilities.pictures}
+                disabledReason={editCapabilities.pictures ? null : "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre."}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Vídeo do anúncio</Label>
+              <Input
+                value={editForm.videoUrl}
+                onChange={(event) => updateEditForm("videoUrl", event.target.value)}
+                placeholder="https://www.youtube.com/watch?v=..."
+                disabled={editingListing || loadingEditListing}
+                className={listingFieldClass}
+              />
+              <p className="text-xs text-muted-foreground">
+                Use uma URL pública do YouTube ou o código de 11 caracteres do vídeo. A disponibilidade final depende da categoria e das regras do anúncio.
+              </p>
+            </div>
+            </TabsContent>
+
+            <TabsContent value="attributes" className="m-0 space-y-5">
+              <StepHeading number="3" title="Categoria e características" description="Atributos exigidos pela categoria e variações da família." />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Categoria Mercado Livre</Label>
+                <Input value={editForm.categoryId} disabled className={listingFieldClass} />
+                <p className="text-xs text-muted-foreground">A categoria do anúncio publicado não pode ser alterada aqui.</p>
               </div>
             </div>
-
-            {editCategoryAttributes.length > 0 && (
-              <section className="mt-4 space-y-3 border-t pt-4">
-                <div>
-                  <h3 className="text-sm font-medium">Atributos do Mercado Livre</h3>
-                  <p className="text-xs text-muted-foreground">
-                    Campos compartilhados pela família e específicos desta variação.
-                  </p>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {editCategoryAttributes.map((attribute) => {
+            {[true, false].map((required) => {
+              const attributes = editCategoryAttributes.filter((attribute) => attribute.required === required);
+              if (!attributes.length) return null;
+              return (
+                <AttributeGroup key={String(required)} title={required ? "Obrigatórios" : "Opcionais"} count={attributes.length}>
+                  {attributes.map((attribute) => {
                     const value = editForm.dynamicAttributes[attribute.id] ?? "";
                     const disabledAttribute = editingListing || loadingEditListing || (attribute.fixed && Boolean(value));
                     return (
-                      <div key={attribute.id} className="space-y-2 rounded-md border bg-background p-3">
-                        <div className="flex min-h-5 items-start justify-between gap-3">
-                          <Label className="leading-5">
-                            {attribute.name}
-                            {attribute.required && <span className="ml-1 text-destructive">*</span>}
-                          </Label>
-                          <div className="flex shrink-0 items-center gap-1">
-                            {attribute.role && attribute.role !== "standard" && (
-                              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                                {attribute.role === "parent" ? "Família" : attribute.role === "child" ? "Variação" : "Variável"}
-                              </Badge>
-                            )}
-                            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                              {attribute.id}
-                            </span>
-                          </div>
-                        </div>
+                      <AttributeCard key={attribute.id} {...attribute}>
                         {attribute.values.length > 0 ? (
                           <ControlledAttributeInput
                             attribute={attribute}
@@ -6674,7 +6461,7 @@ export default function MarketplacePage() {
                             </SelectContent>
                           </Select>
                         ) : attribute.valueType === "number_unit" ? (
-                          <div className="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+                          <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-2">
                             <Input
                               type="number"
                               value={value}
@@ -6707,13 +6494,12 @@ export default function MarketplacePage() {
                             className={listingFieldClass}
                           />
                         )}
-                        {attribute.hint && <p className="line-clamp-2 text-xs text-muted-foreground">{attribute.hint}</p>}
-                      </div>
+                      </AttributeCard>
                     );
                   })}
-                </div>
-              </section>
-            )}
+                </AttributeGroup>
+              );
+            })}
 
             {editForm.userProductEnabled && editFamilyMembers.length > 0 && (
               <section className="mt-4 space-y-3 border-t pt-4">
@@ -6744,27 +6530,106 @@ export default function MarketplacePage() {
                 </div>
               </section>
             )}
+              {editCategoryAttributes.length === 0 ? <p className="text-sm text-muted-foreground">Esta categoria não retornou atributos editáveis.</p> : null}
+            </TabsContent>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-4">
+            <TabsContent value="offer" className="m-0 space-y-5">
+              <StepHeading number="4" title="Oferta e envio" description="Defina preço, estoque e a modalidade logística do anúncio." />
+              <FormSection title="Preço e estoque">
+                <div className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>Preço</Label>
+                <div>
+                  <ValueInput
+                    value={parseCurrencyInput(editForm.price)}
+                    onValueChange={(value) => updateEditForm("price", formatCurrencyInputFromNumber(value))}
+                    disabled={editingListing || loadingEditListing || !editCapabilities.price}
+                    className={listingFieldClass}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Estoque</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={editForm.availableQuantity}
+                  onChange={(event) => updateEditForm("availableQuantity", event.target.value)}
+                    disabled={editingListing || loadingEditListing || !editCapabilities.stock}
+                  className={listingFieldClass}
+                />
+              </div>
+                  <div className="space-y-2">
+                    <Label>Condição</Label>
+                    <Select value={editForm.condition} disabled>
+                      <SelectTrigger className={listingSelectClass}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="new">Novo</SelectItem>
+                        <SelectItem value="used">Usado</SelectItem>
+                        <SelectItem value="not_specified">Não especificado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </FormSection>
+              <FormSection title="Envio" description="Defina como o produto será entregue ao comprador.">
+              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Modo de envio</Label>
+                <Select value={editForm.shippingMode} onValueChange={(value) => updateEditForm("shippingMode", value)} disabled={editingListing || loadingEditListing}>
+                  <SelectTrigger className={listingSelectClass}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {editShippingModes.map((mode) => (
+                      <SelectItem key={mode} value={mode} disabled={mode !== "me2" && mode !== editForm.shippingMode}>
+                        {mode === "me2" ? "Mercado Envios" : mode === "custom" ? "Envio personalizado atual" : rawStatusLabel(mode)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Logística</Label>
+                <Select
+                  value={editForm.logisticType}
+                  onValueChange={(value) => updateEditForm("logisticType", value)}
+                  disabled={editingListing || loadingEditListing || editForm.shippingMode !== "me2" || editLogisticOptions.length === 0}
+                >
+                  <SelectTrigger className={listingSelectClass}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {editLogisticOptions.map((option) => (
+                      <SelectItem key={option} value={option}>{shippingLogisticLabel(option)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              </div>
+              </FormSection>
+            <FormSection title="Embalagem" description="Informe as medidas e o peso reais do pacote para calcular o frete.">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div className="space-y-2">
                 <Label>Comprimento (cm)</Label>
-                <Input value={editForm.lengthCm} onChange={(event) => updateEditForm("lengthCm", event.target.value)} disabled={editingListing || loadingEditListing} className={listingFieldClass} />
+                <Input inputMode="decimal" value={editForm.lengthCm} onChange={(event) => updateEditForm("lengthCm", event.target.value)} disabled={editingListing || loadingEditListing} className={listingFieldClass} />
               </div>
               <div className="space-y-2">
                 <Label>Largura (cm)</Label>
-                <Input value={editForm.widthCm} onChange={(event) => updateEditForm("widthCm", event.target.value)} disabled={editingListing || loadingEditListing} className={listingFieldClass} />
+                <Input inputMode="decimal" value={editForm.widthCm} onChange={(event) => updateEditForm("widthCm", event.target.value)} disabled={editingListing || loadingEditListing} className={listingFieldClass} />
               </div>
               <div className="space-y-2">
                 <Label>Altura (cm)</Label>
-                <Input value={editForm.heightCm} onChange={(event) => updateEditForm("heightCm", event.target.value)} disabled={editingListing || loadingEditListing} className={listingFieldClass} />
+                <Input inputMode="decimal" value={editForm.heightCm} onChange={(event) => updateEditForm("heightCm", event.target.value)} disabled={editingListing || loadingEditListing} className={listingFieldClass} />
               </div>
               <div className="space-y-2">
                 <Label>Peso (g)</Label>
-                <Input value={editForm.weightGrams} onChange={(event) => updateEditForm("weightGrams", event.target.value.replace(/\D/g, ""))} disabled={editingListing || loadingEditListing} className={listingFieldClass} />
+                <Input inputMode="numeric" value={editForm.weightGrams} onChange={(event) => updateEditForm("weightGrams", event.target.value.replace(/\D/g, ""))} disabled={editingListing || loadingEditListing} className={listingFieldClass} />
               </div>
             </div>
 
-            <div className="mt-4 rounded-md border bg-muted/20 p-3">
+            </FormSection>
+            <FormSection title="Forma de envio">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <label className="flex items-center gap-3 text-sm">
                   <Checkbox checked={editForm.freeShipping} onCheckedChange={(checked) => updateEditForm("freeShipping", checked === true)} disabled={editingListing || loadingEditListing} />
@@ -6777,77 +6642,185 @@ export default function MarketplacePage() {
               </div>
               {editShippingQuote ? (
                 <div className="mt-3 rounded-md border bg-background px-3 py-2 text-xs text-muted-foreground">
-                  Custo estimado do vendedor: <strong className="text-foreground">{formatCurrency(editShippingQuote.sellerCost ?? editShippingQuote.listCost ?? 0)}</strong>
-                  {editShippingQuote.listCost != null && editShippingQuote.sellerCost != null && editShippingQuote.listCost !== editShippingQuote.sellerCost ? ` · tarifa cheia ${formatCurrency(editShippingQuote.listCost)}` : ""}
+                  Custo estimado do vendedor: <strong className="text-foreground">{editShippingQuote.sellerShippingCost != null ? formatCurrency(editShippingQuote.sellerShippingCost) : "não informado pelo Mercado Livre"}</strong>
+                  {editShippingQuote.listCostBeforeDiscount != null ? ` · tarifa cheia ${formatCurrency(editShippingQuote.listCostBeforeDiscount)}` : ""}
                   {editShippingQuote.billableWeight != null ? ` · peso tarifado ${editShippingQuote.billableWeight} g` : ""}
                   {shippingOriginLabel(editShippingQuote.origin) ? ` · origem ${shippingOriginLabel(editShippingQuote.origin)}` : ""}
                 </div>
               ) : null}
-            </div>
+            </FormSection>
+            </TabsContent>
+          </ListingStepper>
+        </ListingDialogContent>
+      </Dialog>
 
-            <div className="mt-4 space-y-2">
-              <Label>Descrição</Label>
-              <Textarea
-                value={editForm.description}
-                onChange={(event) => updateEditForm("description", event.target.value)}
-                disabled={editingListing || loadingEditListing || !editCapabilities.description}
-                className={`min-h-32 ${listingFieldClass}`}
-              />
+      <Dialog open={moderationDialog != null} onOpenChange={(open) => !open && setModerationDialog(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Situação do anúncio no Mercado Livre</DialogTitle>
+            <DialogDescription>
+              {moderationDialog?.itemId ? `Anúncio ${moderationDialog.itemId}.` : ""} Informação consultada agora na API do Mercado Livre.
+            </DialogDescription>
+          </DialogHeader>
+          {loadingModeration ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Consultando o Mercado Livre...
             </div>
-
-            <div className="mt-4 space-y-2">
-              <Label>Vídeo do anúncio</Label>
-              <Input
-                value={editForm.videoUrl}
-                onChange={(event) => updateEditForm("videoUrl", event.target.value)}
-                placeholder="https://www.youtube.com/watch?v=..."
-                disabled={editingListing || loadingEditListing}
-                className={listingFieldClass}
-              />
-              <p className="text-xs text-muted-foreground">
-                Use uma URL pública do YouTube ou o código de 11 caracteres do vídeo. A disponibilidade final depende da categoria e das regras do anúncio.
-              </p>
-            </div>
-
-            <div className="mt-4 space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Label>Imagens do anúncio</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={editingListing || loadingEditListing || !editCapabilities.pictures || editingProductImageUrls.length === 0}
-                  onClick={() => {
-                    const merged = Array.from(new Set([...parsePictureUrls(editForm.pictureUrl), ...editingProductImageUrls]));
-                    setEditForm((current) => ({ ...current, pictureUrl: merged.join("\n") }));
-                    toast.success(`${editingProductImageUrls.length} imagem(ns) do produto adicionada(s).`);
-                  }}
+          ) : moderationInfo ? (
+            <div className="space-y-3 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge
+                  className={
+                    moderationInfo.tone === "active"
+                      ? "bg-emerald-600 text-white"
+                      : moderationInfo.tone === "paused"
+                        ? "bg-yellow-600 text-white"
+                        : moderationInfo.tone === "review"
+                          ? "bg-amber-600 text-white"
+                          : "bg-red-600 text-white"
+                  }
                 >
-                  <ImageIcon className="mr-2 h-4 w-4" />
-                  Adicionar imagens do produto
-                </Button>
+                  {moderationInfo.label}
+                </Badge>
+                {moderationInfo.requiresAction ? <Badge variant="outline">Requer ação sua</Badge> : null}
               </div>
-              <Textarea
-                value={editForm.pictureUrl}
-                onChange={(event) => updateEditForm("pictureUrl", event.target.value)}
-                placeholder="Uma URL por linha"
-                disabled={editingListing || loadingEditListing || !editCapabilities.pictures}
-                className={`min-h-24 ${listingFieldClass}`}
-              />
-            </div>
-          </div>
 
-          <DialogFooter className="shrink-0 border-t bg-background px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-4">
-            <Button variant="outline" className="w-full bg-transparent sm:w-auto" onClick={() => setEditDialogOpen(false)} disabled={editingListing}>
-              Cancelar
-            </Button>
-            <Button className="w-full sm:w-auto" onClick={saveEditedListing} disabled={editingListing || loadingEditListing || !editForm.itemId}>
-              {editingListing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              Salvar alterações
-            </Button>
-          </DialogFooter>
+              {moderationInfo.detail ? <p>{moderationInfo.detail}</p> : null}
+
+              {moderationInfo.moderation?.reason ? (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                    Motivo informado pelo Mercado Livre
+                  </p>
+                  <p className="mt-1"><ModerationText value={moderationInfo.moderation.reason} /></p>
+                </div>
+              ) : null}
+
+              {moderationInfo.moderation?.remedy && moderationInfo.moderation.remedy !== moderationInfo.moderation.reason ? (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Como resolver</p>
+                  <p className="mt-1"><ModerationText value={moderationInfo.moderation.remedy} /></p>
+                </div>
+              ) : null}
+
+              {Array.isArray(moderationInfo.moderation?.evidence) && moderationInfo.moderation.evidence.length ? (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Evidência</p>
+                  <ul className="mt-1 list-disc pl-4">
+                    {moderationInfo.moderation.evidence.map((entry: string) => <li key={entry}><ModerationText value={entry} /></li>)}
+                  </ul>
+                </div>
+              ) : null}
+
+              {moderationInfo.categoryDiagnosis ? (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Categoria</p>
+                  {moderationInfo.categoryDiagnosis.current ? (
+                    <p className="mt-1 text-xs">
+                      Publicado em <strong className="text-foreground">{moderationInfo.categoryDiagnosis.current.name}</strong>
+                      <span className="block text-muted-foreground">{moderationInfo.categoryDiagnosis.current.path}</span>
+                    </p>
+                  ) : null}
+                  {moderationInfo.categoryDiagnosis.suggestions?.length ? (
+                    <>
+                      <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Categorias sugeridas pelo Mercado Livre
+                      </p>
+                      <ul className="mt-1 space-y-2">
+                        {moderationInfo.categoryDiagnosis.suggestions.map((option: any) => (
+                          <li key={option.id} className="rounded-md border bg-background p-2 text-xs">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-foreground">{option.name}</span>
+                              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{option.id}</span>
+                              {option.score != null ? (
+                                <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                                  {Math.round(option.score * 100)}% de confiança
+                                </Badge>
+                              ) : null}
+                              {option.hasMe2 ? null : (
+                                <Badge variant="outline" className="h-5 px-1.5 text-[10px]">Sem Mercado Envios</Badge>
+                              )}
+                            </div>
+                            {option.path ? <p className="mt-0.5 text-muted-foreground">{option.path}</p> : null}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 text-[11px] text-muted-foreground">
+                        As sugestões vêm de um categorizador automático e podem estar erradas. Confira a trilha completa antes de escolher.
+                      </p>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {moderationInfo.closedByMercadoLivre ? (
+                <p className="text-xs text-muted-foreground">
+                  Um anúncio finalizado não volta a ficar ativo. Se o motivo for a categoria, ela não pode ser alterada em um anúncio publicado: é preciso publicar o produto de novo na categoria correta.
+                </p>
+              ) : null}
+
+              {!moderationInfo.detail && !moderationInfo.moderation ? (
+                <p className="text-muted-foreground">
+                  O Mercado Livre não registrou um motivo detalhado para este anúncio. Estado retornado: {moderationInfo.status || "não informado"}
+                  {moderationInfo.subStatus?.length ? ` (${moderationInfo.subStatus.join(", ")})` : ""}.
+                </p>
+              ) : null}
+
+              {moderationInfo.permalink ? (
+                <a
+                  href={moderationInfo.permalink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  Abrir anúncio no Mercado Livre
+                </a>
+              ) : null}
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={listingConfirm != null} onOpenChange={(open) => !open && setListingConfirm(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {listingConfirm?.action === "delete"
+                ? "Excluir anúncio no Mercado Livre?"
+                : listingConfirm?.action === "relist"
+                  ? "Republicar anúncio?"
+                  : "Finalizar anúncio?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {listingConfirm?.action === "delete"
+                ? "O Mercado Livre encerra o anúncio e o remove em definitivo. A exclusão não pode ser desfeita e o anúncio não pode ser republicado depois."
+                : listingConfirm?.action === "relist"
+                  ? "O Mercado Livre não reativa um anúncio finalizado: ele cria um anúncio novo, com outro código, usando o preço e o estoque atuais do produto. Visitas e perguntas são transferidas quando a republicação ocorre em até 60 dias, e cada anúncio só pode ser republicado uma vez."
+                  : "O anúncio deixa de ser exibido. Um anúncio finalizado não volta a ficar ativo — depois disso só é possível republicá-lo, o que gera um código novo."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className={listingConfirm?.action === "relist" ? "" : "bg-destructive text-destructive-foreground hover:bg-destructive/90"}
+              onClick={() => {
+                if (!listingConfirm) return;
+                const { itemId, action } = listingConfirm;
+                setListingConfirm(null);
+                void itemAction(itemId, action);
+              }}
+            >
+              {listingConfirm?.action === "delete"
+                ? "Excluir"
+                : listingConfirm?.action === "relist"
+                  ? "Republicar"
+                  : "Finalizar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={compatibilityDialogOpen} onOpenChange={setCompatibilityDialogOpen}>
         <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-[100dvw] max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 p-0 sm:h-[92dvh] sm:max-h-[850px] sm:w-[95vw] sm:max-w-[1000px] sm:rounded-lg sm:border">

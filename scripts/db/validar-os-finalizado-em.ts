@@ -82,7 +82,7 @@ async function main() {
     throw new Error("A validacao encontrou datas de finalizacao inconsistentes.");
   }
 
-  console.log("Validacao concluida: datas de finalizacao consistentes nos quatro bancos.");
+  console.log("Validacao concluida: datas de finalizacao consistentes nos três bancos.");
 }
 
 main().catch((error) => {
