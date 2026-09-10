@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const payload = JSON.parse(body);
-    const result = await receiveMercadoLivreNotification(payload);
+    const result = await receiveMercadoLivreNotification(payload, "CENTRAL");
     if (result.queued) {
       after(async () => {
         try {

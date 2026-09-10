@@ -1,4 +1,5 @@
-import { mercadoLivreApiGet, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { isMercadoLivreNotFound, mercadoLivreApiGet, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { describeMercadoLivreListingStatus } from "@/lib/integrations/mercadolivre-listing-status";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
 import { applyMercadoLivrePriceToErp, getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -39,6 +40,10 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
 
       try {
         const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(String(link.ml_item_id))}`);
+        // Anúncio excluído não tem preço para conciliar nem métrica para guardar:
+        // o vínculo sai e o produto volta a ficar livre para ser anunciado.
+        const removal = await removeLinkWhenGone(link, item);
+        if (removal) return removal;
         const userProduct = item?.user_product_id && (!link.family_id || link.user_product_id !== item.user_product_id)
           ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
           : null;
@@ -111,10 +116,40 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
         if (error) throw error;
         return synchronized;
       } catch (error: any) {
+        // Um 404 é resposta, não falha: sem isso o vínculo de um anúncio já
+        // apagado ficava tentando de novo a cada hora, para sempre.
+        if (isMercadoLivreNotFound(error)) {
+          const removed = await deleteProductLink(link, "O anúncio não existe mais no Mercado Livre.");
+          if (removed) return removed;
+        }
         return { ...link, sync_error: error?.message || "Falha ao sincronizar anúncio." };
       }
     }),
   );
+}
+
+/** Remove o vínculo quando o Mercado Livre confirma que o anúncio foi excluído. */
+async function removeLinkWhenGone(link: any, item: any) {
+  const state = describeMercadoLivreListingStatus({
+    status: item?.status,
+    subStatus: item?.sub_status,
+    tags: item?.tags,
+  });
+  if (!state.deleted) return null;
+  return await deleteProductLink(link, "Anúncio excluído no Mercado Livre.");
+}
+
+async function deleteProductLink(link: any, reason: string) {
+  const { error } = await supabaseAdmin.from("mercadolivre_product_link").delete().eq("id", link.id);
+  if (error) return { ...link, sync_error: error.message };
+
+  console.info("mercado-livre vínculo removido", {
+    empresa_id: link.empresa_id,
+    produto_id: link.produto_id,
+    ml_item_id: link.ml_item_id,
+    reason,
+  });
+  return { ...link, removed: true, removal_reason: reason };
 }
 
 export async function syncMercadoLivreListingMetricsHistory(params?: { days?: number; limit?: number }) {

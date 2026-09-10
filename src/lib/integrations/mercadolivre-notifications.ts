@@ -1,10 +1,22 @@
 import { createHash } from "crypto";
-import { getMercadoLivreOrder, mercadoLivreApiGet, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { getMercadoLivreOrder, isMercadoLivreNotFound, mercadoLivreApiGet, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { describeMercadoLivreListingStatus } from "@/lib/integrations/mercadolivre-listing-status";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
 import { applyMercadoLivrePriceToErp, getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mercadoLivreSystemNotification } from "@/lib/integrations/mercadolivre-system-notification";
+import {
+  findRecentMercadoLivreOutboundTouch,
+  purgeMercadoLivreOutboundTouches,
+} from "@/lib/integrations/mercadolivre-outbound-touch";
+import { isMercadoLivreNotificationEventEnabled } from "@/lib/integrations/mercadolivre-notification-events";
+import {
+  getUserProductAvailableQuantity,
+  resolveFamilyChange,
+  resolveItemMaterialChange,
+  resolveStockChange,
+} from "@/lib/integrations/mercadolivre-listing-change";
 import { notifySalesUsers } from "@/lib/system-notifications";
 import { processTelegramMarketplaceNotifications } from "@/lib/integrations/telegram-marketplace-notifications";
 
@@ -27,9 +39,15 @@ type Account = {
   access_token: string;
   refresh_token: string | null;
   expires_at: string | null;
+  notificacao_topicos: string[] | null;
 };
 
-export async function receiveMercadoLivreNotification(payload: NotificationPayload) {
+export type MercadoLivreDeliverySource = "CENTRAL" | "DIRETO";
+
+export async function receiveMercadoLivreNotification(
+  payload: NotificationPayload,
+  deliverySource: MercadoLivreDeliverySource = "DIRETO",
+) {
   validateNotificationApplication(payload);
   const mlUserId = toNullableNumber(payload.user_id);
   if (!mlUserId) return { ignored: true, queued: false, reason: "Notificação sem usuário vendedor." };
@@ -42,13 +60,21 @@ export async function receiveMercadoLivreNotification(payload: NotificationPaylo
   if (!activeAccount) return { ignored: true, queued: false, reason: "Conta vendedora não vinculada a este ERP." };
 
   const dedupeKey = buildDedupeKey(payload);
-  const notification = await insertOrGetNotification(payload, dedupeKey, Number(activeAccount.id));
+  const notification = await insertOrGetNotification(payload, dedupeKey, Number(activeAccount.id), deliverySource);
   return { duplicate: notification.duplicate, queued: true, notificationId: notification.id };
 }
 
-export async function retryMercadoLivreNotifications(limit = 50) {
-  await requeueSupportedIgnoredNotifications();
+/**
+ * Manutenção da fila. Roda só no cron (`?job=notifications`, de 15 em 15
+ * minutos): antes ela era executada a cada entrega de webhook, varrendo até mil
+ * linhas e escrevendo em massa antes de processar um único evento.
+ */
+export async function maintainMercadoLivreNotificationQueue() {
   await ignoreOrphanedNotifications();
+  await purgeMercadoLivreOutboundTouches();
+}
+
+export async function retryMercadoLivreNotifications(limit = 50) {
   const { data, error } = await supabaseAdmin.rpc("fn_reservar_notificacoes_mercadolivre", {
     p_limit: Math.min(Math.max(limit, 1), 100),
   });
@@ -66,21 +92,6 @@ export async function retryMercadoLivreNotifications(limit = 50) {
     }
   }
   return results;
-}
-
-async function requeueSupportedIgnoredNotifications() {
-  const { error } = await supabaseAdmin
-    .from("mercadolivre_notification")
-    .update({
-      status: "RECEBIDA",
-      error: null,
-      next_retry_at: null,
-      locked_at: null,
-      processed_at: null,
-    })
-    .eq("status", "IGNORADA")
-    .in("topic", ["user-products-families", "stock-locations"]);
-  if (error) throw error;
 }
 
 async function ignoreOrphanedNotifications() {
@@ -169,8 +180,16 @@ async function processNotification(notificationId: number, attempts: number) {
       finalError = `Tópico sem processador configurado: ${topic || "não informado"}.`;
     }
 
+    // O dado já foi sincronizado acima. O que vem a seguir decide apenas se
+    // alguém precisa ser avisado — suprimir um aviso nunca desfaz a importação.
+    let suppression: NotificationSuppression = null;
     if (finalStatus === "PROCESSADA") {
-      userNotification = mercadoLivreSystemNotification({ notificationId, topic, resource, details: notificationDetails });
+      suppression = isMercadoLivreNotificationEventEnabled(topic, account.notificacao_topicos)
+        ? await resolveEchoSuppression(topic, notificationDetails)
+        : { reason: "EVENTO_DESLIGADO" as const, topic, at: new Date().toISOString() };
+      if (!suppression) {
+        userNotification = mercadoLivreSystemNotification({ notificationId, topic, resource, details: notificationDetails });
+      }
       if (userNotification) {
         try {
           await notifySalesUsers(userNotification);
@@ -192,9 +211,7 @@ async function processNotification(notificationId: number, attempts: number) {
         processed_at: new Date().toISOString(),
         next_retry_at: null,
         locked_at: null,
-        raw_payload: userNotification
-          ? { ...(notification.raw_payload ?? {}), _erp_notification: userNotification }
-          : notification.raw_payload,
+        raw_payload: buildProcessedPayload(notification.raw_payload, userNotification, suppression),
       })
       .eq("id", notificationId);
     if (updateError) throw updateError;
@@ -212,6 +229,54 @@ async function processNotification(notificationId: number, attempts: number) {
       .eq("id", notificationId);
     throw error;
   }
+}
+
+/**
+ * Tópicos que o Mercado Livre devolve como reflexo de uma escrita do ERP. Só
+ * eles passam pela checagem de eco; pedido, envio, pergunta, mensagem,
+ * reclamação e avaliação nascem sempre do comprador ou do Mercado Livre.
+ */
+const ECHOABLE_TOPICS = new Set(["items", "items_prices", "stock-locations", "user-products-families"]);
+
+type NotificationSuppression =
+  | { reason: "ECO_ERP"; kind: string; touchId: number; itemId: string; at: string }
+  | { reason: "EVENTO_DESLIGADO"; topic: string; at: string }
+  | null;
+
+/**
+ * Descobre se este webhook é apenas o Mercado Livre devolvendo uma alteração que
+ * o próprio ERP acabou de fazer. Nesse caso o usuário não precisa ser avisado do
+ * que ele mesmo fez.
+ */
+async function resolveEchoSuppression(
+  topic: string,
+  details: Record<string, unknown> | null,
+): Promise<NotificationSuppression> {
+  if (!ECHOABLE_TOPICS.has(topic)) return null;
+  const itemIds = Array.isArray(details?.erpItemIds) ? (details.erpItemIds as unknown[]) : [];
+
+  for (const candidate of itemIds) {
+    const itemId = String(candidate ?? "").trim();
+    if (!itemId) continue;
+    const touch = await findRecentMercadoLivreOutboundTouch({ itemId });
+    if (touch) {
+      return { reason: "ECO_ERP" as const, kind: touch.kind, touchId: touch.id, itemId, at: touch.created_at };
+    }
+  }
+  return null;
+}
+
+function buildProcessedPayload(
+  rawPayload: Record<string, unknown> | null,
+  userNotification: ReturnType<typeof mercadoLivreSystemNotification>,
+  suppression: NotificationSuppression,
+) {
+  const base = rawPayload ?? {};
+  if (userNotification) return { ...base, _erp_notification: userNotification };
+  // A reconciliação recria avisos das últimas 48 h a partir desta coluna. Sem o
+  // marcador, tudo o que foi suprimido voltaria na próxima abertura da central.
+  if (suppression) return { ...base, _erp_notification_suppressed: suppression };
+  return base;
 }
 
 async function processQuestion(accessToken: string, resource: string) {
@@ -233,18 +298,7 @@ async function processMessage(account: Account, accessToken: string, resource: s
   const latestMessage = messages[messages.length - 1] ?? message?.message ?? message;
   const packId = latestMessage?.pack_id ?? message?.pack_id ?? latestMessage?.message_resources?.[0]?.id;
   const orderId = latestMessage?.order_id ?? message?.order_id;
-  const { data: storedOrders, error } = await supabaseAdmin
-    .from("mercadolivre_order")
-    .select("id, ml_order_id, buyer_id, status, total_amount, currency_id, raw_order")
-    .eq("empresa_id", account.empresa_id)
-    .eq("account_id", account.id)
-    .order("date_created", { ascending: false })
-    .limit(30);
-  if (error) throw error;
-  const order = (storedOrders ?? []).find((candidate: any) =>
-    (orderId && String(candidate.ml_order_id) === String(orderId))
-    || (packId && String(candidate.raw_order?.pack_id ?? candidate.raw_order?.pack?.id ?? "") === String(packId)),
-  ) ?? null;
+  const order = await findOrderByReference(account, { orderId, packId });
   return { message, order };
 }
 
@@ -310,16 +364,39 @@ async function processItem(
 ) {
   const itemId = extractItemId(resource);
   if (!itemId) throw new Error("Notificação de anúncio sem item_id.");
-  const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`);
-  const userProduct = item?.user_product_id
-    ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
-    : null;
+  // Um anúncio já removido do Mercado Livre responde 404, e isso é resposta, não
+  // falha: tratar como erro colocaria a notificação numa fila de retentativa que
+  // nunca ia dar certo.
+  const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`).catch(
+    (error: unknown) => {
+      if (isMercadoLivreNotFound(error)) return null;
+      throw error;
+    },
+  );
+
   const { data: links, error: linksError } = await supabaseAdmin
     .from("mercadolivre_product_link")
-    .select("id, produto_id, title, available_quantity, raw_item, produto:produto(precovenda, titulo, tituloMarketplace)")
+    .select("id, produto_id, title, status, available_quantity, raw_item, produto:produto(precovenda, titulo, tituloMarketplace)")
     .eq("empresa_id", account.empresa_id)
     .eq("ml_item_id", itemId);
   if (linksError) throw linksError;
+
+  // É por aqui que a exclusão chega em segundos, sem ninguém clicar em nada: o
+  // Mercado Livre avisa no tópico `items` assim que o anúncio é apagado. Antes
+  // essa notificação só reescrevia o vínculo com o estado de um anúncio morto —
+  // e pior, levava o preço dele para o produto do ERP logo abaixo.
+  const listingState = describeMercadoLivreListingStatus({
+    status: item?.status,
+    subStatus: item?.sub_status,
+    tags: item?.tags,
+  });
+  if (!item || listingState.deleted) {
+    return { ...(await removeDeletedListing(account, itemId, links ?? [], item)), erpItemIds: [itemId] };
+  }
+
+  const userProduct = item?.user_product_id
+    ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
+    : null;
 
   const priceState = await getMercadoLivrePriceState(accessToken, itemId, item);
   const mercadoLivrePrice = priceState.standardPrice;
@@ -359,7 +436,48 @@ async function processItem(
     .eq("empresa_id", account.empresa_id)
     .eq("ml_item_id", itemId);
   if (error) throw error;
-  return { item, userProduct, stockChange: resolveStockChange(links ?? [], item?.available_quantity) };
+  return {
+    item,
+    userProduct,
+    stockChange: resolveStockChange(links ?? [], item?.available_quantity),
+    materialChange: resolveItemMaterialChange(links ?? [], item, priceState),
+    erpItemIds: [itemId],
+  };
+}
+
+/**
+ * Apaga o vínculo de um anúncio que não existe mais e devolve o que a notificação
+ * do sistema precisa dizer ao usuário.
+ *
+ * O vínculo sai porque `unique (empresa_id, produto_id)` faria o produto ficar
+ * ocupado por um anúncio morto, sem poder ser reanunciado. Vai junto, por
+ * cascade, o histórico diário de métricas daquele anúncio.
+ */
+async function removeDeletedListing(account: Account, itemId: string, links: any[], item: any) {
+  const reason = item ? "Anúncio excluído no Mercado Livre." : "O anúncio não existe mais no Mercado Livre.";
+  if (!links.length) return { item: item ?? { id: itemId }, listingRemoved: { itemId, reason, produtos: [] } };
+
+  const { error } = await supabaseAdmin
+    .from("mercadolivre_product_link")
+    .delete()
+    .in("id", links.map((link) => Number(link.id)));
+  if (error) throw error;
+
+  const produtos = links
+    .map((link) => {
+      const produto = Array.isArray(link.produto) ? link.produto[0] : link.produto;
+      return String(produto?.tituloMarketplace || produto?.titulo || link.title || "").trim();
+    })
+    .filter(Boolean);
+
+  console.info("mercado-livre vínculo removido", {
+    empresa_id: account.empresa_id,
+    ml_item_id: itemId,
+    produto_ids: links.map((link) => link.produto_id),
+    reason,
+  });
+
+  return { item: item ?? { id: itemId }, listingRemoved: { itemId, reason, produtos } };
 }
 
 async function processUserProductFamily(account: Account, accessToken: string, resource: string) {
@@ -367,6 +485,13 @@ async function processUserProductFamily(account: Account, accessToken: string, r
   const family = await mercadoLivreApiGet<any>(accessToken, normalizeResource(resource));
   const familyId = String(family?.id ?? extractResourceId(resource) ?? "").trim();
   if (!familyId) throw new Error("Notificação de família de produto sem family_id.");
+
+  const { data: links, error: linksError } = await supabaseAdmin
+    .from("mercadolivre_product_link")
+    .select("ml_item_id, family_name, domain_id, catalog_product_id")
+    .eq("empresa_id", account.empresa_id)
+    .eq("family_id", familyId);
+  if (linksError) throw linksError;
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   const familyName = family?.name ?? family?.family_name;
@@ -380,7 +505,11 @@ async function processUserProductFamily(account: Account, accessToken: string, r
     .eq("empresa_id", account.empresa_id)
     .eq("family_id", familyId);
   if (error) throw error;
-  return { userProduct: family };
+  return {
+    userProduct: family,
+    familyChange: resolveFamilyChange(links ?? [], updates),
+    erpItemIds: (links ?? []).map((link) => String(link.ml_item_id ?? "")).filter(Boolean),
+  };
 }
 
 async function processUserProductStock(account: Account, accessToken: string, resource: string) {
@@ -396,7 +525,7 @@ async function processUserProductStock(account: Account, accessToken: string, re
     .eq("empresa_id", account.empresa_id)
     .eq("user_product_id", decodeURIComponent(userProductId));
   if (linksError) throw linksError;
-  const stockChange = resolveStockChange(links ?? [], availableQuantity, true);
+  const stockChange = resolveStockChange(links ?? [], availableQuantity);
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (availableQuantity != null) updates.available_quantity = availableQuantity;
 
@@ -406,50 +535,11 @@ async function processUserProductStock(account: Account, accessToken: string, re
     .eq("empresa_id", account.empresa_id)
     .eq("user_product_id", decodeURIComponent(userProductId));
   if (error) throw error;
-  return { stock, stockChange };
-}
-
-function resolveStockChange(links: any[], currentQuantityValue: unknown, includeUnchanged = false) {
-  const currentQuantity = finiteStockQuantity(currentQuantityValue);
-  if (currentQuantity == null) return null;
-
-  const link = links[0] ?? null;
-  const synchronized = link?.raw_item?._erp_stock_sync;
-  const synchronizedAt = Date.parse(String(synchronized?.synchronizedAt ?? ""));
-  const recentSynchronization = Number.isFinite(synchronizedAt) && Date.now() - synchronizedAt <= 60 * 60_000;
-  const synchronizedCurrent = finiteStockQuantity(synchronized?.currentQuantity);
-  const storedPrevious = finiteStockQuantity(link?.available_quantity);
-  const previousQuantity =
-    recentSynchronization && synchronizedCurrent === currentQuantity
-      ? finiteStockQuantity(synchronized?.previousQuantity)
-      : storedPrevious;
-  const product = Array.isArray(link?.produto) ? link.produto[0] : link?.produto;
-  if (!includeUnchanged && (previousQuantity == null || previousQuantity === currentQuantity)) return null;
-
   return {
-    previousQuantity,
-    currentQuantity,
-    delta: previousQuantity == null ? null : currentQuantity - previousQuantity,
-    itemId: link?.ml_item_id ?? link?.raw_item?.id ?? null,
-    itemTitle: link?.title ?? product?.tituloMarketplace ?? product?.titulo ?? null,
+    stock,
+    stockChange,
+    erpItemIds: (links ?? []).map((link: any) => String(link.ml_item_id ?? "")).filter(Boolean),
   };
-}
-
-function finiteStockQuantity(value: unknown) {
-  const quantity = Number(value);
-  return Number.isFinite(quantity) && quantity >= 0 ? Math.trunc(quantity) : null;
-}
-
-function getUserProductAvailableQuantity(stock: any) {
-  const direct = Number(stock?.available_quantity ?? stock?.quantity);
-  if (Number.isFinite(direct) && direct >= 0) return Math.trunc(direct);
-
-  const locations = Array.isArray(stock?.locations) ? stock.locations : [];
-  if (!locations.length) return null;
-  return locations.reduce((total: number, location: any) => {
-    const quantity = Number(location?.available_quantity ?? location?.quantity ?? 0);
-    return total + (Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 0);
-  }, 0);
 }
 
 async function processClaim(account: Account, accessToken: string, resource: string) {
@@ -489,9 +579,15 @@ async function processClaim(account: Account, accessToken: string, resource: str
   return { claim, order };
 }
 
-async function insertOrGetNotification(payload: NotificationPayload, dedupeKey: string, accountId: number) {
+async function insertOrGetNotification(
+  payload: NotificationPayload,
+  dedupeKey: string,
+  accountId: number,
+  deliverySource: MercadoLivreDeliverySource,
+) {
   const row = {
     account_id: accountId,
+    delivery_source: deliverySource,
     topic: payload.topic ?? null,
     resource: payload.resource ?? null,
     ml_user_id: toNullableNumber(payload.user_id),
@@ -551,7 +647,7 @@ function validateNotificationApplication(payload: NotificationPayload) {
 async function getNotificationAccount(accountId: number | null, mlUserId: number | null) {
   let query = supabaseAdmin
     .from("mercadolivre_account")
-    .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at")
+    .select("id, empresa_id, ml_user_id, access_token, refresh_token, expires_at, notificacao_topicos")
     .limit(1);
   if (accountId) {
     query = query.eq("id", accountId);
@@ -587,22 +683,59 @@ async function ensureValidAccessToken(account: Account) {
 }
 
 async function findRelatedOrder(empresaId: number, accountId: number, claim: any) {
-  const raw = JSON.stringify(claim ?? {});
-  const resourceId = Number(claim?.resource_id ?? claim?.resource?.id ?? 0);
-  const { data, error } = await supabaseAdmin
-    .from("mercadolivre_order")
-    .select("id, ml_order_id, ml_shipment_id, raw_order")
-    .eq("empresa_id", empresaId)
-    .eq("account_id", accountId)
-    .order("created_at", { ascending: false })
-    .limit(100);
-  if (error) throw error;
-  return (
-    (data ?? []).find((order: any) => Number(order.ml_shipment_id ?? 0) > 0 && Number(order.ml_shipment_id) === resourceId) ??
-    (data ?? []).find((order: any) => Number(order.ml_order_id) === resourceId) ??
-    (data ?? []).find((order: any) => raw.includes(String(order.ml_order_id))) ??
-    null
-  );
+  const resourceId = toNullableNumber(claim?.resource_id ?? claim?.resource?.id);
+  const orderId = toNullableNumber(claim?.order_id ?? claim?.order?.id);
+  const columns = "id, ml_order_id, ml_shipment_id, raw_order";
+
+  for (const [column, value] of [
+    ["ml_order_id", orderId],
+    ["ml_shipment_id", resourceId],
+    ["ml_order_id", resourceId],
+    ["ml_pack_id", resourceId],
+  ] as const) {
+    if (!value) continue;
+    const { data, error } = await supabaseAdmin
+      .from("mercadolivre_order")
+      .select(columns)
+      .eq("empresa_id", empresaId)
+      .eq("account_id", accountId)
+      .eq(column, value)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+  }
+  return null;
+}
+
+/**
+ * Uma conversa do Mercado Livre chega identificada ora pelo pedido, ora pelo
+ * pack do carrinho. Os dois caminhos são indexados.
+ */
+async function findOrderByReference(
+  account: Account,
+  reference: { orderId?: unknown; packId?: unknown },
+) {
+  const columns = "id, ml_order_id, ml_pack_id, buyer_id, status, total_amount, currency_id, raw_order";
+  for (const [column, value] of [
+    ["ml_order_id", toNullableNumber(reference.orderId)],
+    ["ml_pack_id", toNullableNumber(reference.packId)],
+  ] as const) {
+    if (!value) continue;
+    const { data, error } = await supabaseAdmin
+      .from("mercadolivre_order")
+      .select(columns)
+      .eq("empresa_id", account.empresa_id)
+      .eq("account_id", account.id)
+      .eq(column, value)
+      .order("date_created", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return data;
+  }
+  return null;
 }
 
 function getClaimResolution(claim: any) {

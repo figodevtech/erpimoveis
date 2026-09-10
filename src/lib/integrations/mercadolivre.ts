@@ -222,6 +222,31 @@ export async function searchMercadoLivreOrders(
   }>(accessToken, `/orders/search?${searchParams.toString()}`);
 }
 
+/**
+ * Erro de chamada ao Mercado Livre carregando o codigo HTTP.
+ *
+ * O texto da mensagem continua identico ao que ja era lancado -- ha codigo que
+ * decide por ele, como o retry de `optimistic locking` na exclusao de anuncio.
+ * O que muda e `status`, para distinguir "o anuncio nao existe mais" (404, um
+ * fato) de "a chamada falhou" (rede, 5xx, token), que exigem reacoes opostas:
+ * a primeira autoriza apagar o vinculo, a segunda obriga a tentar de novo.
+ */
+export class MercadoLivreApiError extends Error {
+  readonly status: number;
+
+  constructor(path: string, status: number, body: string) {
+    super(`Mercado Livre ${path} falhou (${status}): ${body}`);
+    this.name = "MercadoLivreApiError";
+    this.status = status;
+  }
+}
+
+/** O Mercado Livre nao conhece mais esse recurso -- nao e falha de chamada. */
+export function isMercadoLivreNotFound(error: unknown) {
+  if (error instanceof MercadoLivreApiError) return error.status === 404;
+  return /falhou \(404\)/.test(String((error as { message?: unknown })?.message ?? ""));
+}
+
 export async function mercadoLivreApiGet<T>(accessToken: string, path: string, extraHeaders?: HeadersInit) {
   const response = await fetch(`${ML_API_BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${accessToken}`, ...extraHeaders },
@@ -230,7 +255,7 @@ export async function mercadoLivreApiGet<T>(accessToken: string, path: string, e
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
+    throw new MercadoLivreApiError(path, response.status, text);
   }
 
   return (await response.json()) as T;
@@ -250,7 +275,7 @@ export async function mercadoLivreApiPut<T>(accessToken: string, path: string, b
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
+    throw new MercadoLivreApiError(path, response.status, text);
   }
 
   return (await response.json()) as T;
@@ -271,7 +296,7 @@ export async function mercadoLivreApiPost<T>(accessToken: string, path: string, 
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
+    throw new MercadoLivreApiError(path, response.status, text);
   }
 
   return (await response.json()) as T;
@@ -291,7 +316,7 @@ export async function mercadoLivreApiDelete<T>(accessToken: string, path: string
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Mercado Livre ${path} falhou (${response.status}): ${text}`);
+    throw new MercadoLivreApiError(path, response.status, text);
   }
 
   if (response.status === 204) return undefined as T;

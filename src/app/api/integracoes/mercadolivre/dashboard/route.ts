@@ -317,9 +317,33 @@ function buildDiagnostics(params: {
 
   const notificationErrors = params.notifications.filter((row) => String(row.status).toUpperCase() === "ERRO");
   const notificationPending = params.notifications.filter((row) => ["RECEBIDA", "PROCESSANDO"].includes(String(row.status).toUpperCase()));
+  // Um tópico habilitado no painel do Mercado Livre e sem processador aqui vira
+  // uma pilha de IGNORADA que ninguém vê. Ignorar de propósito (`payments`) é
+  // diferente de ignorar por falta de código, e só o segundo pede ação.
+  const unhandledTopics = Array.from(
+    params.notifications
+      .filter((row) => String(row.status).toUpperCase() === "IGNORADA")
+      .filter((row) => String(row.error ?? "").startsWith("Tópico sem processador"))
+      .reduce((counts: Map<string, number>, row) => {
+        const topic = String(row.topic ?? "não informado");
+        return counts.set(topic, (counts.get(topic) ?? 0) + 1);
+      }, new Map<string, number>())
+      .entries(),
+  ).sort((a, b) => b[1] - a[1]);
+
   checks.push(notificationErrors.length
     ? { id: "webhooks", label: "Webhooks", status: "warning", message: `${notificationErrors.length} evento(s) aguardando nova tentativa.`, updatedAt: notificationErrors[0]?.created_at }
     : { id: "webhooks", label: "Webhooks", status: "ok", message: notificationPending.length ? `${notificationPending.length} evento(s) em processamento.` : "Nenhuma falha recente nos eventos.", updatedAt: params.notifications[0]?.created_at });
+
+  if (unhandledTopics.length) {
+    checks.push({
+      id: "webhook-topics",
+      label: "Tópicos sem processador",
+      status: "warning",
+      message: `O Mercado Livre está enviando eventos que o ERP não trata: ${unhandledTopics.map(([topic, count]) => `${topic} (${count})`).join(", ")}.`,
+      updatedAt: params.notifications[0]?.created_at,
+    });
+  }
 
   checks.push(params.stockSync.failed > 0
     ? { id: "stock", label: "Sincronização de preço e estoque", status: "error", message: `${params.stockSync.failed} produto(s) com falha.`, updatedAt: params.stockSync.updatedAt }

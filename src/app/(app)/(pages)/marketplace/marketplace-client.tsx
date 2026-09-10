@@ -3569,9 +3569,18 @@ export default function MarketplacePage() {
       if (!response.ok) throw new Error(json?.error || "Falha ao atualizar a situação dos anúncios.");
 
       const changed = Array.isArray(json?.data?.changed) ? json.data.changed : [];
-      if (!changed.length) {
-        toast.success("Situação dos anúncios conferida.", { description: "Nada mudou no Mercado Livre." });
-      } else {
+      const removed = Array.isArray(json?.data?.removed) ? json.data.removed : [];
+
+      if (removed.length) {
+        toast.warning(`${removed.length} anúncio(s) excluído(s) no Mercado Livre.`, {
+          description: `O vínculo foi removido e o produto voltou a ficar livre para anunciar. ${removed
+            .slice(0, 3)
+            .map((entry: any) => entry.itemId)
+            .join(" · ")}`,
+          duration: 8000,
+        });
+      }
+      if (changed.length) {
         toast.warning(`${changed.length} anúncio(s) mudaram de situação no Mercado Livre.`, {
           description: changed
             .slice(0, 3)
@@ -3579,6 +3588,10 @@ export default function MarketplacePage() {
             .join(" · "),
           duration: 8000,
         });
+      }
+      if (!changed.length && !removed.length) {
+        toast.success("Situação dos anúncios conferida.", { description: "Nada mudou no Mercado Livre." });
+      } else {
         await Promise.all([loadProducts(), loadLinkedListingProducts()]);
       }
     } catch (error: any) {
@@ -4754,6 +4767,35 @@ export default function MarketplacePage() {
     // assinatura quando conta, filtro ou contexto visual muda e intencional.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccount?.id, activeTab, chatOpen, connected, questionStatusFilter, selectedChatOrderId]);
+
+  // O webhook `items` avisa em segundos quando um anúncio muda ou é excluído, e
+  // o processamento dele já apaga o vínculo do anúncio excluído. Aqui a tela só
+  // relê o que mudou, para o anúncio sumir sozinho da lista em vez de esperar
+  // alguém clicar em "Sincronizar anúncios" ou "Conferir situação".
+  useEffect(() => {
+    if (!connected || (activeTab !== "products" && activeTab !== "listings")) return;
+
+    let refreshing = false;
+    const handleSystemNotification = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      if (String(detail?.source ?? "") !== "MERCADOLIVRE_WEBHOOK") return;
+
+      const metadata = detail?.metadata as Record<string, unknown> | undefined;
+      const topic = String(metadata?.topic ?? "").toLowerCase();
+      if (topic !== "items" && topic !== "items_prices") return;
+      if (refreshing || document.visibilityState !== "visible") return;
+
+      refreshing = true;
+      void Promise.all([loadProducts(), loadLinkedListingProducts()]).finally(() => {
+        refreshing = false;
+      });
+    };
+
+    window.addEventListener("erp:system-notification", handleSystemNotification);
+    return () => window.removeEventListener("erp:system-notification", handleSystemNotification);
+    // As funções de carga leem o estado desta renderização, como o efeito acima.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAccount?.id, activeTab, connected]);
 
   useEffect(() => {
     if (!connected || activeTab !== "orders") {

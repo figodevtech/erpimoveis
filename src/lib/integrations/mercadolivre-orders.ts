@@ -297,6 +297,9 @@ async function upsertOrderRecord(
       account_id: account.id,
       venda_id: vendaId,
       ml_order_id: Number(order.id),
+      // Um pack agrupa várias orders do mesmo carrinho e é a chave da conversa
+      // do comprador; guardá-lo evita procurar o pedido varrendo JSON.
+      ml_pack_id: toNullableNumber((order as any).pack_id ?? (order as any).pack?.id),
       status: order.status ?? null,
       status_detail: typeof order.status_detail === "string" ? order.status_detail : null,
       payment_status: paymentSummary.status,

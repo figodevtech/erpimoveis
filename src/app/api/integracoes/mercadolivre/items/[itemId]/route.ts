@@ -12,6 +12,10 @@ import { buildMercadoLivrePackageAttributes } from "@/lib/integrations/mercadoli
 import { uploadMercadoLivrePictures } from "@/lib/integrations/mercadolivre-pictures";
 import { validateMercadoLivreShippingSelection } from "@/lib/integrations/mercadolivre-shipping-preferences";
 import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
+import {
+  registerMercadoLivreOutboundTouch,
+  type MercadoLivreOutboundTouchKind,
+} from "@/lib/integrations/mercadolivre-outbound-touch";
 import { mercadoLivreVideoInput, normalizeMercadoLivreVideoId } from "@/lib/integrations/mercadolivre-video";
 
 export const runtime = "nodejs";
@@ -111,20 +115,39 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
 
     if (action === "delete") {
       const item = await deleteMercadoLivreItem(accessToken, itemId);
-      await supabaseAdmin
+      await registerMercadoLivreOutboundTouch({
+        empresaId: link.empresa_id,
+        itemId,
+        kinds: "STATUS",
+        origin: "PATCH /items/[itemId] delete",
+      });
+      // Excluído é fim de linha: o anúncio não reativa nem republica. Guardar o
+      // vínculo só serviria para ocupar o produto — `unique (empresa_id,
+      // produto_id)` impediria anunciá-lo de novo — então ele sai junto, sem
+      // esperar a varredura da hora seguinte confirmar o que já sabemos aqui.
+      const { error: unlinkError } = await supabaseAdmin
         .from("mercadolivre_product_link")
-        .update({
-          status: item?.status ?? "closed",
-          item_tags: Array.isArray(item?.tags) ? item.tags : [],
-          raw_item: item ?? {},
-          updated_at: new Date().toISOString(),
-        })
+        .delete()
         .eq("id", link.id);
-      return NextResponse.json({ data: item, status: item?.status ?? "closed", deleted: true });
+      if (unlinkError) throw unlinkError;
+
+      console.info("mercado-livre vínculo removido", {
+        empresa_id: link.empresa_id,
+        produto_id: link.produto_id,
+        ml_item_id: itemId.toUpperCase(),
+        reason: "Anúncio excluído pelo ERP.",
+      });
+      return NextResponse.json({ data: item, status: item?.status ?? "closed", deleted: true, unlinked: true });
     }
 
     if (action === "relist") {
       const relisted = await relistMercadoLivreItem(accessToken, itemId, link);
+      await registerMercadoLivreOutboundTouch({
+        empresaId: link.empresa_id,
+        itemId: String(relisted.item?.id ?? itemId),
+        kinds: ["ANUNCIO", "STATUS"],
+        origin: "PATCH /items/[itemId] relist",
+      });
       return NextResponse.json({
         data: relisted.item,
         status: relisted.item?.status ?? null,
@@ -210,6 +233,16 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         });
       });
     }
+
+    // O Mercado Livre devolve webhooks `items`/`items_prices` por causa das
+    // escritas acima. Registrar a autoria impede que a alteração feita aqui
+    // dentro volte como aviso de "anúncio atualizado" para quem a fez.
+    await registerMercadoLivreOutboundTouch({
+      empresaId: link.empresa_id,
+      itemId,
+      kinds: outboundTouchKinds(action, effectiveBody),
+      origin: `PATCH /items/[itemId] ${action}`,
+    });
 
     const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`).catch(() => updatedItem);
     const confirmedDescription =
@@ -459,6 +492,22 @@ function measurementNumberText(value: unknown) {
 
 function hasOwn(value: unknown, key: string) {
   return Boolean(value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, key));
+}
+
+/**
+ * Descreve o que esta edição tocou no anúncio, para que o webhook devolvido pelo
+ * Mercado Livre seja reconhecido como eco do próprio ERP.
+ */
+function outboundTouchKinds(action: string, body: unknown): MercadoLivreOutboundTouchKind[] {
+  if (action === "pause" || action === "activate" || action === "close") return ["STATUS"];
+  if (action === "sync_stock_price") return ["ESTOQUE", "PRECO"];
+
+  const kinds = new Set<MercadoLivreOutboundTouchKind>(["ANUNCIO"]);
+  if (hasOwn(body, "price")) kinds.add("PRECO");
+  if (hasOwn(body, "availableQuantity")) kinds.add("ESTOQUE");
+  if (hasOwn(body, "description")) kinds.add("DESCRICAO");
+  if (hasOwn(body, "pictureUrl")) kinds.add("FOTOS");
+  return Array.from(kinds);
 }
 
 function hasPackageDimensionChange(body: unknown) {

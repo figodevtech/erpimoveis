@@ -3,6 +3,7 @@ import { requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreApiPut } from "@/lib/integrations/mercadolivre";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { registerMercadoLivreOutboundTouch } from "@/lib/integrations/mercadolivre-outbound-touch";
 import {
   assertMercadoLivreItemIsValid,
   buildMercadoLivreItemPayload,
@@ -137,6 +138,13 @@ export async function POST(req: Request) {
     if (!item?.id) {
       return NextResponse.json({ error: "Mercado Livre não retornou o código do anúncio criado." }, { status: 502 });
     }
+
+    await registerMercadoLivreOutboundTouch({
+      empresaId: account.empresa_id,
+      itemId: item.id,
+      kinds: ["ANUNCIO", "PRECO", "ESTOQUE"],
+      origin: "POST /items",
+    });
 
     const verifiedItem = await verifyCreatedItemOrClose(account.access_token, item.id, {
       requireMercadoEnvios: request.shippingMode === "me2",

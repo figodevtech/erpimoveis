@@ -12,6 +12,10 @@ import {
 import { registerMercadoLivrePlatformAccount, unregisterMercadoLivrePlatformAccount } from "@/lib/integrations/mercadolivre-platform";
 import { validateMercadoLivreQuantityTiers } from "@/lib/integrations/mercadolivre-quantity-pricing";
 import {
+  isMercadoLivreNotificationEvent,
+  MERCADOLIVRE_NOTIFICATION_EVENT_DEFAULTS,
+} from "@/lib/integrations/mercadolivre-notification-events";
+import {
   parseMercadoLivreSellerProfile,
   type MercadoLivreSellerProfile,
 } from "@/lib/integrations/mercadolivre-seller-profile";
@@ -25,7 +29,7 @@ export async function GET() {
     const empresaId = await requireEmpresaId();
     const { data, error } = await supabaseAdmin
       .from("mercadolivre_account")
-      .select("id, empresa_id, ml_user_id, nickname, site_id, scope, expires_at, refresh_token, default_listing_type_id, quantity_pricing_default_enabled, quantity_pricing_default_tiers, updated_at")
+      .select("id, empresa_id, ml_user_id, nickname, site_id, scope, expires_at, refresh_token, default_listing_type_id, quantity_pricing_default_enabled, quantity_pricing_default_tiers, notificacao_topicos, updated_at")
       .eq("empresa_id", empresaId)
       .maybeSingle();
     if (error) throw error;
@@ -105,6 +109,7 @@ export async function GET() {
             defaultListingTypeId: data.default_listing_type_id || "gold_special",
             quantityPricingDefaultEnabled: Boolean(data.quantity_pricing_default_enabled),
             quantityPricingDefaultTiers: validateMercadoLivreQuantityTiers(data.quantity_pricing_default_tiers ?? []),
+            notificationEvents: parseNotificationEvents(data.notificacao_topicos),
             shipping,
             shippingAddress,
             shippingAddressError,
@@ -141,13 +146,19 @@ export async function PATCH(request: Request) {
     if (body?.quantityPricingDefaultTiers !== undefined) {
       updates.quantity_pricing_default_tiers = validateMercadoLivreQuantityTiers(body.quantityPricingDefaultTiers);
     }
+    if (body?.notificationEvents !== undefined) {
+      if (!Array.isArray(body.notificationEvents) || !body.notificationEvents.every(isMercadoLivreNotificationEvent)) {
+        return NextResponse.json({ error: "Evento de notificação inválido." }, { status: 400 });
+      }
+      updates.notificacao_topicos = Array.from(new Set(body.notificationEvents));
+    }
     if (Object.keys(updates).length === 1) return NextResponse.json({ error: "Nenhuma preferência informada." }, { status: 400 });
 
     const { data, error } = await supabaseAdmin
       .from("mercadolivre_account")
       .update(updates)
       .eq("empresa_id", empresaId)
-      .select("default_listing_type_id, quantity_pricing_default_enabled, quantity_pricing_default_tiers")
+      .select("default_listing_type_id, quantity_pricing_default_enabled, quantity_pricing_default_tiers, notificacao_topicos")
       .maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ error: "Conecte uma conta Mercado Livre antes de definir o padrão." }, { status: 404 });
@@ -156,6 +167,7 @@ export async function PATCH(request: Request) {
       defaultListingTypeId: data.default_listing_type_id,
       quantityPricingDefaultEnabled: Boolean(data.quantity_pricing_default_enabled),
       quantityPricingDefaultTiers: validateMercadoLivreQuantityTiers(data.quantity_pricing_default_tiers ?? []),
+      notificationEvents: parseNotificationEvents(data.notificacao_topicos),
     });
   } catch (error: any) {
     console.error("PATCH /api/config/integracoes/mercadolivre", error);
@@ -252,4 +264,10 @@ async function detachHistoricalRecords(accountId: number, mlUserId: number) {
     .eq("ml_user_id", mlUserId)
     .in("status", ["RECEBIDA", "PROCESSANDO", "ERRO"]);
   if (notificationCloseError) throw notificationCloseError;
+}
+
+/** Nulo é "a empresa ainda não escolheu" e cai no padrão do ERP. */
+function parseNotificationEvents(value: unknown) {
+  if (!Array.isArray(value)) return [...MERCADOLIVRE_NOTIFICATION_EVENT_DEFAULTS];
+  return value.filter(isMercadoLivreNotificationEvent);
 }

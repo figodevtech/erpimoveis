@@ -26,6 +26,10 @@ DECLARE
   v_tx2          bigint;
   v_grupo_fora   integer;
   v_conta_fora   integer;
+  v_tx_tesouraria bigint;
+  v_tx_antecip   bigint;
+  v_tx_titulo    bigint;
+  v_tx_natureza  bigint;
   v_de           constant timestamptz := TIMESTAMPTZ '2026-08-01';
   v_ate          constant timestamptz := TIMESTAMPTZ '2026-08-31 23:59:59';
 BEGIN
@@ -198,6 +202,91 @@ BEGIN
   -- Transacao inexistente nao gera evento nenhum: `false`, nao erro.
   IF public.transacao_gera_evento_de_resultado(-1) THEN
     RAISE EXCEPTION 'Transacao inexistente nao deveria gerar evento.';
+  END IF;
+
+  -- ------------------------------------ tesouraria e antecipacao continuam fora
+  -- A regra ja foi reescrita duas vezes por engano, e nas duas o conjunto perdeu
+  -- condicoes em silencio (20260909125000, `lancamento_id`; 20260910160000, as
+  -- outras seis). O que faltava era teste do conjunto, e nao leitura mais atenta.
+  --
+  -- As demais condicoes tem cobertura nos testes dos seus proprios recursos:
+  -- transferencia em `transferencia_entre_contas` (0b e 6), baixa parcial em
+  -- `baixa_parcial_de_titulo` (13) e `lancamento_id` em `comissao_de_vendas`.
+  -- Aqui ficam as que nao tinham dono.
+  INSERT INTO public.transacao
+    (tipo, valor, data, competencia_em, banco_id, categoria_id,
+     descricao, nomepagador, cpfcnpjpagador)
+  VALUES ('SAQUE', 700, now(), TIMESTAMPTZ '2026-08-13', v_banco, v_categoria,
+          'ZZF4 saque de tesouraria', 'FIXTURE F4', '00000000000')
+  RETURNING id INTO v_tx_tesouraria;
+
+  IF public.transacao_gera_evento_de_resultado(v_tx_tesouraria) THEN
+    RAISE EXCEPTION 'Saque e tesouraria: nao deveria gerar evento de resultado.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.eventos_financeiros
+              WHERE source_type = 'TRANSACAO' AND source_id = v_tx_tesouraria
+                AND status = 'ATIVO') THEN
+    RAISE EXCEPTION 'O saque criou evento ativo na DRE.';
+  END IF;
+
+  UPDATE public.transacao SET tipo = 'DEPOSITO' WHERE id = v_tx_tesouraria;
+  IF public.transacao_gera_evento_de_resultado(v_tx_tesouraria) THEN
+    RAISE EXCEPTION 'Deposito e tesouraria: nao deveria gerar evento de resultado.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.eventos_financeiros
+              WHERE source_type = 'TRANSACAO' AND source_id = v_tx_tesouraria
+                AND status = 'ATIVO') THEN
+    RAISE EXCEPTION 'O deposito criou evento ativo na DRE.';
+  END IF;
+
+  -- Antecipacao de recebiveis: o dinheiro chega antes, a receita e do titulo.
+  INSERT INTO public.transacao
+    (tipo, valor, data, competencia_em, banco_id, categoria_id, pendente,
+     eh_adiantamento, descricao, nomepagador, cpfcnpjpagador)
+  VALUES ('RECEITA', 5000, now(), TIMESTAMPTZ '2026-08-14', v_banco, v_categoria, false,
+          true, 'ZZF4 antecipacao', 'FIXTURE F4', '00000000000')
+  RETURNING id INTO v_tx_antecip;
+
+  IF public.transacao_gera_evento_de_resultado(v_tx_antecip) THEN
+    RAISE EXCEPTION 'Antecipacao nao deveria gerar evento de resultado.';
+  END IF;
+
+  -- E o titulo antecipado, do outro lado do vinculo.
+  INSERT INTO public.transacao
+    (tipo, valor, data, competencia_em, categoria_id, pendente, adiantamento_id,
+     descricao, nomepagador, cpfcnpjpagador)
+  VALUES ('RECEITA', 5000, now(), TIMESTAMPTZ '2026-08-14', v_categoria, true, v_tx_antecip,
+          'ZZF4 titulo antecipado', 'FIXTURE F4', '00000000000')
+  RETURNING id INTO v_tx_titulo;
+
+  IF public.transacao_gera_evento_de_resultado(v_tx_titulo) THEN
+    RAISE EXCEPTION 'Titulo ligado a antecipacao nao deveria gerar evento proprio.';
+  END IF;
+
+  -- --------------------------- trocar o tipo nao pode virar erro de unicidade
+  -- `natureza` faz parte da chave do `on conflict` e o indice unico so admite um
+  -- evento por transacao: sem o realinhamento antes do upsert, a troca de tipo
+  -- tenta inserir uma segunda linha e devolve 23505 — que na tela aparecia como
+  -- "Violacao de unicidade (ja cadastrado)" ao salvar o dialogo de edicao.
+  INSERT INTO public.transacao
+    (tipo, valor, data, competencia_em, banco_id, plano_de_conta_id, categoria_id,
+     descricao, nomepagador, cpfcnpjpagador)
+  VALUES ('RECEITA', 640, now(), TIMESTAMPTZ '2026-08-15', v_banco, v_conta, v_categoria,
+          'ZZF4 troca de natureza', 'FIXTURE F4', '00000000000')
+  RETURNING id INTO v_tx_natureza;
+
+  UPDATE public.transacao SET tipo = 'DESPESA' WHERE id = v_tx_natureza;
+
+  SELECT count(*) INTO v_total
+    FROM public.eventos_financeiros
+   WHERE source_type = 'TRANSACAO' AND source_id = v_tx_natureza;
+  IF v_total <> 1 THEN
+    RAISE EXCEPTION 'A troca de tipo deveria manter um unico evento; ficaram %.', v_total;
+  END IF;
+
+  IF (SELECT natureza FROM public.eventos_financeiros
+       WHERE source_type = 'TRANSACAO' AND source_id = v_tx_natureza) <> 'DESPESA' THEN
+    RAISE EXCEPTION 'O evento ficou com a natureza antiga depois da troca de tipo.';
   END IF;
 
   INSERT INTO public.ordemservico (usuariocriadorid) VALUES (v_usuario) RETURNING id INTO v_os;

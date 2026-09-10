@@ -22,6 +22,10 @@ export async function reconcileMercadoLivreSystemNotifications() {
   if (eventsError) throw eventsError;
 
   const candidates = (events ?? [])
+    // Um evento suprimido no processamento não pode voltar por aqui. Sem esta
+    // checagem, todo aviso silenciado por eco ou por falta de mudança material
+    // reapareceria na próxima vez que alguém abrisse a central.
+    .filter((event) => !wasNotificationSuppressed(event))
     .map((event) => notificationFromSnapshot(event) ?? mercadoLivreSystemNotification({
       notificationId: Number(event.id),
       topic: String(event.topic ?? ""),
@@ -42,6 +46,11 @@ export async function reconcileMercadoLivreSystemNotifications() {
   const missing = candidates.filter((item) => !existingIds.has(item.sourceEventId));
   if (!missing.length) return 0;
   return notifySalesUsersBatch(missing);
+}
+
+function wasNotificationSuppressed(event: any) {
+  const suppression = event?.raw_payload?._erp_notification_suppressed;
+  return Boolean(suppression && typeof suppression === "object");
 }
 
 function notificationFromSnapshot(event: any) {
