@@ -16,7 +16,7 @@ function parseId(paramId: string): number | null {
   return n;
 }
 
-// PUT -> atualizar nome/descricao/ativo
+// PUT -> atualizar nome/descricao/ativo/exibirPdv
 export async function PUT(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -31,7 +31,14 @@ export async function PUT(
     }
 
     const body = await req.json().catch(() => ({}));
-    const { nome, descricao, ativo } = body ?? {};
+    const { nome, descricao, ativo, exibirPdv } = body ?? {};
+
+    if (exibirPdv !== undefined && typeof exibirPdv !== "boolean") {
+      return NextResponse.json(
+        { error: "Campo 'exibirPdv' deve ser booleano." },
+        { status: 400 }
+      );
+    }
 
     if (!nome?.trim()) {
       return NextResponse.json(
@@ -51,6 +58,9 @@ export async function PUT(
     if (typeof ativo === "boolean") {
       payload.ativo = ativo;
     }
+    if (typeof exibirPdv === "boolean") {
+      payload.exibirPdv = exibirPdv;
+    }
 
     const { data, error } = await supabaseAdmin
       .from("produtogrupo")
@@ -60,7 +70,8 @@ export async function PUT(
         id,
         nome,
         descricao,
-        ativo
+        ativo,
+        exibirPdv
       `)
       .maybeSingle();
 
@@ -77,6 +88,7 @@ export async function PUT(
       nome: data.nome as string,
       descricao: (data.descricao as string | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
+      exibirPdv: data.exibirPdv,
     };
 
     return NextResponse.json({ item });
@@ -127,7 +139,8 @@ export async function PATCH(
         id,
         nome,
         descricao,
-        ativo
+        ativo,
+        exibirPdv
       `)
       .maybeSingle();
 
@@ -144,6 +157,7 @@ export async function PATCH(
       nome: data.nome as string,
       descricao: (data.descricao as string | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : ativo,
+      exibirPdv: data.exibirPdv,
     };
 
     return NextResponse.json({ item });

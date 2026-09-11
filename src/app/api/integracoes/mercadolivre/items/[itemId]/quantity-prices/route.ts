@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { registerMercadoLivreOutboundTouch } from "@/lib/integrations/mercadolivre-outbound-touch";
 import { mercadoLivreApiGet, mercadoLivreApiPost } from "@/lib/integrations/mercadolivre";
 import {
   buildMercadoLivreQuantityPricePayload,
@@ -106,6 +107,12 @@ export async function POST(request: NextRequest, context: Params) {
       buildMercadoLivreQuantityPricePayload(tiers),
       { "X-Version": String(version) },
     );
+    await registerMercadoLivreOutboundTouch({
+      empresaId: account.empresa_id,
+      itemId,
+      kinds: "PRECO_QUANTIDADE",
+      origin: "POST /items/[itemId]/quantity-prices",
+    });
     return NextResponse.json({ success: true, tiers: currentTiers(result), raw: result });
   } catch (error: any) {
     console.error("POST /api/integracoes/mercadolivre/items/[itemId]/quantity-prices", error);

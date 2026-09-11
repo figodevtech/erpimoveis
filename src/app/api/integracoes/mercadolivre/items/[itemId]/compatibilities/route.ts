@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { registerMercadoLivreOutboundTouch } from "@/lib/integrations/mercadolivre-outbound-touch";
 import {
   mercadoLivreApiDelete,
   mercadoLivreApiGet,
@@ -98,6 +99,12 @@ export async function POST(request: NextRequest, context: Params) {
       : await mercadoLivreApiPost<any>(account.access_token, `/items/${encodeURIComponent(itemId)}/compatibilities`, {
           products_families: [family],
         });
+    await registerMercadoLivreOutboundTouch({
+      empresaId: account.empresa_id,
+      itemId,
+      kinds: "COMPATIBILIDADE",
+      origin: "POST /items/[itemId]/compatibilities",
+    });
     return NextResponse.json({ success: true, created: Number(result?.created_compatibilities_count ?? 0), raw: result });
   } catch (error: any) {
     console.error("POST /api/integracoes/mercadolivre/items/[itemId]/compatibilities", error);
@@ -138,6 +145,12 @@ export async function DELETE(request: NextRequest, context: Params) {
       : await mercadoLivreApiDelete<any>(account.access_token, `/items/${encodeURIComponent(itemId)}/compatibilities`, {
           products: [{ id: catalogProductId }],
         });
+    await registerMercadoLivreOutboundTouch({
+      empresaId: account.empresa_id,
+      itemId,
+      kinds: "COMPATIBILIDADE",
+      origin: "DELETE /items/[itemId]/compatibilities",
+    });
     return NextResponse.json({ success: true, raw: result });
   } catch (error: any) {
     console.error("DELETE /api/integracoes/mercadolivre/items/[itemId]/compatibilities", error);

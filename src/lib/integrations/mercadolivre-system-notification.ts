@@ -1,4 +1,5 @@
 import type { SystemNotificationInput } from "@/lib/system-notifications";
+import { mercadoLivreNotificationEventForTopic } from "@/lib/integrations/mercadolivre-notification-events";
 
 type NotificationDetails = Record<string, any> | null | undefined;
 
@@ -63,17 +64,29 @@ export function mercadoLivreSystemNotification(input: {
   }
 
   if (topic === "stock-locations" || details.stockChange) {
-    const stockChange = details.stockChange ?? {};
+    const stockChange = details.stockChange;
+    // Sem variação real de quantidade não há o que avisar: o dado já foi
+    // sincronizado e ninguém precisa ser interrompido por uma ressincronização.
+    if (!stockChange) return null;
+
     const item = details.item ?? details.stock ?? details;
     const itemId = text(stockChange.itemId ?? item?.id) || resourceId;
     const itemTitle = clean(stockChange.itemTitle ?? item?.title ?? item?.name ?? item?.family_name);
     const previousQuantity = stockQuantity(stockChange.previousQuantity);
     const currentQuantity = stockQuantity(stockChange.currentQuantity ?? item?.available_quantity);
     const delta = stockDelta(stockChange.delta, previousQuantity, currentQuantity);
+
+    // Saída de estoque por venda já foi anunciada pela notificação de pedido.
+    // Sobram os dois casos acionáveis: o anúncio esgotou, ou alguém repôs por
+    // fora do ERP — e aí o saldo dos dois lados deixou de bater.
+    const soldOut = currentQuantity === 0;
+    const restocked = delta != null && delta > 0;
+    if (!soldOut && !restocked) return null;
+
     return {
       ...base,
-      priority: delta != null && delta > 0 ? "SUCCESS" : undefined,
-      title: delta != null && delta > 0 ? "Estoque adicionado no Mercado Livre" : "Estoque do Mercado Livre atualizado",
+      priority: soldOut ? "WARNING" : "SUCCESS",
+      title: soldOut ? "Anúncio esgotado no Mercado Livre" : "Estoque adicionado no Mercado Livre",
       message: compactLines([
         itemTitle,
         labelValue("Anúncio", itemId),
@@ -87,21 +100,52 @@ export function mercadoLivreSystemNotification(input: {
     };
   }
 
+  if (details.listingRemoved) {
+    const removal = details.listingRemoved;
+    const itemId = text(removal?.itemId) || resourceId;
+    const produtos = Array.isArray(removal?.produtos) ? removal.produtos.filter(Boolean) : [];
+    return {
+      ...base,
+      title: "Anúncio excluído no Mercado Livre",
+      message: compactLines(
+        [
+          produtos.join(" · "),
+          joinParts([
+            labelValue("Anúncio", itemId),
+            "O vínculo foi removido e o produto voltou a ficar livre para ser anunciado.",
+          ]),
+        ],
+        `O anúncio ${itemId ?? ""} foi excluído no Mercado Livre e o vínculo com o produto foi removido.`.trim(),
+      ),
+      href: "/marketplace?canal=mercadolivre&secao=products",
+    };
+  }
+
   if (["items", "items_prices", "user-products-families"].includes(topic)) {
+    const change = details.materialChange ?? details.familyChange;
+    // O tópico dispara a cada campo alterado no anúncio. Sem mudança que alguém
+    // precise ver, o dado é sincronizado em silêncio.
+    if (!change) return null;
+
     const item = details.item ?? details.userProduct ?? details.stock ?? details;
     const itemId = text(item?.id) || resourceId;
     const itemTitle = clean(item?.title ?? item?.name ?? item?.family_name);
+    const changes = change.changes ?? {};
     return {
       ...base,
-      title: topic === "items_prices" ? "Preço de anúncio atualizado" : "Anúncio do Mercado Livre atualizado",
+      priority: clean(changes.status?.after)?.toLowerCase() === "paused" ? "WARNING" : undefined,
+      title: listingChangeTitle(changes, topic),
       message: compactLines([
         itemTitle,
         joinParts([
           labelValue("Anúncio", itemId),
-          labelValue("Status", humanStatus(item?.status)),
-          labelValue("Preço", formatMoney(item?.price ?? item?.base_price, item?.currency_id)),
-          labelValue("Estoque", item?.available_quantity),
+          changes.status ? labelValue("Situação", `${humanStatus(changes.status.before) ?? "—"} → ${humanStatus(changes.status.after)}`) : null,
+          changes.price
+            ? labelValue("Preço", `${formatMoney(changes.price.before, item?.currency_id) ?? "—"} → ${formatMoney(changes.price.after, item?.currency_id)}`)
+            : labelValue("Preço", formatMoney(item?.price ?? item?.base_price, item?.currency_id)),
+          changes.stock ? labelValue("Estoque", `${changes.stock.before} → ${changes.stock.after}`) : null,
         ]),
+        changes.title ? labelValue("Título anterior", changes.title.before) : null,
       ], itemId ? `O anúncio ou produto ${itemId} recebeu uma atualização.` : "Um anúncio recebeu uma atualização."),
       href: "/marketplace?canal=mercadolivre&secao=listings",
     };
@@ -192,6 +236,22 @@ export function mercadoLivreSystemNotification(input: {
   return null;
 }
 
+/**
+ * O título antigo — "Anúncio do Mercado Livre atualizado" — não dizia o que
+ * mudou, então todo aviso exigia abrir a tela para descobrir se importava.
+ */
+function listingChangeTitle(changes: Record<string, any>, topic: string) {
+  const status = clean(changes.status?.after)?.toLowerCase();
+  if (status === "paused") return "Anúncio pausado no Mercado Livre";
+  if (status === "active") return "Anúncio reativado no Mercado Livre";
+  if (status === "closed") return "Anúncio encerrado no Mercado Livre";
+  if (changes.price) return "Preço alterado no Mercado Livre";
+  if (changes.stock) return Number(changes.stock.after) === 0 ? "Anúncio esgotado no Mercado Livre" : "Estoque reposto no Mercado Livre";
+  if (changes.title) return "Título do anúncio alterado no Mercado Livre";
+  if (topic === "user-products-families") return "Ficha do produto atualizada no Mercado Livre";
+  return "Anúncio do Mercado Livre atualizado";
+}
+
 function stockQuantity(value: unknown) {
   const quantity = Number(value);
   return Number.isFinite(quantity) && quantity >= 0 ? Math.trunc(quantity) : null;
@@ -216,6 +276,9 @@ function notificationMetadata(topic: string, resource: string, resourceId: strin
   const order = details?.order ?? (["orders", "orders_v2", "feedback"].some((value) => topic.includes(value)) ? details : null);
   return {
     topic,
+    // O evento é o que o usuário liga e desliga na tela; guardá-lo aqui evita
+    // reimplementar a tradução de tópico em SQL na entrega do Telegram.
+    event: mercadoLivreNotificationEventForTopic(topic),
     resource,
     resourceId,
     questionId: text(question?.id),

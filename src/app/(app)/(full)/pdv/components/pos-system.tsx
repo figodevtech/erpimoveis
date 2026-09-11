@@ -567,7 +567,7 @@ export function POSSystem() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="TODOS">Todos os grupos</SelectItem>
-                    {grupos.map((group) => (
+                    {grupos.filter((group) => group.exibirPdv).map((group) => (
                       <SelectItem key={group.id} value={group.id.toString()}>
                         {group.nome}
                       </SelectItem>

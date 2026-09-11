@@ -306,3 +306,79 @@ export function ehTransferencia(
 ): boolean {
   return transacao?.transferencia_id != null;
 }
+
+/** Uma linha de ajuste que ainda está na tela, sem ter sido gravada. */
+export interface AjusteEmEspera {
+  natureza: "ACRESCIMO" | "DESCONTO";
+  modo: "FIXO" | "PORCENTAGEM";
+  valorInformado: number;
+}
+
+/**
+ * Quanto esta baixa passa a valer com os ajustes que estão na tela.
+ *
+ * O diálogo de baixa deixou de só exibir acréscimo e desconto e passou a
+ * lançá-los, e aí o número que ele mostra precisa ser o mesmo que a RPC vai
+ * gravar. Esta função é a metade cliente dessa conta: percentual sobre a BASE —
+ * nunca sobre o acumulado nem sobre o saldo —, e centavos inteiros, igual a
+ * `recalcular_valores_transacao`. Divergindo dela, a tela promete um valor e o
+ * banco grava outro.
+ *
+ * O total sai do SALDO, e não do bruto: é ele que responde "quanto falta pagar
+ * neste título", já descontando baixa parcial anterior. Acréscimo sobe o saldo,
+ * desconto desce.
+ *
+ * Isso importa mais do que parece: `parcial` na tela é `valor pago < total`, e
+ * se a comparação continuasse contra o saldo guardado, lançar juros faria toda
+ * quitação integral virar baixa parcial — o título perderia o banco e nasceria
+ * uma transação filha que ninguém pediu.
+ */
+export function totalDaBaixaComAjustes(entrada: {
+  saldo: number;
+  valorBase: number;
+  ajustes: AjusteEmEspera[];
+}): { acrescimos: number; descontos: number; total: number } {
+  const emCentavos = (valor: number) => {
+    const numero = Number(valor ?? 0);
+    return Number.isFinite(numero) ? Math.round(numero * 100) : 0;
+  };
+
+  const base = emCentavos(entrada.valorBase);
+  let acrescimos = 0;
+  let descontos = 0;
+
+  // Decimal exato, como numeric do PostgreSQL: 1,005% de R$ 100 deve
+  // arredondar para R$ 1,01, mesmo que o float produza 100,499999 centavos.
+  const calcularCentavos = (informado: number, percentual: boolean) => {
+    const [mantissa, expoente = "0"] = String(informado).split("e");
+    const [inteiro, fracao = ""] = mantissa.split(".");
+    const escala = fracao.length - Number(expoente);
+    let numerador = BigInt(inteiro + fracao) * BigInt(percentual ? base : 100);
+    let denominador = BigInt(percentual ? 100 : 1);
+    if (escala >= 0) denominador *= BigInt(10) ** BigInt(escala);
+    else numerador *= BigInt(10) ** BigInt(-escala);
+    return Number((numerador * BigInt(2) + denominador) / (denominador * BigInt(2)));
+  };
+
+  for (const ajuste of entrada.ajustes ?? []) {
+    const informado = Number(ajuste?.valorInformado);
+    if (!Number.isFinite(informado) || informado <= 0) continue;
+
+    // Arredonda POR LINHA, como o banco: somar antes e arredondar depois daria
+    // um centavo de diferença em percentuais quebrados.
+    const centavos = calcularCentavos(informado, ajuste.modo === "PORCENTAGEM");
+
+    if (ajuste.natureza === "ACRESCIMO") acrescimos += centavos;
+    else descontos += centavos;
+  }
+
+  const total = emCentavos(entrada.saldo) + acrescimos - descontos;
+
+  return {
+    acrescimos: acrescimos / 100,
+    descontos: descontos / 100,
+    // Um desconto maior que o saldo zera a baixa em vez de virar negativo; quem
+    // recusa de verdade é `recalcular_valores_transacao`, com a mensagem dela.
+    total: Math.max(total, 0) / 100,
+  };
+}

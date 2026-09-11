@@ -82,17 +82,40 @@ function CommandInput({
   )
 }
 
+/**
+ * Lista rolável do combobox.
+ *
+ * Dentro de um `Dialog` modal, o `react-remove-scroll` escuta `wheel` e
+ * `touchmove` na bolha do `document` e cancela o que não estiver dentro do
+ * conteúdo do diálogo. O popover do combobox é portalizado para fora dele, então
+ * a lista caía nessa regra: no desktop a roda ainda mexia a barra, mas no
+ * celular o arraste não rolava nada.
+ *
+ * Interromper a propagação aqui mantém o gesto na lista e não deixa o evento
+ * chegar ao `document`. Fica no primitivo, e não em cada chamada, porque vale
+ * para todo combobox — e os handlers de quem usa o componente continuam rodando.
+ */
 function CommandList({
   className,
+  onWheel,
+  onTouchMove,
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.List>) {
   return (
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "max-h-[300px] scroll-py-1 overflow-x-hidden overflow-y-auto",
+        "max-h-[300px] scroll-py-1 touch-pan-y overflow-x-hidden overflow-y-auto overscroll-contain",
         className
       )}
+      onWheel={(event) => {
+        event.stopPropagation()
+        onWheel?.(event)
+      }}
+      onTouchMove={(event) => {
+        event.stopPropagation()
+        onTouchMove?.(event)
+      }}
       {...props}
     />
   )

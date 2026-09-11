@@ -13,10 +13,12 @@ BEGIN;
 
 DO $t$
 DECLARE
+  v_col_gerada text;
+  v_cols text;
   v_id bigint;
   v_cliente bigint;
   v_fornecedor bigint;
-  v_autor uuid := gen_random_uuid();
+  v_autor uuid;
   v_linhas int;
   v_h public.transacao_contraparte_historico%ROWTYPE;
   v_ok int := 0;
@@ -39,10 +41,53 @@ BEGIN
   SELECT id INTO v_cliente FROM public.cliente ORDER BY id LIMIT 1;
   SELECT id INTO v_fornecedor FROM public.fornecedor ORDER BY id LIMIT 1;
 
+  /*
+   * O autor precisa ser um usuario que existe.
+   *
+   * `transacao.updated_by` referencia `usuario(id)`, e um `gen_random_uuid()`
+   * derruba o UPDATE com transacao_updated_by_fkey antes de o gatilho de
+   * historico chegar a rodar — o teste acusava o gatilho por uma FK que esta
+   * certa. Isso ficou escondido enquanto o script morria antes, no molde.
+   */
+  SELECT id INTO v_autor FROM public.usuario ORDER BY id LIMIT 1;
+
+  IF v_autor IS NULL THEN
+    RAISE EXCEPTION 'Nenhum usuario cadastrado para servir de autor.';
+  END IF;
+
   /* ---------------- fixture ---------------- */
 
   CREATE TEMP TABLE _molde ON COMMIT DROP AS
     SELECT * FROM public.transacao WHERE is_deleted = false LIMIT 1;
+
+  /*
+   * Coluna gerada nao se insere: `data_dia` (20260901220000) veio depois deste
+   * teste e passou a entrar no `SELECT *` do molde, quebrando todos os inserts
+   * com "cannot insert a non-DEFAULT value". Some do molde e a lista de colunas
+   * passa a ser explicita — o script continua sem conhecer o schema, e uma
+   * coluna gerada nova amanha tambem nao o quebra.
+   */
+  FOR v_col_gerada IN
+    SELECT a.attname
+      FROM pg_attribute a
+     WHERE a.attrelid = '_molde'::regclass
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+       AND a.attname IN (
+         SELECT b.attname FROM pg_attribute b
+          WHERE b.attrelid = 'public.transacao'::regclass
+            AND b.attgenerated <> ''
+       )
+  LOOP
+    EXECUTE format('ALTER TABLE _molde DROP COLUMN %I', v_col_gerada);
+  END LOOP;
+
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+    INTO v_cols
+    FROM pg_attribute a
+   WHERE a.attrelid = '_molde'::regclass
+     AND a.attnum > 0
+     AND NOT a.attisdropped;
   IF (SELECT count(*) FROM _molde) <> 1 THEN
     RAISE EXCEPTION 'Nenhuma transacao para servir de molde.';
   END IF;
@@ -57,7 +102,7 @@ BEGIN
     nomepagador = 'PAGADOR ORIGINAL', cpfcnpjpagador = '00000000000',
     updated_by = NULL,
     descricao = 'TESTE TROCA DE CONTRAPARTE';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
   SELECT id INTO v_id FROM _molde;
 
   /* ---------------- 1. inserir nao gera historico ---------------- */

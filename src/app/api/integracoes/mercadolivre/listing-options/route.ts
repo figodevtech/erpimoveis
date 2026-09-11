@@ -3,7 +3,12 @@ import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { requireEmpresaId } from "@/lib/empresa-context";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
-import { resolveMercadoLivreDefaultListingType } from "@/lib/integrations/mercadolivre-listing-validation";
+import {
+  disabledMercadoLivreListingTypeMessage,
+  isMercadoLivreListingTypeEnabled,
+  resolveMercadoLivreDefaultListingType,
+} from "@/lib/integrations/mercadolivre-listing-validation";
+import { computeMercadoLivreListingCosts } from "@/lib/integrations/mercadolivre-mercado-envios";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,7 +82,7 @@ export async function GET(req: NextRequest) {
     const price = Number(req.nextUrl.searchParams.get("price"));
     const shippingMode = String(req.nextUrl.searchParams.get("shippingMode") ?? "").trim().toLowerCase();
     const logisticType = String(req.nextUrl.searchParams.get("logisticType") ?? "").trim().toLowerCase();
-    const billableWeight = Math.trunc(Number(req.nextUrl.searchParams.get("billableWeight")));
+    const sellerShippingCost = Number(req.nextUrl.searchParams.get("sellerShippingCost"));
 
     const [siteListingTypes, seller, paymentMethods] = await Promise.all([
       mercadoLivreApiGet<ListingType[]>(account.access_token, `/sites/${encodeURIComponent(siteId)}/listing_types`)
@@ -99,7 +104,7 @@ export async function GET(req: NextRequest) {
     const candidateTypes = mergeListingTypes(baseTypes, availability?.available ?? []);
 
     const unavailableTypes = hasCategoryAvailability
-      ? candidateTypes.filter((item) => !availableById.has(item.id))
+      ? candidateTypes.filter((item) => isMercadoLivreListingTypeEnabled(item.id) && !availableById.has(item.id))
       : [];
     const unavailableDetails = new Map<string, ListingAvailability>();
     if (categoryId && unavailableTypes.length) {
@@ -119,6 +124,7 @@ export async function GET(req: NextRequest) {
     if (categoryId && Number.isFinite(price) && price > 0) {
       const fees = await Promise.all(
         candidateTypes.map(async (item) => {
+          if (!isMercadoLivreListingTypeEnabled(item.id)) return [item.id, null] as const;
           if (hasCategoryAvailability && !availableById.has(item.id)) return [item.id, null] as const;
           const params = new URLSearchParams({
             price: String(price),
@@ -128,7 +134,8 @@ export async function GET(req: NextRequest) {
           });
           if (shippingMode) params.set("shipping_mode", shippingMode);
           if (logisticType) params.set("logistic_type", logisticType);
-          if (Number.isInteger(billableWeight) && billableWeight > 0) params.set("billable_weight", String(billableWeight));
+          // `billable_weight` é documentado como obrigatório apenas na Argentina; no
+          // Brasil a lógica de cálculo informa que o peso faturável não se aplica.
           const path = `/sites/${encodeURIComponent(siteId)}/listing_prices?${params.toString()}`;
           const raw = await mercadoLivreApiGet<ListingPrice | ListingPrice[]>(account.access_token, path)
             .catch(() => mercadoLivrePublicGet<ListingPrice | ListingPrice[]>(path))
@@ -144,31 +151,44 @@ export async function GET(req: NextRequest) {
       const availableItem = availableById.get(item.id);
       const detail = unavailableDetails.get(item.id);
       const fee = feeByType.get(item.id);
-      const saleFee = numberOrNull(fee?.sale_fee_amount);
-      const percentageFromApi = numberOrNull(fee?.sale_fee_details?.percentage_fee);
-      const percentage = percentageFromApi ?? (saleFee != null && Number.isFinite(price) && price > 0
+      // `sale_fee_amount` já é o custo total por vender e contém `fixed_fee`.
+      // A taxa fixa aparece apenas como detalhamento e nunca é somada de novo.
+      const costs = computeMercadoLivreListingCosts({
+        price: Number.isFinite(price) ? price : 0,
+        saleFeeAmount: fee?.sale_fee_amount ?? null,
+        fixedFee: fee?.sale_fee_details?.fixed_fee ?? null,
+        percentageFee: fee?.sale_fee_details?.percentage_fee ?? null,
+        financingFee: fee?.sale_fee_details?.financing_add_on_fee ?? null,
+        sellerShippingCost: Number.isFinite(sellerShippingCost) && sellerShippingCost > 0 ? sellerShippingCost : null,
+      });
+      const saleFee = costs.marketplaceCost;
+      const percentage = costs.percentageFee ?? (saleFee != null && Number.isFinite(price) && price > 0
         ? Number(((saleFee / price) * 100).toFixed(2))
         : null);
-      const financingFee = numberOrNull(fee?.sale_fee_details?.financing_add_on_fee);
-      const fixedFee = numberOrNull(fee?.sale_fee_details?.fixed_fee);
+      const financingFee = costs.financingFee;
+      const fixedFee = costs.fixedFee;
       const quotaExhausted = item.id === "free" && availableItem?.remaining_listings != null && availableItem.remaining_listings <= 0;
-      const isAvailable = (!hasCategoryAvailability || Boolean(availableItem)) && !quotaExhausted;
+      const systemEnabled = isMercadoLivreListingTypeEnabled(item.id);
+      const isAvailable = systemEnabled && (!hasCategoryAvailability || Boolean(availableItem)) && !quotaExhausted;
       return {
         id: item.id,
         name: localizedListingTypeName(item.id, availableItem?.name || item.name),
         available: isAvailable,
         remainingListings: availableItem?.remaining_listings ?? null,
         restrictionCode: isAvailable ? null : detail?.code ?? null,
-        restrictionReason: isAvailable
-          ? null
-          : quotaExhausted
+        restrictionReason: !systemEnabled
+          ? disabledMercadoLivreListingTypeMessage
+          : isAvailable
+            ? null
+            : quotaExhausted
             ? "A cota de anúncios grátis desta conta foi atingida."
             : translateAvailabilityCause(detail?.cause, detail?.code),
         saleFee,
         saleFeePercentage: percentage,
         financingFee,
         fixedFee,
-        netAmount: saleFee != null && Number.isFinite(price) ? Math.max(price - saleFee, 0) : null,
+        netAmount: costs.estimatedNetAmount,
+        sellerShippingCost: costs.sellerShippingCost,
         currencyId: fee?.currency_id ?? "BRL",
         exposure: fee?.listing_exposure ?? null,
         requiresPicture: fee?.requires_picture ?? true,
@@ -289,10 +309,6 @@ function translateAvailabilityCause(cause?: string, code?: string) {
   return "Este tipo de anúncio não está disponível para a conta e categoria selecionadas.";
 }
 
-function numberOrNull(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
 
 async function mercadoLivrePublicGet<T>(path: string) {
   const response = await fetch(`https://api.mercadolibre.com${path}`, {

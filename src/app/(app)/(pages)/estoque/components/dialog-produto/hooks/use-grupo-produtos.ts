@@ -8,6 +8,7 @@ export type GrupoFromApi = {
   nome: string;
   descricao: string | null;
   ativo: boolean;
+  exibirPdv: boolean;
 };
 
 export function useGruposProduto() {

@@ -119,17 +119,45 @@ BEGIN
   RAISE NOTICE 'Fixtures: grupo % / baixada % / pendentes %, %', v_grupo, v_baixada, v_p1, v_p2;
   RAISE NOTICE '---';
 
-  /* ---------------- 1. soma diferente ---------------- */
+  /* ---------------- 1. avulso: a soma PODE mudar ----------------
+   *
+   * ATÉ 20260910170000 ESTE CASO ESPERAVA O CONTRÁRIO: a soma tinha que
+   * continuar idêntica em todo reparcelamento. A trava saiu do modo avulso
+   * porque ali ela não protegia nada — o grupo é o próprio total, não há
+   * documento a quem prestar contas — e só impedia diminuir uma parcela ou
+   * renegociar a dívida, que é justamente o que se faz aqui.
+   *
+   * A trava continua existindo onde tem dono: 11a a verifica na OS e 13 na nota
+   * de compra.
+   *
+   * O caminho feliz grava, então o RAISE logo depois desfaz a subtransação — sem
+   * isso o grupo chega adulterado nos casos seguintes, e o 8 conta uma linha de
+   * histórico a mais.
+   */
   BEGIN
     PERFORM public.reparcelar_transacao_avulsa(v_grupo, jsonb_build_array(
       jsonb_build_object('valor', 100.00, 'data', now() + interval '30 days'),
       jsonb_build_object('valor', 100.00, 'data', now() + interval '60 days')
     ));
-    v_falhou := v_falhou + 1;
-    RAISE NOTICE 'FALHOU 1: soma diferente foi aceita';
-  EXCEPTION WHEN sqlstate '22023' THEN
-    v_ok := v_ok + 1;
-    RAISE NOTICE 'OK 1: soma diferente recusada -> %', SQLERRM;
+
+    SELECT round(sum(valor), 2) INTO v_soma
+      FROM public.transacao
+     WHERE parcelamento_id = v_grupo AND is_deleted = false AND pendente = true;
+
+    IF v_soma = 200.00 THEN
+      v_ok := v_ok + 1;
+      RAISE NOTICE 'OK 1: total avulso foi de 200,01 para % sem reclamar', v_soma;
+    ELSE
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 1: pendentes somam % (esperava 200.00)', v_soma;
+    END IF;
+
+    RAISE EXCEPTION 'desfazer' USING ERRCODE = 'P0001';
+  EXCEPTION
+    WHEN sqlstate 'P0001' THEN NULL;
+    WHEN OTHERS THEN
+      v_falhou := v_falhou + 1;
+      RAISE NOTICE 'FALHOU 1: soma diferente recusada no avulso -> % (%)', SQLERRM, SQLSTATE;
   END;
 
   /* ---------------- 2. vencimento no passado é aceito ----------------
@@ -276,17 +304,36 @@ BEGIN
     RAISE NOTICE 'FALHOU 9/10: redução foi recusada -> % (%)', SQLERRM, SQLSTATE;
   END;
 
-  /* ---------------- 11. grupo com vínculo a documento ----------------
+/* ---------------- 11. grupo com vínculo a documento ----------------
    *
-   * A OS precisa estar num status que aceite pagamento: `tg_transacao_os_*`
-   * (20260809180000) recusa o INSERT fora de ORCAMENTO_APROVADO / EM_ANDAMENTO /
-   * PAGAMENTO, e um `LIMIT 1` sem filtro pegava qualquer uma — o teste quebrava
-   * no fixture, antes de chegar à regra que ele existe para verificar.
+   * ATÉ 20260910170000 ESTE CASO ESPERAVA O CONTRÁRIO: a função recusava
+   * qualquer grupo ligado a documento, com "esta vinculado a um documento e nao
+   * pode ser reparcelado por aqui". A regra virou porque o argumento dela não se
+   * sustentava: dizia que quem redistribui numa OS é o rateio, mas o rateio só
+   * redivide valor entre os pagamentos que já existem — ele nunca muda em
+   * quantas vezes nem para quando, que é o que se pede ao renegociar. Não havia
+   * caminho nenhum, e "3x virar 6x" numa OS era excluir tudo e lançar de novo.
+   *
+   * O que a OS mantém é a TRAVA DA SOMA: o total é dado do documento. É isso que
+   * este caso passa a verificar, dos dois lados — a soma igual entra, a soma
+   * diferente continua recusada.
+   *
+   * A OS precisa estar num status que aceite pagamento e SEM outra pendente: o
+   * grupo do modo vinculado é o documento inteiro, então uma pendente alheia
+   * entraria na conta e o teste mediria outra coisa.
    */
   SELECT o.id INTO v_os
     FROM public.ordemservico o
    WHERE coalesce(o.is_deleted, false) = false
      AND o.status IN ('ORCAMENTO_APROVADO', 'EM_ANDAMENTO', 'PAGAMENTO')
+     AND NOT EXISTS (
+       SELECT 1 FROM public.transacao t
+        WHERE t.ordemservicoid = o.id
+          AND t.is_deleted = false
+          AND t.pendente = true
+          AND upper(t.tipo::text) = 'RECEITA'
+          AND t.evento_financeiro_id IS NULL
+     )
    LIMIT 1;
 
   IF v_os IS NOT NULL THEN
@@ -300,15 +347,44 @@ BEGIN
       pendente = true, parcelamento_id = v_vinculado, ordemservicoid = v_os;
     EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
 
+    -- 11a: soma diferente continua recusada num grupo de documento.
     BEGIN
       PERFORM public.reparcelar_transacao_avulsa(v_vinculado, jsonb_build_array(
-        jsonb_build_object('valor', 10.00, 'data', now() + interval '60 days')
+        jsonb_build_object('valor', 11.00, 'data', now() + interval '60 days')
       ));
       v_falhou := v_falhou + 1;
-      RAISE NOTICE 'FALHOU 11: grupo vinculado a documento foi reparcelado';
+      RAISE NOTICE 'FALHOU 11a: soma diferente aceita num grupo de documento';
     EXCEPTION WHEN sqlstate '22023' THEN
       v_ok := v_ok + 1;
-      RAISE NOTICE 'OK 11: grupo vinculado recusado -> %', SQLERRM;
+      RAISE NOTICE 'OK 11a: total do documento continua travado -> %', SQLERRM;
+    END;
+
+    -- 11b: mesma soma em mais parcelas passa a ser aceita.
+    BEGIN
+      PERFORM public.reparcelar_transacao_avulsa(v_vinculado, jsonb_build_array(
+        jsonb_build_object('valor', 4.00, 'data', now() + interval '30 days'),
+        jsonb_build_object('valor', 6.00, 'data', now() + interval '60 days')
+      ));
+
+      SELECT count(*), coalesce(sum(valor), 0) INTO v_qtd, v_soma
+        FROM public.transacao
+       WHERE ordemservicoid = v_os AND is_deleted = false AND pendente = true
+         AND upper(tipo::text) = 'RECEITA' AND evento_financeiro_id IS NULL;
+
+      IF v_qtd = 2 AND v_soma = 10.00 THEN
+        v_ok := v_ok + 1;
+        RAISE NOTICE 'OK 11b: 1 parcela virou 2 e o total da OS continuou %', v_soma;
+      ELSE
+        v_falhou := v_falhou + 1;
+        RAISE NOTICE 'FALHOU 11b: % parcelas somando % (esperava 2 somando 10.00)', v_qtd, v_soma;
+      END IF;
+
+      RAISE EXCEPTION 'desfazer' USING ERRCODE = 'P0001';
+    EXCEPTION
+      WHEN sqlstate 'P0001' THEN NULL;
+      WHEN OTHERS THEN
+        v_falhou := v_falhou + 1;
+        RAISE NOTICE 'FALHOU 11b: grupo de documento recusado -> % (%)', SQLERRM, SQLSTATE;
     END;
 
     UPDATE _molde SET ordemservicoid = NULL;

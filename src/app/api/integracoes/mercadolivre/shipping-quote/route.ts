@@ -2,13 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
-import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
 import { getMercadoLivreShippingAddress } from "@/lib/integrations/mercadolivre-address";
+import { buildMercadoLivreShippingDimensions } from "@/lib/integrations/mercadolivre-mercado-envios";
+import { friendlyQuoteError, quoteMercadoEnvios } from "@/lib/integrations/mercadolivre-shipping-preferences";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  const origin = { current: null as Awaited<ReturnType<typeof getMercadoLivreShippingAddress>> | null };
   try {
     await requireVendasAccess();
     const empresaId = await requireEmpresaId();
@@ -17,53 +19,40 @@ export async function POST(req: NextRequest) {
     const listingTypeId = String(body?.listingTypeId ?? "").trim();
     const condition = String(body?.condition ?? "new").trim();
     const logisticType = String(body?.logisticType ?? "").trim();
-    const length = Number(body?.lengthCm);
-    const width = Number(body?.widthCm);
-    const height = Number(body?.heightCm);
-    const weight = Math.trunc(Number(body?.weightGrams));
+    const categoryId = String(body?.categoryId ?? "").trim().toUpperCase();
+    const lengthCm = Number(body?.lengthCm);
+    const widthCm = Number(body?.widthCm);
+    const heightCm = Number(body?.heightCm);
+    const weightGrams = Math.trunc(Number(body?.weightGrams));
     const freeShipping = Boolean(body?.freeShipping);
 
     if (!Number.isFinite(itemPrice) || itemPrice <= 0) return badRequest("Informe um preço válido para simular o frete.");
     if (!listingTypeId) return badRequest("Informe o tipo de anúncio.");
     if (!logisticType) return badRequest("Selecione uma logística do Mercado Envios.");
-    if (![length, width, height].every((value) => Number.isFinite(value) && value > 0) || !Number.isInteger(weight) || weight <= 0) {
-      return badRequest("Informe comprimento, largura, altura e peso válidos.");
-    }
+
+    const dimensions = buildMercadoLivreShippingDimensions({ lengthCm, widthCm, heightCm, weightGrams });
+    if (!dimensions) return badRequest("Informe comprimento, largura, altura e peso válidos.");
 
     const account = await getValidMercadoLivreAccount(empresaId);
-    const shippingAddress = await getMercadoLivreShippingAddress(account.access_token, account.ml_user_id).catch(() => null);
-    const params = new URLSearchParams({
-      dimensions: `${height}x${width}x${length},${weight}`,
-      verbose: "true",
-      item_price: String(itemPrice),
-      listing_type_id: listingTypeId,
-      mode: "me2",
-      condition,
-      logistic_type: logisticType,
-      free_shipping: String(freeShipping),
-    });
-    if (shippingAddress?.zipCode) params.set("zip_code", shippingAddress.zipCode.replace(/\D/g, ""));
-    if (shippingAddress?.stateId) params.set("state_id", shippingAddress.stateId);
-    if (shippingAddress?.cityId) params.set("city_id", shippingAddress.cityId);
-    const quote = await mercadoLivreApiGet<any>(
-      account.access_token,
-      `/users/${account.ml_user_id}/shipping_options/free?${params.toString()}`,
-    );
+    origin.current = await getMercadoLivreShippingAddress(account.access_token, account.ml_user_id).catch(() => null);
 
-    return NextResponse.json({
-      data: {
-        currencyId: quote?.currency_id ?? quote?.coverage?.all_country?.currency_id ?? "BRL",
-        listCost: numberOrNull(quote?.list_cost ?? quote?.coverage?.list_cost ?? quote?.coverage?.all_country?.list_cost),
-        sellerCost: numberOrNull(quote?.cost ?? quote?.coverage?.cost ?? quote?.coverage?.all_country?.cost ?? quote?.seller?.cost),
-        billableWeight: numberOrNull(quote?.billable_weight ?? quote?.coverage?.billable_weight ?? quote?.coverage?.all_country?.billable_weight),
-        origin: shippingAddress,
-        raw: quote ?? {},
-      },
+    const quote = await quoteMercadoEnvios(account, {
+      itemPrice,
+      listingTypeId,
+      condition,
+      logisticType,
+      freeShipping,
+      dimensions,
+      categoryId: categoryId || null,
+      origin: origin.current,
+      keepRaw: true,
     });
+
+    return NextResponse.json({ data: quote });
   } catch (error: any) {
     console.error("POST /api/integracoes/mercadolivre/shipping-quote", error);
     return NextResponse.json(
-      { error: friendlyQuoteError(error) },
+      { error: friendlyQuoteError(error, origin.current) },
       { status: errorStatus(error) },
     );
   }
@@ -71,29 +60,4 @@ export async function POST(req: NextRequest) {
 
 function badRequest(error: string) {
   return NextResponse.json({ error }, { status: 400 });
-}
-
-function numberOrNull(value: unknown) {
-  if (value === null || value === undefined || value === "") return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function friendlyQuoteError(error: any) {
-  const message = String(error?.message ?? "Falha ao simular custo do Mercado Envios.");
-  if (message.includes("PA_UNAUTHORIZED") || message.toLowerCase().includes("forbidden")) {
-    return "A conta conectada não tem permissão para simular Mercado Envios.";
-  }
-  if (message.includes("shipping_options/free")) {
-    const jsonStart = message.indexOf("{");
-    if (jsonStart >= 0) {
-      try {
-        const parsed = JSON.parse(message.slice(jsonStart));
-        return parsed?.message || parsed?.error || "O Mercado Livre não conseguiu calcular o frete com os dados informados.";
-      } catch {
-        return "O Mercado Livre não conseguiu calcular o frete com os dados informados.";
-      }
-    }
-  }
-  return message;
 }

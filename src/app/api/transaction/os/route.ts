@@ -8,7 +8,7 @@ import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { distribuirPorPesos } from "@/lib/financeiro/rateio";
-import { valorDeFace } from "@/lib/financeiro/transacao";
+import { somarRecebimentosDeFace } from "@/lib/financeiro/recebimentos-do-documento";
 import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 import { podeRegistrarPagamentoOs } from "@/lib/ordens/financeiro";
 import { aplicarCamposDocumento, erroDeDocumento } from "../_lib/documento";
@@ -475,11 +475,7 @@ export async function POST(req: Request) {
         0,
       );
 
-      preSumCents =
-        (transacoes?.reduce((acc, t) => {
-          const cents = moneyToCents(valorDeFace(t) as any) ?? 0;
-          return acc + cents;
-        }, 0) ?? 0) + rateadoCents;
+      preSumCents = somarRecebimentosDeFace(transacoes) + rateadoCents;
 
       const novoTotal = preSumCents + valorCents;
       if (novoTotal > orcCents) {
@@ -532,9 +528,11 @@ export async function POST(req: Request) {
 
       const { data: transacoes, error: txErr } = await supabaseAdmin
         .from("transacao")
-        .select("valor")
+        .select("valor, valor_acrescimos")
         .eq("vendaid", vendaId)
         .eq("tipo", "RECEITA")
+        // Mesmo recorte do caminho de OS, logo acima.
+        .is("evento_financeiro_id", null)
         .eq("is_deleted", false);
 
       if (txErr) {
@@ -547,12 +545,7 @@ export async function POST(req: Request) {
         0,
       );
 
-      preSumCents =
-        rateadoVendaCents +
-        (transacoes?.reduce((acc, t) => {
-          const cents = moneyToCents(t.valor as any) ?? 0;
-          return acc + cents;
-        }, 0) ?? 0);
+      preSumCents = rateadoVendaCents + somarRecebimentosDeFace(transacoes);
 
       const novoTotal = preSumCents + valorCents;
       if (novoTotal > orcCents) {

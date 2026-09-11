@@ -251,6 +251,12 @@ export function OrdensTabela({
 
   const [isLoading, setIsLoading] = useState(true);
   const reqIdRef = useRef(0);
+  // Quem acendeu a barra é quem a apaga. O contador acima é compartilhado com
+  // as recargas silenciosas (realtime, `os:refresh`, destaque), que passam a
+  // ser a requisição mais recente sem nunca mexer na barra — sem este segundo
+  // ref, uma recarga silenciosa durante uma visível deixava a barra girando
+  // para sempre, mesmo com as OS já na tela.
+  const loadingReqIdRef = useRef(0);
 
   const now = useNowTick(5000);
 
@@ -347,7 +353,10 @@ export function OrdensTabela({
   ) {
     const myId = ++reqIdRef.current;
     const silent = !!opts?.silent;
-    if (!silent) setIsLoading(true);
+    if (!silent) {
+      loadingReqIdRef.current = myId;
+      setIsLoading(true);
+    }
 
     try {
       const url = new URL("/api/ordens", window.location.origin);
@@ -422,7 +431,9 @@ export function OrdensTabela({
       setTotalPages(1);
       setTotal(0);
     } finally {
-      if (!silent && myId === reqIdRef.current) setIsLoading(false);
+      // Só a última carga visível apaga a barra: uma visível mais nova ainda
+      // está em curso e continua dona dela.
+      if (!silent && myId === loadingReqIdRef.current) setIsLoading(false);
     }
   }
 
@@ -586,6 +597,11 @@ export function OrdensTabela({
   const [loadingConfirmSaldo, setLoadingConfirmSaldo] = useState(false);
   const [confirmCondicoesOriginais, setConfirmCondicoesOriginais] = useState<string | null>(null);
   const [erroConfirmSaldo, setErroConfirmSaldo] = useState(false);
+  // Trava de envio dos diálogos de transição. Fica aqui, e não dentro de
+  // `setStatus`, porque o aviso de realizadores só cobre as etapas que exigem
+  // executor: a ida para faturamento não passa por ele e ficaria sem retorno
+  // nenhum na tela enquanto o PUT corre.
+  const [enviandoStatus, setEnviandoStatus] = useState(false);
   const assinaturaCondicoes = (methods: string[], amounts: Partial<Record<string, number>>, installments: Partial<Record<string, number>>, descricao: string) =>
     JSON.stringify([methods.map(method => [method, amounts[method] ?? 0, installments[method] ?? null]), descricao]);
 
@@ -1924,6 +1940,7 @@ export function OrdensTabela({
         <AlertDialog
           open={confirmOpen}
           onOpenChange={(open) => {
+            if (!open && enviandoStatus) return;
             setConfirmOpen(open);
             if (!open) {
               setConfirmRow(null);
@@ -1949,7 +1966,7 @@ export function OrdensTabela({
                   : <>Esta ação encerra a execução da OS <b>#{confirmRow?.id}</b>. Se pagamentos ou títulos já cobrirem todo o valor, ela será concluída; caso contrário, aguardará pagamento. {config?.habilitar_faturamento_os ? "As condições de pagamento serão informadas ao enviar para faturamento." : ""}</>}
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <fieldset disabled={loadingConfirmSaldo || erroConfirmSaldo} className="space-y-4 py-2 bg-card rounded-2xl p-4">
+            <fieldset disabled={loadingConfirmSaldo || erroConfirmSaldo || enviandoStatus} className="space-y-4 py-2 bg-card rounded-2xl p-4">
               {confirmDestino === "FATURAMENTO" && confirmCondicoesOriginais && <p className="text-sm text-muted-foreground">As condições já registradas foram carregadas. Se enviar sem alterações, todos os dados de pagamento serão preservados.</p>}
               {erroConfirmSaldo && <p className="text-sm text-destructive">Não foi possível carregar os dados da OS. Feche e abra novamente para tentar de novo.</p>}
               <div className="space-y-2">
@@ -2142,21 +2159,29 @@ export function OrdensTabela({
               </div>}
             </fieldset>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogCancel disabled={enviandoStatus}>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                disabled={loadingConfirmSaldo || erroConfirmSaldo}
+                disabled={loadingConfirmSaldo || erroConfirmSaldo || enviandoStatus}
                 onClick={async (event) => {
                   event.preventDefault();
-                  if (!confirmRow) return;
+                  if (!confirmRow || enviandoStatus) return;
+                  const enviar = async (status: StatusOS, extras?: ExtrasStatusOS) => {
+                    setEnviandoStatus(true);
+                    try {
+                      return await setStatus(confirmRow.id, status, extras);
+                    } finally {
+                      setEnviandoStatus(false);
+                    }
+                  };
                   if (confirmDestino === "FATURAMENTO" && confirmCondicoesOriginais !== null &&
                     confirmCondicoesOriginais === assinaturaCondicoes(confirmPaymentMethods, confirmPaymentAmounts, confirmPaymentInstallments, confirmDescricaoFinanceiro)) {
-                    const updated = await setStatus(confirmRow.id, confirmDestino);
+                    const updated = await enviar(confirmDestino);
                     if (updated) setConfirmOpen(false);
                     return;
                   }
 
                   if (!confirmCondicoes) {
-                    const updated = await setStatus(confirmRow.id, "PAGAMENTO", { garantia: confirmGarantia.trim() || null });
+                    const updated = await enviar("PAGAMENTO", { garantia: confirmGarantia.trim() || null });
                     if (updated || barradoPorRealizadorRef.current) setConfirmOpen(false);
                     return;
                   }
@@ -2201,7 +2226,7 @@ export function OrdensTabela({
                     return;
                   }
 
-                  const updated = await setStatus(confirmRow.id, confirmDestino, {
+                  const updated = await enviar(confirmDestino, {
                     pagamentosPrevistos,
                     descricaoFinanceiro:
                       confirmDescricaoFinanceiro.trim() || null,
@@ -2213,7 +2238,10 @@ export function OrdensTabela({
                   if (updated || barradoPorRealizadorRef.current) setConfirmOpen(false);
                 }}
               >
-                {confirmDestino === "FATURAMENTO" ? "Enviar para faturamento" : "Enviar p/ pagamento"}
+                {enviandoStatus ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                {enviandoStatus
+                  ? "Enviando..."
+                  : confirmDestino === "FATURAMENTO" ? "Enviar para faturamento" : "Enviar p/ pagamento"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -2223,6 +2251,7 @@ export function OrdensTabela({
         <AlertDialog
           open={approveDialogOpen}
           onOpenChange={(open) => {
+            if (!open && enviandoStatus) return;
             setApproveDialogOpen(open);
             if (!open) clearApprovalToast();
           }}
@@ -2238,13 +2267,20 @@ export function OrdensTabela({
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogCancel disabled={enviandoStatus}>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                onClick={async () => {
-                  if (!approveRow) return;
+                disabled={enviandoStatus}
+                onClick={async (event) => {
+                  event.preventDefault();
+                  if (!approveRow || enviandoStatus) return;
 
                   if (approvalToastId != null) toast("Enviando orçamento para aprovação...", { id: approvalToastId });
-                  await setStatus(approveRow.id, "APROVACAO_ORCAMENTO");
+                  setEnviandoStatus(true);
+                  try {
+                    await setStatus(approveRow.id, "APROVACAO_ORCAMENTO");
+                  } finally {
+                    setEnviandoStatus(false);
+                  }
 
                   if (approvalToastId != null) {
                     toast.success("Orçamento enviado para aprovação!", { id: approvalToastId, duration: 3000 });
@@ -2255,7 +2291,8 @@ export function OrdensTabela({
                   setApproveRow(null);
                 }}
               >
-                Enviar para aprovação
+                {enviandoStatus ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                {enviandoStatus ? "Enviando..." : "Enviar para aprovação"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -2265,6 +2302,7 @@ export function OrdensTabela({
         <AlertDialog
           open={resetOpen}
           onOpenChange={(open) => {
+            if (!open && enviandoStatus) return;
             setResetOpen(open);
             if (!open) setResetRow(null);
           }}
@@ -2279,13 +2317,15 @@ export function OrdensTabela({
             </AlertDialogHeader>
             <ImpactoExclusaoFinanceiraOs impacto={impactoReset} />
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogCancel disabled={enviandoStatus}>Cancelar</AlertDialogCancel>
               <AlertDialogAction
-                disabled={!impactoReset.pronto}
+                disabled={!impactoReset.pronto || enviandoStatus}
                 onClick={async (event) => {
                   event.preventDefault();
-                  if (!resetRow) return;
-                  const sucesso = await doResetOS(resetRow.id, impactoReset.ids);
+                  if (!resetRow || enviandoStatus) return;
+                  setEnviandoStatus(true);
+                  const sucesso = await doResetOS(resetRow.id, impactoReset.ids)
+                    .finally(() => setEnviandoStatus(false));
                   if (!sucesso) {
                     impactoReset.recarregar();
                     return;
@@ -2294,8 +2334,8 @@ export function OrdensTabela({
                   setResetRow(null);
                 }}
               >
-                {!impactoReset.pronto ? <Loader2 className="size-4 animate-spin" /> : null}
-                Confirmar reinício e exclusão
+                {!impactoReset.pronto || enviandoStatus ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                {enviandoStatus ? "Reiniciando..." : "Confirmar reinício e exclusão"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -2305,6 +2345,7 @@ export function OrdensTabela({
         <AlertDialog
           open={cancelOpen}
           onOpenChange={(open) => {
+            if (!open && enviandoStatus) return;
             setCancelOpen(open);
             if (!open) {
               setCancelRow(null);
@@ -2332,20 +2373,21 @@ export function OrdensTabela({
             </div>
 
             <AlertDialogFooter>
-              <AlertDialogCancel>Voltar</AlertDialogCancel>
+              <AlertDialogCancel disabled={enviandoStatus}>Voltar</AlertDialogCancel>
               <AlertDialogAction
-                disabled={cancelMotivo.trim().length === 0 || !impactoCancelamento.pronto}
+                disabled={cancelMotivo.trim().length === 0 || !impactoCancelamento.pronto || enviandoStatus}
                 onClick={async (event) => {
                   event.preventDefault();
-                  if (!cancelRow) return;
+                  if (!cancelRow || enviandoStatus) return;
                   const motivo = cancelMotivo.trim();
                   if (!motivo) return;
 
+                  setEnviandoStatus(true);
                   const sucesso = await doCancelarOS(
                     cancelRow.id,
                     motivo,
                     impactoCancelamento.ids,
-                  );
+                  ).finally(() => setEnviandoStatus(false));
                   if (!sucesso) {
                     impactoCancelamento.recarregar();
                     return;
@@ -2355,8 +2397,8 @@ export function OrdensTabela({
                   setCancelMotivo("");
                 }}
               >
-                {!impactoCancelamento.pronto ? <Loader2 className="size-4 animate-spin" /> : null}
-                Confirmar cancelamento e exclusão
+                {!impactoCancelamento.pronto || enviandoStatus ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                {enviandoStatus ? "Cancelando..." : "Confirmar cancelamento e exclusão"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -2366,6 +2408,7 @@ export function OrdensTabela({
         <AlertDialog
           open={noChargeOpen}
           onOpenChange={(open) => {
+            if (!open && enviandoStatus) return;
             setNoChargeOpen(open);
             if (!open) {
               setNoChargeRow(null);
@@ -2409,20 +2452,21 @@ export function OrdensTabela({
             </div>
 
             <AlertDialogFooter>
-              <AlertDialogCancel>Voltar</AlertDialogCancel>
+              <AlertDialogCancel disabled={enviandoStatus}>Voltar</AlertDialogCancel>
               <AlertDialogAction
-                disabled={noChargeMotivo.trim().length === 0 || !impactoSemCobranca.pronto}
+                disabled={noChargeMotivo.trim().length === 0 || !impactoSemCobranca.pronto || enviandoStatus}
                 onClick={async (event) => {
                   event.preventDefault();
-                  if (!noChargeRow) return;
+                  if (!noChargeRow || enviandoStatus) return;
                   const motivo = noChargeMotivo.trim();
                   if (!motivo) return;
 
+                  setEnviandoStatus(true);
                   const sucesso = await doFinishNoCharge(
                     noChargeRow.id,
                     motivo,
                     impactoSemCobranca.ids,
-                  );
+                  ).finally(() => setEnviandoStatus(false));
                   if (!sucesso) {
                     impactoSemCobranca.recarregar();
                     return;
@@ -2432,8 +2476,8 @@ export function OrdensTabela({
                   setNoChargeMotivo("");
                 }}
               >
-                {!impactoSemCobranca.pronto ? <Loader2 className="size-4 animate-spin" /> : null}
-                Finalizar sem cobrança e excluir
+                {!impactoSemCobranca.pronto || enviandoStatus ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                {enviandoStatus ? "Finalizando..." : "Finalizar sem cobrança e excluir"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

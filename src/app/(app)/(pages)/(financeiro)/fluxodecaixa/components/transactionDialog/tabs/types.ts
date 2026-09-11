@@ -1,3 +1,9 @@
+import type { ClassificacaoDeReparcelamento } from "@/lib/financeiro/reparcelamento-modo";
+
+// Reexportado para a aba Parcelas consumir tudo o que o contexto entrega a
+// partir de um lugar só.
+export type { ClassificacaoDeReparcelamento };
+
 /** O título que esta linha pagou, quando ela é a transação de uma baixa. */
 export type BaixaDeTitulo = {
   id: number;
@@ -201,6 +207,11 @@ export interface TransacaoContexto {
    * irmãs pela heurística, mas não oferece o reparcelamento.
    */
   parcelamento: { id: number } | null;
+  /**
+   * O que a aba Parcelas pode oferecer, e com que regra de total. Vem do
+   * servidor, das mesmas colunas que a RPC lê — a tela não redescobre o modo.
+   */
+  reparcelamento: ClassificacaoDeReparcelamento;
   /** Presente só quando a transação faz parte de um pagamento múltiplo. */
   pagamentoMultiplo: PagamentoMultiploContexto | null;
   baixa: {

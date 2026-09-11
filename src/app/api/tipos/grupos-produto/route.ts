@@ -21,7 +21,8 @@ export async function GET() {
         id,
         nome,
         descricao,
-        ativo
+        ativo,
+        exibirPdv
       `)
       .order("nome", { ascending: true });
 
@@ -32,6 +33,7 @@ export async function GET() {
       nome: g.nome as string,
       descricao: (g.descricao as string | null) ?? null,
       ativo: typeof g.ativo === "boolean" ? g.ativo : true,
+      exibirPdv: g.exibirPdv,
     }));
 
     return NextResponse.json({ items });
@@ -53,7 +55,14 @@ export async function POST(req: Request) {
     await ensureAuth();
 
     const body = await req.json().catch(() => ({}));
-    const { nome, descricao, ativo } = body ?? {};
+    const { nome, descricao, ativo, exibirPdv } = body ?? {};
+
+    if (exibirPdv !== undefined && typeof exibirPdv !== "boolean") {
+      return NextResponse.json(
+        { error: "Campo 'exibirPdv' deve ser booleano." },
+        { status: 400 }
+      );
+    }
 
     if (!nome?.trim()) {
       return NextResponse.json(
@@ -68,6 +77,7 @@ export async function POST(req: Request) {
       nome: nome.trim(),
       descricao: descricao?.trim() || null,
       ativo: typeof ativo === "boolean" ? ativo : true,
+      exibirPdv: exibirPdv ?? true,
       createdat: now,
       updatedat: now,
     };
@@ -79,7 +89,8 @@ export async function POST(req: Request) {
         id,
         nome,
         descricao,
-        ativo
+        ativo,
+        exibirPdv
       `)
       .maybeSingle();
 
@@ -96,6 +107,7 @@ export async function POST(req: Request) {
       nome: data.nome as string,
       descricao: (data.descricao as string | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
+      exibirPdv: data.exibirPdv,
     };
 
     return NextResponse.json({ item }, { status: 201 });

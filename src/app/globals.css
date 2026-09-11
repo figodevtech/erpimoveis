@@ -112,6 +112,23 @@
 
 
 @layer base {
+  /* Escala global da interface: 0.9 equivale ao zoom de 90% do navegador.
+     Tudo que o Tailwind mede em rem (espacamentos, alturas, tipografia, icones)
+     acompanha este valor. Ajuste apenas aqui para calibrar o sistema inteiro. */
+  :root {
+    --app-ui-scale: 0.9;
+  }
+
+  html {
+    font-size: calc(var(--app-ui-scale) * 100%);
+  }
+
+  /* Documentos (A4, etiquetas, DANFE) ficam fora da escala: a geometria deles
+     e calibrada em mm e a paginacao e medida na tela antes de imprimir. */
+  html:has([data-ui-scale="off"]) {
+    font-size: 100%;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }

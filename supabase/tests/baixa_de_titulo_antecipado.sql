@@ -50,6 +50,8 @@ $$;
 
 DO $t$
 DECLARE
+  v_col_gerada text;
+  v_cols text;
   v_banco bigint;
   v_ids bigint[] := ARRAY[]::bigint[];
   v_p1 bigint; v_p2 bigint; v_p3 bigint; v_p4 bigint;
@@ -69,12 +71,13 @@ DECLARE
 BEGIN
   /* ---------------- pré-requisitos ---------------- */
 
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric)') IS NULL THEN
-    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_valor_lancado. Rode as migrations.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_ajustes. Rode as migrations.';
   END IF;
 
   IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid)') IS NOT NULL
-     OR to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean,numeric)') IS NOT NULL THEN
+     OR to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,boolean,numeric)') IS NOT NULL
+     OR to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric)') IS NOT NULL THEN
     RAISE EXCEPTION 'Sobrou uma assinatura antiga de baixar_transacao_pendente: a chamada por nome fica ambigua.';
   END IF;
 
@@ -95,6 +98,35 @@ BEGIN
 
   CREATE TEMP TABLE _molde ON COMMIT DROP AS
     SELECT * FROM public.transacao WHERE is_deleted = false LIMIT 1;
+
+  /*
+   * Coluna gerada nao se insere: `data_dia` (20260901220000) veio depois deste
+   * teste e passou a entrar no `SELECT *` do molde, quebrando todos os inserts
+   * com "cannot insert a non-DEFAULT value". Some do molde e a lista de colunas
+   * passa a ser explicita — o script continua sem conhecer o schema, e uma
+   * coluna gerada nova amanha tambem nao o quebra.
+   */
+  FOR v_col_gerada IN
+    SELECT a.attname
+      FROM pg_attribute a
+     WHERE a.attrelid = '_molde'::regclass
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+       AND a.attname IN (
+         SELECT b.attname FROM pg_attribute b
+          WHERE b.attrelid = 'public.transacao'::regclass
+            AND b.attgenerated <> ''
+       )
+  LOOP
+    EXECUTE format('ALTER TABLE _molde DROP COLUMN %I', v_col_gerada);
+  END LOOP;
+
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+    INTO v_cols
+    FROM pg_attribute a
+   WHERE a.attrelid = '_molde'::regclass
+     AND a.attnum > 0
+     AND NOT a.attisdropped;
   IF (SELECT count(*) FROM _molde) <> 1 THEN
     RAISE EXCEPTION 'Nenhuma transacao para servir de molde.';
   END IF;
@@ -114,7 +146,7 @@ BEGIN
       data = date_trunc('day', now() + (v_n || ' days')::interval),
       descricao = 'TESTE ANTECIPACAO PARCELA ' || v_n;
 
-    INSERT INTO public.transacao SELECT * FROM _molde;
+    EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
     SELECT id INTO v_novo FROM _molde;
     INSERT INTO _criadas VALUES (v_novo);
     v_ids := v_ids || v_novo;
@@ -128,7 +160,7 @@ BEGIN
     id = nextval(pg_get_serial_sequence('public.transacao','id')),
     valor = 250.00, valor_base = 250.00, "valorLiquido" = 250.00,
     descricao = 'TESTE TITULO COMUM';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
   SELECT id INTO v_avulsa FROM _molde;
   INSERT INTO _criadas VALUES (v_avulsa);
 
@@ -217,7 +249,7 @@ BEGIN
     pendente = false, banco_id = v_banco, pago_em = now(), data = now(),
     vencimento_em = now(),
     descricao = 'TESTE DEVOLUCAO DE BOLETO PELO BANCO';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
   SELECT id INTO v_novo FROM _molde;
   INSERT INTO _criadas VALUES (v_novo);
 

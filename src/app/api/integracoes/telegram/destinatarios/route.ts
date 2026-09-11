@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireConfigAccess, requireConfigEdit } from "@/app/api/_authz/perms";
 import { isStockNotificationEvent, STOCK_NOTIFICATION_EVENT_VALUES } from "@/lib/estoque/telegram-stock-events";
+import {
+  isMercadoLivreNotificationEvent,
+  MERCADOLIVRE_NOTIFICATION_EVENT_VALUES,
+} from "@/lib/integrations/mercadolivre-notification-events";
 import { FISCAL_NOTIFICATION_EVENT_VALUES, isFiscalNotificationEvent } from "@/lib/fiscal/telegram-fiscal-events";
 import {
   FINANCEIRO_NOTIFICATION_EVENT_VALUES,
@@ -45,6 +49,11 @@ const recipientSchema = z.object({
     .max(FISCAL_NOTIFICATION_EVENT_VALUES.length)
     .refine((events) => events.every(isFiscalNotificationEvent)),
   notificarMarketplace: z.boolean(),
+  marketplaceTopicosSelecionados: z
+    .array(z.string())
+    .max(MERCADOLIVRE_NOTIFICATION_EVENT_VALUES.length)
+    .refine((events) => events.every(isMercadoLivreNotificationEvent))
+    .optional(),
   financeiroEventosSelecionados: z
     .array(z.string())
     .max(FINANCEIRO_NOTIFICATION_EVENT_VALUES.length)
@@ -87,7 +96,7 @@ export async function GET() {
       supabaseAdmin.from("usuario").select("id, nome, email, ativo, perfilid").order("nome", { ascending: true }),
       supabaseAdmin
         .from("telegram_usuario_preferencia")
-        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, notificar_receber_diario, horario_resumo_receber, receber_incluir_vencidas, receber_enviar_sem_contas, estoque_eventos_selecionados, fiscal_eventos_selecionados, notificar_marketplace, financeiro_eventos_selecionados, financeiro_valor_minimo, financeiro_origens_selecionadas, financeiro_bancos_selecionados, ultimo_erro")
+        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, notificar_receber_diario, horario_resumo_receber, receber_incluir_vencidas, receber_enviar_sem_contas, estoque_eventos_selecionados, fiscal_eventos_selecionados, notificar_marketplace, marketplace_topicos_selecionados, financeiro_eventos_selecionados, financeiro_valor_minimo, financeiro_origens_selecionadas, financeiro_bancos_selecionados, ultimo_erro")
         .order("updated_at", { ascending: false }),
       supabaseAdmin
         .from("permissao")
@@ -181,6 +190,11 @@ export async function GET() {
       selectedStockEvents: Array.isArray(row.estoque_eventos_selecionados) ? row.estoque_eventos_selecionados : [],
       selectedFiscalEvents: Array.isArray(row.fiscal_eventos_selecionados) ? row.fiscal_eventos_selecionados : [],
       notifyMarketplace: row.notificar_marketplace === true,
+      // Nulo é "nunca escolheu": mostra tudo marcado, que era o comportamento
+      // antes de existir escolha por evento.
+      selectedMarketplaceEvents: Array.isArray(row.marketplace_topicos_selecionados)
+        ? row.marketplace_topicos_selecionados
+        : [...MERCADOLIVRE_NOTIFICATION_EVENT_VALUES],
       selectedFinanceiroEvents: Array.isArray(row.financeiro_eventos_selecionados) ? row.financeiro_eventos_selecionados : [],
       financeiroMinimumValue: Number(row.financeiro_valor_minimo ?? 0),
       selectedFinanceiroOrigins: Array.isArray(row.financeiro_origens_selecionadas) ? row.financeiro_origens_selecionadas : [],
@@ -260,6 +274,9 @@ export async function PUT(request: Request) {
       estoque_eventos_selecionados: Array.from(new Set(parsed.data.estoqueEventosSelecionados)),
       fiscal_eventos_selecionados: Array.from(new Set(parsed.data.fiscalEventosSelecionados)),
       notificar_marketplace: parsed.data.notificarMarketplace,
+      marketplace_topicos_selecionados: parsed.data.marketplaceTopicosSelecionados
+        ? Array.from(new Set(parsed.data.marketplaceTopicosSelecionados))
+        : null,
       financeiro_eventos_selecionados: Array.from(new Set(parsed.data.financeiroEventosSelecionados)),
       financeiro_valor_minimo: parsed.data.financeiroValorMinimo,
       financeiro_origens_selecionadas: Array.from(new Set(parsed.data.financeiroOrigensSelecionadas)),

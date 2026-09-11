@@ -5,6 +5,8 @@ DECLARE
   v_criador uuid; v_vendedor uuid; v_cliente integer; v_produto integer;
   v_venda integer; v_evento bigint; v_grupo bigint; v_valor numeric; v_banco bigint;
   v_num integer; v_base numeric; v_pct numeric; v_erro boolean;
+  v_venda2 integer; v_evento2 bigint; v_dono uuid;
+  v_congelada timestamptz; v_congelada2 timestamptz;
 BEGIN
   SELECT id INTO v_criador FROM public.usuario WHERE ativo ORDER BY id LIMIT 1;
   SELECT id INTO v_vendedor FROM public.usuario WHERE ativo AND id<>v_criador ORDER BY id LIMIT 1;
@@ -101,12 +103,55 @@ BEGIN
     RAISE EXCEPTION 'Cancelamento não estornou a comissão.';
   END IF;
 
+  -- Transferencia de vendedor: a comissao apurada acompanha quem entrou.
+  UPDATE public.usuario SET comissao_venda_percent=10 WHERE id=v_vendedor;
+  UPDATE public.usuario SET comissao_venda_percent=4 WHERE id=v_criador;
+  INSERT INTO public.venda(clienteid,created_by,vendedor,status,sub_total,valortotal,valor_frete,datavenda)
+  VALUES(v_cliente,v_criador,v_vendedor,'ORCAMENTO',1000,1000,0,now()) RETURNING id INTO v_venda2;
+  INSERT INTO public.vendaproduto(venda_id,produtoid,quantidade,sub_total,valor_total,valor_frete)
+  VALUES(v_venda2,v_produto,1,1000,1000,0);
+  UPDATE public.venda SET status='PAGAMENTO' WHERE id=v_venda2;
+  SELECT usuarioid,percentual,valor_comissao,congelada_em INTO v_dono,v_pct,v_valor,v_congelada
+    FROM public.venda_comissao WHERE vendaid=v_venda2;
+  IF v_dono<>v_vendedor OR v_pct<>10 OR v_valor<>100 OR v_congelada IS NULL THEN
+    RAISE EXCEPTION 'Apuracao inicial da venda de transferencia incorreta: %/%/%',v_dono,v_pct,v_valor;
+  END IF;
+
+  -- Congelar protege contra reajuste de cadastro, nao contra troca de dono: a
+  -- comissao vai junto e vale a taxa de quem entrou, nao a da pessoa que saiu.
+  UPDATE public.venda SET vendedor=v_criador WHERE id=v_venda2;
+  SELECT usuarioid,percentual,valor_comissao,congelada_em INTO v_dono,v_pct,v_valor,v_congelada2
+    FROM public.venda_comissao WHERE vendaid=v_venda2;
+  IF v_dono<>v_criador OR v_pct<>4 OR v_valor<>40 THEN
+    RAISE EXCEPTION 'Transferencia nao reapurou pela taxa do novo vendedor: %/%/%',v_dono,v_pct,v_valor;
+  END IF;
+  IF v_congelada2 IS DISTINCT FROM v_congelada THEN
+    RAISE EXCEPTION 'A transferencia moveu o periodo da venda.';
+  END IF;
+  SELECT id,usuarioid,valor INTO v_evento2,v_dono,v_valor FROM public.eventos_financeiros
+   WHERE source_type='VENDA' AND source_id=v_venda2 AND origem='COMISSAO' AND status='ATIVO';
+  IF v_evento2 IS NULL OR v_dono<>v_criador OR v_valor<>40 THEN
+    RAISE EXCEPTION 'O evento financeiro nao acompanhou a transferencia: %/%',v_dono,v_valor;
+  END IF;
+
+  -- Depois de lancada no financeiro, a transferencia volta a ser recusada --
+  -- agora pela trava de dinheiro comprometido, que diz o que fazer.
+  v_grupo := public.registrar_lancamento_de_eventos(jsonb_build_object(
+    'eventos_ids',jsonb_build_array(v_evento2),'created_by',v_criador,'pendente',true,
+    'metodopagamento','PIX','linhas',jsonb_build_array(
+      jsonb_build_object('parcela',1,'total_parcelas',1,'valor',40,'vencimento_em',now()))));
+  v_erro:=false;
+  BEGIN
+    UPDATE public.venda SET vendedor=v_vendedor WHERE id=v_venda2;
+  EXCEPTION WHEN SQLSTATE 'P0001' THEN v_erro:=true; END;
+  IF NOT v_erro THEN RAISE EXCEPTION 'Comissao lancada foi transferida de vendedor.'; END IF;
+
   IF EXISTS(SELECT 1 FROM public.venda_comissao c JOIN public.eventos_financeiros e
     ON e.source_type='VENDA' AND e.source_id=c.vendaid AND e.origem='COMISSAO'
     WHERE NOT c.integrada AND e.status<>'CANCELADO') THEN
     RAISE EXCEPTION 'O histórico anterior ao mês recebeu despesas novas.';
   END IF;
-  RAISE NOTICE 'Comissão: beneficiário, frete, desconto, congelamento, DRE, fila, parcelas, idempotência e estorno verificados.';
+  RAISE NOTICE 'Comissão: beneficiário, frete, desconto, congelamento, DRE, fila, parcelas, idempotência, estorno e troca de vendedor verificados.';
 END;
 $test$;
 ROLLBACK;

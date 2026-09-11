@@ -957,6 +957,15 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
 
     if (error) {
       console.error("Erro ao atualizar venda:", error);
+      // P0001 é regra de negócio levantada por gatilho — comissão já lançada no
+      // financeiro, venda com dinheiro comprometido. É erro do pedido, não falha
+      // do servidor, e a mensagem em português precisa chegar a quem salvou: sem
+      // isso a tela dizia só "Erro ao atualizar venda", e não havia como saber o
+      // que fazer. Mesmo tratamento que a rota já dá a `aprovar_orcamento_venda`
+      // e a `fn_editar_venda_com_itens`.
+      if (error.code === "P0001") {
+        return NextResponse.json({ error: error.message }, { status: 409 });
+      }
       return NextResponse.json({ error: "Erro ao atualizar venda." }, { status: 500 });
     }
 

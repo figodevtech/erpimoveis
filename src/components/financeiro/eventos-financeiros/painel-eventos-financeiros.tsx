@@ -166,7 +166,8 @@ export function PainelEventosFinanceiros({
 
   const [receitaParaDespesa, setReceitaParaDespesa] = useState<{
     id: number;
-    osId: number;
+    osId: number | null;
+    vendaId: number | null;
     origem: "SERVICO" | "FRETE";
     servicoid?: number | null;
     descricao: string;
@@ -390,11 +391,12 @@ export function PainelEventosFinanceiros({
   }
 
   function abrirDespesaVinculada(linha: LinhaDeEvento) {
-    if (linha.osId == null) return;
+    if (linha.osId == null && linha.vendaId == null) return;
     const origem = linha.origem === "FRETE" ? "FRETE" : "SERVICO";
     setReceitaParaDespesa({
       id: linha.id,
       osId: linha.osId,
+      vendaId: linha.vendaId ?? null,
       origem,
       servicoid: linha.servicoid,
       descricao: linha.descricao,
@@ -413,7 +415,10 @@ export function PainelEventosFinanceiros({
     if (!receitaParaDespesa) return;
     setSalvandoDespesaVinculada(true);
     try {
-      const alvo = endpoints.criar(receitaParaDespesa.osId);
+      const alvo = receitaParaDespesa.vendaId != null
+        ? endpoints.criarDespesaVenda?.(receitaParaDespesa.vendaId)
+        : receitaParaDespesa.osId != null ? endpoints.criar(receitaParaDespesa.osId) : null;
+      if (!alvo) throw new Error("Documento da despesa não encontrado.");
       const response = await fetch(alvo.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -707,6 +712,11 @@ export function PainelEventosFinanceiros({
     quantidadeSelecionaveis > 0 && escolhidas.length === quantidadeSelecionaveis;
 
   function renderLinha(linha: LinhaDeEvento) {
+    const podeAdicionarDespesa = linha.tipo === "ENTRADA" && linha.status === "ATIVO"
+      && (linha.vendaId != null
+        ? permissoes.podeLancar && Boolean(endpoints.criarDespesaVenda) && linha.origem === "FRETE"
+        : permissoes.podeEditar && linha.osId != null
+          && (linha.origem === "FRETE" || (linha.origem === "SERVICO" && Boolean(linha.servicoid))));
     const podeEditarLinha =
       permissoes.podeEditar
       && linha.vendaId == null
@@ -715,6 +725,7 @@ export function PainelEventosFinanceiros({
         // Comissão não tem origem corrigível: a taxa vem do perfil e o valor é
         // derivado. É por aqui ou lugar nenhum.
         || linha.origem === "COMISSAO");
+    const podeExcluirLinha = permissoes.podeExcluir && linha.vendaId == null && podeOferecerExclusao(linha);
     const mostrarContextoDaOs = osIdUnica == null && vendaIdUnica == null;
 
     const cliente = linha.ordem?.cliente?.nomerazaosocial || linha.venda?.cliente?.nomerazaosocial;
@@ -727,10 +738,11 @@ export function PainelEventosFinanceiros({
         ? "border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300"
         : "border-border bg-muted/50 text-muted-foreground";
     const temAcoes = podeEditarLinha || (linha.produtoid && onVisualizarProduto)
+      || podeAdicionarDespesa
       || linha.status === "CONVERTIDO"
       || (permissoes.podeEditar && linha.vendaId == null && (podeSincronizar(linha) || linha.origem === "FRETE" || linha.origem === "SERVICO"))
       || (permissoes.podeLancar && eventoSelecionavel(linha))
-      || (permissoes.podeExcluir && podeOferecerExclusao(linha));
+      || podeExcluirLinha;
 
     return (
       <div
@@ -823,12 +835,7 @@ export function PainelEventosFinanceiros({
                   Visualizar transação
                 </DropdownMenuItem>
               ) : null}
-              {permissoes.podeEditar
-                && linha.vendaId == null
-                && (linha.origem === "SERVICO" || linha.origem === "FRETE")
-                && linha.tipo === "ENTRADA"
-                && linha.status === "ATIVO"
-                && (linha.origem === "FRETE" || linha.servicoid) ? (
+              {podeAdicionarDespesa ? (
                 <DropdownMenuItem onSelect={() => abrirDespesaVinculada(linha)}>
                   <ArrowDown />{" "}
                   {linha.origem === "FRETE"
@@ -874,7 +881,7 @@ export function PainelEventosFinanceiros({
                   Lançar no financeiro
                 </DropdownMenuItem>
               ) : null}
-              {permissoes.podeExcluir && podeOferecerExclusao(linha) ? (
+              {podeExcluirLinha ? (
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onSelect={() => void abrirExclusaoEvento(linha)}

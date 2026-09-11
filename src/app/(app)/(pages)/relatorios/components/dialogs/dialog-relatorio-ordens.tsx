@@ -310,7 +310,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
  * Nenhum marcado significa "todos": é o estado inicial e o mais usado, e obriga
  * menos cliques do que exigir que se marque a lista inteira para não filtrar.
  */
-function StatusMultiSelect({
+export function StatusMultiSelect({
   value,
   onChange,
 }: {

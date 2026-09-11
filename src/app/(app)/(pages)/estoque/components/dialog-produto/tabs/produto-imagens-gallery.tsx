@@ -69,6 +69,9 @@ type Props = {
   saving?: boolean;
   uploadLabel?: string;
   uploadDisabledReason?: string;
+  /** Texto do aviso de exclusão; o padrão descreve a remoção do produto. */
+  removeConfirmTitle?: string;
+  removeConfirmDescription?: string;
   onUpload?: () => void;
   onReorder?: (keys: string[]) => void;
   onRemovePendente: (id: string) => void;
@@ -262,6 +265,8 @@ export function ProdutoImagensGallery({
   saving,
   uploadLabel = "Realizar upload",
   uploadDisabledReason,
+  removeConfirmTitle = "Excluir imagem?",
+  removeConfirmDescription = "Esta imagem ja foi enviada e sera removida do produto. Essa acao nao pode ser desfeita.",
   onUpload,
   onReorder,
   onRemovePendente,
@@ -450,10 +455,8 @@ export function ProdutoImagensGallery({
       <AlertDialog open={confirmRemoveId != null} onOpenChange={(open) => !open && setConfirmRemoveId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir imagem?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta imagem ja foi enviada e sera removida do produto. Essa acao nao pode ser desfeita.
-            </AlertDialogDescription>
+            <AlertDialogTitle>{removeConfirmTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{removeConfirmDescription}</AlertDialogDescription>
           </AlertDialogHeader>
           {confirmImage ? (
             <div className="overflow-hidden rounded-md border bg-muted">

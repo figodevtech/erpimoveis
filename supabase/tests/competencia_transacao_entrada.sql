@@ -14,6 +14,8 @@ BEGIN;
 
 DO $t$
 DECLARE
+  v_col_gerada text;
+  v_cols text;
   v_entrada bigint;
   v_uso bigint;
   v_emissao timestamptz := now() - interval '40 days';
@@ -50,6 +52,35 @@ BEGIN
 
   CREATE TEMP TABLE _molde_tx ON COMMIT DROP AS
     SELECT * FROM public.transacao WHERE is_deleted = false LIMIT 1;
+
+  /*
+   * Coluna gerada nao se insere: `data_dia` (20260901220000) veio depois deste
+   * teste e passou a entrar no `SELECT *` do molde, quebrando todos os inserts
+   * com "cannot insert a non-DEFAULT value". Some do molde e a lista de colunas
+   * passa a ser explicita — o script continua sem conhecer o schema, e uma
+   * coluna gerada nova amanha tambem nao o quebra.
+   */
+  FOR v_col_gerada IN
+    SELECT a.attname
+      FROM pg_attribute a
+     WHERE a.attrelid = '_molde_tx'::regclass
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+       AND a.attname IN (
+         SELECT b.attname FROM pg_attribute b
+          WHERE b.attrelid = 'public.transacao'::regclass
+            AND b.attgenerated <> ''
+       )
+  LOOP
+    EXECUTE format('ALTER TABLE _molde_tx DROP COLUMN %I', v_col_gerada);
+  END LOOP;
+
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+    INTO v_cols
+    FROM pg_attribute a
+   WHERE a.attrelid = '_molde_tx'::regclass
+     AND a.attnum > 0
+     AND NOT a.attisdropped;
   IF (SELECT count(*) FROM _molde_tx) <> 1 THEN
     RAISE EXCEPTION 'Nenhuma transacao para servir de molde.';
   END IF;
@@ -67,7 +98,7 @@ BEGIN
   /* ---------------- 1. entrada de estoque ---------------- */
   UPDATE _molde_tx SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
     entrada_id = v_entrada;
-  INSERT INTO public.transacao SELECT * FROM _molde_tx;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde_tx', v_cols, v_cols);
 
   SELECT competencia_em INTO v_comp FROM public.transacao WHERE id = (SELECT id FROM _molde_tx);
 
@@ -84,7 +115,7 @@ BEGIN
   IF v_uso IS NOT NULL THEN
     UPDATE _molde_tx SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
       entrada_id = NULL, usoconsumo_entrada_id = v_uso;
-    INSERT INTO public.transacao SELECT * FROM _molde_tx;
+    EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde_tx', v_cols, v_cols);
 
     SELECT competencia_em INTO v_comp FROM public.transacao WHERE id = (SELECT id FROM _molde_tx);
 
@@ -101,7 +132,7 @@ BEGIN
   UPDATE _molde_tx SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
     entrada_id = v_entrada, usoconsumo_entrada_id = NULL,
     competencia_em = v_emissao - interval '10 days';
-  INSERT INTO public.transacao SELECT * FROM _molde_tx;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde_tx', v_cols, v_cols);
 
   SELECT competencia_em INTO v_comp FROM public.transacao WHERE id = (SELECT id FROM _molde_tx);
 
@@ -116,7 +147,7 @@ BEGIN
   /* ---------------- 4. lançamento avulso não é tocado ---------------- */
   UPDATE _molde_tx SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
     entrada_id = NULL, usoconsumo_entrada_id = NULL, competencia_em = NULL;
-  INSERT INTO public.transacao SELECT * FROM _molde_tx;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde_tx', v_cols, v_cols);
 
   SELECT competencia_em INTO v_comp FROM public.transacao WHERE id = (SELECT id FROM _molde_tx);
 

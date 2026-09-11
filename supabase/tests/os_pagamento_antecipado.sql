@@ -8,6 +8,8 @@ DECLARE
   v_boleto bigint;
   v_resumo record;
   v_status text;
+  v_texto text;
+  v_cols text;
 BEGIN
   IF to_regprocedure('public.resumo_financeiro_os(integer)') IS NULL THEN
     RAISE EXCEPTION 'A função resumo_financeiro_os não existe.';
@@ -43,6 +45,36 @@ BEGIN
     RAISE EXCEPTION 'Nenhuma receita disponível como molde.';
   END IF;
 
+  /*
+   * Coluna gerada não se insere: `data_dia` (20260901220000) veio depois deste
+   * teste e passou a entrar no `SELECT *` do molde, quebrando todos os inserts
+   * com "cannot insert a non-DEFAULT value". Some do molde e a lista de colunas
+   * passa a ser explícita — o script continua sem conhecer o schema, e uma
+   * coluna gerada nova amanhã também não o quebra. Mesmo remédio do teste de
+   * reparcelamento.
+   */
+  FOR v_texto IN
+    SELECT a.attname
+      FROM pg_attribute a
+     WHERE a.attrelid = '_tx_os'::regclass
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+       AND a.attname IN (
+         SELECT b.attname FROM pg_attribute b
+          WHERE b.attrelid = 'public.transacao'::regclass
+            AND b.attgenerated <> ''
+       )
+  LOOP
+    EXECUTE format('ALTER TABLE _tx_os DROP COLUMN %I', v_texto);
+  END LOOP;
+
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+    INTO v_cols
+    FROM pg_attribute a
+   WHERE a.attrelid = '_tx_os'::regclass
+     AND a.attnum > 0
+     AND NOT a.attisdropped;
+
   UPDATE _tx_os SET
     id = nextval(pg_get_serial_sequence('public.transacao', 'id')),
     ordemservicoid = v_os,
@@ -62,7 +94,8 @@ BEGIN
     "valorLiquido" = 400,
     descricao = 'TESTE OS - recebido',
     data = now();
-  INSERT INTO public.transacao SELECT * FROM _tx_os RETURNING id INTO v_pago;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _tx_os RETURNING id', v_cols, v_cols)
+    INTO v_pago;
 
   UPDATE _tx_os SET
     id = nextval(pg_get_serial_sequence('public.transacao', 'id')),
@@ -71,7 +104,8 @@ BEGIN
     valor_base = 600,
     "valorLiquido" = 600,
     descricao = 'TESTE OS - boletos';
-  INSERT INTO public.transacao SELECT * FROM _tx_os RETURNING id INTO v_boleto;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _tx_os RETURNING id', v_cols, v_cols)
+    INTO v_boleto;
 
   SELECT * INTO v_resumo FROM public.resumo_financeiro_os(v_os);
   IF v_resumo.valor_recebido <> 400
@@ -110,7 +144,7 @@ BEGIN
       valor_base = 601,
       "valorLiquido" = 601,
       descricao = 'TESTE OS - excedente';
-    INSERT INTO public.transacao SELECT * FROM _tx_os;
+    EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _tx_os', v_cols, v_cols);
     RAISE EXCEPTION 'O limite financeiro aceitou valor excedente.';
   EXCEPTION WHEN check_violation THEN
     RAISE NOTICE 'OK: banco recusou valor acima do saldo.';

@@ -1,13 +1,23 @@
 /**
- * Regras do reparcelamento de um lançamento avulso, isoladas da tela.
+ * Regras do reparcelamento, isoladas da tela.
  *
- * Reparcelar redivide o que ainda está PENDENTE: a soma não muda, porque parcela
- * baixada é dinheiro que já andou e o total do parcelamento não é assunto desta
- * operação. Quem valida de verdade é `reparcelar_transacao_avulsa` no banco —
- * daqui sai só o que destrava o botão e o que a tela precisa dizer ao usuário.
+ * Reparcelar redivide o que ainda está PENDENTE — parcela baixada é dinheiro que
+ * já andou e nunca entra. Se o TOTAL do que está pendente pode mudar junto
+ * depende de quem é dono da divisão, e essa pergunta é de
+ * `modoDeReparcelamento`: com documento o total é dado dele e fica travado; num
+ * lançamento avulso o grupo é o próprio total, e travá-lo só impedia diminuir
+ * uma parcela ou renegociar a dívida.
+ *
+ * Quem valida de verdade é `reparcelar_transacao` no banco — daqui sai só o que
+ * destrava o botão e o que a tela precisa dizer ao usuário.
  */
 
-import { distribuirIgualmenteEmCentavos, paraCentavos, paraReais } from "./rateio";
+import {
+  distribuirIgualmenteEmCentavos,
+  distribuirPorPesos,
+  paraCentavos,
+  paraReais,
+} from "./rateio";
 
 /** Teto de sanidade, o mesmo que a RPC aplica. */
 export const MAXIMO_DE_PARCELAS = 60;
@@ -29,6 +39,17 @@ export interface ResultadoDoReparcelamento {
   /** Posições (1-based) sem data escolhida. */
   semVencimento: number[];
   podeSalvar: boolean;
+}
+
+export interface OpcoesDeValidacao {
+  /**
+   * O total precisa continuar o mesmo?
+   *
+   * Padrão `true` — a trava é o comportamento de sempre, e o padrão fica no lado
+   * restritivo de propósito: um chamador novo que esqueça de passar a opção
+   * recusa demais, nunca destrava o total de um documento por descuido.
+   */
+  totalTravado?: boolean;
 }
 
 /**
@@ -91,6 +112,39 @@ export function redistribuirIgualmente(
   }));
 }
 
+/** A soma das parcelas que estão na tela, em centavos. */
+export function totalDasParcelas(parcelas: ParcelaPlanejada[]): number {
+  return parcelas.reduce((total, parcela) => total + paraCentavos(parcela.valor), 0);
+}
+
+/**
+ * Muda o total mantendo a PROPORÇÃO entre as parcelas, e as datas.
+ *
+ * Ratear igualmente ao mudar o total apagaria uma divisão montada de propósito —
+ * entrada maior e o resto em prestações iguais é o desenho mais comum de uma
+ * renegociação. Com `distribuirPorPesos` o desenho sobrevive à mudança de total
+ * e a soma fecha exata: o resíduo do arredondamento cai na última parcela.
+ *
+ * Todas em zero não têm proporção nenhuma para preservar — aí o rateio igual é a
+ * única resposta possível, e é o que a tela já faz ao somar uma parcela nova.
+ */
+export function redistribuirParaTotal(
+  parcelas: ParcelaPlanejada[],
+  totalEmCentavos: number,
+): ParcelaPlanejada[] {
+  const pesos = parcelas.map((parcela) => paraCentavos(parcela.valor));
+  const somaDosPesos = pesos.reduce((total, peso) => total + peso, 0);
+
+  if (somaDosPesos <= 0) return redistribuirIgualmente(parcelas, totalEmCentavos);
+
+  const valores = distribuirPorPesos(pesos, totalEmCentavos);
+
+  return parcelas.map((parcela, indice) => ({
+    ...parcela,
+    valor: paraReais(valores[indice] ?? 0),
+  }));
+}
+
 /**
  * O vencimento pode ser passado de propósito.
  *
@@ -102,6 +156,7 @@ export function redistribuirIgualmente(
 export function validarReparcelamento(
   parcelas: ParcelaPlanejada[],
   alvoEmCentavos: number,
+  opcoes: OpcoesDeValidacao = {},
 ): ResultadoDoReparcelamento {
   const somaEmCentavos = parcelas.reduce(
     (total, parcela) => total + paraCentavos(parcela.valor),
@@ -119,6 +174,11 @@ export function validarReparcelamento(
   const diferencaEmCentavos = alvoEmCentavos - somaEmCentavos;
   const fecha = diferencaEmCentavos === 0;
 
+  // Sem trava, `fecha` continua sendo calculado e continua útil: no modo avulso
+  // o alvo é o total que a pessoa escolheu, e a tela usa isso para dizer se as
+  // parcelas somam o que ela pediu. O que muda é só quem barra o botão.
+  const totalTravado = opcoes.totalTravado ?? true;
+
   return {
     somaEmCentavos,
     diferencaEmCentavos,
@@ -126,7 +186,7 @@ export function validarReparcelamento(
     semValor,
     semVencimento,
     podeSalvar:
-      fecha &&
+      (!totalTravado || fecha) &&
       semValor.length === 0 &&
       semVencimento.length === 0 &&
       parcelas.length > 0 &&

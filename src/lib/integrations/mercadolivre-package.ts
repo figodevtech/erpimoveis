@@ -1,3 +1,5 @@
+import { parseMercadoLivreShippingDimensions } from "@/lib/integrations/mercadolivre-mercado-envios";
+
 export type MercadoLivrePackageSnapshot = {
   package_length_cm: number | null;
   package_width_cm: number | null;
@@ -19,14 +21,16 @@ function attributeNumber(attributes: unknown, id: string) {
   return positiveNumber(attribute?.value_struct?.number ?? attribute?.value_name);
 }
 
-/** Reads LxWxH,W shipping dimensions and falls back to SELLER_PACKAGE_* attributes. */
+/**
+ * Reads the documented `altura x largura x comprimento, peso` shipping dimensions
+ * and falls back to SELLER_PACKAGE_* attributes.
+ */
 export function extractMercadoLivrePackageSnapshot(item: any): MercadoLivrePackageSnapshot {
-  const rawDimensions = String(item?.shipping?.dimensions ?? "").trim();
-  const match = rawDimensions.match(/^([\d.,]+)x([\d.,]+)x([\d.,]+),([\d.,]+)$/i);
-  const length = positiveNumber(match?.[1]);
-  const width = positiveNumber(match?.[2]);
-  const height = positiveNumber(match?.[3]);
-  const weight = positiveNumber(match?.[4]);
+  const parsed = parseMercadoLivreShippingDimensions(item?.shipping?.dimensions);
+  const length = parsed?.lengthCm ?? null;
+  const width = parsed?.widthCm ?? null;
+  const height = parsed?.heightCm ?? null;
+  const weight = parsed?.weightGrams ?? null;
 
   return {
     package_length_cm: length ?? attributeNumber(item?.attributes, "SELLER_PACKAGE_LENGTH"),

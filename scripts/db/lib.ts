@@ -501,7 +501,7 @@ export async function runDatabasePush(
   // Sem --include-all a CLI recusa migration cuja versão seja anterior à última
   // já aplicada no remoto, e para com "Rerun the command with --include-all".
   // Isso acontece toda vez que uma branch cria migration com timestamp menor que
-  // outra que já subiu — situação normal aqui, porque os quatro bancos avançam em
+  // outra que já subiu — situação normal aqui, porque os três bancos avançam em
   // ritmos diferentes. Quem decide o que aplicar é o `pending` calculado por
   // inspectDatabase, e o histórico já foi validado contra `remoteOnly` antes.
   args.push("--include-all", "--db-url", connectionString, "--yes");

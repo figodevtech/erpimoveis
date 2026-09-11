@@ -122,7 +122,9 @@ export function RowActions<TRow extends RowBase>({
 }) {
   const { data: session } = useSession();
   const config = useConfig();
-  const [transicao, setTransicao] = React.useState<"FATURAMENTO" | "PAGAMENTO" | null>(null);
+  // Só a volta de FATURAMENTO para PAGAMENTO mora aqui. A ida ao faturamento
+  // passa pelo diálogo de condições da tabela, que coleta o acordo do cliente.
+  const [devolverAberto, setDevolverAberto] = React.useState(false);
   const [salvando, setSalvando] = React.useState(false);
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.ORDENS_EDITAR);
   const canFinanceiroEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO_EDITAR);
@@ -193,7 +195,7 @@ export function RowActions<TRow extends RowBase>({
             if (st === "PAGAMENTO") {
               setConfirmRow(row);
               setConfirmOpen(true);
-            } else setTransicao("PAGAMENTO");
+            } else setDevolverAberto(true);
           }}>
             <Send className="mr-2 h-4 w-4" />
             {st === "PAGAMENTO" ? "Enviar para faturamento" : "Devolver para pagamento"}
@@ -371,23 +373,21 @@ export function RowActions<TRow extends RowBase>({
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-    <AlertDialog open={transicao !== null} onOpenChange={(open) => { if (!open && !salvando) setTransicao(null); }}>
+    <AlertDialog open={devolverAberto} onOpenChange={(open) => { if (!open && !salvando) setDevolverAberto(false); }}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{transicao === "FATURAMENTO" ? "Enviar para faturamento" : "Devolver para pagamento"} — OS #{row.id}</AlertDialogTitle>
+          <AlertDialogTitle>Devolver para pagamento — OS #{row.id}</AlertDialogTitle>
           <AlertDialogDescription>
-            {transicao === "FATURAMENTO"
-              ? "Confirme que o pagamento ou acordo com o cliente foi acertado. A OS ficará disponível para registrar recebimentos ou títulos no financeiro."
-              : "A OS voltará a aguardar pagamento. Todos os lançamentos existentes serão preservados."}
+            A OS voltará a aguardar pagamento. Todos os lançamentos existentes serão preservados.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={salvando}>Cancelar</AlertDialogCancel>
           <AlertDialogAction disabled={salvando} onClick={async (event) => {
             event.preventDefault();
-            if (!transicao) return;
+            if (salvando) return;
             setSalvando(true);
-            try { const ok = await setStatus(row.id, transicao); if (ok !== false) setTransicao(null); }
+            try { const ok = await setStatus(row.id, "PAGAMENTO"); if (ok !== false) setDevolverAberto(false); }
             finally { setSalvando(false); }
           }}>{salvando ? "Salvando..." : "Confirmar"}</AlertDialogAction>
         </AlertDialogFooter>

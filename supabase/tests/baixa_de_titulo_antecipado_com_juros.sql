@@ -44,6 +44,8 @@ $$;
 
 DO $t$
 DECLARE
+  v_col_gerada text;
+  v_cols text;
   v_banco bigint;
   v_tipo_juros integer;
   v_ids bigint[] := ARRAY[]::bigint[];
@@ -59,8 +61,8 @@ DECLARE
   v_ok int := 0;
   v_falhou int := 0;
 BEGIN
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric)') IS NULL THEN
-    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_valor_lancado. Rode as migrations.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_ajustes. Rode as migrations.';
   END IF;
 
   SELECT id INTO v_banco FROM public.bancoconta ORDER BY id LIMIT 1;
@@ -79,6 +81,35 @@ BEGIN
   CREATE TEMP TABLE _molde ON COMMIT DROP AS
     SELECT * FROM public.transacao WHERE is_deleted = false LIMIT 1;
 
+  /*
+   * Coluna gerada nao se insere: `data_dia` (20260901220000) veio depois deste
+   * teste e passou a entrar no `SELECT *` do molde, quebrando todos os inserts
+   * com "cannot insert a non-DEFAULT value". Some do molde e a lista de colunas
+   * passa a ser explicita — o script continua sem conhecer o schema, e uma
+   * coluna gerada nova amanha tambem nao o quebra.
+   */
+  FOR v_col_gerada IN
+    SELECT a.attname
+      FROM pg_attribute a
+     WHERE a.attrelid = '_molde'::regclass
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+       AND a.attname IN (
+         SELECT b.attname FROM pg_attribute b
+          WHERE b.attrelid = 'public.transacao'::regclass
+            AND b.attgenerated <> ''
+       )
+  LOOP
+    EXECUTE format('ALTER TABLE _molde DROP COLUMN %I', v_col_gerada);
+  END LOOP;
+
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+    INTO v_cols
+    FROM pg_attribute a
+   WHERE a.attrelid = '_molde'::regclass
+     AND a.attnum > 0
+     AND NOT a.attisdropped;
+
   FOR v_n IN 1..3 LOOP
     UPDATE _molde SET
       id = nextval(pg_get_serial_sequence('public.transacao','id')),
@@ -93,7 +124,7 @@ BEGIN
       vencimento_em = date_trunc('day', now() - interval '15 days'),
       data = date_trunc('day', now() - interval '15 days'),
       descricao = 'TESTE JUROS PARCELA ' || v_n;
-    INSERT INTO public.transacao SELECT * FROM _molde;
+    EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
     SELECT id INTO v_novo FROM _molde;
     INSERT INTO _criadas VALUES (v_novo);
     v_ids := v_ids || v_novo;
@@ -117,6 +148,21 @@ BEGIN
   INSERT INTO _criadas VALUES (v_adi);
   SELECT to_jsonb(t) INTO v_adi_foto FROM public.transacao t WHERE t.id = v_adi;
 
+  BEGIN
+    PERFORM public.baixar_transacao_pendente(v_p2, now(), v_banco, 'PIX',
+      p_ajustes := jsonb_build_array(jsonb_build_object(
+        'tipoId', v_tipo_juros, 'modo', 'FIXO', 'valorInformado', 50)));
+    RAISE EXCEPTION 'Aceitou ajuste na baixa de titulo antecipado.';
+  EXCEPTION WHEN SQLSTATE '22023' THEN
+    IF SQLERRM NOT LIKE 'Titulo antecipado nao aceita%' THEN RAISE; END IF;
+  END;
+  SELECT * INTO v_tx FROM public.transacao WHERE id = v_p2;
+  IF NOT v_tx.pendente OR v_tx.valor <> 1000 OR v_tx.valor_acrescimos <> 0 THEN
+    RAISE EXCEPTION 'A recusa de ajuste alterou o titulo antecipado.';
+  END IF;
+  v_ok := v_ok + 1;
+  RAISE NOTICE 'OK: antecipado recusa ajuste na baixa sem alterar o titulo';
+
   IF pg_temp.saldo_do_teste(v_banco) = 3000.00 THEN
     v_ok := v_ok + 1;
     RAISE NOTICE 'OK 1: antecipacao trouxe R$ 3.000,00';
@@ -133,7 +179,7 @@ BEGIN
     valor = 1000.00, valor_base = 1000.00, "valorLiquido" = 1000.00,
     pendente = false, banco_id = v_banco, pago_em = now(), data = now(), vencimento_em = now(),
     descricao = 'TESTE DEVOLUCAO DE BOLETO PELO BANCO';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
   SELECT id INTO v_novo FROM _molde;
   INSERT INTO _criadas VALUES (v_novo);
 

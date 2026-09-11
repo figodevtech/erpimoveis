@@ -289,7 +289,6 @@ export default function FinanceiroPage() {
         search={search}
         tipo={effectiveTipo}
         tiposParam={tiposParam}
-        pendenteFilter={effectivePendente}
         viewMode={viewMode}
         rawTipo={tipo}
         setTipo={setTipo}

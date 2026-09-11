@@ -48,7 +48,7 @@ export function VendaEventosFinanceiros({ vendaId }: { vendaId: number }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold">Eventos desta venda</h3>
-          <p className="mt-1 text-sm text-muted-foreground">Receitas, custos e comissões apurados. As comissões podem ser lançadas no financeiro.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Receitas, custos e comissões apurados. Adicione despesas ao frete e lance essas despesas e as comissões no financeiro.</p>
         </div>
         <Button variant="outline" size="icon" aria-label="Atualizar eventos da venda" disabled={carregando} onClick={recarregar}><RefreshCw className={`size-4 ${carregando ? "animate-spin" : ""}`} /></Button>
       </div>

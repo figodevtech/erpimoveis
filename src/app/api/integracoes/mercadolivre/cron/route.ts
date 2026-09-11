@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { retryMercadoLivreNotifications } from "@/lib/integrations/mercadolivre-notifications";
+import { maintainMercadoLivreNotificationQueue, retryMercadoLivreNotifications } from "@/lib/integrations/mercadolivre-notifications";
+import { refreshMercadoLivreListingStates, type ListingStateEntry } from "@/lib/integrations/mercadolivre-listing-state";
 import { syncMercadoLivreOrders } from "@/lib/integrations/mercadolivre-orders";
 import { syncMercadoLivreListingMetricsHistory, syncMercadoLivreProductLinks, syncRecentMercadoLivreShipments } from "@/lib/integrations/mercadolivre-reconciliation";
 import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
@@ -44,16 +45,49 @@ function authorizeCron(req: NextRequest) {
 }
 
 async function executeJob(job: Job) {
-  if (job === "notifications") return summarize(await retryMercadoLivreNotifications(30));
+  if (job === "notifications") {
+    await maintainMercadoLivreNotificationQueue();
+    return summarize(await retryMercadoLivreNotifications(30));
+  }
   if (job === "orders") {
     const rows = await syncMercadoLivreOrders({ days: 2, limit: 50 });
     return { ...summarize(rows), created: rows.filter((item) => item.created).length };
   }
-  if (job === "items") return summarize(await syncMercadoLivreProductLinks(), "sync_error");
+  if (job === "items") return await reconcileListings();
   if (job === "shipments") return summarize(await syncRecentMercadoLivreShipments(15));
   if (job === "stock") return summarize(await syncPendingMercadoLivreStock({ limit: 50 }));
   if (job === "metrics") return summarize(await syncMercadoLivreListingMetricsHistory({ days: 60, limit: 10 }));
   return summarize(await syncRecentMercadoLivreInvoices(15));
+}
+
+/**
+ * A varredura de situação vem antes da reconciliação item a item por dois
+ * motivos. Ela é barata — um multiget a cada 20 anúncios, contra uma chamada por
+ * anúncio — e cobre todos os vínculos, enquanto a reconciliação só alcança os
+ * 100 mais desatualizados. E é ela que apaga o vínculo de anúncio excluído, o
+ * que evita a reconciliação gastar chamada com anúncio que não existe mais.
+ *
+ * Com isso a conferência deixa de depender de alguém clicar em "Conferir
+ * situação": o anúncio excluído no Mercado Livre some do ERP sozinho, na hora
+ * seguinte, e o produto volta a ficar livre para ser anunciado de novo.
+ */
+async function reconcileListings() {
+  const states = await refreshMercadoLivreListingStates();
+  const links = await syncMercadoLivreProductLinks();
+
+  const linkSummary = summarize(links, "sync_error");
+  const countOf = (action: ListingStateEntry["action"]) =>
+    states.filter((entry) => entry.action === action).length;
+  const removed = states.filter((entry) => entry.action === "removed");
+
+  return {
+    ...linkSummary,
+    failed: linkSummary.failed + countOf("failed"),
+    checked: states.length,
+    changed: countOf("changed"),
+    removed: removed.length,
+    removedItems: removed.map((entry) => entry.itemId).slice(0, 50),
+  };
 }
 
 function summarize(items: any[], errorField = "error") {

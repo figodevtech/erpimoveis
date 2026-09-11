@@ -6,16 +6,7 @@ import { Loader2, MinusCircle, PlusCircle, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import ValueInput from "@/components/ui/value-input";
+import { FormularioDeAjuste, type TipoAjuste } from "../../formulario-de-ajuste";
 import { taxaEhOUnicoDesconto, valorLiquidoEmEdicao } from "@/lib/financeiro/transacao";
 import formatarEmReal from "@/utils/formatarEmReal";
 
@@ -36,14 +27,6 @@ import { Cartao, EstadoVazio, fmtDateTime } from "./shared";
  * A taxa de recebimento e um desconto como os outros — deixou de ser a diferenca
  * implicita entre bruto e liquido e passou a ter linha propria, com nome.
  */
-
-type TipoAjuste = {
-  id: number;
-  codigo: string;
-  nome: string;
-  natureza: "ACRESCIMO" | "DESCONTO";
-  codigo_sistema: string | null;
-};
 
 export type LinhaAjuste = {
   id: number;
@@ -418,81 +401,11 @@ export function AjustesTab({
               acréscimo alteraria o valor bruto, que vira histórico depois da baixa.
             </p>
           ) : null}
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto_auto] sm:items-end">
-            <div className="space-y-1">
-              <Label className="text-xs">Tipo</Label>
-              <Select value={tipoId} onValueChange={setTipoId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Escolha" />
-                </SelectTrigger>
-                <SelectContent>
-                  {tiposDisponiveis.map((tipo) => (
-                    <SelectItem key={tipo.id} value={String(tipo.id)}>
-                      {tipo.natureza === "ACRESCIMO" ? "+ " : "− "}
-                      {tipo.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">Modo</Label>
-              <Select
-                value={modo}
-                onValueChange={(valor) => setModo(valor as "FIXO" | "PORCENTAGEM")}
-              >
-                <SelectTrigger className="w-full sm:w-32">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="FIXO">Em reais</SelectItem>
-                  <SelectItem value="PORCENTAGEM">Percentual</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs">
-                {modo === "PORCENTAGEM" ? "Percentual" : "Valor"}
-              </Label>
-              {/*
-                Em reais o campo é dinheiro e usa a máscara de sempre; em
-                percentual, não — "R$ 10,00" para dizer 10% seria mentira na
-                tela. O estado continua um só, em texto, porque é ele que a
-                rota recebe e é o mesmo número nos dois modos.
-              */}
-              {modo === "PORCENTAGEM" ? (
-                <Input
-                  inputMode="decimal"
-                  value={valor}
-                  onChange={(evento) => setValor(evento.target.value)}
-                  placeholder="10"
-                  className="w-full sm:w-28"
-                />
-              ) : (
-                <ValueInput
-                  value={Number(String(valor).replace(",", ".")) || 0}
-                  onValueChange={(novo) => setValor(String(novo))}
-                  className="w-full sm:w-36"
-                />
-              )}
-            </div>
-
-            <Button
-              onClick={adicionar}
-              disabled={salvando}
-              className="sm:w-auto"
-            >
-              {salvando ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : "Lançar"}
-            </Button>
-          </div>
-          {modo === "PORCENTAGEM" ? (
-            <p className="mt-2 text-xs text-muted-foreground">
-              O percentual incide sobre o valor de face ({formatarEmReal(base)}), não
-              sobre o acumulado — duas linhas de 10% somam 20%.
-            </p>
-          ) : null}
+          <FormularioDeAjuste
+            tipos={tiposDisponiveis} tipoId={tipoId} onTipoChange={setTipoId}
+            modo={modo} onModoChange={setModo} valor={valor} onValorChange={setValor}
+            base={base} onAdicionar={adicionar} salvando={salvando}
+          />
         </Cartao>
       ) : null}
     </div>

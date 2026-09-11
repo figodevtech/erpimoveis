@@ -62,7 +62,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Checkbox } from "@/components/ui/checkbox";
-import { BaixaMultiplaFooter } from "./baixa-multipla-footer";
+import { SelecaoFooter } from "./selecao-footer";
+import { ExclusaoMultiplaDialog } from "./exclusao-multipla-dialog";
 import { BaixaMultiplaDialog } from "./baixa-multipla-dialog";
 import { AdiantamentoDialog } from "./adiantamento-dialog";
 import { TransactionDeleteAlert } from "../../components/transaction-delete-alert";
@@ -242,7 +243,6 @@ interface FinancialTableProps {
   /** Lista separada por vírgula quando a aba agrupa dois tipos. */
   tiposParam: string;
   rawTipo: Tipo_transacao | "";
-  pendenteFilter?: boolean | "";
   viewMode?: FluxoViewMode;
   isLoading: boolean;
   setSearch: (value: string) => void;
@@ -268,7 +268,6 @@ export default function FinancialTable({
   tipo,
   tiposParam,
   rawTipo,
-  pendenteFilter = "",
   viewMode = "FLUXO",
   isLoading,
   setSearch,
@@ -292,30 +291,25 @@ export default function FinancialTable({
     useState<Transaction | null>(null);
 
   /**
-   * Baixa múltipla.
+   * Modo de seleção.
    *
-   * Só faz sentido quando a lista está mostrando exclusivamente pendentes: dar
-   * baixa é operação sobre o que ainda não foi pago, e uma lista mista levaria o
-   * usuário a marcar linhas que a operação vai recusar. As abas "A pagar" e
-   * "A receber" já garantem isso; o filtro de situação também.
+   * Era "baixa múltipla" e só ligava em lista de pendentes, porque uma lista
+   * mista levaria o usuário a marcar linhas que a baixa ia recusar. Agora a
+   * seleção serve a mais de uma ação — dar baixa e excluir —, e travar o modo
+   * inteiro pela regra de uma delas deixaria a outra inalcançável justamente
+   * onde ela é mais usada: o extrato, cheio de linhas liquidadas.
+   *
+   * A proteção não sumiu, mudou de lugar: ela agora vive no BOTÃO de baixa, que
+   * só habilita quando toda a seleção está em aberto. E ficou melhor — antes era
+   * por filtro, uma aproximação; agora é pelo que de fato está marcado.
    */
-  const [modoBaixaMultipla, setModoBaixaMultipla] = useState(false);
+  const [modoSelecao, setModoSelecao] = useState(false);
   const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
   const [baixaEmLoteAberta, setBaixaEmLoteAberta] = useState(false);
   const [baixandoEmLote, setBaixandoEmLote] = useState(false);
   const [adiantamentoAberto, setAdiantamentoAberto] = useState(false);
-
-  const podeBaixaMultipla =
-    viewMode === "A_PAGAR" || viewMode === "A_RECEBER" || pendenteFilter === true;
-
-  // Trocar de aba ou de filtro pode trazer linhas liquidadas para a tela; sair
-  // do modo evita seleção sobre um conjunto que mudou debaixo do usuário.
-  useEffect(() => {
-    if (!podeBaixaMultipla && modoBaixaMultipla) {
-      setModoBaixaMultipla(false);
-      setSelecionadas(new Set());
-    }
-  }, [podeBaixaMultipla, modoBaixaMultipla]);
+  const [exclusaoEmLoteAberta, setExclusaoEmLoteAberta] = useState(false);
+  const [excluindoEmLote, setExcluindoEmLote] = useState(false);
 
   const alternarSelecao = useCallback((id: number) => {
     setSelecionadas((atual) => {
@@ -326,8 +320,8 @@ export default function FinancialTable({
     });
   }, []);
 
-  const sairDaBaixaMultipla = useCallback(() => {
-    setModoBaixaMultipla(false);
+  const sairDaSelecao = useCallback(() => {
+    setModoSelecao(false);
     setSelecionadas(new Set());
   }, []);
 
@@ -335,6 +329,28 @@ export default function FinancialTable({
     () => transactions.filter((t) => selecionadas.has(t.id)),
     [transactions, selecionadas],
   );
+
+  /*
+   * A seleção vive dentro da página.
+   *
+   * `selecionadas` é um Set global, mas só as linhas da página atual viram
+   * `transacoesSelecionadas`. Trocar de página escondia ids que continuavam
+   * marcados: inofensivo na baixa, que só manda o que está na tela, e confuso na
+   * exclusão. O rodapé promete "N de M na página" e a promessa precisa ser
+   * verdade.
+   */
+  useEffect(() => {
+    setSelecionadas(new Set());
+  }, [pagination.page, viewMode]);
+
+  /** Dar baixa é operação sobre o que ainda não foi pago. */
+  const podeBaixarSelecionadas =
+    transacoesSelecionadas.length > 0 &&
+    transacoesSelecionadas.every((t) => t.pendente === true);
+
+  const liquidadasSelecionadas = transacoesSelecionadas.filter(
+    (t) => t.pendente !== true,
+  ).length;
   const [isPagoDialogOpen, setIsPagoDialogOpen] = useState(false);
   const [transferenciaAberta, setTransferenciaAberta] = useState(false);
   const [conciliacaoAberta, setConciliacaoAberta] = useState(false);
@@ -647,23 +663,17 @@ export default function FinancialTable({
                     </DropdownMenuItem>
                   ) : null}
 
-                  {canEdit ? (
+                  {/* Quem só pode excluir também precisa entrar no modo. */}
+                  {canEdit || canDelete ? (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
                         className="hover:cursor-pointer"
-                        disabled={!podeBaixaMultipla}
-                        onSelect={() => setModoBaixaMultipla(true)}
+                        onSelect={() => setModoSelecao(true)}
                       >
                         <CheckCircle2 className="h-4 w-4" />
-                        Baixa múltipla
+                        Selecionar transações
                       </DropdownMenuItem>
-                      {!podeBaixaMultipla ? (
-                        <p className="px-2 pb-1.5 text-[11px] leading-snug text-muted-foreground">
-                          Disponível ao filtrar somente pendentes: use as abas
-                          A pagar, A receber ou o filtro de situação.
-                        </p>
-                      ) : null}
                     </>
                   ) : null}
                 </DropdownMenuContent>
@@ -814,11 +824,11 @@ export default function FinancialTable({
                 >
                   <TableCell className="flex w-[380px] max-w-[380px] flex-row items-center gap-2">
                     {/*
-                      Na baixa múltipla o ícone de categoria dá lugar à caixa de
+                      No modo de seleção o ícone de categoria dá lugar à caixa de
                       seleção: ocupam o mesmo espaço, então a lista não se
                       reorganiza ao entrar no modo — nada pula sob o cursor.
                     */}
-                    {modoBaixaMultipla ? (
+                    {modoSelecao ? (
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center">
                         <Checkbox
                           checked={selecionadas.has(t.id)}
@@ -1492,15 +1502,20 @@ export default function FinancialTable({
         }}
       />
 
-      {modoBaixaMultipla ? (
+      {modoSelecao ? (
         <>
-          <BaixaMultiplaFooter
+          <SelecaoFooter
             selecionadas={selecionadas}
             transacoes={transactions}
-            processando={baixandoEmLote}
-            onCancelar={sairDaBaixaMultipla}
+            processando={baixandoEmLote || excluindoEmLote}
+            podeBaixar={podeBaixarSelecionadas}
+            liquidadas={liquidadasSelecionadas}
+            podeDarBaixa={canEdit}
+            podeExcluir={canDelete}
+            onCancelar={sairDaSelecao}
             onConfirmar={() => setBaixaEmLoteAberta(true)}
             onAdiantamento={() => setAdiantamentoAberto(true)}
+            onExcluir={() => setExclusaoEmLoteAberta(true)}
           />
           <AdiantamentoDialog
             aberto={adiantamentoAberto}
@@ -1511,7 +1526,7 @@ export default function FinancialTable({
             onConcluido={() => {
               // Adiantamento é tudo ou nada: se chegou aqui, todas foram
               // liquidadas e o modo não tem mais o que selecionar.
-              sairDaBaixaMultipla();
+              sairDaSelecao();
               handleGetTransactions(pagination.page, pagination.limit);
               revalidarIndicadores();
             }}
@@ -1528,6 +1543,25 @@ export default function FinancialTable({
               setSelecionadas((atual) => {
                 const proximo = new Set(atual);
                 idsBaixados.forEach((id) => proximo.delete(id));
+                return proximo;
+              });
+              handleGetTransactions(pagination.page, pagination.limit);
+              revalidarIndicadores();
+            }}
+          />
+          <ExclusaoMultiplaDialog
+            aberto={exclusaoEmLoteAberta}
+            setAberto={setExclusaoEmLoteAberta}
+            transacoes={transacoesSelecionadas}
+            processando={excluindoEmLote}
+            setProcessando={setExcluindoEmLote}
+            onConcluido={(idsExcluidos) => {
+              // Mesma regra da baixa: as que saíram deixam a seleção, as que
+              // ficaram continuam marcadas para uma segunda tentativa sem
+              // remarcar tudo.
+              setSelecionadas((atual) => {
+                const proximo = new Set(atual);
+                idsExcluidos.forEach((id) => proximo.delete(id));
                 return proximo;
               });
               handleGetTransactions(pagination.page, pagination.limit);

@@ -15,6 +15,7 @@ import {
   valorDeFace,
   valorLiquidoEfetivo,
   valorLiquidoEmEdicao,
+  totalDaBaixaComAjustes,
 } from "./transacao";
 
 test("identifica a origem de cada vínculo", () => {
@@ -316,4 +317,122 @@ test("a perna de transferência se reconhece pelo vínculo, não pelo tipo", () 
   assert.equal(ehTransferencia({ transferencia_id: null }), false);
   assert.equal(ehTransferencia({}), false);
   assert.equal(ehTransferencia(null), false);
+});
+
+test("total da baixa com ajustes na tela", async (t) => {
+  const semAjuste = { saldo: 1000, valorBase: 1000, ajustes: [] };
+
+  await t.test("sem ajuste, o total é o saldo", () => {
+    assert.deepEqual(totalDaBaixaComAjustes(semAjuste), {
+      acrescimos: 0,
+      descontos: 0,
+      total: 1000,
+    });
+  });
+
+  await t.test("juros em reais sobe o total", () => {
+    const r = totalDaBaixaComAjustes({
+      ...semAjuste,
+      ajustes: [{ natureza: "ACRESCIMO", modo: "FIXO", valorInformado: 50 }],
+    });
+    assert.equal(r.acrescimos, 50);
+    assert.equal(r.total, 1050);
+  });
+
+  await t.test("desconto desce o total", () => {
+    const r = totalDaBaixaComAjustes({
+      ...semAjuste,
+      ajustes: [{ natureza: "DESCONTO", modo: "FIXO", valorInformado: 30 }],
+    });
+    assert.equal(r.descontos, 30);
+    assert.equal(r.total, 970);
+  });
+
+  await t.test("percentual incide sobre a base, não sobre o saldo", () => {
+    // Título de 1000 com 400 já pagos: o saldo é 600, mas 10% são 100.
+    const r = totalDaBaixaComAjustes({
+      saldo: 600,
+      valorBase: 1000,
+      ajustes: [{ natureza: "ACRESCIMO", modo: "PORCENTAGEM", valorInformado: 10 }],
+    });
+    assert.equal(r.acrescimos, 100, "10% de 1000, não de 600");
+    assert.equal(r.total, 700);
+  });
+
+  await t.test("duas linhas de 10% somam 20% da base, não 21%", () => {
+    const r = totalDaBaixaComAjustes({
+      ...semAjuste,
+      ajustes: [
+        { natureza: "ACRESCIMO", modo: "PORCENTAGEM", valorInformado: 10 },
+        { natureza: "ACRESCIMO", modo: "PORCENTAGEM", valorInformado: 10 },
+      ],
+    });
+    assert.equal(r.acrescimos, 200);
+  });
+
+  await t.test("juros e desconto juntos", () => {
+    const r = totalDaBaixaComAjustes({
+      ...semAjuste,
+      ajustes: [
+        { natureza: "ACRESCIMO", modo: "FIXO", valorInformado: 50 },
+        { natureza: "DESCONTO", modo: "FIXO", valorInformado: 30 },
+      ],
+    });
+    assert.equal(r.acrescimos, 50);
+    assert.equal(r.descontos, 30);
+    assert.equal(r.total, 1020);
+  });
+
+  await t.test("arredonda por linha, como o banco", () => {
+    // 33,33% de 100,00 = 33,33 por linha; somar antes daria outro centavo.
+    const r = totalDaBaixaComAjustes({
+      saldo: 100,
+      valorBase: 100,
+      ajustes: [
+        { natureza: "ACRESCIMO", modo: "PORCENTAGEM", valorInformado: 33.33 },
+        { natureza: "ACRESCIMO", modo: "PORCENTAGEM", valorInformado: 33.33 },
+      ],
+    });
+    assert.equal(r.acrescimos, 66.66);
+  });
+
+  await t.test("centavos não escorregam em ponto flutuante", () => {
+    const r = totalDaBaixaComAjustes({
+      saldo: 0.1,
+      valorBase: 0.1,
+      ajustes: [{ natureza: "ACRESCIMO", modo: "FIXO", valorInformado: 0.2 }],
+    });
+    assert.equal(r.total, 0.3);
+  });
+
+  await t.test("meio centavo arredonda para cima como numeric do PostgreSQL", () => {
+    for (const modo of ["FIXO", "PORCENTAGEM"] as const) {
+      const r = totalDaBaixaComAjustes({
+        saldo: 100, valorBase: 100,
+        ajustes: [{ natureza: "ACRESCIMO", modo, valorInformado: 1.005 }],
+      });
+      assert.equal(r.acrescimos, 1.01);
+      assert.equal(r.total, 101.01);
+    }
+  });
+
+  await t.test("linha sem valor é ignorada, não quebra", () => {
+    const r = totalDaBaixaComAjustes({
+      ...semAjuste,
+      ajustes: [
+        { natureza: "ACRESCIMO", modo: "FIXO", valorInformado: 0 },
+        { natureza: "ACRESCIMO", modo: "FIXO", valorInformado: Number.NaN },
+        { natureza: "ACRESCIMO", modo: "FIXO", valorInformado: 10 },
+      ],
+    });
+    assert.equal(r.acrescimos, 10);
+  });
+
+  await t.test("desconto maior que o saldo zera, não fica negativo", () => {
+    const r = totalDaBaixaComAjustes({
+      ...semAjuste,
+      ajustes: [{ natureza: "DESCONTO", modo: "FIXO", valorInformado: 5000 }],
+    });
+    assert.equal(r.total, 0);
+  });
 });

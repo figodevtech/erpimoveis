@@ -18,10 +18,29 @@ export async function GET(req: NextRequest) {
     if (requestedProductId && (!Number.isInteger(productId) || Number(productId) <= 0)) {
       return NextResponse.json({ error: "productId invalido." }, { status: 400 });
     }
+    // A aba de anúncios precisa de todos os produtos vinculados, não dos que
+    // estão na página atual da lista de produtos — e sem o corte por estoque,
+    // senão o anúncio de um produto zerado some da tela.
+    const onlyLinked = req.nextUrl.searchParams.get("linked") === "1";
+    const onlyUnlinked = req.nextUrl.searchParams.get("unlinked") === "1";
     const page = Math.max(Number(req.nextUrl.searchParams.get("page") ?? 1), 1);
-    const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 20), 1), 100);
+    const fullList = onlyLinked || onlyUnlinked;
+    const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? (fullList ? 500 : 20)), 1), fullList ? 1000 : 100);
     const from = (page - 1) * limit;
     const to = from + limit - 1;
+
+    let linkedProductIds: number[] | null = null;
+    if (onlyLinked || onlyUnlinked) {
+      const { data: linkedRows, error: linkedError } = await supabaseAdmin
+        .from("mercadolivre_product_link")
+        .select("produto_id")
+        .eq("empresa_id", empresaId)
+        .not("ml_item_id", "is", null);
+      if (linkedError) throw linkedError;
+      linkedProductIds = Array.from(
+        new Set((linkedRows ?? []).map((row) => Number(row.produto_id)).filter((id) => Number.isInteger(id) && id > 0)),
+      );
+    }
 
     let query = supabaseAdmin
       .from("produto")
@@ -43,6 +62,15 @@ export async function GET(req: NextRequest) {
       }
     }
     if (productId) query = query.eq("id", productId);
+    else if (linkedProductIds) {
+      // `unlinked=1` é o espelho de `linked=1`: os seletores de vínculo
+      // precisam de todo o catálogo publicável, não da página atual.
+      if (onlyUnlinked) {
+        if (linkedProductIds.length) query = query.not("id", "in", `(${linkedProductIds.join(",")})`);
+      } else {
+        query = query.in("id", linkedProductIds.length ? linkedProductIds : [-1]);
+      }
+    }
     else if (!includeOutOfStock) query = query.gt("estoque", 0);
 
     const { data: products, error, count } = await query;

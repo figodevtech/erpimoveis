@@ -30,7 +30,13 @@ custos, descontos, frete e comissão, com totais de receitas, despesas/deduçõe
 resultado. Eventos cancelados ficam fora. Os valores derivados são alterados na
 venda; não há edição manual nem exclusão desses eventos na aba.
 
-Quem tem permissão para criar lançamentos financeiros pode lançar as comissões
-e consultar a transação resultante. Comissões históricas anteriores a setembro
+Quem tem permissão para criar lançamentos financeiros pode usar **Adicionar despesa
+de frete** no menu da receita de frete da venda. A despesa guarda o vínculo com a
+receita e sua competência, sem alterar o valor cobrado do cliente. Ela aparece na
+aba da venda e na fila financeira, onde pode ser lançada e ter sua transação consultada,
+assim como as comissões. Zerar o frete cobrado não remove o custo manual da transportadora.
+O recurso depende da migração `20260911140000_despesa_frete_venda.sql`.
+
+Comissões históricas anteriores a setembro
 de 2026 mantêm a regra de preservação documentada em
 [`lancamentos-financeiros-e-comissoes.md`](../lancamentos-financeiros-e-comissoes.md).

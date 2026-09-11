@@ -5,6 +5,7 @@ import {
   getMercadoLivrePriceState,
   startMercadoLivrePriceSyncLog,
 } from "@/lib/integrations/mercadolivre-price-sync";
+import { registerMercadoLivreOutboundTouch } from "@/lib/integrations/mercadolivre-outbound-touch";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type ReservedStockSync = {
@@ -115,6 +116,14 @@ async function processStockSync(job: ReservedStockSync) {
       : { ...(canSyncPrice ? { price } : {}), available_quantity: quantity };
 
     await mercadoLivreApiPut<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`, payload);
+    // O Mercado Livre devolve um webhook `items` por causa deste PUT. Marcamos a
+    // autoria para que ele não vire aviso de "anúncio atualizado" para o usuário.
+    await registerMercadoLivreOutboundTouch({
+      empresaId: job.empresa_id,
+      itemId: String(link.ml_item_id),
+      kinds: canSyncPrice ? ["ESTOQUE", "PRECO"] : ["ESTOQUE"],
+      origin: "syncPendingMercadoLivreStock",
+    });
     const item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`);
     const confirmedQuantity = getConfirmedQuantity(item, link.ml_variation_id);
     if (confirmedQuantity !== quantity) {

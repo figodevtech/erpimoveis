@@ -42,6 +42,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import {
+  MERCADOLIVRE_NOTIFICATION_EVENT_GROUPS,
+  type MercadoLivreNotificationEvent,
+} from "@/lib/integrations/mercadolivre-notification-events";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
@@ -84,6 +88,7 @@ import {
   type RegrasDestaqueStatus,
   type StatusOSValido,
 } from "@/lib/ordens/destaque";
+import { TermosImpressaoOSCard } from "./components/termos-impressao-os-card";
 
 const SHOPEE_INTEGRATION_ENABLED =
   process.env.NEXT_PUBLIC_SHOPEE_INTEGRATION_ENABLED === "true";
@@ -110,6 +115,7 @@ type MercadoLivreAccount = {
   defaultListingTypeId: "free" | "gold_special" | "gold_pro";
   quantityPricingDefaultEnabled: boolean;
   quantityPricingDefaultTiers: Array<{ quantity: number; percentage: number }>;
+  notificationEvents: MercadoLivreNotificationEvent[];
   shipping?: {
     modes: string[];
     option: string | null;
@@ -329,6 +335,7 @@ function MercadoLivreOperationSettingsCard({
   refreshingAccount,
   onListingTypeChange,
   onQuantityDefaultsSave,
+  onNotificationEventsChange,
   onRefreshAccount,
 }: {
   account: MercadoLivreAccount | null;
@@ -339,6 +346,7 @@ function MercadoLivreOperationSettingsCard({
     enabled: boolean,
     tiers: Array<{ quantity: number; percentage: number }>,
   ) => Promise<boolean>;
+  onNotificationEventsChange: (events: MercadoLivreNotificationEvent[]) => void;
   onRefreshAccount: () => Promise<void>;
 }) {
   const connected = Boolean(account && !account.needsReconnect);
@@ -503,6 +511,50 @@ function MercadoLivreOperationSettingsCard({
                     Editar modelo
                   </Button>
                 ) : null}
+              </section>
+
+              <section className="space-y-3 rounded-lg border bg-muted/20 p-4 lg:col-span-3">
+                <div>
+                  <p className="text-sm font-medium">Avisos do Mercado Livre</p>
+                  <p className="text-xs text-muted-foreground">
+                    O que interrompe a equipe na Central de Notificações.
+                    Alterações feitas dentro do ERP nunca geram aviso.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {MERCADOLIVRE_NOTIFICATION_EVENT_GROUPS.map((group) => {
+                    const events = account?.notificationEvents ?? [];
+                    return (
+                      <div key={group.id} className="rounded-md border bg-background p-3">
+                        <p className="text-xs font-medium">{group.label}</p>
+                        <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
+                          {group.description}
+                        </p>
+                        <div className="space-y-1.5">
+                          {group.events.map(([id, label]) => (
+                            <label
+                              key={id}
+                              className="flex cursor-pointer items-start justify-between gap-2 text-xs"
+                            >
+                              <span className="leading-relaxed">{label}</span>
+                              <Switch
+                                checked={events.includes(id)}
+                                disabled={!connected || savingListingType}
+                                onCheckedChange={(checked) =>
+                                  onNotificationEventsChange(
+                                    checked
+                                      ? Array.from(new Set([...events, id]))
+                                      : events.filter((event) => event !== id),
+                                  )
+                                }
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </section>
 
               <section className="space-y-3 rounded-lg border bg-muted/20 p-4">
@@ -1115,6 +1167,31 @@ export default function ConfigGeralPage() {
     }
   };
 
+  const salvarAvisosMercadoLivre = async (
+    notificationEvents: MercadoLivreNotificationEvent[],
+  ) => {
+    if (!mercadoLivreAccount) return;
+    // Otimista: o switch responde na hora e volta atrás se o servidor recusar.
+    const anterior = mercadoLivreAccount.notificationEvents;
+    setMercadoLivreAccount((current) =>
+      current ? { ...current, notificationEvents } : current,
+    );
+    try {
+      const response = await fetch("/api/config/integracoes/mercadolivre", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notificationEvents }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Falha ao salvar os avisos do Mercado Livre.");
+    } catch (error: any) {
+      setMercadoLivreAccount((current) =>
+        current ? { ...current, notificationEvents: anterior } : current,
+      );
+      toast.error(error?.message || "Falha ao salvar os avisos do Mercado Livre.");
+    }
+  };
+
   const salvarPrecoQuantidadePadrao = async (
     enabled: boolean,
     tiers: Array<{ quantity: number; percentage: number }>,
@@ -1387,6 +1464,7 @@ export default function ConfigGeralPage() {
           void salvarPublicacaoPadraoMercadoLivre(value)
         }
         onQuantityDefaultsSave={salvarPrecoQuantidadePadrao}
+        onNotificationEventsChange={salvarAvisosMercadoLivre}
         onRefreshAccount={atualizarDadosMercadoLivre}
       />
 
@@ -1681,6 +1759,10 @@ export default function ConfigGeralPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* DIZERES DA IMPRESSÃO DA OS */}
+        <TermosImpressaoOSCard />
+
         {/* MÓDULO FISCAL */}
         <Card className="overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
           <CardHeader className="bg-primary/5 py-4">
