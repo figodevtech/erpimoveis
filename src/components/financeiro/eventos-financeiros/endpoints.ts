@@ -13,6 +13,8 @@
 export type EndpointsDeEventos = {
   /** Onde um evento novo nasce. O corpo extra carrega a OS quando a URL não a tem. */
   criar(osId: number): { url: string; corpoExtra: Record<string, unknown> };
+  /** A venda permite criar o custo vinculado à receita de frete. */
+  criarDespesaVenda?(vendaId: number): { url: string; corpoExtra: Record<string, unknown> };
   /** O evento em si: prévia do impacto (GET), edição (PATCH) e exclusão (DELETE). */
   evento(eventoId: number, osId: number | null): string;
 };
@@ -26,6 +28,7 @@ export function endpointsDeOrdem(osId: number): EndpointsDeEventos {
 
 export function endpointsDoFinanceiro(): EndpointsDeEventos {
   return {
+    criarDespesaVenda: (vendaId) => ({ url: `/api/venda/${vendaId}/eventos-financeiros`, corpoExtra: {} }),
     criar: (osId) => ({ url: "/api/eventos-financeiros", corpoExtra: { ordemServicoId: osId } }),
     evento: (eventoId) => `/api/eventos-financeiros/${eventoId}`,
   };

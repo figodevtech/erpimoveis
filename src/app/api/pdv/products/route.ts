@@ -64,9 +64,10 @@ export async function GET(req: Request) {
       for (let from = 0; ; from += batchSize) {
         let searchQuery = supabaseAdmin
           .from('produto')
-          .select('*, grupo:produtogrupo(id, nome, descricao, ativo)')
+          .select('*, grupo:produtogrupo!inner(id, nome, descricao, ativo, exibirPdv)')
           .eq('is_deleted', false)
           .eq('exibirPdv', true)
+          .eq('grupo.exibirPdv', true)
           .order('id', { ascending: false })
           .range(from, from + batchSize - 1);
 
@@ -109,11 +110,12 @@ export async function GET(req: Request) {
       .from('produto')
       .select(
         `
-        id, titulo, descricao, precovenda, estoque, estoqueminimo, unidade, referencia, codigobarras, ncm, cfop, fabricante, grupo_produto_id, grupo: produtogrupo(id, nome, descricao, ativo), status_estoque, exibirPdv, tituloMarketplace, descricaoMarketplace, imgUrl
+        id, titulo, descricao, precovenda, estoque, estoqueminimo, unidade, referencia, codigobarras, ncm, cfop, fabricante, grupo_produto_id, grupo: produtogrupo!inner(id, nome, descricao, ativo, exibirPdv), status_estoque, exibirPdv, tituloMarketplace, descricaoMarketplace, imgUrl
         `,
         { count: 'exact' }
       )
       .eq('is_deleted', false)
+      .eq('grupo.exibirPdv', true)
       .order('id', { ascending: false });
 
     if (q) {

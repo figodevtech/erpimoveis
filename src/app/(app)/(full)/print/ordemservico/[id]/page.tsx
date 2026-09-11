@@ -18,7 +18,8 @@ import {
 } from "../../../components/PrintDocumentHeader";
 import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
-import { getTermoAceiteOS, type AceiteAlvo } from "@/lib/print-aceite";
+import { resolverTermosOS, type AlvoTermo } from "@/lib/ordens/termos-impressao";
+import { fetchTermosImpressaoOS } from "@/lib/print-termos-os";
 import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 import {
@@ -333,13 +334,22 @@ export default async function OSFullPage({ params }: PageProps) {
       : os.alvo_tipo === "EQUIPAMENTO"
         ? "Máquina/Equipamento"
         : "Veículo";
-  const aceiteAlvo: AceiteAlvo =
+  const aceiteAlvo: AlvoTermo =
     os.alvo_tipo === "PECA"
       ? "PECA"
       : os.alvo_tipo === "EQUIPAMENTO"
         ? "EQUIPAMENTO"
         : "VEICULO";
-  const termoAceite = getTermoAceiteOS(os.status, aceiteAlvo);
+  // Os dizeres do rodape sao cadastro (Configuracoes Gerais > Dizeres da
+  // impressao da OS). Enquanto ninguem personalizou, vem os textos padrao.
+  const { termos: termosCadastrados } = await fetchTermosImpressaoOS();
+  const termosAceite = resolverTermosOS(termosCadastrados, {
+    status: os.status,
+    alvo: aceiteAlvo,
+    empresaNome,
+    osNumero: os.id,
+    clienteNome: os.cliente?.nomerazaosocial,
+  });
 
   const criador = Array.isArray(os.criador) ? os.criador[0] : os.criador;
   const criadorNome = criador?.nome ?? null;
@@ -1478,17 +1488,17 @@ export default async function OSFullPage({ params }: PageProps) {
               </div>
               </div>
 
-              {termoAceite && (
-                <div className="aceite-box">
-                  <div className="aceite-titulo">{termoAceite.titulo}</div>
-                  <div className="aceite-intro">{termoAceite.intro}</div>
-                  {termoAceite.itens.map((item, idx) => (
+              {termosAceite.map((termo) => (
+                <div key={termo.id} className="aceite-box">
+                  <div className="aceite-titulo">{termo.titulo}</div>
+                  {termo.intro && <div className="aceite-intro">{termo.intro}</div>}
+                  {termo.itens.map((item, idx) => (
                     <div key={idx} className="aceite-item">
                       {item}
                     </div>
                   ))}
                 </div>
-              )}
+              ))}
             </div>
           </div>
         </div>

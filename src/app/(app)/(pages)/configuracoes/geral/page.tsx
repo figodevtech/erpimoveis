@@ -88,6 +88,7 @@ import {
   type RegrasDestaqueStatus,
   type StatusOSValido,
 } from "@/lib/ordens/destaque";
+import { TermosImpressaoOSCard } from "./components/termos-impressao-os-card";
 
 const SHOPEE_INTEGRATION_ENABLED =
   process.env.NEXT_PUBLIC_SHOPEE_INTEGRATION_ENABLED === "true";
@@ -1758,6 +1759,10 @@ export default function ConfigGeralPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* DIZERES DA IMPRESSÃO DA OS */}
+        <TermosImpressaoOSCard />
+
         {/* MÓDULO FISCAL */}
         <Card className="overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
           <CardHeader className="bg-primary/5 py-4">

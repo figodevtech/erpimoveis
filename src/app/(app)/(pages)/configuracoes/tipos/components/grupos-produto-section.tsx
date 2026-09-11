@@ -39,18 +39,21 @@ type GrupoProduto = {
   nome: string;
   descricao: string | null;
   ativo: boolean | null;
+  exibirPdv: boolean;
 };
 
 type GrupoForm = {
   nome: string;
   descricao: string;
   ativo: boolean;
+  exibirPdv: boolean;
 };
 
 const emptyForm: GrupoForm = {
   nome: "",
   descricao: "",
   ativo: true,
+  exibirPdv: true,
 };
 
 const DEFAULT_LIMIT = 10;
@@ -93,6 +96,9 @@ export default function GruposProdutoSection() {
             <div className="h-5 w-16 bg-muted rounded-full mx-auto" />
           </TableCell>
           <TableCell className="text-right">
+            <div className="h-5 w-16 bg-muted rounded-full" />
+          </TableCell>
+          <TableCell className="text-right">
             <div className="h-6 w-10 bg-muted rounded-full ml-auto" />
           </TableCell>
         </TableRow>
@@ -114,6 +120,7 @@ export default function GruposProdutoSection() {
         nome: String(g.nome ?? ""),
         descricao: (g.descricao as string | null) ?? null,
         ativo: typeof g.ativo === "boolean" ? (g.ativo as boolean) : true,
+        exibirPdv: g.exibirPdv ?? true,
       }));
       setGrupos(items);
     } catch (e: any) {
@@ -146,6 +153,7 @@ export default function GruposProdutoSection() {
       nome: g.nome ?? "",
       descricao: g.descricao ?? "",
       ativo: g.ativo ?? true,
+      exibirPdv: g.exibirPdv,
     });
     setDialogOpen(true);
   }
@@ -160,6 +168,7 @@ export default function GruposProdutoSection() {
       nome: form.nome.trim(),
       descricao: form.descricao.trim() || null,
       ativo: form.ativo,
+      exibirPdv: form.exibirPdv,
     };
 
     try {
@@ -263,6 +272,21 @@ export default function GruposProdutoSection() {
                     <Switch checked={form.ativo} onCheckedChange={(val) => handleChange("ativo", val)} />
                   </div>
                 </div>
+                <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 bg-muted/40">
+                  <div className="space-y-0.5">
+                    <label htmlFor="grupo-exibir-pdv" className="text-sm font-medium">Exibir no PDV</label>
+                    <p id="grupo-exibir-pdv-descricao" className="text-xs text-muted-foreground">
+                      Ao desativar, todos os produtos deste grupo ficam ocultos no PDV,
+                      mesmo que estejam habilitados individualmente.
+                    </p>
+                  </div>
+                  <Switch
+                    id="grupo-exibir-pdv"
+                    aria-describedby="grupo-exibir-pdv-descricao"
+                    checked={form.exibirPdv}
+                    onCheckedChange={(val) => handleChange("exibirPdv", val)}
+                  />
+                </div>
               </div>
 
               <div className="mt-6 flex justify-end gap-2">
@@ -306,6 +330,7 @@ export default function GruposProdutoSection() {
               <TableHead>Nome</TableHead>
               <TableHead>Descricao</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Exibir no PDV</TableHead>
               <TableHead className="text-right">Acoes</TableHead>
             </TableRow>
           </TableHeader>
@@ -314,7 +339,7 @@ export default function GruposProdutoSection() {
               linhasSkeleton
             ) : total === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
                   Nenhum grupo cadastrado. Clique em <b>+ Grupo</b> para cadastrar.
                 </TableCell>
               </TableRow>
@@ -329,6 +354,11 @@ export default function GruposProdutoSection() {
                       className={g.ativo ? "" : "border-destructive bg-destructive"}
                     >
                       {g.ativo ? "Ativo" : "Inativo"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={g.exibirPdv ? "default" : "outline"}>
+                      {g.exibirPdv ? "Sim" : "Não"}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
