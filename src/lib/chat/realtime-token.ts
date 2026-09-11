@@ -25,7 +25,7 @@ const MARGEM_RENOVACAO_MS = 60_000;
 
 let credencial: { token: string; expiraEm: number } | null = null;
 let fonte: ChatRealtimeTokenSource | null = null;
-let buscaEmAndamento: Promise<string | null> | null = null;
+let buscaEmAndamento: Promise<ChatRealtimeCredentials> | null = null;
 
 export function setChatRealtimeTokenSource(source: ChatRealtimeTokenSource | null) {
   fonte = source;
@@ -40,31 +40,51 @@ export function clearChatRealtimeToken() {
   buscaEmAndamento = null;
 }
 
-function tokenAindaValido(agora: number): string | null {
+function credencialAindaValida(agora: number): ChatRealtimeCredentials | null {
   if (!credencial || !Number.isFinite(credencial.expiraEm)) return null;
-  return credencial.expiraEm - agora > MARGEM_RENOVACAO_MS ? credencial.token : null;
+  if (credencial.expiraEm - agora <= MARGEM_RENOVACAO_MS) return null;
+  return {
+    token: credencial.token,
+    expiresAt: new Date(credencial.expiraEm).toISOString(),
+  };
 }
 
-export async function chatRealtimeAccessToken(agora = Date.now()): Promise<string | null> {
-  const emCache = tokenAindaValido(agora);
+/**
+ * Compartilha a credencial entre todos os canais do ERP. Chat, notificações e
+ * reconexões simultâneas não precisam abrir uma Function Invocation cada um.
+ */
+export async function ensureChatRealtimeCredentials(
+  source: ChatRealtimeTokenSource,
+  agora = Date.now(),
+): Promise<ChatRealtimeCredentials> {
+  const emCache = credencialAindaValida(agora);
   if (emCache) return emCache;
 
-  const source = fonte;
-  if (!source) return credencial?.token ?? null;
-
-  // Varios joins simultaneos disparam esta funcao ao mesmo tempo; uma unica
-  // busca atende todos eles.
   buscaEmAndamento ??= (async () => {
     try {
       const credenciais = await source();
       storeChatRealtimeToken(credenciais);
-      return credenciais.token;
-    } catch {
-      return credencial?.token ?? null;
+      return credenciais;
     } finally {
       buscaEmAndamento = null;
     }
   })();
 
   return buscaEmAndamento;
+}
+
+export async function chatRealtimeAccessToken(agora = Date.now()): Promise<string | null> {
+  const emCache = credencialAindaValida(agora);
+  if (emCache) return emCache.token;
+
+  const source = fonte;
+  if (!source) return credencial?.token ?? null;
+
+  // Varios joins simultaneos disparam esta funcao ao mesmo tempo; uma unica
+  // busca atende todos eles.
+  try {
+    return (await ensureChatRealtimeCredentials(source, agora)).token;
+  } catch {
+    return credencial?.token ?? null;
+  }
 }

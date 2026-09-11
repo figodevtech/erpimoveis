@@ -48,14 +48,25 @@ const runtimeCaching = (nextPWA.runtimeCaching as RuntimeCachingRule[]).map((rul
 
 const isDevelopment = process.env.NODE_ENV === "development";
 
-// Respostas de API dependem de cookie/permissões e nunca podem sobreviver à
-// troca de usuário no Cache Storage do navegador.
+// Páginas, respostas RSC e APIs dependem de sessão/permissões e nunca podem
+// voltar de um cache antigo. Os arquivos estáticos com hash continuam usando
+// as regras do Workbox, assim como o service worker necessário ao Web Push.
 runtimeCaching.unshift({
   urlPattern: (match: RouteMatch) =>
     match.sameOrigin &&
     (match.url.pathname === "/api" || match.url.pathname.startsWith("/api/")),
   handler: "NetworkOnly",
   options: { cacheName: "api-network-only" },
+});
+runtimeCaching.unshift({
+  urlPattern: (match: RouteMatch) =>
+    match.sameOrigin &&
+    !match.url.pathname.startsWith("/api/") &&
+    (match.request.mode === "navigate"
+      || match.request.destination === "document"
+      || match.request.headers.get("RSC") === "1"),
+  handler: "NetworkOnly",
+  options: { cacheName: "application-network-only" },
 });
 
 const securityHeaders = [
@@ -101,6 +112,11 @@ const withPWA = nextPWA.default({
   disable: process.env.NODE_ENV === "development",
   register: true,
   skipWaiting: true,
+  // O ERP é autenticado e muda frequentemente. A página inicial não pode ser
+  // reutilizada entre versões ou sessões.
+  cacheStartUrl: false,
+  dynamicStartUrl: false,
+  reloadOnOnline: false,
   workboxOptions: { runtimeCaching },
 });
 
@@ -117,7 +133,16 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    return [
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      { source: "/(.*)", headers: securityHeaders },
+    ];
   },
   images: {
     unoptimized: true,
