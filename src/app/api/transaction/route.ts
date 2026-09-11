@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { distribuirPorPesos } from "@/lib/financeiro/rateio";
+import { somarRecebimentosDeFace } from "@/lib/financeiro/recebimentos-do-documento";
 import { aplicarCamposDocumento, erroDeDocumento } from "./_lib/documento";
 import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "./_lib/bandeira";
 import { filtroDeBusca } from "./_lib/busca";
@@ -616,20 +617,19 @@ export async function POST(req: Request) {
 
       const { data: transacoes, error: txErr } = await supabaseAdmin
         .from("transacao")
-        .select("valor")
+        .select("valor, valor_acrescimos")
         .eq("vendaid", vendaId)
         .eq("tipo", "RECEITA")
+        // Mesmo recorte do caminho de OS e da view `recebimento_por_documento`:
+        // juros e multa lançados como evento têm total próprio e não abatem a venda.
+        .is("evento_financeiro_id", null)
         .eq("is_deleted", false);
 
       if (txErr) {
         return NextResponse.json({ error: "Erro ao somar pagamentos existentes da venda." }, { status: 500 });
       }
 
-      preSumCents =
-        transacoes?.reduce((acc, transacao) => {
-          const cents = moneyToCents(transacao.valor as any) ?? 0;
-          return acc + cents;
-        }, 0) ?? 0;
+      preSumCents = somarRecebimentosDeFace(transacoes);
 
       const novoTotal = preSumCents + totalNovoValorCents;
       if (novoTotal > vendaTotalCents) {

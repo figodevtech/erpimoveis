@@ -64,7 +64,7 @@ export default function DialogServicosRealizados() {
   }
   const pessoas = opcoes?.pessoas.map(p => ({ id: p.id, nome: `${p.nome}${p.ativo ? "" : " (inativo)"}` })) ?? [];
   return <Dialog onOpenChange={open => { if (open) void carregarOpcoes(); }}>
-    <DialogTrigger asChild><ReportTrigger icon={<Wrench className="h-4 w-4" />} title="Serviços Realizados" description="Serviços por realizador, setor ou criador, com valores, comissões e tempo de execução" tone="bg-violet-500/10 text-violet-600" /></DialogTrigger>
+    <DialogTrigger asChild><ReportTrigger icon={<Wrench className="h-4 w-4" />} title="Serviços Realizados" description="Serviços por realizador, setor da OS, setor do realizador ou criador, com valores, comissões e tempo de execução" tone="bg-violet-500/10 text-violet-600" /></DialogTrigger>
     <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
       <DialogHeader><DialogTitle>Serviços Realizados</DialogTitle><DialogDescription>Consulte os serviços vinculados aos realizadores, inclusive de ordens abertas, conforme os status selecionados.</DialogDescription></DialogHeader>
       <ReportFiltersPanel>

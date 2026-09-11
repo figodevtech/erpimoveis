@@ -22,6 +22,8 @@ import {
   MAXIMO_DE_PARCELAS,
   avancarMeses,
   redistribuirIgualmente,
+  redistribuirParaTotal,
+  totalDasParcelas,
   validarReparcelamento,
   type ParcelaPlanejada,
 } from "@/lib/financeiro/reparcelamento";
@@ -34,6 +36,15 @@ interface ReparcelarEditorProps {
   /** O grupo inteiro; só as pendentes entram na edição. */
   itens: LancamentoRelacionado[];
   transacaoAtualId: number;
+  /**
+   * O total do que está em aberto pode mudar aqui?
+   *
+   * Trava com documento — o total é dado da OS, da venda ou da nota, e quem
+   * mexe nele é o documento, não esta tela. Livre no lançamento avulso, onde o
+   * grupo é o próprio total e travá-lo só impedia diminuir uma parcela ou
+   * renegociar a dívida.
+   */
+  totalTravado: boolean;
   onCancelar: () => void;
   onSalvo: () => void;
   /**
@@ -68,16 +79,20 @@ function dataDoInput(valor: string): Date | undefined {
 }
 
 /**
- * Reparcela um lançamento avulso: quantidade, valores e vencimentos.
+ * Reparcela: quantidade, vencimentos e — dependendo do modo — o total.
  *
- * O que já foi baixado não entra — é dinheiro que andou, e o banco recusa mexer
- * no valor dele. O que sobra é o total pendente, e ele não muda de tamanho aqui:
- * reparcelar redivide o que falta, não perdoa nem cobra a mais. Por isso o botão
- * só destrava quando a soma fecha exatamente no mesmo número.
+ * O que já foi baixado não entra em nenhum dos dois modos: é dinheiro que andou,
+ * e o banco recusa mexer no valor dele.
+ *
+ * Com documento (`totalTravado`), o que sobra é o total pendente e ele não muda
+ * de tamanho: reparcelar redivide o que falta, não perdoa nem cobra a mais — o
+ * botão só destrava quando a soma fecha no mesmo número. Num lançamento avulso o
+ * total é campo, porque ali ele não responde a documento nenhum.
  */
 export function ReparcelarEditor({
   itens,
   transacaoAtualId,
+  totalTravado,
   onCancelar,
   onSalvo,
   onTransacaoRemovida,
@@ -92,10 +107,18 @@ export function ReparcelarEditor({
   const [motivo, setMotivo] = useState("");
   const [salvando, setSalvando] = useState(false);
 
-  const alvoEmCentavos = useMemo(
+  /** O total pendente quando a tela abriu. Nunca muda depois disso. */
+  const alvoOriginalEmCentavos = useMemo(
     () => pendentes.reduce((total, item) => total + paraCentavos(item.valor), 0),
     [pendentes],
   );
+
+  /*
+   * O alvo corrente. Travado, é o original e pronto. Livre, é o que a pessoa
+   * digitou no campo de total — e é contra ele que a barra de status compara,
+   * para "as parcelas somam o que você pediu" continuar sendo uma pergunta útil.
+   */
+  const [alvoEmCentavos, setAlvoEmCentavos] = useState(alvoOriginalEmCentavos);
 
   const totalBaixado = useMemo(
     () => baixadas.reduce((total, item) => total + Number(item.valor ?? 0), 0),
@@ -103,17 +126,40 @@ export function ReparcelarEditor({
   );
 
   const resultado = useMemo(
-    () => validarReparcelamento(parcelas, alvoEmCentavos),
-    [parcelas, alvoEmCentavos],
+    () => validarReparcelamento(parcelas, alvoEmCentavos, { totalTravado }),
+    [parcelas, alvoEmCentavos, totalTravado],
   );
 
   const { somaEmCentavos, diferencaEmCentavos: diferenca, fecha } = resultado;
+  const temDadoInvalido =
+    resultado.semValor.length > 0 || resultado.semVencimento.length > 0;
   const podeSalvar = resultado.podeSalvar && !salvando;
 
   const atualizarParcela = (id: number, patch: Partial<ParcelaPlanejada>) => {
-    setParcelas((atuais) =>
-      atuais.map((parcela) => (parcela.id === id ? { ...parcela, ...patch } : parcela)),
-    );
+    setParcelas((atuais) => {
+      const novas = atuais.map((parcela) =>
+        parcela.id === id ? { ...parcela, ...patch } : parcela,
+      );
+
+      /*
+       * Com o total livre, quem manda é a soma das parcelas.
+       *
+       * Se o campo de total ficasse parado enquanto a pessoa digita numa
+       * parcela, os dois números brigariam e o botão travaria de novo — que é
+       * exatamente a reclamação que originou este modo. Travado, o alvo é do
+       * documento e não segue ninguém.
+       */
+      if (!totalTravado) setAlvoEmCentavos(totalDasParcelas(novas));
+
+      return novas;
+    });
+  };
+
+  /** Mudar o total: as parcelas seguem, mantendo a proporção já montada. */
+  const mudarTotal = (valor: number) => {
+    const centavos = paraCentavos(valor);
+    setAlvoEmCentavos(centavos);
+    setParcelas((atuais) => redistribuirParaTotal(atuais, centavos));
   };
 
   /*
@@ -163,7 +209,10 @@ export function ReparcelarEditor({
     setParcelas((atuais) => redistribuirIgualmente(atuais, alvoEmCentavos));
   };
 
-  const restaurar = () => setParcelas(paraParcelas(pendentes));
+  const restaurar = () => {
+    setParcelas(paraParcelas(pendentes));
+    setAlvoEmCentavos(alvoOriginalEmCentavos);
+  };
 
   const salvar = async () => {
     if (!podeSalvar) return;
@@ -178,6 +227,7 @@ export function ReparcelarEditor({
             data: parcela.vencimento?.toISOString(),
           })),
           motivo,
+          totalAnterior: alvoOriginalEmCentavos / 100,
         },
       );
 
@@ -224,7 +274,9 @@ export function ReparcelarEditor({
         <span className="flex items-start gap-2">
           <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            O que falta pagar não muda — só em quantas vezes e para quando.
+            {totalTravado
+              ? "O que falta pagar não muda — só em quantas vezes e para quando."
+              : "Você pode mudar o total, a quantidade e os vencimentos. Mexer no total redistribui entre as parcelas mantendo a proporção."}
             {baixadas.length > 0 ? (
               <>
                 {" "}
@@ -247,6 +299,28 @@ export function ReparcelarEditor({
           Distribuir igualmente
         </Button>
       </div>
+
+      {!totalTravado ? (
+        <div className="flex flex-wrap items-end gap-3 border bg-card p-3">
+          <div className="space-y-1">
+            <Label htmlFor="total-reparcelamento" className="text-xs">
+              Total a reparcelar
+            </Label>
+            <ValueInput
+              id="total-reparcelamento"
+              className="w-40"
+              value={alvoEmCentavos / 100}
+              onValueChange={mudarTotal}
+              disabled={salvando}
+            />
+          </div>
+          <p className="flex-1 text-[11px] text-muted-foreground">
+            {alvoEmCentavos === alvoOriginalEmCentavos
+              ? "Era isto que estava em aberto. Mudar aqui redistribui entre as parcelas."
+              : `Estava em ${formatarCentavos(alvoOriginalEmCentavos)}. A mudança fica registrada no histórico.`}
+          </p>
+        </div>
+      ) : null}
 
       <ul className="space-y-2">
         {parcelas.map((parcela, indice) => {
@@ -353,27 +427,38 @@ export function ReparcelarEditor({
         role="status"
         aria-live="polite"
         className={`flex flex-wrap items-center justify-between gap-2 border px-3 py-2 text-sm ${
-          fecha
-            ? "border-emerald-600/40 bg-emerald-600/5 text-emerald-700 dark:text-emerald-400"
-            : "border-destructive/40 bg-destructive/5 text-destructive"
+          temDadoInvalido
+            ? "border-destructive/40 bg-destructive/5 text-destructive"
+            : fecha
+              ? "border-emerald-600/40 bg-emerald-600/5 text-emerald-700 dark:text-emerald-400"
+              : totalTravado
+                ? "border-destructive/40 bg-destructive/5 text-destructive"
+                : "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-400"
         }`}
       >
         <span className="flex items-center gap-2 font-medium">
-          {fecha ? (
+          {!temDadoInvalido && fecha ? (
             <CheckCircle2 className="h-4 w-4" />
           ) : (
             <AlertTriangle className="h-4 w-4" />
           )}
-          {fecha
-            ? resultado.semValor.length || resultado.semVencimento.length
-              ? "A soma fecha, mas há parcela com dado inválido."
-              : "A soma bate com o que está em aberto."
-            : diferenca > 0
-              ? `Faltam ${formatarCentavos(diferenca)} para fechar.`
-              : `Sobram ${formatarCentavos(Math.abs(diferenca))}.`}
+          {temDadoInvalido
+            ? "Há parcela com valor ou vencimento faltando."
+            : fecha
+              ? totalTravado
+                ? "A soma bate com o que está em aberto."
+                : "As parcelas somam o total."
+              : totalTravado
+                ? diferenca > 0
+                  ? `Faltam ${formatarCentavos(diferenca)} para fechar.`
+                  : `Sobram ${formatarCentavos(Math.abs(diferenca))}.`
+                : `As parcelas somam ${formatarCentavos(somaEmCentavos)}, e o total está em ${formatarCentavos(alvoEmCentavos)}.`}
         </span>
         <span className="tabular-nums text-xs">
           {formatarCentavos(somaEmCentavos)} de {formatarCentavos(alvoEmCentavos)}
+          {!totalTravado && alvoEmCentavos !== alvoOriginalEmCentavos
+            ? ` · era ${formatarCentavos(alvoOriginalEmCentavos)}`
+            : ""}
         </span>
       </div>
 

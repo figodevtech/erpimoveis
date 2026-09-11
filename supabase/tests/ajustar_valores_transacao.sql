@@ -24,6 +24,8 @@ DECLARE
   v_soma        numeric;
   v_qtd         int;
   v_valor       numeric;
+  v_texto       text;
+  v_cols        text;
   v_ok          int := 0;
   v_falhou      int := 0;
 BEGIN
@@ -53,6 +55,27 @@ BEGIN
     RAISE EXCEPTION 'Nenhuma OS sem pagamentos encontrada para servir de fixture.';
   END IF;
 
+  /*
+   * A OS escolhida entra num estado conhecido antes de receber os títulos.
+   *
+   * Sem isto o teste dependia do que o banco de demonstração tivesse por perto:
+   * `validar_novo_recebimento_os` recusa lançamento fora de ORCAMENTO_APROVADO /
+   * EM_ANDAMENTO / PAGAMENTO ou FATURAMENTO, e `validar_limite_pagamento_os`
+   * recusa o que passar do orçamento — as fixtures somam R$ 300,01. O `LIMIT 1`
+   * sem filtro pegava qualquer OS e o teste morria montando o cenário, antes de
+   * chegar na regra que ele existe para verificar.
+   *
+   * ORCAMENTO_APROVADO e não PAGAMENTO porque ele é aceito nos dois modos de
+   * faturamento; PAGAMENTO deixa de ser quando a etapa de faturamento está
+   * ligada. Tudo isto some no ROLLBACK.
+   */
+  UPDATE public.ordemservico
+     SET status = 'ORCAMENTO_APROVADO',
+         orcamentototal = 1000,
+         acrescimo_financeiro_tipo = NULL,
+         acrescimo_financeiro_valor = 0
+   WHERE id = v_os;
+
   CREATE TEMP TABLE _molde ON COMMIT DROP AS
     SELECT * FROM public.transacao
      WHERE is_deleted = false AND upper(tipo::text) = 'RECEITA'
@@ -62,40 +85,87 @@ BEGIN
     RAISE EXCEPTION 'Nenhuma transação de RECEITA para servir de molde.';
   END IF;
 
-  -- Zera o que não deve vazar do molde para as linhas de teste.
+  /*
+   * Coluna gerada não se insere: `data_dia` (20260901220000) veio depois deste
+   * teste e passou a entrar no `SELECT *` do molde, quebrando todos os inserts
+   * com "cannot insert a non-DEFAULT value". Some do molde e a lista de colunas
+   * passa a ser explícita — o script continua sem conhecer o schema, e uma
+   * coluna gerada nova amanhã também não o quebra.
+   */
+  FOR v_texto IN
+    SELECT a.attname
+      FROM pg_attribute a
+     WHERE a.attrelid = '_molde'::regclass
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+       AND a.attname IN (
+         SELECT b.attname FROM pg_attribute b
+          WHERE b.attrelid = 'public.transacao'::regclass
+            AND b.attgenerated <> ''
+       )
+  LOOP
+    EXECUTE format('ALTER TABLE _molde DROP COLUMN %I', v_texto);
+  END LOOP;
+
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+    INTO v_cols
+    FROM pg_attribute a
+   WHERE a.attrelid = '_molde'::regclass
+     AND a.attnum > 0
+     AND NOT a.attisdropped;
+
+/*
+   * Zera o que não deve vazar do molde para as linhas de teste.
+   *
+   * As linhas nascem PENDENTES, e isso é regra, não detalhe de fixture:
+   * `transacao_valor_apos_baixa_trg` (20260806120000) recusa mudar o valor de
+   * transação já baixada, e é sobre valor que esta RPC trabalha. Nascendo
+   * baixadas, todo caso de rateio válido morria no gatilho — e o teste acusava a
+   * RPC por uma trava que é de outra regra, e que está certa.
+   *
+   * É também o que a operação faz de verdade: o caso real que originou
+   * 20260828150000 (OS #164 do Demir) redistribui entre as parcelas EM ABERTO;
+   * as baixadas vão no payload para a soma fechar, com o valor inalterado.
+   */
   UPDATE _molde SET
     ordemservicoid = v_os, vendaid = NULL, entrada_id = NULL,
     usoconsumo_entrada_id = NULL, evento_financeiro_id = NULL,
-    estorno_transacao_id = NULL, is_deleted = false, pendente = false,
+    estorno_transacao_id = NULL, is_deleted = false, pendente = true,
     data = now(), descricao = 'TESTE RPC';
 
   UPDATE _molde SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
     descricao = 'TESTE RPC - Parcela 1/3', valor = 100.00, "valorLiquido" = 100.00;
-  INSERT INTO public.transacao SELECT * FROM _molde RETURNING id INTO v_a;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde RETURNING id', v_cols, v_cols)
+    INTO v_a;
 
   UPDATE _molde SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
     descricao = 'TESTE RPC - Parcela 2/3', valor = 100.00, "valorLiquido" = 100.00;
-  INSERT INTO public.transacao SELECT * FROM _molde RETURNING id INTO v_b;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde RETURNING id', v_cols, v_cols)
+    INTO v_b;
 
   UPDATE _molde SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
     descricao = 'TESTE RPC - Parcela 3/3', valor = 100.01, "valorLiquido" = 100.01;
-  INSERT INTO public.transacao SELECT * FROM _molde RETURNING id INTO v_c;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde RETURNING id', v_cols, v_cols)
+    INTO v_c;
 
   -- Avulsas: sem documento de origem.
   UPDATE _molde SET ordemservicoid = NULL;
 
   UPDATE _molde SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
     descricao = 'TESTE RPC - avulsa 1', valor = 50.00, "valorLiquido" = 50.00;
-  INSERT INTO public.transacao SELECT * FROM _molde RETURNING id INTO v_avulsa1;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde RETURNING id', v_cols, v_cols)
+    INTO v_avulsa1;
 
   UPDATE _molde SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
     descricao = 'TESTE RPC - avulsa 2', valor = 60.00, "valorLiquido" = 60.00;
-  INSERT INTO public.transacao SELECT * FROM _molde RETURNING id INTO v_avulsa2;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde RETURNING id', v_cols, v_cols)
+    INTO v_avulsa2;
 
   -- Registro legado: líquido nunca gravado.
   UPDATE _molde SET id = nextval(pg_get_serial_sequence('public.transacao','id')),
     descricao = 'TESTE RPC - sem liquido', valor = 70.00, "valorLiquido" = NULL;
-  INSERT INTO public.transacao SELECT * FROM _molde RETURNING id INTO v_sem_liquido;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde RETURNING id', v_cols, v_cols)
+    INTO v_sem_liquido;
 
   RAISE NOTICE 'Fixtures: OS % / parcelas %, %, % / avulsas %, % / legado %',
     v_os, v_a, v_b, v_c, v_avulsa1, v_avulsa2, v_sem_liquido;

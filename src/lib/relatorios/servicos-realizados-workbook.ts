@@ -13,6 +13,8 @@ const COLUNAS: Coluna[] = [
   { key: "realizadorId", label: "Realizador ID", largura: 38 },
   { key: "realizador", label: "Realizador", largura: 28 },
   { key: "percentualAtual", label: "Comissão atual do cadastro (%)", tipo: "percentual", largura: 28 },
+  { key: "setorRealizadorId", label: "Setor do realizador ID", largura: 14 },
+  { key: "setorRealizador", label: "Setor do realizador", largura: 24 },
   { key: "setorId", label: "Setor ID", largura: 12 },
   { key: "setor", label: "Setor da OS", largura: 24 },
   { key: "criadorId", label: "Criador ID", largura: 38 },

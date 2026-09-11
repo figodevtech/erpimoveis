@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { carregarAutores } from "@/lib/movement-authors";
+import { modoDeReparcelamento } from "@/lib/financeiro/reparcelamento-modo";
 import { tipoEhEntradaDeCaixa, valorDeFace } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -90,7 +91,7 @@ export async function GET(_: Request, { params }: Params) {
     const { data: transacao, error: transacaoError } = await supabaseAdmin
       .from("transacao")
       .select(
-        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id, pagamento_multiplo_id, parcelamento_id, baixa_de_transacao_id, transferencia_id",
+        "id, descricao, valor, data, tipo, pendente, created_at, updated_at, created_by, updated_by, baixado_por, cliente_id, fornecedor_id, ordemservicoid, vendaid, evento_financeiro_id, pagamento_multiplo_id, parcelamento_id, baixa_de_transacao_id, transferencia_id, entrada_id, usoconsumo_entrada_id, adiantamento_id, eh_adiantamento",
       )
       .eq("id", id)
       .eq("is_deleted", false)
@@ -506,12 +507,21 @@ export async function GET(_: Request, { params }: Params) {
           valor: Number(linha.valor ?? 0),
         })),
       },
-      // Presente só no parcelamento avulso com grupo formal — é o que a aba
-      // Parcelas exige para oferecer o reparcelamento.
+      // Presente só no parcelamento avulso com grupo formal. Continua aqui
+      // porque a aba ainda o usa para o aviso de agrupamento incerto.
       parcelamento:
         transacao.parcelamento_id != null
           ? { id: Number(transacao.parcelamento_id) }
           : null,
+      /*
+       * O que a aba Parcelas pode oferecer para esta linha, e com que regra de
+       * total.
+       *
+       * Derivado das mesmas colunas que a RPC lê. A tela e o banco não podem
+       * discordar sobre qual botão existe: oferecer um reparcelamento que a
+       * função recusa é pior do que não oferecer nenhum.
+       */
+      reparcelamento: modoDeReparcelamento(transacao),
       pagamentoMultiplo,
       baixa: baixa
         ? { ...baixa, baixadoPor: autor(baixa.baixado_por) }

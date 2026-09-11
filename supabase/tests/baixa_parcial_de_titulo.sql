@@ -35,6 +35,8 @@ $$;
 
 DO $t$
 DECLARE
+  v_col_gerada text;
+  v_cols text;
   v_banco bigint;
   v_titulo bigint;
   v_despesa bigint;
@@ -50,8 +52,8 @@ DECLARE
   v_ok int := 0;
   v_falhou int := 0;
 BEGIN
-  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric)') IS NULL THEN
-    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_valor_lancado. Rode as migrations.';
+  IF to_regprocedure('public.baixar_transacao_pendente(bigint,timestamptz,bigint,text,integer,integer,uuid,numeric,numeric,jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'baixar_transacao_pendente ainda nao aceita p_ajustes. Rode as migrations.';
   END IF;
 
   SELECT id INTO v_banco FROM public.bancoconta ORDER BY id LIMIT 1;
@@ -61,6 +63,35 @@ BEGIN
 
   CREATE TEMP TABLE _molde ON COMMIT DROP AS
     SELECT * FROM public.transacao WHERE is_deleted = false LIMIT 1;
+
+  /*
+   * Coluna gerada nao se insere: `data_dia` (20260901220000) veio depois deste
+   * teste e passou a entrar no `SELECT *` do molde, quebrando todos os inserts
+   * com "cannot insert a non-DEFAULT value". Some do molde e a lista de colunas
+   * passa a ser explicita — o script continua sem conhecer o schema, e uma
+   * coluna gerada nova amanha tambem nao o quebra.
+   */
+  FOR v_col_gerada IN
+    SELECT a.attname
+      FROM pg_attribute a
+     WHERE a.attrelid = '_molde'::regclass
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+       AND a.attname IN (
+         SELECT b.attname FROM pg_attribute b
+          WHERE b.attrelid = 'public.transacao'::regclass
+            AND b.attgenerated <> ''
+       )
+  LOOP
+    EXECUTE format('ALTER TABLE _molde DROP COLUMN %I', v_col_gerada);
+  END LOOP;
+
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+    INTO v_cols
+    FROM pg_attribute a
+   WHERE a.attrelid = '_molde'::regclass
+     AND a.attnum > 0
+     AND NOT a.attisdropped;
 
   UPDATE _molde SET
     id = nextval(pg_get_serial_sequence('public.transacao','id')),
@@ -76,7 +107,7 @@ BEGIN
     vencimento_em = date_trunc('day', now() + interval '10 days'),
     data = date_trunc('day', now() + interval '10 days'),
     descricao = 'TESTE BAIXA PARCIAL A RECEBER';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
   SELECT id INTO v_titulo FROM _molde;
   INSERT INTO _criadas VALUES (v_titulo);
 
@@ -231,7 +262,7 @@ BEGIN
     valor_baixado = 0, baixa_de_transacao_id = NULL, pendente = true,
     banco_id = NULL, pago_em = NULL,
     descricao = 'TESTE BAIXA DE UMA VEZ';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
   SELECT id INTO v_comum FROM _molde;
   INSERT INTO _criadas VALUES (v_comum);
 
@@ -259,7 +290,7 @@ BEGIN
     valor_baixado = 0, baixa_de_transacao_id = NULL, pendente = true,
     banco_id = NULL, pago_em = NULL,
     descricao = 'TESTE BAIXA PARCIAL A PAGAR';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
   SELECT id INTO v_despesa FROM _molde;
   INSERT INTO _criadas VALUES (v_despesa);
 
@@ -325,7 +356,7 @@ BEGIN
         valor_baixado = 0, baixa_de_transacao_id = NULL, pendente = true,
         banco_id = NULL, pago_em = NULL,
         descricao = 'TESTE PARCIAL EM TITULO DE OS';
-      INSERT INTO public.transacao SELECT * FROM _molde;
+      EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
       SELECT id INTO v_titulo_os FROM _molde;
       INSERT INTO _criadas VALUES (v_titulo_os);
 
@@ -377,7 +408,7 @@ BEGIN
     valor_baixado = 0, baixa_de_transacao_id = NULL, pendente = true,
     banco_id = v_banco, pago_em = NULL,
     descricao = 'TESTE TITULO EM ABERTO COM BANCO PREVISTO';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
   SELECT id INTO v_com_banco FROM _molde;
   INSERT INTO _criadas VALUES (v_com_banco);
 
@@ -472,7 +503,7 @@ BEGIN
       banco_id = NULL, pago_em = NULL,
       vencimento_em = '2026-07-10'::timestamptz, data = '2026-07-10'::timestamptz,
       descricao = 'TESTE DATA POR PARCIAIS';
-    INSERT INTO public.transacao SELECT * FROM _molde;
+    EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
     SELECT id INTO v_dt FROM _molde;
     INSERT INTO _criadas VALUES (v_dt);
 
@@ -503,7 +534,7 @@ BEGIN
       banco_id = NULL, pago_em = NULL,
       vencimento_em = '2026-07-10'::timestamptz, data = '2026-07-10'::timestamptz,
       descricao = 'TESTE DATA DE UMA VEZ';
-    INSERT INTO public.transacao SELECT * FROM _molde;
+    EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
     SELECT id INTO v_dt_comum FROM _molde;
     INSERT INTO _criadas VALUES (v_dt_comum);
     PERFORM public.baixar_transacao_pendente(
@@ -551,7 +582,7 @@ BEGIN
       banco_id = NULL, pago_em = NULL,
       vencimento_em = date_trunc('day', now()), data = date_trunc('day', now()),
       descricao = 'TESTE RESTANTE SEM VALOR';
-    INSERT INTO public.transacao SELECT * FROM _molde;
+    EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
     SELECT id INTO v_r FROM _molde;
     INSERT INTO _criadas VALUES (v_r);
 
@@ -590,7 +621,7 @@ BEGIN
       valor = 200.00, valor_base = 200.00, "valorLiquido" = 200.00,
       valor_baixado = 0, baixa_de_transacao_id = NULL, pendente = true,
       banco_id = NULL, pago_em = NULL, descricao = 'TESTE SEM FILHAS SEGUE IGUAL';
-    INSERT INTO public.transacao SELECT * FROM _molde;
+    EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
     SELECT id INTO v_r FROM _molde;
     INSERT INTO _criadas VALUES (v_r);
 

@@ -709,7 +709,14 @@ function ChecklistDocumentHistory({
             <div className="font-medium">Versões do checklist de {tipo.toLowerCase()}</div>
             <div className="text-xs text-muted-foreground">Cada impressão cria um snapshot imutável.</div>
           </div>
-          <div className="max-h-72 overflow-y-auto p-2">
+          {/* Popover portalizado dentro de um diálogo modal: sem interromper a
+              propagação, o scroll-lock do diálogo cancela o arraste e a lista
+              não rola no celular. Mesma razão do `CommandList`. */}
+          <div
+            className="max-h-72 touch-pan-y overflow-y-auto overscroll-contain p-2"
+            onWheel={(event) => event.stopPropagation()}
+            onTouchMove={(event) => event.stopPropagation()}
+          >
             {loading ? (
               <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Carregando versões...</div>
             ) : items.length === 0 ? (

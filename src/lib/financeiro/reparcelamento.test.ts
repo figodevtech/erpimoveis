@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  MAXIMO_DE_PARCELAS,
   avancarMeses,
   gerarParcelas,
   redistribuirIgualmente,
+  redistribuirParaTotal,
+  totalDasParcelas,
   validarReparcelamento,
 } from "./reparcelamento";
 
@@ -127,4 +130,109 @@ test("recusa mais parcelas do que o teto de sanidade", () => {
 
   assert.equal(resultado.fecha, true);
   assert.equal(resultado.podeSalvar, false);
+});
+
+test("total livre: o modo avulso não exige que a soma feche", () => {
+  const parcelas = [
+    { id: 1, valor: 100, vencimento: new Date(2026, 0, 10) },
+    { id: 2, valor: 100, vencimento: new Date(2026, 1, 10) },
+  ];
+
+  // Alvo de 300,00 e soma de 200,00: com trava não salva, sem trava salva.
+  assert.equal(validarReparcelamento(parcelas, 30000).podeSalvar, false);
+  assert.equal(
+    validarReparcelamento(parcelas, 30000, { totalTravado: false }).podeSalvar,
+    true,
+  );
+});
+
+test("total livre não afrouxa as regras de linha", () => {
+  const semValor = [
+    { id: 1, valor: 0, vencimento: new Date(2026, 0, 10) },
+    { id: 2, valor: 100, vencimento: new Date(2026, 1, 10) },
+  ];
+  assert.equal(
+    validarReparcelamento(semValor, 10000, { totalTravado: false }).podeSalvar,
+    false,
+  );
+
+  const semData = [{ id: 1, valor: 100 }];
+  assert.equal(
+    validarReparcelamento(semData, 10000, { totalTravado: false }).podeSalvar,
+    false,
+  );
+
+  const demais = Array.from({ length: MAXIMO_DE_PARCELAS + 1 }, (_, indice) => ({
+    id: indice + 1,
+    valor: 10,
+    vencimento: new Date(2026, 0, 10),
+  }));
+  assert.equal(
+    validarReparcelamento(demais, 100, { totalTravado: false }).podeSalvar,
+    false,
+  );
+});
+
+test("totalDasParcelas soma em centavos", () => {
+  assert.equal(
+    totalDasParcelas([
+      { id: 1, valor: 0.1, vencimento: new Date(2026, 0, 10) },
+      { id: 2, valor: 0.2, vencimento: new Date(2026, 1, 10) },
+    ]),
+    30,
+  );
+  assert.equal(totalDasParcelas([]), 0);
+});
+
+test("redistribuirParaTotal preserva a proporção montada", () => {
+  const parcelas = [
+    { id: 1, valor: 300, vencimento: new Date(2026, 0, 10) },
+    { id: 2, valor: 100, vencimento: new Date(2026, 1, 10) },
+  ];
+
+  const novas = redistribuirParaTotal(parcelas, 100000);
+
+  assert.deepEqual(
+    novas.map((parcela) => parcela.valor),
+    [750, 250],
+  );
+  // As datas escolhidas continuam onde estavam.
+  assert.deepEqual(
+    novas.map((parcela) => parcela.vencimento),
+    parcelas.map((parcela) => parcela.vencimento),
+  );
+});
+
+test("redistribuirParaTotal fecha exatamente em total indivisível", () => {
+  const parcelas = [
+    { id: 1, valor: 100, vencimento: new Date(2026, 0, 10) },
+    { id: 2, valor: 100, vencimento: new Date(2026, 1, 10) },
+    { id: 3, valor: 100, vencimento: new Date(2026, 2, 10) },
+  ];
+
+  const novas = redistribuirParaTotal(parcelas, 10000);
+
+  assert.equal(totalDasParcelas(novas), 10000);
+  // O resíduo de `distribuirPorPesos` cai na última — ao contrário do rateio
+  // igual, que joga nas primeiras.
+  assert.deepEqual(
+    novas.map((parcela) => parcela.valor),
+    [33.33, 33.33, 33.34],
+  );
+});
+
+test("redistribuirParaTotal sem proporção cai no rateio igual", () => {
+  const parcelas = [
+    { id: 1, valor: 0, vencimento: new Date(2026, 0, 10) },
+    { id: 2, valor: 0, vencimento: new Date(2026, 1, 10) },
+  ];
+
+  const novas = redistribuirParaTotal(parcelas, 10001);
+
+  assert.equal(totalDasParcelas(novas), 10001);
+  // Rateio igual: o centavo que sobra vai para a primeira.
+  assert.deepEqual(
+    novas.map((parcela) => parcela.valor),
+    [50.01, 50],
+  );
 });

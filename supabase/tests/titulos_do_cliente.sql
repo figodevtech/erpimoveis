@@ -22,6 +22,8 @@ BEGIN;
 
 DO $$
 DECLARE
+  v_col_gerada text;
+  v_cols text;
   v_cliente     integer;
   v_cliente_os  integer;
   v_os          integer;
@@ -100,6 +102,35 @@ BEGIN
      WHERE is_deleted = false AND upper(tipo::text) = 'RECEITA'
      LIMIT 1;
 
+  /*
+   * Coluna gerada nao se insere: `data_dia` (20260901220000) veio depois deste
+   * teste e passou a entrar no `SELECT *` do molde, quebrando todos os inserts
+   * com "cannot insert a non-DEFAULT value". Some do molde e a lista de colunas
+   * passa a ser explicita — o script continua sem conhecer o schema, e uma
+   * coluna gerada nova amanha tambem nao o quebra.
+   */
+  FOR v_col_gerada IN
+    SELECT a.attname
+      FROM pg_attribute a
+     WHERE a.attrelid = '_molde'::regclass
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+       AND a.attname IN (
+         SELECT b.attname FROM pg_attribute b
+          WHERE b.attrelid = 'public.transacao'::regclass
+            AND b.attgenerated <> ''
+       )
+  LOOP
+    EXECUTE format('ALTER TABLE _molde DROP COLUMN %I', v_col_gerada);
+  END LOOP;
+
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+    INTO v_cols
+    FROM pg_attribute a
+   WHERE a.attrelid = '_molde'::regclass
+     AND a.attnum > 0
+     AND NOT a.attisdropped;
+
   IF (SELECT count(*) FROM _molde) <> 1 THEN
     RAISE EXCEPTION 'Nenhuma transacao de RECEITA para servir de molde.';
   END IF;
@@ -131,7 +162,7 @@ BEGIN
     data = now() - interval '40 days',
     vencimento_em = now() - interval '10 days',
     descricao = 'TESTE - migrado vencido';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
 
   SELECT total_em_aberto, total_vencido, tem_migrado
     INTO v_depois, v_vencido, v_migrado
@@ -161,7 +192,7 @@ BEGIN
     data = now() + interval '20 days',
     vencimento_em = now() + interval '20 days',
     descricao = 'TESTE - parcial a vencer';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
 
   SELECT total_em_aberto INTO v_depois
     FROM public.clientes_divida(ARRAY[v_cliente], false);
@@ -186,7 +217,8 @@ BEGIN
     data = now() - interval '5 days',
     vencimento_em = now() - interval '5 days',
     descricao = 'TESTE - orfa sem documento';
-  INSERT INTO public.transacao SELECT * FROM _molde RETURNING id INTO v_orfa;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde RETURNING id', v_cols, v_cols)
+    INTO v_orfa;
 
   IF NOT EXISTS (
     SELECT 1 FROM public.transacao_cliente tc
@@ -220,7 +252,7 @@ BEGIN
     data = now() - interval '3 days',
     vencimento_em = now() - interval '3 days',
     descricao = 'TESTE - titulo de OS';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
 
   SELECT total_em_aberto INTO v_depois
     FROM public.clientes_divida(ARRAY[v_cliente_os], false);
@@ -244,7 +276,7 @@ BEGIN
     data = now() - interval '2 days',
     vencimento_em = now() - interval '2 days',
     descricao = 'TESTE - cliente_id discorda da OS';
-  INSERT INTO public.transacao SELECT * FROM _molde;
+  EXECUTE format('INSERT INTO public.transacao (%s) SELECT %s FROM _molde', v_cols, v_cols);
 
   SELECT total_em_aberto INTO v_depois
     FROM public.clientes_divida(ARRAY[v_cliente], false);

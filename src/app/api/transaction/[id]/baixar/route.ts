@@ -2,6 +2,8 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireFinanceiroEdit } from "@/app/api/_authz/perms";
+import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
+import { normalizarAjustes } from "@/app/api/transaction/_lib/ajustes";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -74,6 +76,31 @@ export async function POST(req: NextRequest, ctx: Params) {
       );
     }
 
+    /*
+     * Acréscimos e descontos lançados no ato da baixa.
+     *
+     * Aqui só se confere a FORMA. Quem converte percentual em reais e lê a
+     * natureza do catálogo é `baixar_transacao_pendente`, que detém o
+     * `FOR UPDATE` do título — fazer a conta antes abriria uma janela em que a
+     * base lida aqui não é a base travada lá.
+     */
+    const normalizacao = normalizarAjustes(body?.ajustes);
+    if (!normalizacao.ok) {
+      return NextResponse.json({ error: normalizacao.erro }, { status: 400 });
+    }
+    const ajustes = normalizacao.ajustes;
+
+    /*
+     * Lançar acréscimo é mexer no valor bruto, e é isso que a config
+     * `habilitar_edicao_transacoes` protege. Sem esta checagem a baixa viraria a
+     * porta dos fundos para alterar valores num sistema onde o dono desligou a
+     * edição. Baixa sem ajuste segue sem checar nada, como sempre foi.
+     */
+    if (ajustes.length > 0) {
+      const bloqueio = await respostaSeEdicaoBloqueada();
+      if (bloqueio) return bloqueio;
+    }
+
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPagamento)) {
       return NextResponse.json({ error: "Informe uma data de pagamento válida." }, { status: 400 });
     }
@@ -92,6 +119,24 @@ export async function POST(req: NextRequest, ctx: Params) {
      * diálogo, escolhendo a forma de pagamento na mesma lista.
      */
     if (metodoPagamento.toUpperCase() === "CREDITO CLIENTE") {
+      /*
+       * Recusa explícita, e não silêncio.
+       *
+       * O crédito do cliente vai para outra RPC, que não conhece `p_ajustes`.
+       * Sem esta parada os ajustes seriam descartados no desvio e a pessoa veria
+       * "baixado" com o juros que digitou não tendo sido cobrado — o pior
+       * resultado possível.
+       */
+      if (ajustes.length > 0) {
+        return NextResponse.json(
+          {
+            error:
+              "O crédito do cliente quita o título pelo valor que ele tem hoje. Lance o acréscimo ou o desconto no título antes de usar a carteira.",
+          },
+          { status: 400 },
+        );
+      }
+
       const { data, error } = await supabaseAdmin.rpc("baixar_com_credito_cliente", {
         p_transacao_id: id,
         p_pago_em: pagoEm.toISOString(),
@@ -132,6 +177,7 @@ export async function POST(req: NextRequest, ctx: Params) {
       p_baixado_por: (session?.user as any)?.id ?? null,
       p_valor: valor,
       p_valor_lancado: valorLancado,
+      p_ajustes: ajustes.length > 0 ? ajustes : null,
     });
 
     if (error) {

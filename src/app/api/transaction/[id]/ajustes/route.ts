@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireFinanceiroEdit, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
+import { normalizarAjustes } from "@/app/api/transaction/_lib/ajustes";
 import { sincronizarTaxaRecebimento } from "@/app/api/transaction/_lib/taxa";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -85,31 +86,14 @@ export async function POST(req: NextRequest, ctx: Params) {
     const id = parseId((await ctx.params).id);
     const body = await req.json().catch(() => ({}));
 
-    const tipoId = Number(body?.tipoId);
-    const modo = String(body?.modo ?? "").toUpperCase();
-    const valorInformado = Number(body?.valorInformado);
-
-    if (!Number.isSafeInteger(tipoId) || tipoId <= 0) {
-      return NextResponse.json({ error: "Informe o tipo do ajuste." }, { status: 400 });
-    }
-    if (modo !== "FIXO" && modo !== "PORCENTAGEM") {
+    const normalizacao = normalizarAjustes([body]);
+    if (!normalizacao.ok) {
       return NextResponse.json(
-        { error: "O modo deve ser FIXO ou PORCENTAGEM." },
+        { error: normalizacao.erro[0].toUpperCase() + normalizacao.erro.slice(1) },
         { status: 400 },
       );
     }
-    if (!Number.isFinite(valorInformado) || valorInformado <= 0) {
-      return NextResponse.json(
-        { error: "O valor do ajuste deve ser maior que zero." },
-        { status: 400 },
-      );
-    }
-    if (modo === "PORCENTAGEM" && valorInformado > 100) {
-      return NextResponse.json(
-        { error: "O percentual não pode passar de 100%." },
-        { status: 400 },
-      );
-    }
+    const { tipoId, modo, valorInformado } = normalizacao.ajustes[0];
 
     const transacao = await carregarTransacao(String(id));
     if (!transacao) {

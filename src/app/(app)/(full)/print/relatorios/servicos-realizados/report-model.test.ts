@@ -29,7 +29,7 @@ test("cada faixa de grupo leva os próprios totais para o papel", () => {
   const linhas = [linha(1), { ...linha(2), realizadorId: "bia", realizador: "Bia", percentualAtual: null }];
   const blocos = paginarServicos(linhas, "setor", [["Empresa", "Oficina"]]).flatMap(p => p.blocos);
   const setor = blocos.find(b => b.tipo === "grupo" && b.nivel === 0);
-  assert.equal(setor?.tipo === "grupo" && setor.rotulo, "Setor");
+  assert.equal(setor?.tipo === "grupo" && setor.rotulo, "Setor da OS");
   // O setor soma os dois serviços; cada realizador responde apenas pelo seu.
   assert.deepEqual(setor?.tipo === "grupo" && setor.totais, { servicos: 2, valor: 200, base: 100, comissao: 10 });
   const realizadores = blocos.filter(b => b.tipo === "grupo" && b.nivel === 1);
@@ -39,7 +39,7 @@ test("cada faixa de grupo leva os próprios totais para o papel", () => {
   const painel = blocos.find(b => b.tipo === "painel");
   assert.equal(painel?.tipo === "painel" && painel.participacoes, 2);
   assert.equal(painel?.tipo === "painel" && painel.realizadores, 2);
-  assert.equal(painel?.tipo === "painel" && painel.agrupamento, "Setor");
+  assert.equal(painel?.tipo === "painel" && painel.agrupamento, "Setor da OS");
 });
 test("filtros aplicados viram chips que cabem na largura da folha", () => {
   const paginas = paginarServicos([linha(1)], "realizador", [["Empresa", "Oficina"], ["Realizador", "Ana"], ["Status da OS", "Todos"], ["Cliente", "Transportadora Nordeste Ltda"]]);

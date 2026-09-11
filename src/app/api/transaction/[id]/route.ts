@@ -6,9 +6,9 @@ import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroDelete, requireFinanceiroEdit, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
-import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { paraCentavos } from "@/lib/financeiro/rateio";
-import { origemDaTransacao, rotuloDaOrigem, valorDeFace } from "@/lib/financeiro/transacao";
+import { origemDaTransacao, rotuloDaOrigem } from "@/lib/financeiro/transacao";
+import { excluirTransacao } from "../_lib/exclusao";
 import {
   aplicarCamposDocumento,
   CAMPOS_DOCUMENTO,
@@ -20,61 +20,8 @@ import {
   erroDeBandeira,
   resolverBandeira,
 } from "@/app/api/transaction/_lib/bandeira";
-import {
-  attachmentPathsForTransactions,
-  removeAttachmentObjects,
-} from "@/app/api/transaction/_lib/anexos";
 
 type Params = { params: Promise<{ id: string }> };
-
-function toCents(value: unknown) {
-  const number = Number(String(value ?? 0).replace(",", "."));
-  return Number.isFinite(number) ? Math.round(number * 100) : 0;
-}
-
-async function revalidarStatusOrdem(osId: number) {
-  const { error } = await supabaseAdmin.rpc("recalcular_status_financeiro_os", {
-    p_ordemservicoid: osId,
-  });
-  if (error) throw error;
-}
-
-async function revalidarStatusVenda(vendaId: number) {
-  const { data: venda, error } = await supabaseAdmin
-    .from("venda")
-    .select("id, valortotal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
-    .eq("id", vendaId)
-    .maybeSingle();
-  if (error || !venda) throw error ?? new Error("Venda não encontrada.");
-
-  const { data: pagamentos, error: pagamentosError } = await supabaseAdmin
-    .from("transacao")
-    .select("valor, valor_acrescimos")
-    .eq("vendaid", vendaId)
-    .eq("tipo", "RECEITA")
-    .eq("is_deleted", false);
-  if (pagamentosError) throw pagamentosError;
-
-  const totalDevido = toCents(calculateFinancialTotal(
-    venda.valortotal,
-    venda.acrescimo_financeiro_tipo,
-    venda.acrescimo_financeiro_valor,
-  ));
-  // Mesma regra da OS: acrescimo e do pagamento, nao do documento.
-  const totalPago = (pagamentos ?? []).reduce(
-    (total, pagamento) => total + toCents(valorDeFace(pagamento)),
-    0,
-  );
-  const status = String(venda.status ?? "").toUpperCase();
-
-  if (["CONCLUIDO", "FINALIZADA"].includes(status) && totalPago < totalDevido) {
-    const { error: updateError } = await supabaseAdmin
-      .from("venda")
-      .update({ status: "PAGAMENTO", updatedat: new Date().toISOString() })
-      .eq("id", vendaId);
-    if (updateError) throw updateError;
-  }
-}
 
 const TRANSACAO_FIELDS = `
   id, descricao, descricao_pagamento, valor, data, competencia_em, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id,
@@ -877,218 +824,30 @@ export async function DELETE(_: Request, ctx: Params) {
     await requireFinanceiroDelete();
     const id = await parseId(ctx);
 
-    const { data: transaction, error: transactionError } = await supabaseAdmin
-      .from("transacao")
-      .select("id, tipo, pendente, ordemservicoid, vendaid, evento_financeiro_id, lancamento_id, adiantamento_id, eh_adiantamento, transferencia_id")
-      .eq("id", id)
-      .maybeSingle();
-    if (transactionError) throw transactionError;
-    if (!transaction) {
-      return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+    // A sessão é lida uma vez e desce para a `_lib`. Antes cada ramo que
+    // precisava do autor chamava `auth()` por conta própria.
+    const sessao = await auth().catch(() => null);
+    const deletedBy = (sessao?.user as { id?: string } | undefined)?.id ?? null;
+
+    // `parseId` já garantiu que só dígitos chegam aqui.
+    const resultado = await excluirTransacao(Number(id), { deletedBy });
+
+    if (!resultado.ok) {
+      return NextResponse.json({ error: resultado.erro }, { status: resultado.status });
     }
 
-    /*
-     * Transferência entre contas: excluir uma perna exclui a operação inteira.
-     *
-     * Vem antes da trava de "liquidada" porque as duas pernas nascem liquidadas,
-     * e a trava mandaria tirar do fluxo de caixa primeiro — conselho que não se
-     * aplica aqui: não há baixa a desfazer, há uma transferência a cancelar.
-     *
-     * Meia exclusão seria pior que nenhuma: sobraria uma conta com o dinheiro
-     * saído e nenhuma com ele entrado. Por isso quem é apagado é o registro da
-     * operação, e a FK `ON DELETE CASCADE` leva as duas pernas junto, no mesmo
-     * comando.
-     */
-    if (transaction.transferencia_id != null) {
-      const { data: pernas } = await supabaseAdmin
-        .from("transacao")
-        .select("id")
-        .eq("transferencia_id", transaction.transferencia_id);
-
-      const ids = (pernas ?? []).map((p: { id: number }) => Number(p.id));
-      const attachmentPaths = await attachmentPathsForTransactions(
-        ids.length > 0 ? ids : [id],
-      );
-
-      const { error: transferenciaError } = await supabaseAdmin
-        .from("transacao_transferencia")
-        .delete()
-        .eq("id", transaction.transferencia_id);
-
-      if (transferenciaError) throw transferenciaError;
-
-      try {
-        await removeAttachmentObjects(attachmentPaths);
-      } catch (storageError) {
-        console.warn("Falha ao limpar anexos da transferência excluída", storageError);
-      }
-
-      return new NextResponse(null, { status: 204 });
+    // Cada efeito tem a sua resposta, e são as mesmas de sempre: é isso que
+    // garante que a tela não percebe a extração.
+    if (resultado.efeito === "LANCAMENTO") {
+      return NextResponse.json({ data: resultado.resumo });
     }
 
-    /*
-     * Boleto de despesas da OS: excluir uma parcela desfaz o lançamento inteiro.
-     *
-     * O boleto do terceirizado é um compromisso só. Tirar uma parcela dele
-     * deixaria as despesas de serviço quitadas por um valor que ninguém mais
-     * deve — e, se fosse a última, deixaria despesas marcadas como lançadas sem
-     * lançamento nenhum atrás delas.
-     *
-     * Vem antes da trava de "liquidada" de propósito. Aquela trava é por linha, e
-     * aqui a regra é do grupo: com uma parcela paga, nem as pendentes saem. Quem
-     * responde isso é `excluir_lancamento_de_eventos`, que também recusa quando a
-     * OS já foi finalizada.
-     */
-    if (transaction.lancamento_id != null) {
-      const { data: parcelas } = await supabaseAdmin
-        .from("transacao")
-        .select("id")
-        .eq("lancamento_id", transaction.lancamento_id);
-
-      const ids = (parcelas ?? []).map((p: { id: number }) => Number(p.id));
-      const attachmentPaths = await attachmentPathsForTransactions(
-        ids.length > 0 ? ids : [id],
-      );
-
-      const session = await auth().catch(() => null);
-      const deletedBy = (session?.user as { id?: string } | undefined)?.id ?? null;
-
-      const { data: resumo, error: lancamentoError } = await supabaseAdmin.rpc(
-        "excluir_lancamento_de_eventos",
-        { p_id: transaction.lancamento_id, p_deleted_by: deletedBy },
-      );
-
-      if (lancamentoError) {
-        const status =
-          lancamentoError.code === "P0001" ? 409 : lancamentoError.code === "P0002" ? 404 : 500;
-        return NextResponse.json({ error: lancamentoError.message }, { status });
-      }
-
-      try {
-        await removeAttachmentObjects(attachmentPaths);
-      } catch (storageError) {
-        console.warn("Falha ao limpar anexos do lançamento excluído", storageError);
-      }
-
-      return NextResponse.json({ data: resumo });
-    }
-
-    /*
-     * Título liquidado não se exclui.
-     *
-     * A exclusão apaga o título, não a baixa. Num lançamento de OS ou venda isso
-     * passava despercebido porque o documento regera o título; num avulso ou
-     * migrado, some a dívida junto com o pagamento — e o saldo do banco sobe
-     * sozinho, sem que nada tenha acontecido no mundo. Foi assim que a Demir
-     * perdeu um título a pagar de R$ 311,36 já quitado.
-     *
-     * Tirar do fluxo de caixa é o passo que faltava: desfeito o pagamento, o
-     * título volta a em aberto e aí já não há dinheiro para se perder junto.
-     *
-     * A antecipação é exceção porque ela não é baixa de si mesma: excluí-la é
-     * justamente a operação que devolve os títulos, logo abaixo.
-     */
-    if (transaction.pendente === false && !transaction.eh_adiantamento) {
-      return NextResponse.json(
-        {
-          error:
-            "Esta transação está liquidada e aparece no fluxo de caixa. Tire-a do fluxo primeiro: o título volta a ficar em aberto, e aí pode ser excluído.",
-        },
-        { status: 409 },
-      );
-    }
-
-    /*
-     * Antecipação trava a exclusão nas duas pontas.
-     *
-     * A FK `adiantamento_id` é RESTRICT, então excluir o lançamento da
-     * antecipação já falharia — só que com um erro cru de chave estrangeira, que
-     * não diz nada a quem está usando. E excluir uma das parcelas passaria, mas
-     * deixaria a antecipação cobrindo um valor que ninguém deve.
-     *
-     * Desfazer uma antecipação é outra operação, que ainda não existe. Até lá,
-     * recusar com o motivo é melhor que quebrar a conta em silêncio.
-     */
-    if (transaction.eh_adiantamento) {
-      const { count } = await supabaseAdmin
-        .from("transacao")
-        .select("id", { count: "exact", head: true })
-        .eq("adiantamento_id", id)
-        .eq("is_deleted", false);
-
-      if ((count ?? 0) > 0) {
-        // Excluir a antecipação e reabrir os títulos é uma coisa só: metade
-        // gravada deixaria título quitado sem origem, ou dinheiro no caixa sem
-        // contrapartida. Por isso a operação inteira vive no banco.
-        const sessao = await auth().catch(() => null);
-        const { data, error: desfazerError } = await supabaseAdmin.rpc(
-          "desfazer_adiantamento",
-          {
-            p_id: id,
-            p_deleted_by: (sessao?.user as { id?: string } | undefined)?.id ?? null,
-          },
-        );
-
-        if (desfazerError) {
-          const status = desfazerError.code === "P0002" ? 404 : 409;
-          return NextResponse.json({ error: desfazerError.message }, { status });
-        }
-
-        return NextResponse.json({
-          ok: true,
-          desfezAdiantamento: true,
-          titulosRevertidos: Number((data as any)?.titulos_revertidos ?? 0),
-        });
-      }
-    }
-
-    if (transaction.adiantamento_id != null) {
-      return NextResponse.json(
-        {
-          // "Liquidado" não vale para o modo que mantém os títulos em aberto: ali
-          // o título pode estar a receber, esperando o vencimento.
-          error: `Este título faz parte da antecipação #${transaction.adiantamento_id} e não pode ser excluído isoladamente.`,
-        },
-        { status: 409 },
-      );
-    }
-
-    const attachmentPaths = await attachmentPathsForTransactions([id]);
-
-    const { data, error } = await supabaseAdmin
-      .from("transacao")
-      .delete()
-      .eq("id", id)
-      .select("id");
-
-    if (error) throw error;
-
-    if (!data || data.length === 0) {
-      return NextResponse.json(
-        { error: "Transação não encontrada." },
-        { status: 404 }
-      );
-    }
-
-    const isPagamento = String(transaction.tipo ?? "").toUpperCase() === "RECEITA" &&
-      transaction.evento_financeiro_id == null;
-
-    if (isPagamento) {
-      if (transaction.ordemservicoid != null) {
-        await revalidarStatusOrdem(Number(transaction.ordemservicoid));
-      }
-      if (transaction.vendaid != null) {
-        await revalidarStatusVenda(Number(transaction.vendaid));
-      }
-    }
-
-    try {
-      await removeAttachmentObjects(attachmentPaths);
-    } catch (storageError) {
-      // A transação e os metadados já foram removidos. O bucket é privado;
-      // uma falha de limpeza vira log para reconciliação, não uma falsa falha
-      // da exclusão que acabou de ser concluída.
-      console.warn("Falha ao limpar anexos da transação excluída", storageError);
+    if (resultado.efeito === "ADIANTAMENTO_DESFEITO") {
+      return NextResponse.json({
+        ok: true,
+        desfezAdiantamento: true,
+        titulosRevertidos: resultado.titulosRevertidos,
+      });
     }
 
     return new NextResponse(null, { status: 204 });

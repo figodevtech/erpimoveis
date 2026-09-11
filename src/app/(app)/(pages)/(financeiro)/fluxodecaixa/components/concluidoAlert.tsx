@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 import axios, { isAxiosError } from "axios";
@@ -29,6 +30,7 @@ import {
 import {
   ehTituloAntecipado,
   saldoEmAberto,
+  totalDaBaixaComAjustes,
   valorLiquidoEfetivo,
 } from "@/lib/financeiro/transacao";
 import { toast } from "@/lib/toast";
@@ -41,6 +43,7 @@ import type { Banco, Transaction } from "../types";
 import { Metodo_pagamento } from "../types";
 import { PlanoContaCombobox } from "./plano-conta-combobox";
 import { SearchCombobox } from "./search-combobox";
+import { AjustesNaBaixa, type AjusteNaBaixa } from "./ajustes-na-baixa";
 
 interface ConcluidoAlertProps {
   isAlertOpen: boolean;
@@ -85,7 +88,10 @@ export default function ConcluidoAlert({
   const [dataPagamento, setDataPagamento] = useState("");
   const [lancarNoCaixa, setLancarNoCaixa] = useState(false);
   const [valorLancado, setValorLancado] = useState(0);
-  const [valorBaixa, setValorBaixa] = useState(0);
+  const [valorBaixaManual, setValorBaixa] = useState<number | null>(null);
+  const [ajustes, setAjustes] = useState<AjusteNaBaixa[]>([]);
+  const [rascunhoAjuste, setRascunhoAjuste] = useState(false);
+  const config = useConfig();
   /**
    * De quem é o título e quanto de crédito essa pessoa tem. Só é buscado quando
    * a forma escolhida é Crédito do cliente — nas demais não muda nada na tela.
@@ -109,7 +115,9 @@ export default function ConcluidoAlert({
     setLancarNoCaixa(false);
     // Nasce no saldo: baixar tudo é o que se faz quase sempre, e quem vai receber
     // menos edita o número.
-    setValorBaixa(saldoEmAberto(transaction));
+    setValorBaixa(null);
+    setAjustes([]);
+    setRascunhoAjuste(false);
     /*
      * O repasse nasce no juros, quando existe juros.
      *
@@ -208,7 +216,7 @@ export default function ConcluidoAlert({
    */
   useEffect(() => {
     if (ehCreditoCliente && transaction) {
-      setValorBaixa(saldoEmAberto(transaction));
+      setValorBaixa(null);
     }
   }, [ehCreditoCliente, transaction]);
 
@@ -224,7 +232,28 @@ export default function ConcluidoAlert({
    * que ainda não recebeu pagamento nenhum ele é o líquido inteiro, que era o
    * único número que existia aqui antes.
    */
-  const saldo = saldoEmAberto(transaction);
+  const saldoOriginal = saldoEmAberto(transaction);
+  const valorBase = Number(transaction?.valor_base ?? transaction?.valor ?? 0);
+  const projecao = totalDaBaixaComAjustes({
+    saldo: saldoOriginal, valorBase, ajustes,
+  });
+  const saldo = ehCreditoCliente ? saldoOriginal : projecao.total;
+  // Nulo acompanha o total projetado; digitação explícita preserva a parcial.
+  const valorBaixa = valorBaixaManual ?? saldo;
+  const bloqueioAjustes = antecipado
+    ? "Para títulos antecipados, lance os ajustes na edição da transação antes da baixa."
+    : ehCreditoCliente
+      ? "Para usar crédito do cliente, lance os ajustes na edição da transação antes da baixa. Remova os ajustes desta tela para continuar com a carteira."
+      : config?.habilitar_edicao_transacoes !== true
+        ? "A edição de valores está desabilitada nas configurações."
+        : null;
+  const erroAjustes = ajustes.length > 0 && bloqueioAjustes
+    ? bloqueioAjustes
+    : ajustes.length > 0 && projecao.total <= 0
+      ? "Os descontos devem deixar um saldo maior que zero para realizar a baixa."
+      : rascunhoAjuste
+        ? "Adicione o ajuste preenchido ou limpe o campo de valor antes de concluir."
+        : null;
   // O juros lançado no título: é o palpite certo de quanto o banco repassa quando
   // ele reteve o principal.
   const acrescimosDoTitulo = Math.max(Number(transaction?.valor_acrescimos ?? 0) || 0, 0);
@@ -247,6 +276,10 @@ export default function ConcluidoAlert({
 
   async function handleConfirmarPagamento() {
     if (!transaction || isSubmitting) return;
+    if (erroAjustes) {
+      toast.error(erroAjustes);
+      return;
+    }
 
     if (!selectedMetodo) {
       toast.error("Selecione o método de pagamento para concluir a transação.");
@@ -331,6 +364,7 @@ export default function ConcluidoAlert({
          * e a RPC dele nem aceita valor parcial.
          */
         valor: !ehCreditoCliente && (parcial || jaTemBaixas) ? valorBaixa : null,
+        ajustes: ajustes.map(({ tipoId, modo, valorInformado }) => ({ tipoId, modo, valorInformado })),
       });
 
       toast.success("Transação concluída com sucesso!");
@@ -351,10 +385,10 @@ export default function ConcluidoAlert({
 
   if (!transaction) return null;
 
-  const bruto = Number(transaction.valor ?? 0);
-  const liquido = valorLiquidoEfetivo(transaction);
-  const acrescimos = Number(transaction.valor_acrescimos ?? 0);
-  const descontos = Number(transaction.valor_descontos ?? 0);
+  const bruto = Number(transaction.valor ?? 0) + projecao.acrescimos;
+  const liquido = valorLiquidoEfetivo(transaction) + projecao.acrescimos - projecao.descontos;
+  const acrescimos = Number(transaction.valor_acrescimos ?? 0) + projecao.acrescimos;
+  const descontos = Number(transaction.valor_descontos ?? 0) + projecao.descontos;
   // Sem acréscimo nem desconto, bruto e líquido são o mesmo número: repetir os
   // dois seria ruído.
   const temComposicao =
@@ -406,14 +440,16 @@ export default function ConcluidoAlert({
             */}
             <div className="shrink-0 text-right">
               <p className="text-lg font-semibold text-primary">
-                {formatarEmReal(saldo < liquido ? saldo : liquido)}
+                {formatarEmReal(saldo)}
               </p>
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {antecipado && !lancarNoCaixa
+                {ajustes.length > 0
+                  ? "Saldo com ajustes"
+                  : antecipado && !lancarNoCaixa
                   ? "Valor do título"
                   : saldo < liquido
                     ? "Saldo em aberto"
-                    : "Entra na conta"}
+                    : transaction.tipo === "DESPESA" || transaction.tipo === "SAQUE" ? "Sai da conta" : "Entra na conta"}
               </p>
             </div>
           </div>
@@ -426,7 +462,7 @@ export default function ConcluidoAlert({
               </div>
               {acrescimos > 0 ? (
                 <div className="flex items-center justify-between text-muted-foreground">
-                  <span>Acréscimos inclusos</span>
+                  <span>Acréscimos{ajustes.length > 0 ? " (incluindo esta baixa)" : " inclusos"}</span>
                   <span className="tabular-nums text-emerald-600 dark:text-emerald-400">
                     + {formatarEmReal(acrescimos)}
                   </span>
@@ -459,6 +495,12 @@ export default function ConcluidoAlert({
             ) : null}
           </div>
         </section>
+
+        {isAlertOpen ? (
+          <AjustesNaBaixa key={transaction.id} base={valorBase} linhas={ajustes} onChange={setAjustes}
+            disabled={isSubmitting} bloqueio={bloqueioAjustes} onRascunhoChange={setRascunhoAjuste} />
+        ) : null}
+        {erroAjustes ? <p role="alert" className="text-sm text-destructive">{erroAjustes}</p> : null}
 
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 p-4 rounded-xl bg-card border">
           {/*
@@ -857,6 +899,7 @@ export default function ConcluidoAlert({
             onClick={handleConfirmarPagamento}
             disabled={
               isSubmitting ||
+              !!erroAjustes ||
               !dataPagamento ||
               // O carregamento e o erro de bancos só travam quem precisa de banco.
               (!ehCreditoCliente && (isLoadingBanks || !!bankLoadError)) ||

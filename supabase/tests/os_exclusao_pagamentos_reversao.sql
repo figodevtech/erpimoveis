@@ -8,7 +8,24 @@ DECLARE
   v_modelo public.transacao%ROWTYPE;
   v_status_destino text;
   v_restantes integer;
+  v_cols text;
 BEGIN
+  /*
+   * Coluna gerada nao se insere.
+   *
+   * `data_dia` (20260901220000) veio depois deste teste e passou a fazer parte
+   * do %ROWTYPE, quebrando os inserts com "cannot insert a non-DEFAULT value".
+   * A lista de colunas passa a ser explicita e o registro entra por
+   * `jsonb_populate_record` — o script continua sem conhecer o schema, e uma
+   * coluna gerada nova amanha tambem nao o quebra.
+   */
+  SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
+    INTO v_cols
+    FROM pg_attribute a
+   WHERE a.attrelid = 'public.transacao'::regclass
+     AND a.attnum > 0
+     AND NOT a.attisdropped
+     AND a.attgenerated = '';
   SELECT o.id INTO v_os
   FROM public.ordemservico o
   WHERE coalesce(o.is_deleted, false) = false
@@ -58,7 +75,10 @@ BEGIN
     v_modelo."valorLiquido" := 400;
     v_modelo.descricao := 'TESTE EXCLUSAO OS - recebido';
     v_modelo.data := now();
-    INSERT INTO public.transacao SELECT v_modelo.*;
+    EXECUTE format(
+      'INSERT INTO public.transacao (%s) SELECT %s FROM jsonb_populate_record(null::public.transacao, $1)',
+      v_cols, v_cols
+    ) USING to_jsonb(v_modelo);
 
     v_modelo.id := nextval(pg_get_serial_sequence('public.transacao', 'id'));
     v_modelo.pendente := true;
@@ -66,7 +86,10 @@ BEGIN
     v_modelo.valor_base := 600;
     v_modelo."valorLiquido" := 600;
     v_modelo.descricao := 'TESTE EXCLUSAO OS - titulo';
-    INSERT INTO public.transacao SELECT v_modelo.*;
+    EXECUTE format(
+      'INSERT INTO public.transacao (%s) SELECT %s FROM jsonb_populate_record(null::public.transacao, $1)',
+      v_cols, v_cols
+    ) USING to_jsonb(v_modelo);
 
     UPDATE public.ordemservico
        SET status = v_status_destino::public.enum_status_os

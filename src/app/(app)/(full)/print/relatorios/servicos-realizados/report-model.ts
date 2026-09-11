@@ -131,7 +131,7 @@ export type BlocoNota = { tipo: "nota"; chave: string; linhas: string[]; altura:
 export type BlocoRelatorio = BlocoGrupo | BlocoServico | BlocoPainel | BlocoFiltros | BlocoNota;
 export type PaginaServicos = { blocos: BlocoRelatorio[]; altura: number; periodo: string; eixo: string; cnpj: string; agrupamento: string };
 
-const ROTULO_GRUPO: Record<GrupoServicos["tipo"], string> = { realizador: "Realizador", setor: "Setor", criador: "Criador da OS" };
+const ROTULO_GRUPO: Record<GrupoServicos["tipo"], string> = { realizador: "Realizador", setor: "Setor da OS", setorRealizador: "Setor do realizador", criador: "Criador da OS" };
 
 function cabecalhoGrupo(grupo: GrupoServicos, nivel: number, pai = ""): BlocoGrupo {
   const nome = quebrarTexto(grupo.nome, EM_GRUPO);

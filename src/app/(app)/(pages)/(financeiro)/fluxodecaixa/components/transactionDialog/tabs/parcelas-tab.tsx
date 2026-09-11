@@ -19,7 +19,19 @@ import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 import { EstadoVazio, fmtDate, fmtDateTime } from "./shared";
 import { RateioEditor } from "./rateio-editor";
 import { ReparcelarEditor } from "./reparcelar-editor";
-import type { LancamentoRelacionado, ResumoRelacionadas, OrigemRelacionadas } from "./types";
+import type {
+  ClassificacaoDeReparcelamento,
+  LancamentoRelacionado,
+  ResumoRelacionadas,
+  OrigemRelacionadas,
+} from "./types";
+
+/** O que cada botão faz, dito de um jeito que o outro não caiba na frase. */
+const BLOQUEADO: ClassificacaoDeReparcelamento = {
+  modo: "BLOQUEADO",
+  motivo: null,
+  grupo: null,
+};
 
 function Indicador({
   label,
@@ -51,7 +63,7 @@ export function ParcelasTab({
   itens,
   resumo,
   transacaoAtualId,
-  parcelamentoId = null,
+  reparcelamento = BLOQUEADO,
   agrupamentoIncerto = false,
   editavel = false,
   onAjustado,
@@ -61,8 +73,8 @@ export function ParcelasTab({
   itens: LancamentoRelacionado[];
   resumo: ResumoRelacionadas;
   transacaoAtualId: number;
-  /** Grupo do parcelamento avulso. Sem ele não há o que reparcelar. */
-  parcelamentoId?: number | null;
+  /** Se dá para reparcelar esta linha, e se o total é livre. */
+  reparcelamento?: ClassificacaoDeReparcelamento;
   /** As irmãs vieram da heurística de descrição, não de um grupo no banco. */
   agrupamentoIncerto?: boolean;
   /** Libera o rateio. Reflete a permissão do usuário e a config do sistema. */
@@ -113,16 +125,21 @@ export function ParcelasTab({
   const podeAjustar = editavel && temDocumento && itensDoRateio.length > 0;
 
   /*
-   * Reparcelar exige grupo formal (`parcelamento_id`) e parcela em aberto.
+   * Reparcelar precisa de parcela em aberto e de um grupo em que dê para
+   * escrever.
    *
-   * Sem o grupo, o que a aba mostra é uma reconstrução por descrição e horário
-   * de criação — escrever em cima disso poderia reparcelar meio grupo. Sem
-   * pendente não há o que redividir: o que foi baixado é dinheiro que andou, e
-   * corrigir isso continua sendo excluir e lançar de novo.
+   * Quem responde as duas coisas é `modoDeReparcelamento`, no servidor: com
+   * documento o grupo é a própria OS ou venda, sem documento é o
+   * `parcelamento_id`. Grupo reconstruído por descrição continua fora — ele vem
+   * como BLOQUEADO, que é o que o aviso de `agrupamentoIncerto` já explicava.
+   *
+   * Sem pendente não há o que redividir: o que foi baixado é dinheiro que andou,
+   * e corrigir isso continua sendo excluir e lançar de novo.
    */
   const temPendente = itens.some((item) => item.pendente);
   const podeReparcelar =
-    editavel && origem === "PARCELAMENTO" && parcelamentoId != null && temPendente;
+    editavel && temPendente && reparcelamento.modo !== "BLOQUEADO";
+  const totalTravado = reparcelamento.modo === "VINCULADO";
 
   if (modoReparcelar && podeReparcelar) {
     return (
@@ -130,13 +147,16 @@ export function ParcelasTab({
         <div>
           <p className="text-sm font-semibold">Reparcelar</p>
           <p className="text-xs text-muted-foreground">
-            Quantidade, valores e vencimentos do que ainda está em aberto.
+            {totalTravado
+              ? "Quantidade e vencimentos do que ainda está em aberto. O total continua o mesmo."
+              : "Quantidade, valores e vencimentos do que ainda está em aberto."}
           </p>
         </div>
 
         <ReparcelarEditor
           itens={itens}
           transacaoAtualId={transacaoAtualId}
+          totalTravado={totalTravado}
           onCancelar={() => setModoReparcelar(false)}
           onSalvo={() => {
             setModoReparcelar(false);
@@ -199,6 +219,7 @@ export function ParcelasTab({
             size="sm"
             className="h-8"
             onClick={() => setModoAjuste(true)}
+            title="Redistribui o valor entre os pagamentos que já existem, inclusive os baixados. Não muda quantidade nem datas."
           >
             <SlidersHorizontal className="h-3.5 w-3.5" />
             Ajustar valores
@@ -212,6 +233,11 @@ export function ParcelasTab({
             size="sm"
             className="h-8"
             onClick={() => setModoReparcelar(true)}
+            title={
+              totalTravado
+                ? "Muda em quantas vezes e para quando o que ainda está em aberto. O total do documento não muda."
+                : "Muda o total, a quantidade e os vencimentos do que ainda está em aberto."
+            }
           >
             <CalendarClock className="h-3.5 w-3.5" />
             Reparcelar

@@ -3,7 +3,13 @@ import { resolverTextosServico } from "@/lib/meu-perfil/regras";
 import { resolveOrdemCustomer } from "@/lib/ordens/customer-snapshot";
 
 export const CAMPOS_DATA = { entrada: "Entrada da OS", conclusao: "Conclusão da execução da OS", servico: "Término individual do serviço" } as const;
-export const AGRUPAMENTOS = { realizador: "Realizador", setor: "Setor", criador: "Criador da OS" } as const;
+/**
+ * Dois setores convivem no relatório e não são a mesma coisa: o da OS diz onde
+ * o trabalho foi aberto; o do realizador, a que setor a pessoa pertence no
+ * cadastro. Numa OS de mecânica atendida por alguém da elétrica, os dois
+ * agrupamentos põem o mesmo serviço em setores diferentes.
+ */
+export const AGRUPAMENTOS = { realizador: "Realizador", setor: "Setor da OS", setorRealizador: "Setor do realizador", criador: "Criador da OS" } as const;
 export const SITUACOES = { PENDENTE: "Pendente", EM_EXECUCAO: "Em execução", FINALIZADO: "Finalizado" } as const;
 export type FiltrosServicos = {
   dateFrom: string; dateTo: string; campoData: keyof typeof CAMPOS_DATA;
@@ -64,6 +70,7 @@ export function duracaoTexto(segundos: number | null) {
 
 export type LinhaServico = {
   ordemId: number; servicoId: number; realizadorId: string; realizador: string; percentualAtual: number | null;
+  setorRealizadorId: string; setorRealizador: string;
   setorId: string; setor: string; criadorId: string; criador: string; atribuidoPor: string;
   statusOS: string; cliente: string; descricao: string; complemento: string; quantidade: number;
   valorServico: number; baseComissao: number; percentualAplicado: number; comissao: number;
@@ -71,11 +78,12 @@ export type LinhaServico = {
 };
 export function normalizarServico(raw: unknown, campoData: FiltrosServicos["campoData"]): LinhaServico {
   const r = objeto(raw), item = objeto(r.item), os = objeto(item.ordem), servico = objeto(item.servico);
-  const usuario = objeto(r.usuario), setor = objeto(os.setor), criador = objeto(os.criador);
+  const usuario = objeto(r.usuario), setor = objeto(os.setor), criador = objeto(os.criador), setorRealizador = objeto(usuario.setor);
   const cliente = resolveOrdemCustomer(os.cliente ? objeto(os.cliente) : null, os.cliente_snapshot);
   const textos = resolverTextosServico(servico.descricao, item.descricao, `Serviço #${r.servicoid}`);
   return { ordemId: numero(r.ordemservicoid), servicoId: numero(r.servicoid), realizadorId: texto(r.usuarioid),
     realizador: texto(usuario.nome) || "Usuário não identificado", percentualAtual: usuario.comissao_percent == null ? null : numero(usuario.comissao_percent),
+    setorRealizadorId: texto(usuario.setorid), setorRealizador: texto(setorRealizador.nome) || "Sem setor",
     setorId: texto(os.setorid), setor: texto(setor.nome) || "Sem setor", criadorId: texto(os.usuariocriadorid), criador: texto(criador.nome) || "Criador não identificado", atribuidoPor: "Não identificado",
     statusOS: texto(os.status), cliente: texto(cliente?.nomerazaosocial) || "Sem cliente", descricao: textos.descricao, complemento: textos.subdescricao ?? "",
     quantidade: numero(item.quantidade), valorServico: numero(item.subtotal), baseComissao: numero(r.valor_base),
@@ -115,18 +123,28 @@ export function somarServicos(linhas: LinhaServico[]): TotaisServicos {
   }
   return { servicos: vistos.size, valor: valor / 100, base: base / 100, comissao: comissao / 100 };
 }
-export type GrupoServicos = { id: string; nome: string; tipo: "realizador" | "setor" | "criador"; percentualAtual: number | null; totais: TotaisServicos; linhas: LinhaServico[]; filhos: GrupoServicos[] };
+export type GrupoServicos = { id: string; nome: string; tipo: keyof typeof AGRUPAMENTOS; percentualAtual: number | null; totais: TotaisServicos; linhas: LinhaServico[]; filhos: GrupoServicos[] };
+/** De onde cada agrupamento tira o identificador e o nome do grupo. */
+const CAMPOS_DO_GRUPO = {
+  realizador: { id: "realizadorId", nome: "realizador" },
+  setor: { id: "setorId", nome: "setor" },
+  setorRealizador: { id: "setorRealizadorId", nome: "setorRealizador" },
+  criador: { id: "criadorId", nome: "criador" },
+} as const satisfies Record<keyof typeof AGRUPAMENTOS, { id: keyof LinhaServico; nome: keyof LinhaServico }>;
 const comparar = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivity: "base", numeric: true });
 export function agruparServicos(linhas: LinhaServico[], por: FiltrosServicos["agruparPor"]): GrupoServicos[] {
+  const campos = CAMPOS_DO_GRUPO[por];
   const mapa = new Map<string, LinhaServico[]>();
   for (const l of linhas) {
-    const id = por === "realizador" ? l.realizadorId : por === "setor" ? l.setorId : l.criadorId;
+    const id = texto(l[campos.id]);
     const lista = mapa.get(id) ?? []; lista.push(l); mapa.set(id, lista);
   }
   return [...mapa].map(([id, lista]) => {
     lista.sort((a, b) => (a.dataReferencia ? Date.parse(a.dataReferencia) : Infinity) - (b.dataReferencia ? Date.parse(b.dataReferencia) : Infinity) || a.ordemId - b.ordemId || a.servicoId - b.servicoId || comparar(a.realizadorId, b.realizadorId));
     const l = lista[0];
-    return { id, nome: por === "realizador" ? l.realizador : por === "setor" ? l.setor : l.criador, tipo: por, percentualAtual: por === "realizador" ? l.percentualAtual : null,
+    // Só o agrupamento por realizador é folha; os outros abrem em realizadores,
+    // que é onde a comissão de fato se fecha.
+    return { id, nome: texto(l[campos.nome]), tipo: por, percentualAtual: por === "realizador" ? l.percentualAtual : null,
       totais: somarServicos(lista), linhas: lista, filhos: por === "realizador" ? [] : agruparServicos(lista, "realizador") };
   }).sort((a, b) => comparar(a.nome, b.nome) || comparar(a.id, b.id));
 }

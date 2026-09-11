@@ -8,6 +8,7 @@ import { criarWorkbookServicos, lerWorkbookServicos } from "./servicos-realizado
 const uid = "00000000-0000-4000-8000-000000000001";
 function linha(override: Partial<LinhaServico> = {}): LinhaServico {
   return { ordemId: 1, servicoId: 10, realizadorId: uid, realizador: "Ana", percentualAtual: 15,
+    setorRealizadorId: "9", setorRealizador: "Elétrica",
     setorId: "1", setor: "Mecânica", criadorId: "criador-1", criador: "Carlos", atribuidoPor: "Bruno",
     statusOS: "PAGAMENTO", cliente: "Cliente", descricao: "Troca de óleo", complemento: "Motor quente", quantidade: 2,
     valorServico: 1000, baseComissao: 450, percentualAplicado: 10, comissao: 45,
@@ -51,6 +52,7 @@ test("normalização usa comissão histórica, setor e criador da OS e cliente m
       ordem: { status: "ORCAMENTO", setorid: 8, setor: { nome: "Setor da OS" }, usuariocriadorid: "original", criador: { nome: "Criador" }, cliente_snapshot: { nome: "Cliente migrado" }, dataentrada: "2026-09-10T12:00:00Z" } }] }, "entrada");
   assert.equal(l.comissao, 12); assert.equal(l.percentualAplicado, 10); assert.equal(l.percentualAtual, 25);
   assert.equal(l.setor, "Setor da OS"); assert.equal(l.criadorId, "original"); assert.equal(l.cliente, "Cliente migrado");
+  assert.equal(l.setorRealizador, "Setor do usuário"); assert.equal(l.setorRealizadorId, "");
   assert.equal(l.complemento, "Complemento"); assert.equal(l.atribuidoPor, "Não identificado");
   assert.equal(normalizarServico({ comissao_percent_aplicada: 8 }, "entrada").percentualAplicado, 8);
   assert.equal(normalizarServico({ comissao_percent_efetiva: 0, comissao_percent_aplicada: 8 }, "entrada").percentualAplicado, 0);
@@ -70,6 +72,28 @@ test("agrupa por identidade e ordena realizadores, datas e OS de forma estável"
   assert.deepEqual(agruparServicos(linhas, "realizador")[0].linhas.map(l => l.ordemId), [1, 2, 3]);
   assert.equal(agruparServicos(linhas, "criador")[0].filhos.length, 2);
   assert.equal(agruparServicos(linhas, "setor").length, 2);
+});
+test("setor do realizador agrupa pela lotação de quem executou, não pelo setor da OS", () => {
+  // Mesma OS de mecânica, dois realizadores de setores diferentes no cadastro.
+  const eletricista = linha({ realizadorId: "b", realizador: "Bia", setorRealizadorId: "9", setorRealizador: "Elétrica" });
+  const mecanico = linha({ realizadorId: "c", realizador: "Caio", setorRealizadorId: "3", setorRealizador: "Mecânica pesada" });
+  const porSetorDaOs = agruparServicos([eletricista, mecanico], "setor");
+  const porSetorDoRealizador = agruparServicos([eletricista, mecanico], "setorRealizador");
+  assert.equal(porSetorDaOs.length, 1);
+  assert.deepEqual(porSetorDoRealizador.map(g => g.nome), ["Elétrica", "Mecânica pesada"]);
+  assert.deepEqual(porSetorDoRealizador.map(g => g.tipo), ["setorRealizador", "setorRealizador"]);
+  // Cada grupo abre em realizadores, como setor da OS e criador.
+  assert.deepEqual(porSetorDoRealizador.map(g => g.filhos.map(f => f.nome)), [["Bia"], ["Caio"]]);
+  assert.equal(porSetorDoRealizador[0].percentualAtual, null);
+  // O inverso também vale: OSs de setores distintos caem no mesmo grupo quando
+  // quem executou é da mesma lotação.
+  const outraOs = linha({ ordemId: 2, realizadorId: "b", realizador: "Bia", setorId: "7", setor: "Funilaria", setorRealizadorId: "9", setorRealizador: "Elétrica" });
+  assert.equal(agruparServicos([eletricista, outraOs], "setorRealizador").length, 1);
+  assert.equal(agruparServicos([eletricista, outraOs], "setor").length, 2);
+  // Sem lotação cadastrada o grupo existe e se identifica.
+  const semSetor = linha({ realizadorId: "d", realizador: "Duda", setorRealizadorId: "", setorRealizador: "Sem setor" });
+  assert.equal(agruparServicos([semSetor], "setorRealizador")[0].nome, "Sem setor");
+  assert.equal(lerFiltrosServicos(new URLSearchParams("agruparPor=setorRealizador")).agruparPor, "setorRealizador");
 });
 function evento(id: number, operacao: string, nome: string | null = "Autor"): EventoAtribuicao {
   const r = { ordemservicoid: 1, servicoid: 10, usuarioid: uid, createdat: "2026-09-01T12:00:00Z" };
@@ -97,7 +121,7 @@ test("tempo usa somente apontamentos individuais válidos, inclusive acima de 24
 });
 test("PDF relê Excel sem perder comissões, zeros, identidades, ordenação ou milissegundos", () => {
   const linhas = [linha(), linha({ realizadorId: "b", realizador: "Bia", percentualAtual: null, comissao: 0, inicio: "", fim: "", dataReferencia: "" })];
-  for (const por of ["setor", "realizador", "criador"] as const) {
+  for (const por of ["setor", "setorRealizador", "realizador", "criador"] as const) {
     const wb = criarWorkbookServicos(linhas, por, [["Empresa", "Oficina"], ["Status da OS", "Todos"]]);
     const leitura = lerWorkbookServicos(XLSX.write(wb, { type: "array", bookType: "xlsx" }));
     assert.equal(leitura.por, por); assert.deepEqual(leitura.linhas, linhasOrdenadas(agruparServicos(linhas, por)));

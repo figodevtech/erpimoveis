@@ -7,7 +7,7 @@ import { autoresDasAtribuicoes, chaveVinculo, normalizarServico, objeto, texto, 
 export const SELECT_SERVICOS: string = `ordemservicoid, servicoid, usuarioid, createdat,
   valor_base, valor_comissao, comissao_percent_aplicada, comissao_percent_efetiva,
   status_execucao, iniciado_em, finalizado_em,
-  usuario:usuarioid (nome, comissao_percent),
+  usuario:usuarioid (nome, comissao_percent, setorid, setor:setorid (nome)),
   item:osservico!inner (
     descricao, quantidade, subtotal, servico:servicoid (codigo, descricao),
     ordem:ordemservicoid!inner (
