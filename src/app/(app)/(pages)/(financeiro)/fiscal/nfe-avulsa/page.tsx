@@ -4011,6 +4011,125 @@ function EntregaStep({
     }));
   };
 
+  const isEntregaJuridica = draft.entrega.tipoPessoa === "JURIDICA";
+  const [buscandoCnpjEntrega, setBuscandoCnpjEntrega] = React.useState(false);
+  const [buscandoCepEntrega, setBuscandoCepEntrega] = React.useState(false);
+  const ultimoCnpjEntrega = React.useRef("");
+  const ultimoCepEntrega = React.useRef("");
+
+  /**
+   * Preenche a pessoa e o endereco de retirada a partir do CNPJ digitado.
+   * Vale so para pessoa juridica: no CPF nao existe consulta publica
+   * equivalente. Nada aqui toca o destinatario fiscal do `<dest>`.
+   */
+  async function buscarCnpjEntrega(documento?: string) {
+    const cnpj = onlyDigits(documento ?? draft.entrega.cpfCnpj);
+    if (!isValidCnpj(cnpj)) {
+      toast.error("Informe um CNPJ válido para consultar.");
+      return;
+    }
+
+    ultimoCnpjEntrega.current = cnpj;
+    setBuscandoCnpjEntrega(true);
+    try {
+      const response = await fetch(`https://publica.cnpj.ws/cnpj/${cnpj}`, { cache: "no-store" });
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error("Muitas consultas em sequência. Aguarde um pouco e tente de novo.");
+        }
+        if (response.status === 400 || response.status === 404) {
+          throw new Error("CNPJ não encontrado. Confira o número informado.");
+        }
+        throw new Error("Não foi possível consultar os dados do CNPJ.");
+      }
+
+      const empresaConsultada = await response.json();
+      const estabelecimento = empresaConsultada?.estabelecimento;
+      const uf = String(estabelecimento?.estado?.sigla ?? "").trim().toUpperCase();
+      const cidade = String(estabelecimento?.cidade?.nome ?? "").trim();
+      const codigoMunicipio = onlyDigits(estabelecimento?.cidade?.ibge_id).slice(0, 7);
+      if (!empresaConsultada?.razao_social || !estabelecimento || !uf || !cidade || !codigoMunicipio) {
+        throw new Error("A consulta não retornou dados cadastrais suficientes.");
+      }
+
+      const cep = onlyDigits(estabelecimento.cep).slice(0, 8);
+      ultimoCepEntrega.current = cep;
+      updateEntrega({
+        tipoPessoa: "JURIDICA",
+        cpfCnpj: cnpj,
+        nome: String(empresaConsultada.razao_social ?? "").trim(),
+        endereco: String(estabelecimento.logradouro ?? "").trim(),
+        numero: String(estabelecimento.numero ?? "").trim(),
+        complemento: String(estabelecimento.complemento ?? "").trim(),
+        bairro: String(estabelecimento.bairro ?? "").trim(),
+        cidade,
+        estado: uf,
+        cep,
+        codigoMunicipio,
+      });
+      toast.success("Dados do CNPJ preenchidos no local de entrega/retirada.");
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao consultar o CNPJ.");
+    } finally {
+      setBuscandoCnpjEntrega(false);
+    }
+  }
+
+  /**
+   * Preenche o endereco a partir do CEP, valendo para CPF e CNPJ: o local de
+   * retirada e do endereco, nao da pessoa. Numero e complemento ficam de fora
+   * porque o CEP nao os informa e limpa-los apagaria o que ja foi digitado.
+   */
+  async function buscarCepEntrega(valor?: string) {
+    const cep = onlyDigits(valor ?? draft.entrega.cep).slice(0, 8);
+    if (cep.length !== 8) {
+      toast.error("Informe um CEP com 8 dígitos para consultar.");
+      return;
+    }
+
+    ultimoCepEntrega.current = cep;
+    setBuscandoCepEntrega(true);
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error("Não foi possível consultar o CEP.");
+      }
+
+      // O ViaCEP responde 200 com `erro` quando o CEP nao existe.
+      const consulta = await response.json();
+      if (consulta?.erro) {
+        throw new Error("CEP não encontrado. Confira o número informado.");
+      }
+
+      const uf = String(consulta?.uf ?? "").trim().toUpperCase();
+      const cidade = String(consulta?.localidade ?? "").trim();
+      if (!uf || !cidade) {
+        throw new Error("A consulta não retornou endereço suficiente.");
+      }
+
+      // CEP geral de cidade vem sem logradouro/bairro: nesse caso o que ja
+      // estava digitado continua valendo.
+      const logradouro = String(consulta?.logradouro ?? "").trim();
+      const bairro = String(consulta?.bairro ?? "").trim();
+      const codigoMunicipio = onlyDigits(consulta?.ibge).slice(0, 7);
+      updateEntrega({
+        cep,
+        endereco: logradouro || draft.entrega.endereco,
+        bairro: bairro || draft.entrega.bairro,
+        cidade,
+        estado: uf,
+        codigoMunicipio: codigoMunicipio || draft.entrega.codigoMunicipio,
+      });
+      toast.success("Endereço do CEP preenchido.", {
+        description: "Confira o número e o complemento — o CEP não informa esses campos.",
+      });
+    } catch (error: any) {
+      toast.error(error?.message || "Erro ao consultar o CEP.");
+    } finally {
+      setBuscandoCepEntrega(false);
+    }
+  }
+
   const usarEnderecoDestinatario = () => {
     updateEntrega({
       nome: draft.destinatario.nomeRazaoSocial,
@@ -4071,12 +4190,57 @@ function EntregaStep({
                   </SelectContent>
                 </Select>
               </Field>
-              <Field label={draft.entrega.tipoPessoa === "FISICA" ? "CPF" : "CNPJ"} required>
-                <Input
-                  value={draft.entrega.cpfCnpj}
-                  onChange={(event) => updateEntrega({ cpfCnpj: onlyDigits(event.target.value) })}
-                  maxLength={14}
-                />
+              <Field label={isEntregaJuridica ? "CNPJ" : "CPF"} required>
+                <div className="relative">
+                  <Input
+                    inputMode="numeric"
+                    className={isEntregaJuridica ? "pr-10" : undefined}
+                    value={draft.entrega.cpfCnpj}
+                    maxLength={isEntregaJuridica ? 14 : 11}
+                    onChange={(event) => {
+                      const documento = onlyDigits(event.target.value).slice(
+                        0,
+                        isEntregaJuridica ? 14 : 11,
+                      );
+                      updateEntrega({ cpfCnpj: documento });
+                      // Mesmo comportamento do destinatario: fechou um CNPJ
+                      // valido, consulta na hora sem esperar a lupa.
+                      if (
+                        isEntregaJuridica &&
+                        documento.length === 14 &&
+                        isValidCnpj(documento) &&
+                        documento !== ultimoCnpjEntrega.current &&
+                        !buscandoCnpjEntrega
+                      ) {
+                        void buscarCnpjEntrega(documento);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && isEntregaJuridica) {
+                        event.preventDefault();
+                        void buscarCnpjEntrega();
+                      }
+                    }}
+                  />
+                  {isEntregaJuridica ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-9 w-9"
+                      disabled={buscandoCnpjEntrega}
+                      onClick={() => void buscarCnpjEntrega()}
+                      aria-label="Consultar CNPJ"
+                      title="Consultar CNPJ na Receita"
+                    >
+                      {buscandoCnpjEntrega ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Search className="h-4 w-4" />
+                      )}
+                    </Button>
+                  ) : null}
+                </div>
               </Field>
               <Field label="Nome" required>
                 <Input
@@ -4130,10 +4294,48 @@ function EntregaStep({
                 />
               </Field>
               <Field label="CEP">
-                <Input
-                  value={draft.entrega.cep}
-                  onChange={(event) => updateEntrega({ cep: onlyDigits(event.target.value) })}
-                />
+                <div className="relative">
+                  <Input
+                    inputMode="numeric"
+                    className="pr-10"
+                    value={draft.entrega.cep}
+                    maxLength={8}
+                    onChange={(event) => {
+                      const cep = onlyDigits(event.target.value).slice(0, 8);
+                      updateEntrega({ cep });
+                      // Independe de CPF ou CNPJ: quem manda aqui e o endereco.
+                      if (
+                        cep.length === 8 &&
+                        cep !== ultimoCepEntrega.current &&
+                        !buscandoCepEntrega
+                      ) {
+                        void buscarCepEntrega(cep);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void buscarCepEntrega();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-9 w-9"
+                    disabled={buscandoCepEntrega}
+                    onClick={() => void buscarCepEntrega()}
+                    aria-label="Consultar CEP"
+                    title="Buscar endereço pelo CEP"
+                  >
+                    {buscandoCepEntrega ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
               </Field>
               <Field label="Código IBGE do município" required>
                 <Input
