@@ -22,18 +22,19 @@ type LogResponse = {
   error?: string;
 };
 
-const PROJECTS: Project[] = [
-  {
-    name: "Alpha Garage",
-    ref: "mbiztfbgsctkuutaldph",
-    topicEnv: "TELEGRAM_TOPIC_ALPHA",
-  },
-  {
-    name: "Demir Diesel",
-    ref: "lkpwaiynvnfedvxcjmrp",
-    topicEnv: "TELEGRAM_TOPIC_DEMIR",
-  },
-];
+function configuredProjects(): Project[] {
+  const raw = Deno.env.get("ERP_MONITOR_PROJECTS")?.trim();
+  if (!raw) return [];
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) throw new Error("ERP_MONITOR_PROJECTS deve ser um array JSON.");
+  return parsed.map((item) => {
+    const candidate = item as Partial<Project>;
+    if (!candidate.name?.trim() || !/^[a-z]{20}$/.test(candidate.ref ?? "") || !candidate.topicEnv?.trim()) {
+      throw new Error("Projeto inválido em ERP_MONITOR_PROJECTS.");
+    }
+    return { name: candidate.name.trim(), ref: candidate.ref!, topicEnv: candidate.topicEnv.trim() };
+  });
+}
 
 const QUERIES = {
   clickhouse: {
@@ -213,7 +214,7 @@ Deno.serve(async (request: Request) => {
     const { start, end } = windowFor();
     const results: Record<string, string> = {};
 
-    for (const project of PROJECTS) {
+    for (const project of configuredProjects()) {
       try {
         const [edge, postgres] = await Promise.all([
           queryLogs(supabaseToken, project.ref, "edge", start, end),
