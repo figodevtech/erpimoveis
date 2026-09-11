@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   chatRealtimeAccessToken,
   clearChatRealtimeToken,
+  ensureChatRealtimeCredentials,
   setChatRealtimeTokenSource,
   storeChatRealtimeToken,
 } from "./realtime-token";
@@ -82,5 +83,19 @@ test("joins simultaneos compartilham uma unica busca de token", async () => {
   ]);
 
   assert.deepEqual(resultados, ["compartilhado", "compartilhado", "compartilhado"]);
+  assert.equal(espiao.chamadas, 1);
+});
+
+test("canais diferentes compartilham a credencial explicita em cache", async () => {
+  clearChatRealtimeToken();
+  const espiao = fonte(["compartilhado"]);
+
+  const [chat, notificacoes] = await Promise.all([
+    ensureChatRealtimeCredentials(espiao.source, AGORA),
+    ensureChatRealtimeCredentials(espiao.source, AGORA),
+  ]);
+
+  assert.equal(chat.token, "compartilhado");
+  assert.equal(notificacoes.token, "compartilhado");
   assert.equal(espiao.chamadas, 1);
 });

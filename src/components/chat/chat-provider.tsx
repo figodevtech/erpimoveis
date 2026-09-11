@@ -8,8 +8,8 @@ import type { ChatPushStatus, ChatRealtimeEvent, ConversationSummary } from "@/l
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import {
   clearChatRealtimeToken,
+  ensureChatRealtimeCredentials,
   setChatRealtimeTokenSource,
-  storeChatRealtimeToken,
 } from "@/lib/chat/realtime-token";
 import type { ChatPushSupport } from "@/lib/chat/push-client";
 import {
@@ -320,9 +320,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         return true;
       }
       if (STATUS_DE_QUEDA.includes(status)) {
-        if (atualizaAviso) setRealtimeStatus("disconnected");
-        else setOnlineIds(new Set());
-        scheduleReconnect();
+        if (atualizaAviso) {
+          setRealtimeStatus("disconnected");
+          scheduleReconnect();
+        } else {
+          // Presença é complementar. Se ela não estiver autorizada ou oscilar,
+          // as mensagens continuam operacionais; reiniciar os dois canais aqui
+          // criava um ciclo de token + unread-count a cada poucos segundos.
+          setOnlineIds(new Set());
+        }
       }
       return false;
     };
@@ -340,9 +346,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setRealtimeStatus("connecting");
 
       try {
-        const credentials = await fetchRealtimeToken();
+        const credentials = await ensureChatRealtimeCredentials(fetchRealtimeToken);
         if (!ativa()) return;
-        storeChatRealtimeToken(credentials);
         await supabaseBrowser.realtime.setAuth(credentials.token);
         if (!ativa()) return;
 

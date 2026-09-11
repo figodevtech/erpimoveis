@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fetchRealtimeToken } from "@/components/chat/chat-api";
-import { storeChatRealtimeToken } from "@/lib/chat/realtime-token";
+import { ensureChatRealtimeCredentials } from "@/lib/chat/realtime-token";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +31,10 @@ type SystemNotification = {
 };
 
 type NotificationResponse = { notifications: SystemNotification[]; unreadCount: number };
-const POLL_INTERVAL_MS = 30_000;
+const FALLBACK_POLL_INTERVAL_MS = 2 * 60_000;
+const REALTIME_RECONCILIATION_INTERVAL_MS = 15 * 60_000;
+const VISIBILITY_REVALIDATION_INTERVAL_MS = 2 * 60_000;
+const POLL_TICK_INTERVAL_MS = 60_000;
 const MAX_RETRY_INTERVAL_MS = 5 * 60_000;
 
 export function NotificationCenter() {
@@ -47,6 +50,8 @@ export function NotificationCenter() {
   const knownNotificationIdsRef = React.useRef<Set<string>>(new Set());
   const failedLoadsRef = React.useRef(0);
   const retryAfterRef = React.useRef(0);
+  const lastSuccessfulLoadRef = React.useRef(0);
+  const realtimeConnectedRef = React.useRef(false);
 
   const load = React.useCallback(async (signal?: AbortSignal, force = false) => {
     if (!force && Date.now() < retryAfterRef.current) return;
@@ -60,11 +65,12 @@ export function NotificationCenter() {
       setUnreadCount(Math.max(Number(data.unreadCount ?? 0), 0));
       failedLoadsRef.current = 0;
       retryAfterRef.current = 0;
+      lastSuccessfulLoadRef.current = Date.now();
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         failedLoadsRef.current += 1;
         const retryIn = Math.min(
-          POLL_INTERVAL_MS * (2 ** Math.max(failedLoadsRef.current - 1, 0)),
+          FALLBACK_POLL_INTERVAL_MS * (2 ** Math.max(failedLoadsRef.current - 1, 0)),
           MAX_RETRY_INTERVAL_MS,
         );
         retryAfterRef.current = Date.now() + retryIn;
@@ -79,10 +85,17 @@ export function NotificationCenter() {
     const controller = new AbortController();
     void load(controller.signal);
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, POLL_INTERVAL_MS);
+      if (document.visibilityState !== "visible") return;
+      const interval = realtimeConnectedRef.current
+        ? REALTIME_RECONCILIATION_INTERVAL_MS
+        : FALLBACK_POLL_INTERVAL_MS;
+      if (Date.now() - lastSuccessfulLoadRef.current >= interval) void load();
+    }, POLL_TICK_INTERVAL_MS);
     const onVisible = () => {
-      if (document.visibilityState === "visible") void load();
+      if (
+        document.visibilityState === "visible"
+        && Date.now() - lastSuccessfulLoadRef.current >= VISIBILITY_REVALIDATION_INTERVAL_MS
+      ) void load();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -98,9 +111,8 @@ export function NotificationCenter() {
 
     const connect = async () => {
       try {
-        const credentials = await fetchRealtimeToken();
+        const credentials = await ensureChatRealtimeCredentials(fetchRealtimeToken);
         if (disposed) return;
-        storeChatRealtimeToken(credentials);
         await supabaseBrowser.realtime.setAuth(credentials.token);
         if (disposed) return;
 
@@ -117,12 +129,14 @@ export function NotificationCenter() {
                 setNotifications((current) => [incoming, ...current].slice(0, 50));
                 if (!incoming.readAt) setUnreadCount((current) => current + 1);
               }
-              void load(undefined, true);
               window.dispatchEvent(new CustomEvent("erp:system-notification", { detail: row }));
             },
           )
-          .subscribe();
+          .subscribe((status) => {
+            realtimeConnectedRef.current = status === "SUBSCRIBED";
+          });
       } catch {
+        realtimeConnectedRef.current = false;
         // A consulta periodica acima permanece ativa se o Realtime estiver
         // indisponivel ou ainda nao tiver sido habilitado no banco deste ERP.
       }
@@ -131,6 +145,7 @@ export function NotificationCenter() {
     void connect();
     return () => {
       disposed = true;
+      realtimeConnectedRef.current = false;
       if (channel) void supabaseBrowser.removeChannel(channel);
     };
   }, [load]);
