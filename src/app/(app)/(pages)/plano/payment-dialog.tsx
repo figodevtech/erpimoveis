@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 
-export function PaymentDialog({ code }: { code: string }) {
+export function PaymentDialog({ code, manual = false }: { code: string; manual?: boolean }) {
   const [open, setOpen] = useState(false);
   const [image, setImage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -30,6 +30,11 @@ export function PaymentDialog({ code }: { code: string }) {
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>Pagamento por Pix</DialogTitle><DialogDescription>Escaneie o QR Code ou copie o código abaixo.</DialogDescription></DialogHeader>
         <div className="grid gap-4">
+          {manual ? <div className="rounded-md border bg-muted/40 p-3 text-sm">
+            <p className="font-medium">Pix Nubank · FIGO SOFTWARES LTDA</p>
+            <p>CNPJ: 58.598.900/0001-62</p>
+            <p className="mt-2 text-muted-foreground">O código inclui o valor desta cobrança. A baixa será feita pela equipe após conferir o recebimento. Gerar ou copiar o Pix não confirma o pagamento.</p>
+          </div> : null}
           {image ? <div className="mx-auto rounded-xl border bg-white p-3"><Image alt="QR Code Pix" height={230} src={image} unoptimized width={230} /></div> : null}
           <Textarea className="min-h-24 resize-none font-mono text-xs" readOnly value={code} />
           <Button onClick={copy} type="button">{copied ? <Check /> : <Copy />}{copied ? "Código copiado" : "Copiar código Pix"}</Button>

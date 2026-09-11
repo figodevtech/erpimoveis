@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "@/components/theme-provider";
 import NProgressHandler from "@/components/NProgressHandler";
 import { RouteAwareToaster } from "@/components/route-aware-toaster";
+import { developmentWorkerCleanup } from "@/lib/development-worker-cleanup";
 
 export const metadata: Metadata = {
   title: "ERP Oficina",
@@ -37,6 +38,11 @@ const geistMono = Geist_Mono({
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR" suppressHydrationWarning>
+      <head>
+        {process.env.NODE_ENV === "development" ? (
+          <script id="development-worker-cleanup" dangerouslySetInnerHTML={{ __html: developmentWorkerCleanup }} />
+        ) : null}
+      </head>
       {/* Some browser extensions inject attributes into <body> before hydration (e.g. cz-shortcut-listen). */}
       <body className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
         <Providers attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
