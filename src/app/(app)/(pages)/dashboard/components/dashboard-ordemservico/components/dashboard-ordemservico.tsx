@@ -285,11 +285,11 @@ export default function ServiceOrdersDashboard({
 
   return (
     <Card className={cn("dashboard-root w-full py-2", className)}>
-      <CardHeader className="flex flex-row items-start justify-between gap-2 sm:gap-4">
-        <div className="min-w-0 flex-1 space-y-1">
-          <CardTitle className="flex items-center gap-2 text-base leading-tight sm:text-lg">
-            <ClipboardList className="h-5 w-5" aria-hidden="true" />
-            <span className="sm:hidden">Ordens de Serviço</span>
+      <CardHeader className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1 px-3 sm:flex sm:flex-row sm:items-start sm:justify-between sm:gap-4 sm:px-6">
+        <div className="contents sm:block sm:min-w-0 sm:flex-1 sm:space-y-1">
+          <CardTitle className="flex min-w-0 items-center gap-1.5 text-sm leading-tight sm:gap-2 sm:text-lg">
+            <ClipboardList className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden="true" />
+            <span className="truncate sm:hidden" title="Ordens de Serviço">Ordens de Serviço</span>
             <span className="hidden sm:inline">Dashboard de Ordens de Serviço</span>
           </CardTitle>
 
@@ -297,13 +297,13 @@ export default function ServiceOrdersDashboard({
             Visão executiva de produtividade, prazos e receita.
           </CardDescription>
 
-          <Badge variant="default" className="text-[10px] sm:text-xs">
+          <Badge variant="default" className="col-start-1 row-start-2 min-w-0 max-w-full justify-self-start whitespace-normal text-[10px] sm:text-xs" title={`Período: ${textoPeriodo}`}>
             Período: {textoPeriodo}
           </Badge>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-3">
-          <div className="flex items-center gap-1 rounded-xl border bg-muted/40 p-1">
+        <div className="contents sm:flex sm:w-auto sm:shrink-0 sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
+          <div className="col-span-2 col-start-2 row-start-1 flex min-w-0 items-center gap-1 rounded-xl border bg-muted/40 p-0.5 sm:flex-none sm:p-1">
             {PRESETS_PERIODO.map((preset) => {
               const alvo = preset.calcular();
               const selecionado = mesmoPeriodo(
@@ -315,17 +315,19 @@ export default function ServiceOrdersDashboard({
                 <button
                   key={preset.chave}
                   type="button"
+                  aria-label={preset.rotulo}
                   aria-pressed={selecionado}
                   onClick={() => aplicarPeriodo(alvo)}
                   className={cn(
-                    "h-7 whitespace-nowrap rounded-lg px-2.5 text-[11px] font-medium transition-all sm:h-8 sm:text-xs",
+                    "h-6 flex-1 whitespace-nowrap rounded-lg px-2 text-[11px] font-medium transition-all sm:h-8 sm:flex-none sm:px-2.5 sm:text-xs",
                     "hover:cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     selecionado
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {preset.rotulo}
+                  <span className="sm:hidden">{preset.chave === "mes-atual" ? "Mês atual" : "Anterior"}</span>
+                  <span className="hidden sm:inline">{preset.rotulo}</span>
                 </button>
               );
             })}
@@ -342,7 +344,7 @@ export default function ServiceOrdersDashboard({
           />
 
           {autoRefreshMs ? (
-            <Badge variant="secondary" className="whitespace-nowrap text-[10px] sm:text-xs">
+            <Badge variant="secondary" className="hidden whitespace-nowrap text-xs sm:inline-flex">
               Auto · {Math.round((autoRefreshMs ?? 0) / 1000)}s
             </Badge>
           ) : null}
@@ -352,7 +354,7 @@ export default function ServiceOrdersDashboard({
             size="icon"
             onClick={refetch}
             aria-label="Atualizar dados"
-            className={cn("h-8 w-8 sm:h-9 sm:w-9", loading && "cursor-wait opacity-80")}
+            className={cn("h-8 w-8 shrink-0 sm:h-9 sm:w-9", loading && "cursor-wait opacity-80")}
           >
             <RefreshCcw className={cn("h-3.5 w-3.5", loading && "animate-spin")} aria-hidden="true" />
           </Button>

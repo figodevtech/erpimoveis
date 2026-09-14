@@ -39,7 +39,13 @@ export default function SheetOsFiltros({
   return (
     <Sheet open={aberto} onOpenChange={aoMudarAberto}>
       <SheetTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1 hover:cursor-pointer">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0 gap-1 px-2 text-[11px] hover:cursor-pointer sm:px-3 sm:text-sm"
+          aria-label="Filtros de ordens de serviço"
+          title="Filtrar período"
+        >
           <SlidersHorizontal className="h-4 w-4" />
           Filtros
         </Button>
