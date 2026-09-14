@@ -1,5 +1,6 @@
 // ./src/app/(app)/(pages)/ordens/components/dialogs/realizadores/types.ts
 import type { UsuarioAtivo } from "../../../lib/api";
+import { tituloServicoDaOs } from "@/lib/ordens/titulo-servico";
 
 export type RealizadorLite = { id: string; nome: string | null };
 
@@ -11,6 +12,8 @@ export type ItemServico = {
   precounitario?: number;
   subtotal?: number;
 
+  /** Texto livre da linha da OS (`osservico.descricao`) — o que foi feito no serviço. */
+  descricaoServico?: string | null;
   servico?: { descricao?: string | null; codigo?: string | null } | null;
 
   realizadores?: RealizadorLite[] | null;
@@ -61,7 +64,11 @@ export function servicoKey(it: Pick<ItemServico, "ordemservicoid" | "servicoid">
 }
 
 export function tituloServico(it: ItemServico) {
-  return it.servico?.descricao || it.servico?.codigo || `Serviço #${it.servicoid}`;
+  return tituloServicoDaOs(
+    it.servico?.descricao || it.servico?.codigo,
+    it.descricaoServico,
+    it.servicoid,
+  );
 }
 
 export function baseServico(it: ItemServico) {

@@ -47,23 +47,10 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
         const userProduct = item?.user_product_id && (!link.family_id || link.user_product_id !== item.user_product_id)
           ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
           : null;
-        const produto = Array.isArray(link.produto) ? link.produto[0] : link.produto;
-        const erpPrice = Number(produto?.precovenda);
         const priceState = await getMercadoLivrePriceState(accessToken, String(link.ml_item_id), item);
-        const mercadoLivrePrice = priceState.standardPrice;
-        if (
-          Number.isFinite(erpPrice) &&
-          mercadoLivrePrice != null &&
-          Math.abs(erpPrice - mercadoLivrePrice) >= 0.01
-        ) {
-          const previousMlPrice = Number(link.raw_item?.price);
-          await applyMercadoLivrePriceToErp({
-            productLinkId: Number(link.id),
-            price: mercadoLivrePrice,
-            source: "CRON_RECONCILIACAO",
-            mlPriceBefore: Number.isFinite(previousMlPrice) ? previousMlPrice : null,
-          });
-        }
+        // O preço do anúncio no Mercado Livre é independente do cadastro de produtos do ERP.
+        // A alteração de preço do anúncio não reflete no cadastro do produto (produto.precovenda),
+        // portanto NÃO chamamos applyMercadoLivrePriceToErp.
         const synchronized = {
           ...link,
           status: item?.status ?? link.status,

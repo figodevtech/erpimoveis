@@ -399,23 +399,9 @@ async function processItem(
     : null;
 
   const priceState = await getMercadoLivrePriceState(accessToken, itemId, item);
-  const mercadoLivrePrice = priceState.standardPrice;
-  if (mercadoLivrePrice != null) {
-    for (const link of links ?? []) {
-      const produto = Array.isArray((link as any).produto) ? (link as any).produto[0] : (link as any).produto;
-      const erpPrice = Number(produto?.precovenda);
-      if (Number.isFinite(erpPrice) && Math.abs(erpPrice - mercadoLivrePrice) < 0.01) continue;
-
-      const previousMlPrice = Number((link as any).raw_item?._erp_price_state?.standardPrice ?? (link as any).raw_item?.price);
-      await applyMercadoLivrePriceToErp({
-        productLinkId: Number(link.id),
-        price: mercadoLivrePrice,
-        source: topic.toUpperCase(),
-        notificationId,
-        mlPriceBefore: Number.isFinite(previousMlPrice) ? previousMlPrice : null,
-      });
-    }
-  }
+  // O preço do anúncio no Mercado Livre é independente do cadastro de produtos do ERP.
+  // A alteração de preço do anúncio não reflete no cadastro do produto (produto.precovenda),
+  // portanto NÃO chamamos applyMercadoLivrePriceToErp.
 
   const { error } = await supabaseAdmin
     .from("mercadolivre_product_link")

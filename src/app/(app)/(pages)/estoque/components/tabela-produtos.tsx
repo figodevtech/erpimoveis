@@ -41,6 +41,7 @@ import {
   ShieldX,
   MapPin,
   Tag,
+  Handshake,
 } from "lucide-react";
 import {
   Select,
@@ -486,6 +487,18 @@ export default function TabelaProdutos({
                                 </TooltipContent>
                               </Tooltip>
                             )}
+                          {(p.temAnuncioMercadoLivre || p.mercadolivre) && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Handshake className="w-4 h-4 text-amber-500 shrink-0 hover:text-amber-600 transition-colors" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {p.mercadolivre?.ml_item_id
+                                  ? `Anunciado no Mercado Livre (${p.mercadolivre.ml_item_id})`
+                                  : "Anunciado no Mercado Livre"}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                         </div>
                         <div className="text-xs text-muted-foreground flex flex-row gap-1 max-w-[350px] truncate">
                           {p.etiqueta && (

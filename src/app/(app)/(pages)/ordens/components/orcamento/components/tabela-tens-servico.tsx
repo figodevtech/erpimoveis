@@ -12,8 +12,14 @@ import { CampoQuantidade } from "./campo-quantidade";
 import { CampoDesconto } from "./campo-desconto";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { IdentificadoresItem } from "./identificadores-item";
+import { tituloServicoDaOs } from "@/lib/ordens/titulo-servico";
 
 const money = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// O nome do cadastro com o texto livre da linha — o mesmo título que o evento
+// financeiro publica, para a OS e o financeiro nomearem o serviço igual.
+const tituloDoItem = (it: ItemServico) =>
+  tituloServicoDaOs(it.descricao, it.descricaoServico, it.servicoid);
 
 export function TabelaItensServico({
   itens,
@@ -78,7 +84,7 @@ export function TabelaItensServico({
                 <article key={`${it.servicoid}-${i}`} className="space-y-3 p-3 sm:p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1.5">
-                      <p className="break-words text-sm font-semibold">{it.descricao}</p>
+                      <p className="break-words text-sm font-semibold">{tituloDoItem(it)}</p>
                       <IdentificadoresItem id={it.servicoid} referencia={it.referencia} />
                     </div>
                     <Button
@@ -87,7 +93,7 @@ export function TabelaItensServico({
                       className="size-8 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                       onClick={() => onRemover(i)}
                       title="Remover serviço"
-                      aria-label={`Remover ${it.descricao}`}
+                      aria-label={`Remover ${tituloDoItem(it)}`}
                     >
                       <Trash2 className="size-4" />
                     </Button>
@@ -174,10 +180,10 @@ export function TabelaItensServico({
                         <TooltipProvider delayDuration={300}>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <p className="w-full truncate text-sm font-semibold">{it.descricao}</p>
+                              <p className="w-full truncate text-sm font-semibold">{tituloDoItem(it)}</p>
                             </TooltipTrigger>
                             <TooltipContent side="bottom" className="max-w-xs text-xs">
-                              {it.descricao}
+                              {tituloDoItem(it)}
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
@@ -239,7 +245,7 @@ export function TabelaItensServico({
                         className="size-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         onClick={() => onRemover(i)}
                         title="Remover serviço"
-                        aria-label={`Remover ${it.descricao}`}
+                        aria-label={`Remover ${tituloDoItem(it)}`}
                       >
                         <Trash2 className="size-4" />
                       </Button>

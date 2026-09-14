@@ -22,6 +22,7 @@
 | I6 | `sincronizar_eventos_financeiros_transacao` **ignora** transação com `evento_financeiro_id`, `lancamento_id` ou `ordemservicoid`. | A DRE conta o mesmo custo duas vezes. |
 | I7 | Sinal por origem é **derivado do líquido**, nunca fixo por tipo. | Despesa de frete soma como receita. |
 | I8 | Evento `CONVERTIDO` ou `is_manual` **não** é reescrito pela reconciliação. | Dinheiro comprometido é alterado em silêncio. |
+| I9 | O título do serviço sai de `titulo_servico_os`, e a cópia em TS (`src/lib/ordens/titulo-servico.ts`) diz o mesmo. | A OS e o financeiro voltam a nomear o mesmo serviço de dois jeitos. |
 
 ---
 
@@ -108,6 +109,7 @@ excluir_lancamento_de_eventos(p_id bigint, p_deleted_by uuid DEFAULT NULL)
 -- DRE
 natureza_dre_de_evento(p_origem text, p_natureza text) RETURNS text
 formatar_percentual_comissao(p_percentual numeric)
+titulo_servico_os(p_descricao_cadastro text, p_descricao_item text, p_servicoid integer) RETURNS text
 ```
 
 `p_forcar` em `recalcular_comissao_criacao_os` é a única saída da guarda “OS
@@ -129,6 +131,20 @@ encerrada e nunca apurada não ganha comissão depois”. Nenhum gatilho passa
 | Comissão de criação, avulso | `CRIACAO:<usuarioid>:A<osproduto_avulso.id>` |
 | Frete / Desconto | `FRETE` / `DESCONTO` |
 | Lançamento manual | `MANUAL:<uuid>` |
+
+### O título do serviço no evento
+
+`descricao` do evento de serviço e de comissão é **nome do cadastro + texto
+livre da linha**: `Servico - REPARO - RECUPERAÇÃO DO CILINDRO DA CABINE`. Quem
+monta é `titulo_servico_os(servico.descricao, osservico.descricao, servicoid)`.
+
+O texto livre existe porque serviços guarda-chuva (`REPARO`, `SERVIÇOS
+DIVERSOS`) não dizem nada sozinhos — e o nome do cadastro existe porque o texto
+livre não identifica a linha do orçamento. Mostrar só um dos dois foi o que fez
+a OS e o financeiro parecerem falar de serviços diferentes (`20260913120000`).
+
+O título **não** entra na `chave_origem`: renomear o serviço ou corrigir o texto
+livre reescreve a descrição na próxima reconciliação e não duplica evento (I2).
 
 ### Ciclo de `reconciliar_eventos_financeiros_os`
 

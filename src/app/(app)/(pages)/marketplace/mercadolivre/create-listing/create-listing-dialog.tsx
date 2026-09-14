@@ -270,8 +270,27 @@ export function MercadoLivreCreateListingDialog(props: Props) {
                         <div className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
                           <ProductDetail label="Fabricante" value={selectedProduct.fabricante} />
                           <ProductDetail label="Código de barras" value={selectedProduct.codigobarras} />
-                          <ProductDetail label="Preço de venda" value={formatCurrency(selectedProduct.precovenda)} />
+                          <ProductDetail label="Preço de venda no ERP" value={formatCurrency(selectedProduct.precovenda)} />
                           <div><span className="text-xs text-muted-foreground">Estoque atual</span><div className="flex items-center gap-2 font-medium">{selectedProduct.estoque} unidade(s) <StockBadge product={selectedProduct} /></div></div>
+                        </div>
+                        <div className="rounded-lg border bg-muted/30 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <RequiredLabel>Valor do anúncio no Mercado Livre</RequiredLabel>
+                              <p className="text-xs text-muted-foreground">
+                                Preço no ERP: {formatCurrency(selectedProduct.precovenda)} · <span className="font-medium text-foreground">Exclusivo do anúncio (não altera o cadastro no ERP)</span>
+                              </p>
+                            </div>
+                            <div className="w-full sm:w-44">
+                              <ValueInput
+                                value={parseCurrency(form.price)}
+                                onValueChange={(value) => updateForm("price", formatCurrencyInput(value))}
+                                disabled={creating}
+                                className={withError(fieldErrors.price)}
+                              />
+                              <MaybeError value={fieldErrors.price} />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -415,6 +434,28 @@ export function MercadoLivreCreateListingDialog(props: Props) {
                       <Summary label="Tarifa e recebimento" value={`${selectedListingType?.saleFee != null ? formatCurrency(selectedListingType.saleFee) : "Taxa não calculada"} · ${selectedListingType?.netAmount != null ? `líquido ${formatCurrency(selectedListingType.netAmount)}` : "líquido não calculado"}`} />
                       <Summary label="Frete" value={form.shippingMode === "me2" ? `Mercado Envios · ${shippingLogisticLabel(form.logisticType)}` : form.shippingMode === "custom" ? `Personalizado · ${form.freeShipping ? "grátis" : formatCurrency(parseCurrency(form.customShippingCost))}` : "Retirada / própria"} />
                       <Summary label="Dimensões" value={form.shippingMode === "me2" ? `${form.lengthCm || "-"} × ${form.widthCm || "-"} × ${form.heightCm || "-"} cm · ${form.weightGrams || "-"} g` : "Não se aplica"} />
+                    </div>
+                    <div className="rounded-xl border bg-card p-4 shadow-sm">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-semibold">Valor do anúncio no Mercado Livre</h4>
+                            <Badge variant="outline" className="text-[11px]">Exclusivo ML</Badge>
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Altere o valor do anúncio para recalcular taxas, margem líquida e frete. O cadastro no ERP não será modificado.
+                          </p>
+                        </div>
+                        <div className="w-full sm:w-44">
+                          <ValueInput
+                            value={parseCurrency(form.price)}
+                            onValueChange={(value) => updateForm("price", formatCurrencyInput(value))}
+                            disabled={creating}
+                            className={withError(fieldErrors.price)}
+                          />
+                          <MaybeError value={fieldErrors.price} />
+                        </div>
+                      </div>
                     </div>
                     <ListingCostsSummary
                       price={parseCurrency(form.price)}

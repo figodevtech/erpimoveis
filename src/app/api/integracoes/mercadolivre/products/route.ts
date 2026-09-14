@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
+import { getProductSearchTokens, matchesProductSearch } from "@/lib/product-search";
 import { syncMercadoLivreProductLinks } from "@/lib/integrations/mercadolivre-reconciliation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -42,39 +43,98 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    let query = supabaseAdmin
-      .from("produto")
-      .select(
-        "id, titulo, descricao, referencia, precovenda, estoque, status_estoque, tituloMarketplace, descricaoMarketplace, imgUrl, fabricante, codigobarras, conservacao",
-        { count: "exact" },
-      )
-      .eq("is_deleted", false)
-      .order("id", { ascending: false })
-      .range(from, to);
+    const PRODUTO_SELECT =
+      "id, titulo, descricao, referencia, precovenda, estoque, status_estoque, tituloMarketplace, descricaoMarketplace, imgUrl, fabricante, codigobarras, conservacao, etiqueta, local, ncm, cest";
 
-    if (search) {
-      const term = search.replace(/[,%()]/g, " ").trim();
-      if (/^#?\d+$/.test(term)) {
-        const id = Number(term.replace("#", ""));
-        query = query.or(`id.eq.${id},titulo.ilike.%${term}%,referencia.ilike.%${term}%,codigobarras.ilike.%${term}%`);
-      } else {
-        query = query.or(`titulo.ilike.%${term}%,referencia.ilike.%${term}%,tituloMarketplace.ilike.%${term}%,fabricante.ilike.%${term}%,codigobarras.ilike.%${term}%`);
-      }
-    }
-    if (productId) query = query.eq("id", productId);
-    else if (linkedProductIds) {
-      // `unlinked=1` é o espelho de `linked=1`: os seletores de vínculo
-      // precisam de todo o catálogo publicável, não da página atual.
-      if (onlyUnlinked) {
-        if (linkedProductIds.length) query = query.not("id", "in", `(${linkedProductIds.join(",")})`);
-      } else {
-        query = query.in("id", linkedProductIds.length ? linkedProductIds : [-1]);
-      }
-    }
-    else if (!includeOutOfStock) query = query.gt("estoque", 0);
+    let products: any[] = [];
+    let totalCount = 0;
 
-    const { data: products, error, count } = await query;
-    if (error) throw error;
+    const searchTokens = search ? getProductSearchTokens(search) : [];
+    const cleanSearch = search.replace(/^#/, "").trim();
+    const isNumericSearch = /^\d+$/.test(cleanSearch);
+    const isAlphaNumericCodeSearch = /[a-z]/i.test(cleanSearch) && /\d/.test(cleanSearch) && /^[a-z0-9]+$/i.test(cleanSearch);
+    const isSingleStructuredSearch = searchTokens.length === 1 && searchTokens[0]?.structured;
+    const safeDirectSearch = cleanSearch.replace(/[,%()]/g, " ").trim();
+
+    const canUseDirectQuery = !search || Boolean(safeDirectSearch && (isNumericSearch || isAlphaNumericCodeSearch || isSingleStructuredSearch));
+
+    if (canUseDirectQuery) {
+      let query = supabaseAdmin
+        .from("produto")
+        .select(PRODUTO_SELECT, { count: "exact" })
+        .eq("is_deleted", false)
+        .order("id", { ascending: false });
+
+      if (safeDirectSearch) {
+        const structuredColumns = ["referencia", "codigobarras", "etiqueta", "ncm", "cest"];
+        const generalColumns = [
+          ...structuredColumns,
+          "titulo",
+          "descricao",
+          "fabricante",
+          "local",
+          "tituloMarketplace",
+          "descricaoMarketplace",
+        ];
+        const directFilters = (isNumericSearch || isAlphaNumericCodeSearch ? generalColumns : structuredColumns).map(
+          (column) => `${column}.ilike.%${safeDirectSearch}%`,
+        );
+
+        const numericId = Number(safeDirectSearch);
+        if (isNumericSearch && Number.isInteger(numericId) && numericId > 0 && numericId <= 2_147_483_647) {
+          directFilters.push(`id.eq.${numericId}`);
+        }
+        query = query.or(directFilters.join(","));
+      }
+
+      if (productId) query = query.eq("id", productId);
+      else if (linkedProductIds) {
+        if (onlyUnlinked) {
+          if (linkedProductIds.length) query = query.not("id", "in", `(${linkedProductIds.join(",")})`);
+        } else {
+          query = query.in("id", linkedProductIds.length ? linkedProductIds : [-1]);
+        }
+      } else if (!includeOutOfStock) query = query.gt("estoque", 0);
+
+      query = query.range(from, to);
+      const { data, error, count } = await query;
+      if (error) throw error;
+      products = data ?? [];
+      totalCount = count ?? 0;
+    } else {
+      const batchSize = 1000;
+      const searchableProducts: any[] = [];
+
+      for (let batchFrom = 0; ; batchFrom += batchSize) {
+        let searchQuery = supabaseAdmin
+          .from("produto")
+          .select(PRODUTO_SELECT)
+          .eq("is_deleted", false)
+          .order("id", { ascending: false })
+          .range(batchFrom, batchFrom + batchSize - 1);
+
+        if (productId) searchQuery = searchQuery.eq("id", productId);
+        else if (linkedProductIds) {
+          if (onlyUnlinked) {
+            if (linkedProductIds.length) searchQuery = searchQuery.not("id", "in", `(${linkedProductIds.join(",")})`);
+          } else {
+            searchQuery = searchQuery.in("id", linkedProductIds.length ? linkedProductIds : [-1]);
+          }
+        } else if (!includeOutOfStock) searchQuery = searchQuery.gt("estoque", 0);
+
+        const { data, error } = await searchQuery;
+        if (error) throw error;
+        if (!data?.length) break;
+        searchableProducts.push(...data);
+        if (data.length < batchSize) break;
+      }
+
+      const filtered = searchableProducts.filter((product) =>
+        matchesProductSearch(product, searchTokens),
+      );
+      totalCount = filtered.length;
+      products = filtered.slice(from, from + limit);
+    }
 
     const productIds = (products ?? []).map((item) => Number(item.id)).filter(Number.isFinite);
     const { data: links, error: linksError } = productIds.length
@@ -119,10 +179,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       data: items,
       pagination: {
-        total: count ?? 0,
+        total: totalCount,
         page,
         limit,
-        totalPages: Math.max(1, Math.ceil((count ?? 0) / limit)),
+        totalPages: Math.max(1, Math.ceil(totalCount / limit)),
       },
     });
   } catch (e: any) {

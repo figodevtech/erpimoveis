@@ -36,6 +36,7 @@ import {
 import { formatPaymentMethodLabel } from "@/lib/payment-methods";
 import { valorDeFace, saldoEmAberto } from "@/lib/financeiro/transacao";
 import { podeRegistrarPagamentoOs, type ResumoFinanceiroOs } from "@/lib/ordens/financeiro";
+import { tituloServicoDaOs } from "@/lib/ordens/titulo-servico";
 import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 import {
   FinancialDialogHeader,
@@ -971,7 +972,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                     {itensServico.length > 0 ? itensServico.map((item, index) => (
                       <div key={`${item.servicoid}-desconto-${index}`} className="grid gap-2 rounded-md border px-3 py-2 sm:grid-cols-[minmax(0,1fr)_170px_110px] sm:items-center">
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{item.servico?.descricao || item.servico?.codigo || `Serviço #${item.servicoid}`}</p>
+                          <p className="truncate text-sm font-medium">{tituloServicoDaOs(item.servico?.descricao || item.servico?.codigo, item.descricaoServico, item.servicoid)}</p>
                           <p className="text-xs text-muted-foreground">{formatarEmReal(item.subtotal)}</p>
                         </div>
                         <Select
@@ -1047,7 +1048,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                       >
                         <div className="min-w-0">
                           <p className="font-semibold line-clamp-2">
-                            {item.servico?.descricao?.toUpperCase() || `Serviço #${item.servicoid}`}
+                            {tituloServicoDaOs(item.servico?.descricao, item.descricaoServico, item.servicoid).toUpperCase()}
                           </p>
                           <p className="text-muted-foreground">
                             {item.quantidade} x {formatarEmReal(item.precounitario)}

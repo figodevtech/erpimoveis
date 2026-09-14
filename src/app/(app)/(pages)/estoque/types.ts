@@ -166,6 +166,14 @@ export interface Produto {
   fornecedorid?: number;
   codigofornecedor?: string;
   conservacao?: Conservacao_produto;
+  temAnuncioMercadoLivre?: boolean;
+  mercadolivre?: {
+    id?: number;
+    ml_item_id: string;
+    title?: string;
+    status?: string;
+    permalink?: string;
+  } | null;
 }
 
 export interface Pagination {

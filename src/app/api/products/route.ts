@@ -52,6 +52,37 @@ function applyProductFilters(query: any, filters: ProductQueryFilters) {
   return query;
 }
 
+async function attachMercadoLivreLinks(items: any[]) {
+  if (!Array.isArray(items) || !items.length) return items;
+  const productIds = items
+    .map((p) => Number(p?.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (!productIds.length) return items;
+
+  try {
+    const { data: links } = await supabaseAdmin
+      .from("mercadolivre_product_link")
+      .select("produto_id, ml_item_id, status, permalink")
+      .in("produto_id", productIds)
+      .not("ml_item_id", "is", null);
+
+    const linkByProdutoId = new Map(
+      (links ?? []).map((link) => [Number(link.produto_id), link])
+    );
+
+    return items.map((item) => {
+      const link = linkByProdutoId.get(Number(item.id));
+      return {
+        ...item,
+        temAnuncioMercadoLivre: Boolean(link),
+        mercadolivre: link ?? null,
+      };
+    });
+  } catch {
+    return items;
+  }
+}
+
 /** Campos graváveis em produto */
 const WRITABLE_FIELDS = new Set([
   'descricao',
@@ -253,7 +284,7 @@ export async function GET(req: Request) {
       if (error) throw error;
 
       return NextResponse.json({
-        data: data ? [data] : [],
+        data: await attachMercadoLivreLinks(data ? [data] : []),
         pagination: {
           total: data ? 1 : 0,
           page: 1,
@@ -358,7 +389,7 @@ export async function GET(req: Request) {
         const items = data ?? [];
         const total = count ?? 0;
         return NextResponse.json({
-          data: items,
+          data: await attachMercadoLivreLinks(items),
           pagination: {
             total,
             page,
@@ -402,7 +433,7 @@ export async function GET(req: Request) {
       const items = matchedProducts.slice(from, from + limit);
 
       return NextResponse.json({
-        data: items,
+        data: await attachMercadoLivreLinks(items),
         pagination: {
           total,
           page,
@@ -454,7 +485,7 @@ export async function GET(req: Request) {
     const hasNextPage = page * limit < total;
 
     return NextResponse.json({
-      data: items,
+      data: await attachMercadoLivreLinks(items),
       pagination: {
         total,
         page,

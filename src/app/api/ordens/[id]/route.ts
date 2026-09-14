@@ -17,6 +17,7 @@ import { auth } from "@/lib/auth";
 import { requireOSEdit, requireOSAccess, hasOSRentabilidade } from "@/app/api/_authz/perms";
 import { valorDeFace } from "@/lib/financeiro/transacao";
 import { calcularResumoFinanceiroOs } from "@/lib/ordens/financeiro";
+import { tituloServicoDaOs } from "@/lib/ordens/titulo-servico";
 
 type Prioridade = "BAIXA" | "NORMAL" | "ALTA";
 type AlvoTipo = "VEICULO" | "PECA" | "EQUIPAMENTO";
@@ -782,7 +783,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       const resultadoServico = receitaLiquida - valorComissao - valorOutrasDespesas;
       return {
         servicoid: item.servicoid,
-        descricao: item.descricaoServico || item.servico?.descricao || "Serviço",
+        descricao: tituloServicoDaOs(item.servico?.descricao, item.descricaoServico, item.servicoid),
         // A comissão zerada precisa se explicar: sem a flag, a linha em R$ 0,00
         // não diz se ninguém executou ou se o serviço simplesmente não paga.
         geraComissao: item.servico?.gera_comissao !== false,

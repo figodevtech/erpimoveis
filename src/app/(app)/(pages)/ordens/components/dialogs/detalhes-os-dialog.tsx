@@ -116,6 +116,7 @@ import {
 } from "./realizadores-servico";
 import { explicarBaseDaComissao } from "@/lib/ordens/comissao-explicacao";
 import { podeEditarRealizadores } from "@/lib/ordens/realizadores";
+import { tituloServicoDaOs } from "@/lib/ordens/titulo-servico";
 import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 import { TrocarClienteOsButton } from "./trocar-cliente-os-dialog";
 import type {
@@ -378,6 +379,8 @@ type ItemServico = {
   subtotal: number;
   descontoTipo?: "FIXO" | "PORCENTAGEM" | null;
   desconto?: number | null;
+  /** Texto livre da linha da OS (`osservico.descricao`) — o que foi feito no serviço. */
+  descricaoServico?: string | null;
   servico?: { id: number; codigo?: string | null; descricao?: string | null; precohora?: number | null } | null;
 
   realizadores?: RealizadorLite[] | null;
@@ -2235,7 +2238,7 @@ export function OSDetalhesDialog({
                                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
                                   <div className="min-w-0">
                                     <div className="font-medium truncate">
-                                      {it.servico?.descricao || it.servico?.codigo || `Serviço #${it.servicoid}`}
+                                      {tituloServicoDaOs(it.servico?.descricao || it.servico?.codigo, it.descricaoServico, it.servicoid)}
                                     </div>
                                     <div className="text-xs text-muted-foreground">
                                       {it.quantidade} × {fmtMoney(it.precounitario)}

@@ -54,6 +54,7 @@ import {
   Loader2,
   MessageCircle,
   MoreHorizontal,
+  Package,
   PackageCheck,
   Pause,
   Pencil,
@@ -105,6 +106,7 @@ import {
   type CreateListingIssue,
   type CreateListingStep,
 } from "./mercadolivre/create-listing/create-listing-dialog";
+import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/dialog-produto";
 
 type MlMarketplaceSection = "overview" | "products" | "listings" | "orders" | "performance" | "atendimento" | "logs";
 const ML_MARKETPLACE_SECTIONS: readonly MlMarketplaceSection[] = ["overview", "products", "listings", "orders", "performance", "atendimento", "logs"];
@@ -1919,8 +1921,10 @@ export default function MarketplacePage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const requestedProductAction = searchParams.get("ml_acao");
-  const requestedProductId = Number(searchParams.get("ml_produto_id"));
+  const requestedProductAction = searchParams.get("ml_acao") || (searchParams.get("anunciar") ? "create" : null);
+  const requestedProductId = Number(searchParams.get("ml_produto_id") || searchParams.get("anunciar"));
+  const [editingErpProductId, setEditingErpProductId] = useState<number | undefined>(undefined);
+  const [erpProductDialogOpen, setErpProductDialogOpen] = useState(false);
   const handledProductActionRef = useRef<string | null>(null);
   const ordersRevisionRef = useRef<string | null>(null);
   const checkingOrdersRevisionRef = useRef(false);
@@ -4695,6 +4699,7 @@ export default function MarketplacePage() {
       const nextParams = new URLSearchParams(searchParams.toString());
       nextParams.delete("ml_acao");
       nextParams.delete("ml_produto_id");
+      nextParams.delete("anunciar");
       const query = nextParams.toString();
       router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
     })();
@@ -4871,6 +4876,15 @@ export default function MarketplacePage() {
                 <Link2 className="mr-2 h-4 w-4" />
                 Vincular anúncio existente
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  setEditingErpProductId(product.id);
+                  setErpProductDialogOpen(true);
+                }}
+              >
+                <Package className="mr-2 h-4 w-4" />
+                Editar produto no ERP
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -4903,6 +4917,15 @@ export default function MarketplacePage() {
             <DropdownMenuItem onClick={() => openEditListing(product)} disabled={Boolean(busy)}>
               <Pencil className="mr-2 h-4 w-4" />
               Editar anúncio
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => {
+                setEditingErpProductId(product.id);
+                setErpProductDialogOpen(true);
+              }}
+            >
+              <Package className="mr-2 h-4 w-4" />
+              Editar produto no ERP
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => openListingPerformance(product)} disabled={Boolean(busy)}>
               <TrendingUp className="mr-2 h-4 w-4" />
@@ -5282,9 +5305,17 @@ export default function MarketplacePage() {
                                 <ProductImage product={product} />
                               </div>
                               <div className="min-w-0">
-                                <div className="truncate font-medium" title={product.tituloMarketplace || product.titulo}>
+                                <button
+                                  type="button"
+                                  className="truncate font-medium text-left hover:underline block max-w-full"
+                                  title={product.tituloMarketplace || product.titulo}
+                                  onClick={() => {
+                                    setEditingErpProductId(product.id);
+                                    setErpProductDialogOpen(true);
+                                  }}
+                                >
                                   {product.tituloMarketplace || product.titulo}
-                                </div>
+                                </button>
                                 <div className="truncate text-xs text-muted-foreground">
                                   #{product.id} {product.referencia ? `- ${product.referencia}` : ""}
                                 </div>
@@ -5340,7 +5371,17 @@ export default function MarketplacePage() {
                         </div>
                         <div className="space-y-1.5 p-2">
                           <div className="min-h-[34px]">
-                            <div className="line-clamp-2 text-xs font-medium leading-snug">{product.tituloMarketplace || product.titulo}</div>
+                            <button
+                              type="button"
+                              className="line-clamp-2 text-xs font-medium leading-snug text-left hover:underline block w-full"
+                              title={product.tituloMarketplace || product.titulo}
+                              onClick={() => {
+                                setEditingErpProductId(product.id);
+                                setErpProductDialogOpen(true);
+                              }}
+                            >
+                              {product.tituloMarketplace || product.titulo}
+                            </button>
                             <div className="text-xs text-muted-foreground">
                               #{product.id} {product.referencia ? `- ${product.referencia}` : ""}
                             </div>
@@ -6304,6 +6345,18 @@ export default function MarketplacePage() {
         previewImageIndex={previewImageIndex}
         onPreviewImageIndexChange={setPreviewImageIndex}
       />
+
+      {editingErpProductId && erpProductDialogOpen ? (
+        <DialogProduto
+          productId={editingErpProductId}
+          isOpen={erpProductDialogOpen}
+          setIsOpen={setErpProductDialogOpen}
+          setSelectedProductId={setEditingErpProductId}
+          onAfterSaveProduct={() => {
+            void Promise.all([loadProducts(), loadLinkedListingProducts()]);
+          }}
+        />
+      ) : null}
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <ListingDialogContent
