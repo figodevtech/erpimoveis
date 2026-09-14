@@ -3,6 +3,7 @@ import { requireEstoqueAccess, requireEstoqueEdit } from "@/app/api/_authz/perms
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { getShopeeCategoryAttributes, getShopeeLanguage, shopeeShopApi, uploadShopeeImageFromUrl } from "@/lib/integrations/shopee";
 import { buildShopeeAttributeList, normalizeShopeeAttribute, normalizeShopeeLogisticsChannel, validateShopeeListingLimits, validateShopeePackage, type ShopeeAttributeDefinition, type ShopeeLogisticsChannel } from "@/lib/integrations/shopee-listing";
+import { idDeBusca } from "@/lib/busca-numerica";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -30,8 +31,8 @@ export async function GET(request: NextRequest) {
     if (search) {
       const escaped = search.replace(/[,%()]/g, " ").trim();
       if (/^#?\d+$/.test(escaped)) {
-        const id = Number(escaped.replace("#", ""));
-        productQuery = productQuery.or(`id.eq.${id},titulo.ilike.%${escaped}%,referencia.ilike.%${escaped}%,codigobarras.ilike.%${escaped}%`);
+        const id = idDeBusca(escaped);
+        productQuery = productQuery.or(`${id !== null ? `id.eq.${id},` : ""}titulo.ilike.%${escaped}%,referencia.ilike.%${escaped}%,codigobarras.ilike.%${escaped}%`);
       } else {
         productQuery = productQuery.or(`titulo.ilike.%${escaped}%,referencia.ilike.%${escaped}%,tituloMarketplace.ilike.%${escaped}%,fabricante.ilike.%${escaped}%,codigobarras.ilike.%${escaped}%`);
       }

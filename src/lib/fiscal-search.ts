@@ -7,6 +7,7 @@ type FiscalSearchNote = {
   ambiente?: unknown;
   status?: unknown;
   protocolo?: unknown;
+  referencia?: unknown;
   total_nfe?: unknown;
   ordemservicoid?: unknown;
   vendaid?: unknown;
@@ -48,6 +49,7 @@ export function matchesFiscalNoteSearch(note: FiscalSearchNote, query: unknown) 
     note.ambiente,
     note.status,
     note.protocolo,
+    note.referencia,
     note.total_nfe,
     note.ordemservicoid,
     note.vendaid,

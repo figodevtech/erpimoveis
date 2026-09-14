@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -13,6 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import ValueInput from "@/components/ui/value-input";
 import { toast } from "@/lib/toast";
+import {
+  getMercadoLivrePictureRequirement,
+  mercadoLivrePictureRequirementMessage,
+} from "@/lib/integrations/mercadolivre-listing-pictures";
 import { ListingDialogContent } from "../listing-dialog-content";
 import {
   AttributeCard,
@@ -61,17 +64,10 @@ export type EditListingStep = "content" | "media" | "attributes" | "offer";
 
 export const EDIT_LISTING_STEPS: ListingStepDefinition<EditListingStep>[] = [
   { value: "content", title: "Conteúdo do anúncio", short: "Conteúdo", description: "Textos e dados", icon: FileText },
-  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Imagens e ordem", icon: ImageIcon },
+  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Mínimo de 3 fotos", icon: ImageIcon },
   { value: "attributes", title: "Categoria e características", short: "Categoria", description: "Classifique o item", icon: Tags },
   { value: "offer", title: "Oferta e envio", short: "Oferta", description: "Preço e logística", icon: BadgeDollarSign },
 ];
-
-export const EDIT_STEP_VALIDITY: Record<EditListingStep, boolean> = {
-  content: true,
-  media: true,
-  attributes: true,
-  offer: true,
-};
 
 export type EditListingDialogProps = {
   open: boolean;
@@ -204,7 +200,6 @@ export function MercadoLivreEditListingDialog({
   const [shippingModes, setShippingModes] = useState<string[]>([]);
   const [logisticOptions, setLogisticOptions] = useState<string[]>([]);
   const [categoryAttributes, setCategoryAttributes] = useState<any[]>([]);
-  const [familyMembers, setFamilyMembers] = useState<any[]>([]);
   const [initialAttributes, setInitialAttributes] = useState<Record<string, string>>({});
   const [shippingQuote, setShippingQuote] = useState<any>(null);
   const [loadingShippingQuote, setLoadingShippingQuote] = useState(false);
@@ -288,7 +283,7 @@ export function MercadoLivreEditListingDialog({
           condition: ["new", "used", "not_specified"].includes(String(item.condition)) ? item.condition : "new",
           description: item.description || initialProduct?.descricaoMarketplace || initialProduct?.descricao || "",
           videoUrl: item.videoUrl || "",
-          pictureUrl: Array.isArray(item.pictures) && item.pictures.length ? item.pictures.join("\n") : fallbackImages.join("\n"),
+          pictureUrl: Array.isArray(item.pictures) ? item.pictures.join("\n") : "",
           warranty: item.warranty || "",
           warrantyTime: item.warrantyTime || "",
           shippingMode,
@@ -306,14 +301,7 @@ export function MercadoLivreEditListingDialog({
         setInitialForm(loadedForm);
         setInitialAttributes(dynamicAttributes);
         setCapabilities((curr) => ({ ...curr, ...(item.capabilities ?? {}) }));
-        setFamilyMembers(
-          (Array.isArray(item.familyMembers) ? item.familyMembers : []).map((m: any) => ({
-            id: String(m?.id ?? ""),
-            name: String(m?.name ?? ""),
-            attributes: Array.isArray(m?.attributes) ? m.attributes : [],
-          }))
-        );
-
+        if (!getMercadoLivrePictureRequirement(loadedForm.pictureUrl).valid) setStep("media");
         if (categoryId) {
           const [attrRes, shipRes] = await Promise.all([
             fetch(`/api/integracoes/mercadolivre/category-attributes?categoryId=${encodeURIComponent(categoryId)}`, { cache: "no-store" }).then((r) => r.json().catch(() => ({}))),
@@ -390,6 +378,14 @@ export function MercadoLivreEditListingDialog({
 
   async function handleSave() {
     if (!form.itemId) return;
+    const pictureRequirement = getMercadoLivrePictureRequirement(form.pictureUrl);
+    if (!pictureRequirement.valid) {
+      setStep("media");
+      toast.error("Complete as fotos do anúncio", {
+        description: mercadoLivrePictureRequirementMessage(pictureRequirement.count),
+      });
+      return;
+    }
     const titleField = form.userProductEnabled ? "familyName" : "title";
     if (!form[titleField]?.trim()) {
       toast.error("Informe o título do anúncio.");
@@ -508,6 +504,22 @@ export function MercadoLivreEditListingDialog({
   const editTitleField = form.userProductEnabled ? "familyName" : "title";
   const editTitleMaxLength = form.userProductEnabled ? 120 : 60;
   const editTitleEditable = form.userProductEnabled ? capabilities.familyName : capabilities.title;
+  const pictureRequirement = useMemo(() => getMercadoLivrePictureRequirement(form.pictureUrl), [form.pictureUrl]);
+  const pictureIssue = pictureRequirement.valid ? "" : mercadoLivrePictureRequirementMessage(pictureRequirement.count);
+  const stepValidity: Record<EditListingStep, boolean> = {
+    content: true,
+    media: pictureRequirement.valid,
+    attributes: true,
+    offer: true,
+  };
+  const issueCountByStep: Partial<Record<EditListingStep, number>> = {
+    media: pictureRequirement.valid ? 0 : 1,
+  };
+  const mediaDisabledReason = capabilities.pictures
+    ? null
+    : pictureRequirement.valid
+      ? "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre."
+      : `As imagens são controladas pelo catálogo e este anúncio tem ${pictureRequirement.count} de 3 fotos. Corrija as fotos diretamente no Mercado Livre; o salvamento pelo ERP permanecerá bloqueado até atender ao mínimo.`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -523,8 +535,9 @@ export function MercadoLivreEditListingDialog({
           steps={EDIT_LISTING_STEPS}
           step={step}
           onStepChange={setStep}
-          stepValidity={EDIT_STEP_VALIDITY}
-          footerNote={<p className="mr-auto text-left text-xs text-muted-foreground">As alterações são enviadas ao Mercado Livre apenas quando você salva.</p>}
+          stepValidity={stepValidity}
+          issueCountByStep={issueCountByStep}
+          footerNote={<p className={`mr-auto text-left text-xs ${pictureIssue ? "text-destructive" : "text-muted-foreground"}`}>{pictureIssue || "As alterações são enviadas ao Mercado Livre apenas quando você salva."}</p>}
           footerActions={
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
@@ -547,7 +560,7 @@ export function MercadoLivreEditListingDialog({
                   Avançar <ChevronRight className="h-4 w-4" />
                 </Button>
               ) : null}
-              <Button onClick={handleSave} disabled={saving || loading || !form.itemId}>
+              <Button onClick={handleSave} disabled={saving || loading || !form.itemId || !pictureRequirement.valid}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 Salvar alterações
               </Button>
@@ -648,7 +661,7 @@ export function MercadoLivreEditListingDialog({
 
           {/* ETAPA 2: MÍDIA */}
           <TabsContent value="media" className="m-0 space-y-5">
-            <StepHeading number="2" title="Mídia do anúncio" description="Envie, reordene e escolha a foto principal do anúncio." />
+            <StepHeading number="2" title="Mídia do anúncio" description="Adicione pelo menos 3 fotos, organize a ordem e escolha a capa do anúncio." />
             <div className="space-y-2">
               <ListingMediaManager
                 value={form.pictureUrl}
@@ -656,7 +669,7 @@ export function MercadoLivreEditListingDialog({
                 produtoId={Number(form.produtoId) || null}
                 productImageUrls={productImageUrls}
                 disabled={saving || loading || !capabilities.pictures}
-                disabledReason={capabilities.pictures ? null : "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre."}
+                disabledReason={mediaDisabledReason}
               />
             </div>
             <div className="space-y-2">

@@ -6,6 +6,7 @@ import {
   ChevronsUpDown,
   LogOut,
   KeyRound,
+  ListTodo,
   Loader2,
   SlidersHorizontal,
   UserRound,
@@ -174,6 +175,10 @@ export function NavUser({
                     <DropdownMenuItem onSelect={() => router.push("/meu-perfil")}>
                       <UserRound />
                       Meu perfil
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => router.push("/tarefas")}>
+                      <ListTodo />
+                      Minhas tarefas
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => router.push("/preferencias")}>
                       <SlidersHorizontal />

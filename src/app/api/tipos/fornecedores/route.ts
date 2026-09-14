@@ -8,6 +8,7 @@ import {
   onlyFiscalDigits,
 } from "@/lib/nfe/recipientNormalization";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { idDeBusca } from "@/lib/busca-numerica";
 
 
 async function ensureAuth() {
@@ -92,9 +93,10 @@ export async function GET(req: Request) {
         const isNumeric = /^\d+$/.test(cleanQ);
 
         const conditions: string[] = [];
+        const idNumerico = isNumeric ? idDeBusca(cleanQ) : null;
 
-        if (isNumeric) {
-          conditions.push(`id.eq.${cleanQ}`);
+        if (idNumerico !== null) {
+          conditions.push(`id.eq.${idNumerico}`);
         }
 
         conditions.push(`nomerazaosocial.ilike.%${cleanQ}%`);

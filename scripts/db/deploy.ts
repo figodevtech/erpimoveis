@@ -114,6 +114,11 @@ async function main() {
       `Deploy concluído com divergências: ${differences.join(", ") || "histórico"}.`,
     );
   }
+  if (final.inspections.some((inspection) => inspection.anonRoutines.length)) {
+    throw new Error(
+      "Deploy concluído, mas há funções do public executáveis por anon. Falta REVOKE em alguma migration.",
+    );
+  }
 
   console.log("\nDeploy concluído: os três bancos estão alinhados.");
 }

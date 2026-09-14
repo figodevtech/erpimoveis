@@ -3,6 +3,7 @@ export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { idDeBusca } from '@/lib/busca-numerica';
 import { requireEstoqueAccess, requireEstoqueCreate } from "@/app/api/_authz/perms";
 
 /** Status de estoque (para filtros do GET) */
@@ -224,8 +225,9 @@ export async function GET(req: Request) {
       } else {
         const isNumeric = /^\d+$/.test(cleanQ);
         if (isNumeric) {
+          const idNumerico = idDeBusca(cleanQ);
           query = query.or(
-            `id.eq.${cleanQ},referencia.ilike.%${cleanQ}%,titulo.ilike.%${cleanQ}%,fabricante.ilike.%${cleanQ}%,codigobarras.ilike.%${cleanQ}%,etiqueta.ilike.%${cleanQ}%,local.ilike.%${cleanQ}%,descricao.ilike.%${cleanQ}%,ncm.ilike.%${cleanQ}%`
+            `${idNumerico !== null ? `id.eq.${idNumerico},` : ''}referencia.ilike.%${cleanQ}%,titulo.ilike.%${cleanQ}%,fabricante.ilike.%${cleanQ}%,codigobarras.ilike.%${cleanQ}%,etiqueta.ilike.%${cleanQ}%,local.ilike.%${cleanQ}%,descricao.ilike.%${cleanQ}%,ncm.ilike.%${cleanQ}%`
           );
         } else {
           query = query.or(

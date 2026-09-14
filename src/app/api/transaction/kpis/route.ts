@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 
 import { saldoEmAberto } from "@/lib/financeiro/transacao";
 
@@ -183,6 +184,13 @@ export async function GET(req: NextRequest) {
       return q;
     };
 
+    // O PostgREST devolve no máximo 1.000 linhas por resposta. Sem paginar, uma
+    // aba grande (A Receber sem filtro, um ano de Fluxo) somava só a primeira página.
+    const todas = (criar: () => ReturnType<typeof base>) =>
+      fetchAllSupabaseRows<NonNullable<Parameters<typeof saldoEmAberto>[0]>>(() =>
+        criar().order("id", { ascending: true }),
+      );
+
     const hoje = new Date(new Date().toISOString().slice(0, 10) + `T00:00:00${FORTALEZA}`).toISOString();
     let kpis: Kpi[] = [];
 
@@ -193,19 +201,19 @@ export async function GET(req: NextRequest) {
 
       const mes = comparavel ? 0 : undefined;
       const [entradas, saidas] = await Promise.all([
-        doMes(mes).in("tipo", ["RECEITA", "DEPOSITO"]),
-        doMes(mes).in("tipo", ["DESPESA", "SAQUE"]),
+        todas(() => doMes(mes).in("tipo", ["RECEITA", "DEPOSITO"])),
+        todas(() => doMes(mes).in("tipo", ["DESPESA", "SAQUE"])),
       ]);
-      const entrou = soma(entradas.data);
-      const saiu = soma(saidas.data);
+      const entrou = soma(entradas);
+      const saiu = soma(saidas);
 
       let antes = { entrou: 0, saiu: 0 };
       if (comparavel) {
         const [e, s2] = await Promise.all([
-          doMes(-1).in("tipo", ["RECEITA", "DEPOSITO"]),
-          doMes(-1).in("tipo", ["DESPESA", "SAQUE"]),
+          todas(() => doMes(-1).in("tipo", ["RECEITA", "DEPOSITO"])),
+          todas(() => doMes(-1).in("tipo", ["DESPESA", "SAQUE"])),
         ]);
-        antes = { entrou: soma(e.data), saiu: soma(s2.data) };
+        antes = { entrou: soma(e), saiu: soma(s2) };
       }
 
       kpis = [
@@ -251,11 +259,11 @@ export async function GET(req: NextRequest) {
         base().eq("pendente", true).eq("tipo", tipo).is("adiantamento_id", null);
 
       const [tudo, vencido] = await Promise.all([
-        emAberto(),
-        emAberto().lt("data", hoje),
+        todas(emAberto),
+        todas(() => emAberto().lt("data", hoje)),
       ]);
-      const total = somaSaldo(tudo.data);
-      const atrasado = somaSaldo(vencido.data);
+      const total = somaSaldo(tudo);
+      const atrasado = somaSaldo(vencido);
       kpis = [
         {
           rotulo: viewMode === "A_PAGAR" ? "Total a pagar" : "Total a receber",
@@ -277,19 +285,19 @@ export async function GET(req: NextRequest) {
 
       const mes = comparavel ? 0 : undefined;
       const [recebido, pago] = await Promise.all([
-        doMes(mes).in("tipo", ["RECEITA", "DEPOSITO"]),
-        doMes(mes).in("tipo", ["DESPESA", "SAQUE"]),
+        todas(() => doMes(mes).in("tipo", ["RECEITA", "DEPOSITO"])),
+        todas(() => doMes(mes).in("tipo", ["DESPESA", "SAQUE"])),
       ]);
-      const entrou = soma(recebido.data);
-      const saiu = soma(pago.data);
+      const entrou = soma(recebido);
+      const saiu = soma(pago);
 
       let antes = { entrou: 0, saiu: 0 };
       if (comparavel) {
         const [r, p2] = await Promise.all([
-          doMes(-1).in("tipo", ["RECEITA", "DEPOSITO"]),
-          doMes(-1).in("tipo", ["DESPESA", "SAQUE"]),
+          todas(() => doMes(-1).in("tipo", ["RECEITA", "DEPOSITO"])),
+          todas(() => doMes(-1).in("tipo", ["DESPESA", "SAQUE"])),
         ]);
-        antes = { entrou: soma(r.data), saiu: soma(p2.data) };
+        antes = { entrou: soma(r), saiu: soma(p2) };
       }
 
       kpis = [

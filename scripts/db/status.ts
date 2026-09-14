@@ -13,8 +13,9 @@ async function main() {
     (inspection) => inspection.pending.length || inspection.remoteOnly.length,
   );
   const differences = schemaDifferences(inspections);
+  const exposed = inspections.some((inspection) => inspection.anonRoutines.length);
 
-  if (hasMigrationDrift || differences.length) {
+  if (hasMigrationDrift || differences.length || exposed) {
     console.error("\nResultado: existem diferenças que exigem atenção.");
     process.exitCode = 1;
     return;

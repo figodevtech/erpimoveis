@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { idDeBusca } from "@/lib/busca-numerica";
 import * as XLSX from "xlsx";
 
 /** ====== Constantes e helpers ====== */
@@ -193,15 +194,14 @@ export async function GET(req: Request) {
 
       // Busca simples: cliente (nome/cpf) e ID da venda quando q é número
       if (q) {
-        const qDigits = q.replace(/\D/g, "");
-        const maybeId = qDigits ? Number(qDigits) : NaN;
+        const maybeId = idDeBusca(q);
 
         const ors: string[] = [
           `cliente.nomerazaosocial.ilike.%${q}%`,
           `cliente.cpfcnpj.ilike.%${q}%`,
         ];
 
-        if (Number.isInteger(maybeId)) {
+        if (maybeId !== null) {
           ors.push(`id.eq.${maybeId}`);
         }
 
