@@ -52,13 +52,20 @@ export function NotificationCenter() {
   const retryAfterRef = React.useRef(0);
   const lastSuccessfulLoadRef = React.useRef(0);
   const realtimeConnectedRef = React.useRef(false);
+  const loadScopeRef = React.useRef<AbortSignal | null>(null);
 
   const load = React.useCallback(async (signal?: AbortSignal, force = false) => {
+    const scope = signal ?? loadScopeRef.current;
+    if (!scope || scope.aborted) return;
     if (!force && Date.now() < retryAfterRef.current) return;
     try {
-      const response = await fetch("/api/notifications?limit=50", { cache: "no-store", signal });
+      // O sinal invalida o resultado, sem cancelar o fetch: o inspector do
+      // navegador registra cancelamentos normais como erros de rede.
+      const response = await fetch("/api/notifications?limit=50", { cache: "no-store" });
+      if (scope.aborted) return;
       if (!response.ok) throw new Error(`Notificações indisponíveis (${response.status}).`);
       const data = await response.json() as NotificationResponse;
+      if (scope.aborted) return;
       const nextNotifications = Array.isArray(data.notifications) ? data.notifications : [];
       knownNotificationIdsRef.current = new Set(nextNotifications.map((notification) => notification.id));
       setNotifications(nextNotifications);
@@ -67,6 +74,7 @@ export function NotificationCenter() {
       retryAfterRef.current = 0;
       lastSuccessfulLoadRef.current = Date.now();
     } catch (error) {
+      if (scope.aborted) return;
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         failedLoadsRef.current += 1;
         const retryIn = Math.min(
@@ -77,13 +85,15 @@ export function NotificationCenter() {
         console.warn("Falha ao atualizar notificações do sistema.");
       }
     } finally {
-      setLoading(false);
+      if (!scope.aborted) setLoading(false);
     }
   }, []);
 
   React.useEffect(() => {
     const controller = new AbortController();
-    void load(controller.signal);
+    loadScopeRef.current = controller.signal;
+    // O primeiro ciclo de verificacao do Strict Mode termina antes desta tarefa.
+    queueMicrotask(() => void load(controller.signal));
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       const interval = realtimeConnectedRef.current
