@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { saldosAposCadaMovimento, valorAssinadoNoBanco } from "@/lib/financeiro/saldo-bancario";
 
 type BancoRow = {
   id: number;
@@ -34,6 +35,8 @@ type TransacaoResumoRow = Pick<
   "banco_id" | "tipo" | "valor" | "valorLiquido" | "pendente" | "data"
 >;
 
+type MovimentoRow = Pick<TransacaoRow, "id" | "tipo" | "valor" | "valorLiquido">;
+
 const PAGE_SIZE = 1000;
 const FORTALEZA_OFFSET = "-03:00";
 
@@ -51,11 +54,8 @@ function toMoney(value: number | string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function signedAmount(tipo: string, value: number) {
-  const normalized = tipo.toUpperCase();
-  if (normalized === "RECEITA" || normalized === "DEPOSITO") return value;
-  if (normalized === "DESPESA" || normalized === "SAQUE") return -value;
-  return 0;
+function valorDoMovimento(transacao: Pick<TransacaoRow, "valor" | "valorLiquido">) {
+  return toMoney(transacao.valorLiquido ?? transacao.valor);
 }
 
 function applyDateFilters<T>(query: T, dateFrom?: string | null, dateTo?: string | null) {
@@ -65,8 +65,8 @@ function applyDateFilters<T>(query: T, dateFrom?: string | null, dateTo?: string
   return nextQuery as T;
 }
 
-function mapTransacao(transacao: TransacaoRow) {
-  const valor = toMoney(transacao.valorLiquido ?? transacao.valor);
+function mapTransacao(transacao: TransacaoRow, saldoApos: number | null) {
+  const valor = valorDoMovimento(transacao);
   return {
     id: Number(transacao.id),
     descricao: transacao.descricao,
@@ -75,8 +75,8 @@ function mapTransacao(transacao: TransacaoRow) {
     categoria: transacao.categoria,
     metodopagamento: transacao.metodopagamento,
     valor,
-    valorAssinado: signedAmount(String(transacao.tipo), valor),
-    pendente: Boolean(transacao.pendente),
+    valorAssinado: valorAssinadoNoBanco(String(transacao.tipo), valor),
+    saldoApos,
     data: transacao.data,
   };
 }
@@ -109,6 +109,48 @@ async function fetchAllTransactions(dateFrom?: string | null, dateTo?: string | 
   return rows;
 }
 
+/**
+ * Saldo da conta depois de cada movimento liquidado, por id.
+ *
+ * Lê a história inteira da conta, sem o recorte do filtro: o saldo depois de uma
+ * transação de março inclui tudo o que veio antes dela, mesmo com o período
+ * começando em março.
+ */
+async function fetchSaldosAposMovimentos(bancoId: number) {
+  const bancoPromise = supabaseAdmin.from("bancoconta").select("valorinicial").eq("id", bancoId).maybeSingle();
+  const movimentos: { id: number; valorAssinado: number }[] = [];
+
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from("transacao")
+      .select("id, tipo, valor, valorLiquido")
+      .eq("banco_id", bancoId)
+      .eq("is_deleted", false)
+      .not("pendente", "is", true)
+      .order("data_dia", { ascending: true })
+      .order("movimento_registrado_em", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const batch = (data ?? []) as MovimentoRow[];
+    for (const row of batch) {
+      movimentos.push({
+        id: Number(row.id),
+        valorAssinado: valorAssinadoNoBanco(String(row.tipo), valorDoMovimento(row)),
+      });
+    }
+
+    if (batch.length < PAGE_SIZE) break;
+  }
+
+  const { data: banco, error: bancoError } = await bancoPromise;
+  if (bancoError) throw bancoError;
+
+  return saldosAposCadaMovimento(toMoney(banco?.valorinicial), movimentos);
+}
+
 async function fetchTransactionsPage({
   bancoId,
   dateFrom,
@@ -136,18 +178,30 @@ async function fetchTransactionsPage({
     })
     .eq("banco_id", bancoId)
     .eq("is_deleted", false)
-    .order("data", { ascending: false });
+    // Pendente é título a receber ou a pagar: ainda não movimentou a conta.
+    .not("pendente", "is", true)
+    // Ordem do extrato, a mesma do Fluxo: dia do movimento, depois registro, depois
+    // id. É também a ordem em que o saldo de cada linha é acumulado.
+    .order("data_dia", { ascending: false })
+    .order("movimento_registrado_em", { ascending: false })
+    .order("id", { ascending: false });
 
   query = applyDateFilters(query, dateFrom, dateTo);
 
-  const { data, error, count } = await query.range(from, to);
+  const [{ data, error, count }, saldos] = await Promise.all([
+    query.range(from, to),
+    fetchSaldosAposMovimentos(bancoId),
+  ]);
   if (error) throw error;
 
   const total = count ?? 0;
 
   return {
     bancoId,
-    items: ((data ?? []) as TransacaoRow[]).map(mapTransacao),
+    // Linha liquidada entre as duas leituras fica sem saldo até recarregar.
+    items: ((data ?? []) as TransacaoRow[]).map((transacao) =>
+      mapTransacao(transacao, saldos.get(Number(transacao.id)) ?? null)
+    ),
     page,
     limit,
     total,
@@ -226,12 +280,12 @@ export async function GET(req: Request) {
           ultimaMovimentacao: null,
         };
 
-      const valor = toMoney(transacao.valorLiquido ?? transacao.valor);
-      const signed = signedAmount(String(transacao.tipo), valor);
+      const signed = valorAssinadoNoBanco(String(transacao.tipo), valorDoMovimento(transacao));
       const isEntrada = signed >= 0;
       const abs = Math.abs(signed);
 
-      current.totalTransacoes += 1;
+      // Conta o mesmo que a tabela de transações do banco lista: só o liquidado.
+      if (!transacao.pendente) current.totalTransacoes += 1;
 
       // Pendente (a receber/a pagar) não movimentou a conta; costuma ter data futura de vencimento.
       if (

@@ -304,6 +304,23 @@ function comissaoDeProduto(evento: LinhaEventoOs) {
 }
 
 /**
+ * O item que a comissão cobre: `PRODUTO`, `SERVICO` ou vazio.
+ *
+ * `comissaoDeProduto` já diz isso em valor, mas não na comissão zerada — zero
+ * de zero não é proporção nenhuma, e o filtro da folha a jogaria em serviços.
+ * Vazio só no evento antigo de criação, que somava os dois; ali quem decide é
+ * a proporção.
+ */
+function itemDaComissao(evento: LinhaEventoOs) {
+  if (evento.origem !== "COMISSAO") return "";
+  const snapshot = evento.dados_snapshot;
+  if (!snapshot || snapshot.comissao_de_criacao !== true) return "SERVICO";
+  const tipo = String(snapshot.tipo_item ?? "");
+  if (!tipo) return "";
+  return tipo === "SERVICO" ? "SERVICO" : "PRODUTO";
+}
+
+/**
  * Os eventos financeiros de cada OS, já sem os cancelados e na ordem em que o
  * painel da tela os mostra.
  *
@@ -523,6 +540,7 @@ export async function GET(request: Request) {
             texto(evento.detalhe),
             arredondarMoeda(Number(evento.valor ?? 0)),
             comissaoDeProduto(evento),
+            itemDaComissao(evento),
           ]),
         );
         abas.push({
@@ -539,9 +557,12 @@ export async function GET(request: Request) {
             // porque a folha impressa precisa separar a comissão de produto da
             // de serviço, e a planilha é o único canal até ela.
             "Comissão de produtos (R$)",
+            // PRODUTO ou SERVICO; vazio no evento antigo que somava os dois. A
+            // folha precisa dela para classificar a comissão zerada no filtro.
+            "Item da comissão",
           ],
           rows: linhasDeEventos,
-          widths: [9, 16, 12, 14, 45, 32, 16, 20],
+          widths: [9, 16, 12, 14, 45, 32, 16, 20, 16],
         });
       }
 

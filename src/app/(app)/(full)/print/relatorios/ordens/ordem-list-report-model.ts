@@ -35,6 +35,12 @@ export type LinhaDaOrdem = { chave: string };
 export type OrdemComLinhas<L extends LinhaDaOrdem = LinhaDaOrdem> = {
   ordem: OrderRow;
   linhas: L[];
+  /**
+   * Força a decisão de imprimir o fechamento. Existe para o filtro de eventos:
+   * a OS cujos eventos o filtro escondeu continua fechando a conta inteira, e
+   * sem isto a paginação veria zero linhas e não reservaria a altura.
+   */
+  fechamento?: boolean;
 };
 
 /**
@@ -98,6 +104,13 @@ export const MM_CABECALHO_ITENS = 4.5;
  * colunas — medido, o rótulo mais longo tem 28mm e a sexta coluna o cortaria.
  */
 export const MM_FILEIRA_PAINEL = 12.5;
+
+/**
+ * O título dos eventos filtrados, na primeira folha sem cabeçalho geral: o vão,
+ * a legenda e duas linhas de título (2 + 2,54 + 6,98mm). A caixa tem altura
+ * fixa, para a conta não depender de onde o texto quebra.
+ */
+export const MM_TITULO_DO_FILTRO = 12;
 export const COLUNAS_MAXIMAS_DO_PAINEL = 5;
 
 /** Quatro cards preservam os rótulos longos dos status numa folha A4. */
@@ -119,7 +132,9 @@ export function capacidadeDaFolha(
   fileirasDoPainel = 2,
   alturaAdicionalPrimeira = 0,
 ) {
-  const painel = indice === 0 ? Math.max(0, fileirasDoPainel - 2) * MM_FILEIRA_PAINEL : 0;
+  // Negativo abaixo de duas fileiras: `MM_TOPO_PRIMEIRA` já as conta, e a folha
+  // com o cabeçalho geral escondido devolve esse espaço às linhas.
+  const painel = indice === 0 ? (Math.max(0, fileirasDoPainel) - 2) * MM_FILEIRA_PAINEL : 0;
   const adicional = indice === 0 ? Math.max(0, alturaAdicionalPrimeira) : 0;
   const topo = (indice === 0 ? MM_TOPO_PRIMEIRA : MM_TOPO_DEMAIS) + painel + adicional;
   return MM_FOLHA_UTIL - topo - MM_RODAPE_TOTAL - (modo === "simples" ? 0 : MM_CABECALHO_ITENS);
@@ -148,10 +163,12 @@ export type FatiaOrdem<L extends LinhaDaOrdem = LinhaDaOrdem> = {
  * Sem nada lançado e sem valor nenhum não há o que compor.
  *
  * No modo de eventos o fechamento sai sempre que houver evento: uma OS pode ter
- * custo sem ter orçamento, e é justamente aí que o lucro real interessa.
+ * custo sem ter orçamento, e é justamente aí que o lucro real interessa. Com
+ * filtro, as linhas podem vir vazias numa OS que tem conta a fechar — por isso
+ * o chamador pode dizer (`fechamento`) se há evento.
  */
-function temFechamento(ordem: OrderRow, linhas: LinhaDaOrdem[], modo: ModoDaFolha) {
-  if (modo === "eventos") return linhas.length > 0;
+function temFechamento(ordem: OrderRow, linhas: LinhaDaOrdem[], modo: ModoDaFolha, fechamento?: boolean) {
+  if (modo === "eventos") return fechamento ?? linhas.length > 0;
   return linhas.length > 0 || ordem.budget !== 0 || ordem.freight !== 0 || ordem.surcharge !== 0;
 }
 
@@ -207,7 +224,7 @@ export function paginarOrdens<L extends LinhaDaOrdem>(
   };
   const limite = () => capacidadeDaFolha(folhas.length, modo, fileirasDoPainel, alturaAdicionalPrimeira);
 
-  for (const { ordem, linhas: itens } of ordens) {
+  for (const { ordem, linhas: itens, fechamento } of ordens) {
     // Caminho simples: uma fatia por OS, custando exatamente MM_ORDEM — 15
     // ordens na primeira folha e 19 nas demais.
     if (modo === "simples") {
@@ -220,7 +237,7 @@ export function paginarOrdens<L extends LinhaDaOrdem>(
     // A OS sem lançamento ocupa uma linha assim mesmo: a do aviso. Sem ela o
     // leitor não distingue uma ordem vazia de uma opção que não funcionou.
     const totalLinhas = Math.max(1, itens.length);
-    const custoFechamento = temFechamento(ordem, itens, modo) ? alturaDoFechamento(ordem, modo) : 0;
+    const custoFechamento = temFechamento(ordem, itens, modo, fechamento) ? alturaDoFechamento(ordem, modo) : 0;
     let cursor = 0;
     let continuacao = false;
     let fechamentoImpresso = custoFechamento === 0;
@@ -291,5 +308,35 @@ export function paginarOrdens<L extends LinhaDaOrdem>(
   }
 
   fechar();
+  return folhas.length ? folhas : [[]];
+}
+
+/**
+ * A tabela crua, sem agrupar por OS: toda linha mede `MM_ITEM`, então cada
+ * folha leva quantas couberem inteiras, e nenhuma linha fica pela metade.
+ *
+ * A folha é medida como a do modo simples: a primeira tem o mesmo cabeçalho e o
+ * mesmo painel, e a faixa de rótulos da tabela usa as classes da faixa "Ordem /
+ * Cliente / Orçamento", com que `MM_TOPO_PRIMEIRA` e `MM_TOPO_DEMAIS` foram
+ * medidos. Não há a faixa de rótulos dos eventos, que o modo agrupado desconta.
+ */
+export function paginarLancamentos<T>(
+  linhas: T[],
+  /** Quantas fileiras de cards a primeira folha vai imprimir. */
+  fileirasDoPainel = 2,
+  /** Seções variáveis abaixo do painel, medidas em milímetros. */
+  alturaAdicionalPrimeira = 0,
+): T[][] {
+  const folhas: T[][] = [];
+  let cursor = 0;
+
+  while (cursor < linhas.length) {
+    const capacidade = capacidadeDaFolha(folhas.length, "simples", fileirasDoPainel, alturaAdicionalPrimeira);
+    // Guarda anti-laço, como em `paginarOrdens`: pelo menos uma linha por folha.
+    const cabem = Math.max(1, Math.floor(capacidade / MM_ITEM));
+    folhas.push(linhas.slice(cursor, cursor + cabem));
+    cursor += cabem;
+  }
+
   return folhas.length ? folhas : [[]];
 }

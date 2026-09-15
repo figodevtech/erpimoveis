@@ -11,6 +11,11 @@ import {
   somaOrigemNatureza,
   somarEventosDaOs,
   somarLucroRealPorStatus,
+  CATEGORIAS_DE_EVENTO,
+  categoriasDoEvento,
+  eventoPassaNoFiltro,
+  type CategoriaDeEvento,
+  type EventoClassificavel,
   type EventoFinanceiroOs,
 } from "./eventos-financeiros";
 
@@ -460,4 +465,75 @@ test("o rateio da comissão fecha com o lucro real do painel", () => {
   // Cancelado fica de fora dos dois lados, então a soma dos blocos e o lucro
   // real continuam sendo o mesmo numero.
   assert.equal(liquidoProdutos + liquidoServicos, totais.lucroReal);
+});
+
+test("cada evento cai no tipo do filtro pela origem e pela natureza", () => {
+  const casos: Array<[Partial<EventoFinanceiroOs>, CategoriaDeEvento[]]> = [
+    [{ origem: "PRODUTO", natureza: "RECEITA" }, ["RECEITA_PRODUTOS"]],
+    [{ origem: "PRODUTO", natureza: "DESPESA" }, ["CUSTO_PRODUTOS"]],
+    [{ origem: "SERVICO", natureza: "RECEITA" }, ["RECEITA_SERVICOS"]],
+    [{ origem: "SERVICO", natureza: "DESPESA" }, ["CUSTO_SERVICOS"]],
+    [{ origem: "DESCONTO", natureza: "DESPESA" }, ["DESCONTOS"]],
+    [{ origem: "CONSUMO", natureza: "DESPESA" }, ["CONSUMO"]],
+    [{ origem: "FRETE", natureza: "RECEITA" }, ["RECEITA_FRETE"]],
+    [{ origem: "FRETE", natureza: "DESPESA" }, ["DESPESA_FRETE"]],
+    [{ origem: "AVULSO", natureza: "RECEITA" }, ["OUTROS"]],
+    [{ origem: "ENTRADA_FISCAL", natureza: "DESPESA" }, ["OUTROS"]],
+  ];
+
+  casos.forEach(([valores, esperado], indice) => {
+    assert.deepEqual(
+      categoriasDoEvento(evento({ id: indice + 1, valor: 10, ...valores })),
+      esperado,
+      `${valores.origem} ${valores.natureza}`,
+    );
+  });
+});
+
+test("a comissão cai em produto ou serviço pela mesma proporção dos cards", () => {
+  const comissao = (valores: Partial<EventoClassificavel>): EventoClassificavel => ({
+    ...evento({ id: 1, origem: "COMISSAO", natureza: "DESPESA", valor: 50 }),
+    ...valores,
+  });
+
+  assert.deepEqual(categoriasDoEvento(comissao({ comissaoProdutos: 50 })), ["COMISSOES_PRODUTOS"]);
+  assert.deepEqual(categoriasDoEvento(comissao({ comissaoProdutos: 0 })), ["COMISSOES_SERVICOS"]);
+  // Evento antigo de criação, que somava os dois: aparece nos dois filtros.
+  assert.deepEqual(categoriasDoEvento(comissao({ comissaoProdutos: 20 })), [
+    "COMISSOES_PRODUTOS",
+    "COMISSOES_SERVICOS",
+  ]);
+});
+
+test("comissão zerada vai para o lado do item que a rota marcou", () => {
+  const zerada = (itemDaComissao: EventoClassificavel["itemDaComissao"]): EventoClassificavel => ({
+    ...evento({ id: 1, origem: "COMISSAO", natureza: "DESPESA", valor: 0 }),
+    comissaoProdutos: 0,
+    itemDaComissao,
+  });
+
+  assert.deepEqual(categoriasDoEvento(zerada("PRODUTO")), ["COMISSOES_PRODUTOS"]);
+  assert.deepEqual(categoriasDoEvento(zerada("SERVICO")), ["COMISSOES_SERVICOS"]);
+  // Sem a marca — planilha anterior à coluna —, conta como serviço, que é o
+  // lado em que `comissoesPorTipoDeItem` também a põe.
+  assert.deepEqual(categoriasDoEvento(zerada(null)), ["COMISSOES_SERVICOS"]);
+});
+
+test("com todos os tipos marcados nenhum evento fica de fora do filtro", () => {
+  const todas = new Set<CategoriaDeEvento>(CATEGORIAS_DE_EVENTO.map((categoria) => categoria.chave));
+  const origens = ["PRODUTO", "SERVICO", "COMISSAO", "AVULSO", "DESCONTO", "FRETE", "ENTRADA_FISCAL", "CONSUMO", "ORIGEM_NOVA"];
+  const eventos = origens.flatMap((origem, indice) =>
+    (["RECEITA", "DESPESA"] as const).map((natureza, lado) =>
+      evento({ id: indice * 2 + lado, origem, natureza, valor: 10 }),
+    ),
+  );
+
+  assert.ok(eventos.every((item) => eventoPassaNoFiltro(item, todas)));
+  assert.equal(
+    eventoPassaNoFiltro(
+      evento({ id: 99, origem: "PRODUTO", natureza: "RECEITA" }),
+      new Set<CategoriaDeEvento>(["CUSTO_PRODUTOS"]),
+    ),
+    false,
+  );
 });

@@ -5,13 +5,23 @@ import { Loader2, TriangleAlert } from "lucide-react";
 
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import { PrintDisplayOptionsMenu } from "@/app/(app)/(full)/components/PrintDisplayOptionsMenu";
+import {
+  PrintFilterMenu,
+  PrintGroupingMenu,
+  type PrintFilterOption,
+} from "@/app/(app)/(full)/components/PrintFilterMenu";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
 import {
+  CATEGORIAS_DE_EVENTO,
+  categoriasDoEvento,
   comissoesPorTipoDeItem,
   deducoesDaOs,
+  eventoPassaNoFiltro,
   somaOrigemNatureza,
   somarEventosDaOs,
   somarLucroRealPorStatus,
+  type CategoriaDeEvento,
   type TotaisDosEventos,
 } from "@/lib/ordens/eventos-financeiros";
 import {
@@ -23,6 +33,8 @@ import {
   MM_ITEM,
   MM_ORDEM,
   MM_ORDEM_CONTINUACAO,
+  MM_TITULO_DO_FILTRO,
+  paginarLancamentos,
   paginarOrdens,
   type FatiaOrdem,
   type ModoDaFolha,
@@ -51,6 +63,12 @@ import {
  *
  * A regra dos eventos — quais contam, em que ordem e como viram lucro — vem de
  * `@/lib/ordens/eventos-financeiros`, a mesma que o painel do dialog usa.
+ *
+ * Com os eventos na folha, "Filtrar" escolhe os tipos de lançamento e "Agrupar"
+ * decide a forma. Por OS, o filtro esconde só as linhas: fechamento, painel e
+ * total seguem com a conta inteira, que é o que a OS de fato deu. Sem
+ * agrupamento, os blocos de OS dão lugar à tabela crua dos lançamentos
+ * filtrados, sob o mesmo cabeçalho e o mesmo painel.
  */
 
 type Cell = string | number | boolean | null;
@@ -61,6 +79,16 @@ type Cell = string | number | boolean | null;
  * aviso fica na barra, nunca no papel, e não bloqueia nada.
  */
 const FOLHAS_PARA_AVISAR = 60;
+
+type Agrupamento = "OS" | "NENHUM";
+
+const OPCOES_DE_AGRUPAMENTO: PrintFilterOption<Agrupamento>[] = [
+  { value: "OS", label: "Por OS" },
+  { value: "NENHUM", label: "Sem agrupamento" },
+];
+
+/** O filtro padrão: todo tipo marcado, inclusive "Outros". */
+const TODAS_AS_CATEGORIAS = CATEGORIAS_DE_EVENTO.map((categoria) => categoria.chave);
 
 const STATUS_LABEL: Record<string, string> = {
   AGUARDANDO_CHECKLIST: "Aguardando checklist",
@@ -246,7 +274,12 @@ type EventoDaOrdem = {
   valor: number;
   /** Quanto desta comissão veio de produto. Zero na de serviço. */
   comissaoProdutos: number;
+  /** O item que a comissão cobre, quando a rota sabe dizer. Decide a comissão zerada. */
+  itemDaComissao: "PRODUTO" | "SERVICO" | null;
 };
+
+/** Uma linha da tabela crua: o evento, com a OS de onde ele veio. */
+type LancamentoDaFolha = { chave: string; ordem: OrderRow; evento: EventoDaOrdem };
 
 type CardFechamento = {
   chave: string;
@@ -255,6 +288,8 @@ type CardFechamento = {
   valor: number;
   tone?: string;
   destaque?: boolean;
+  /** O tipo do filtro que o card representa. Cards de total não têm. */
+  categoria?: CategoriaDeEvento;
 };
 
 /** "12/03/2026, 14:20" -> "12/03/2026": a hora não cabe e não decide nada aqui. */
@@ -262,6 +297,12 @@ function dayOf(value: Cell) {
   const raw = String(value ?? "").trim();
   if (!raw) return "—";
   return raw.split(",")[0].trim() || "—";
+}
+
+/** "PRODUTO" ou "SERVICO"; vazio — evento antigo, ou planilha anterior à coluna — vira nulo. */
+function lerItemDaComissao(value: Cell) {
+  const limpo = String(value ?? "").trim();
+  return limpo === "PRODUTO" || limpo === "SERVICO" ? limpo : null;
 }
 
 function statusLabel(codigo: string) {
@@ -362,6 +403,10 @@ export function OrdemListReportView({
   // Um modo só, em vez de um booleano por opção: a exclusão mútua entre "itens"
   // e "eventos" fica garantida pelo tipo, sem dois estados podendo divergir.
   const [modo, setModo] = useState<ModoDaFolha>("simples");
+  const [filtros, setFiltros] = useState<Set<CategoriaDeEvento>>(() => new Set(TODAS_AS_CATEGORIAS));
+  const [agrupamento, setAgrupamento] = useState<Agrupamento>("OS");
+  /** O painel de cards, a distribuição e o lucro por status. Título e filtros saem sempre. */
+  const [exibirCabecalho, setExibirCabecalho] = useState(true);
   const [cacheDeItens, setCacheDeItens] = useState<{ endpoint: string; linhas: Map<string, ItemDaOrdem[]> } | null>(null);
   const [cacheDeEventos, setCacheDeEventos] = useState<{ endpoint: string; linhas: Map<string, EventoDaOrdem[]> } | null>(null);
   const [enderecoComFalha, setEnderecoComFalha] = useState<string | null>(null);
@@ -406,6 +451,7 @@ export function OrdemListReportView({
               // serviço — que era o comportamento correto quando só existia a
               // comissão de realização.
               comissaoProdutos: number(abaEventos!.read(row, "Comissão de produtos (R$)")),
+              itemDaComissao: lerItemDaComissao(abaEventos!.read(row, "Item da comissão")),
             });
             agrupados.set(osId, lista);
           });
@@ -522,6 +568,9 @@ export function OrdemListReportView({
               onCheckedChange: (marcado: boolean) => {
                 setModo(marcado ? "eventos" : "simples");
                 // Os eventos já vieram na busca inicial; aqui só muda o modo.
+                // E voltam sempre inteiros: um filtro esquecido da vez anterior
+                // faria a lista parecer incompleta sem motivo.
+                if (marcado) setFiltros(new Set(TODAS_AS_CATEGORIAS));
               },
             },
           ]
@@ -532,9 +581,24 @@ export function OrdemListReportView({
 
   // A folha só muda de modo com as linhas em mãos: durante a busca ela continua
   // exatamente como está, e reflui de uma vez só.
-  const linhasPorOs = modo === "itens" ? itensPorOs : modo === "eventos" ? eventosPorOs : null;
+  /**
+   * Os eventos que o filtro deixa passar, por OS. Só as linhas leem daqui:
+   * fechamento, painel e lucro por status continuam em `eventosPorOs`.
+   */
+  const eventosFiltradosPorOs = useMemo(() => {
+    if (!eventosPorOs) return null;
+    return new Map(
+      [...eventosPorOs].map(([osId, eventos]): [string, EventoDaOrdem[]] => [
+        osId,
+        eventos.filter((evento) => eventoPassaNoFiltro(evento, filtros)),
+      ]),
+    );
+  }, [eventosPorOs, filtros]);
+
+  const linhasPorOs = modo === "itens" ? itensPorOs : modo === "eventos" ? eventosFiltradosPorOs : null;
   const modoEfetivo: ModoDaFolha = linhasPorOs ? modo : "simples";
   const temEventos = eventosPorOs !== null;
+  const semAgrupamento = modoEfetivo === "eventos" && agrupamento === "NENHUM";
 
   const periodo = useMemo(() => periodLabel(endpoint), [endpoint]);
   const eixo = useMemo(() => periodAxisLabel(endpoint), [endpoint]);
@@ -565,6 +629,40 @@ export function OrdemListReportView({
 
   /** Os eventos financeiros do recorte inteiro, para montar o painel. */
   const eventosDoRecorte = useMemo(() => [...(eventosPorOs?.values() ?? [])].flat(), [eventosPorOs]);
+
+  /**
+   * As opções do "Filtrar". "Outros" só aparece quando o recorte tem evento
+   * fora dos dez tipos; sem ele, marcar tudo esconderia esses lançamentos.
+   */
+  const categoriasDisponiveis = useMemo(() => {
+    const temOutros = eventosDoRecorte.some((evento) => categoriasDoEvento(evento).includes("OUTROS"));
+    return CATEGORIAS_DE_EVENTO.filter((categoria) => categoria.chave !== "OUTROS" || temOutros).map(
+      (categoria): PrintFilterOption<CategoriaDeEvento> => ({ value: categoria.chave, label: categoria.label }),
+    );
+  }, [eventosDoRecorte]);
+  const filtrosMarcados = categoriasDisponiveis.filter((categoria) => filtros.has(categoria.value)).length;
+  const filtroParcial = modoEfetivo === "eventos" && filtrosMarcados < categoriasDisponiveis.length;
+
+  // Quem lê o papel não vê o menu: a folha precisa dizer que a lista de
+  // eventos está incompleta.
+  const chipsDaFolha =
+    filtroParcial && exibirCabecalho
+      ? [...chips, `Eventos filtrados: ${filtrosMarcados} de ${categoriasDisponiveis.length} tipos`]
+      : chips;
+
+  /**
+   * Sem o cabeçalho geral não há painel dizendo o que a folha mostra, e o selo
+   * vira título com os nomes. Lista o lado mais curto — os marcados, ou os que
+   * ficaram de fora — para caber nas duas linhas que a folha reserva.
+   */
+  const tituloDoFiltro = (() => {
+    if (exibirCabecalho || !filtroParcial) return null;
+    const marcadas = categoriasDisponiveis.filter((categoria) => filtros.has(categoria.value));
+    const desmarcadas = categoriasDisponiveis.filter((categoria) => !filtros.has(categoria.value));
+    if (!marcadas.length) return "Nenhum tipo de evento";
+    const nomes = (lista: typeof categoriasDisponiveis) => lista.map((categoria) => categoria.label).join(" · ");
+    return marcadas.length <= desmarcadas.length ? nomes(marcadas) : `Todos, exceto ${nomes(desmarcadas)}`;
+  })();
 
   /**
    * O lucro geral, repartido pelo status atual de cada OS.
@@ -612,19 +710,68 @@ export function OrdemListReportView({
    * A paginação desconta da folha cada fileira além da segunda; sem isso a
    * última ordem sairia cortada.
    */
-  const fileirasDoPainel = Math.max(1, cards.length);
-  const alturaDaSecaoDeLucroPorStatus = alturaLucroRealPorStatus(lucroRealPorStatus.length);
+  const fileirasDoPainel = exibirCabecalho ? Math.max(1, cards.length) : 0;
+  // Abaixo do painel sai o lucro por status; sem o painel, o título do filtro.
+  const alturaAdicionalDaPrimeira = exibirCabecalho
+    ? alturaLucroRealPorStatus(lucroRealPorStatus.length)
+    : tituloDoFiltro
+      ? MM_TITULO_DO_FILTRO
+      : 0;
 
   const pages = useMemo(
     () =>
       paginarOrdens<ItemDaOrdem | EventoDaOrdem>(
-        rows.map((ordem) => ({ ordem, linhas: linhasPorOs?.get(ordem.id) ?? [] })),
+        rows.map((ordem) => ({
+          ordem,
+          linhas: linhasPorOs?.get(ordem.id) ?? [],
+          // O filtro esconde linhas, não a conta: a OS com evento continua
+          // fechando mesmo quando nenhum deles passou no filtro.
+          fechamento: modoEfetivo === "eventos" ? (eventosPorOs?.get(ordem.id)?.length ?? 0) > 0 : undefined,
+        })),
         modoEfetivo,
         fileirasDoPainel,
-        alturaDaSecaoDeLucroPorStatus,
+        alturaAdicionalDaPrimeira,
       ),
-    [rows, linhasPorOs, modoEfetivo, fileirasDoPainel, alturaDaSecaoDeLucroPorStatus],
+    [rows, linhasPorOs, modoEfetivo, eventosPorOs, fileirasDoPainel, alturaAdicionalDaPrimeira],
   );
+
+  /** A tabela crua: os lançamentos filtrados, na ordem do recorte, sem bloco de OS. */
+  const lancamentos = useMemo<LancamentoDaFolha[]>(() => {
+    if (!semAgrupamento || !eventosFiltradosPorOs) return [];
+    return rows.flatMap((ordem) =>
+      (eventosFiltradosPorOs.get(ordem.id) ?? []).map((evento) => ({ chave: evento.chave, ordem, evento })),
+    );
+  }, [eventosFiltradosPorOs, rows, semAgrupamento]);
+  const folhasDaTabela = useMemo(
+    () =>
+      semAgrupamento
+        ? paginarLancamentos(lancamentos, fileirasDoPainel, alturaAdicionalDaPrimeira)
+        : null,
+    [lancamentos, semAgrupamento, fileirasDoPainel, alturaAdicionalDaPrimeira],
+  );
+  /** Receitas menos despesas do que está na tabela; com tudo marcado, é o lucro real. */
+  const totalDosLancamentos = useMemo(
+    () =>
+      lancamentos.reduce(
+        (soma, { evento }) => soma + (evento.natureza === "RECEITA" ? evento.valor : -evento.valor),
+        0,
+      ),
+    [lancamentos],
+  );
+  const quantasFolhas = folhasDaTabela?.length ?? pages.length;
+
+  /**
+   * O card leva direto à lista do seu tipo: liga os eventos, deixa só aquele
+   * filtro e desagrupa, que é a forma de ver um tipo no recorte inteiro. Clicar
+   * de novo no mesmo card devolve todos os tipos.
+   */
+  function filtrarPeloCard(categoria: CategoriaDeEvento) {
+    const jaFiltrado =
+      modo === "eventos" && agrupamento === "NENHUM" && filtros.size === 1 && filtros.has(categoria);
+    setModo("eventos");
+    setAgrupamento("NENHUM");
+    setFiltros(new Set(jaFiltrado ? TODAS_AS_CATEGORIAS : [categoria]));
+  }
 
   /** Distribuição por status, do mais frequente ao menos — só o que couber. */
   const distribuicao = useMemo(() => {
@@ -663,6 +810,17 @@ export function OrdemListReportView({
         <div className="no-print mx-auto mb-4 flex w-[210mm] items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <PrintDisplayOptionsMenu options={opcoesDeExibicao} />
+            {modoEfetivo === "eventos" && (
+              <>
+                <PrintFilterMenu options={categoriasDisponiveis} selected={filtros} onChange={setFiltros} />
+                <PrintGroupingMenu options={OPCOES_DE_AGRUPAMENTO} value={agrupamento} onChange={setAgrupamento} />
+              </>
+            )}
+            {/* Mesma moldura dos botões da barra, para o switch não destoar deles. */}
+            <label className="flex h-8 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 hover:cursor-pointer">
+              <Switch checked={exibirCabecalho} onCheckedChange={setExibirCabecalho} />
+              Cabeçalho geral
+            </label>
             {carregandoItens && (
               <span className="flex items-center gap-1 text-xs text-neutral-600">
                 <Loader2 className="h-3 w-3 animate-spin" />Carregando itens...
@@ -673,10 +831,10 @@ export function OrdemListReportView({
                 Não foi possível carregar. Marque de novo para tentar.
               </span>
             )}
-            {modoEfetivo !== "simples" && pages.length > FOLHAS_PARA_AVISAR && (
+            {modoEfetivo !== "simples" && quantasFolhas > FOLHAS_PARA_AVISAR && (
               <span className="flex items-center gap-1 text-xs text-amber-700">
                 <TriangleAlert className="h-3 w-3" />
-                {pages.length} folhas — baixar em PDF vai demorar.
+                {quantasFolhas} folhas — baixar em PDF vai demorar.
               </span>
             )}
           </div>
@@ -684,7 +842,7 @@ export function OrdemListReportView({
         </div>
 
         <div className="mx-auto flex w-[210mm] flex-col gap-4 print:gap-0">
-          {pages.map((pageRows, pageIndex) => (
+          {Array.from({ length: quantasFolhas }, (_, pageIndex) => (
             <section
               key={pageIndex}
               className="os-list-sheet flex h-[297mm] w-[210mm] flex-col overflow-hidden border bg-white p-[10mm] leading-[1.2] shadow-xl"
@@ -699,13 +857,13 @@ export function OrdemListReportView({
                     <div className="shrink-0 text-right">
                       <p className="text-[10px] uppercase text-neutral-500">{eixo}</p>
                       <p className="text-[11px] font-bold tabular-nums">{periodo}</p>
-                      <p className="text-[10px] text-neutral-500">Página 1 de {pages.length}</p>
+                      <p className="text-[10px] text-neutral-500">Página 1 de {quantasFolhas}</p>
                     </div>
                   </header>
 
-                  {chips.length > 0 && (
+                  {chipsDaFolha.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {chips.map((chip) => (
+                      {chipsDaFolha.map((chip) => (
                         <span key={chip} className="rounded border border-neutral-300 bg-neutral-50 px-1.5 py-0.5 text-[8px] uppercase text-neutral-600">
                           {chip}
                         </span>
@@ -713,10 +871,20 @@ export function OrdemListReportView({
                     </div>
                   )}
 
+                  {/* Altura fixa e o excesso escondido: a paginação reservou
+                      `MM_TITULO_DO_FILTRO`, e um título que quebrasse em três
+                      linhas empurraria a última da folha para fora. */}
+                  {tituloDoFiltro && (
+                    <div className="overflow-hidden pt-[2mm]" style={{ height: `${MM_TITULO_DO_FILTRO}mm` }}>
+                      <p className="text-[8px] uppercase leading-[1.2] text-neutral-500">Eventos filtrados</p>
+                      <p className="line-clamp-2 text-[11px] font-bold leading-[1.2]">{tituloDoFiltro}</p>
+                    </div>
+                  )}
+
                   {/* A ordem sai pronta do memo — recorte, os totais, e depois o que soma e
                       o que abate. Nenhuma parcela é omitida por estar zerada: a lista fixa é
                       o que deixa duas folhas comparáveis card a card. */}
-                  {cards.length > 0 && (
+                  {exibirCabecalho && cards.length > 0 && (
                     <div className="mt-2 flex flex-col gap-2">
                       {cards.map((fileira, indice) => (
                         <div
@@ -727,15 +895,25 @@ export function OrdemListReportView({
                              descartada na purga do CSS. */
                           style={{ gridTemplateColumns: `repeat(${fileira.length}, minmax(0, 1fr))` }}
                         >
-                          {fileira.map((card) => (
-                            <Kpi key={card.chave} label={card.label} value={card.value} tone={card.tone} destaque={card.destaque} />
-                          ))}
+                          {fileira.map((card) => {
+                            const categoria = card.categoria;
+                            return (
+                              <Kpi
+                                key={card.chave}
+                                label={card.label}
+                                value={card.value}
+                                tone={card.tone}
+                                destaque={card.destaque}
+                                onClick={categoria ? () => filtrarPeloCard(categoria) : undefined}
+                              />
+                            );
+                          })}
                         </div>
                       ))}
                     </div>
                   )}
 
-                  {distribuicao.length > 1 && (
+                  {exibirCabecalho && distribuicao.length > 1 && (
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-y border-neutral-200 py-1.5 text-[9px]">
                       <span className="uppercase text-neutral-500">Distribuição</span>
                       {distribuicao.map(([status, quantidade]) => (
@@ -748,7 +926,7 @@ export function OrdemListReportView({
                     </div>
                   )}
 
-                  {lucroRealPorStatus.length > 0 && (
+                  {exibirCabecalho && lucroRealPorStatus.length > 0 && (
                     <section style={{ marginTop: "2mm" }}>
                       <h2 className="flex h-[4mm] items-center text-[9px] font-semibold uppercase tracking-wide text-neutral-600">
                         Lucro real por status
@@ -788,61 +966,73 @@ export function OrdemListReportView({
                   )}
                 </>
               ) : (
-                <p className="text-right text-[9px] text-neutral-500">Página {pageIndex + 1} de {pages.length}</p>
+                <p className="text-right text-[9px] text-neutral-500">Página {pageIndex + 1} de {quantasFolhas}</p>
               )}
 
-              <div className="mt-2 flex items-center gap-2 border-b border-neutral-300 pb-1 text-[8px] uppercase text-neutral-500">
-                <span className="w-[14mm]">Ordem</span>
-                <span className="flex-1">Cliente e alvo atendido</span>
-                <span className="w-[26mm] text-right">Orçamento</span>
-              </div>
+              {semAgrupamento ? (
+                <TabelaDeLancamentos
+                  lancamentos={folhasDaTabela?.[pageIndex] ?? []}
+                  ultimaFolha={pageIndex === quantasFolhas - 1}
+                  quantidade={lancamentos.length}
+                  total={totalDosLancamentos}
+                />
+              ) : (
+                <>
+                  <div className="mt-2 flex items-center gap-2 border-b border-neutral-300 pb-1 text-[8px] uppercase text-neutral-500">
+                    <span className="w-[14mm]">Ordem</span>
+                    <span className="flex-1">Cliente e alvo atendido</span>
+                    <span className="w-[26mm] text-right">Orçamento</span>
+                  </div>
 
-              {/* Os rótulos saem uma vez por folha, e não acima de cada ordem:
-                  repetidos, queimariam 4,5mm vezes o número de OS. */}
-              {modoEfetivo !== "simples" && (
-                <div
-                  className="flex items-center gap-2 border-b border-neutral-200 pb-[2px] pl-[14mm] pt-1 text-[7px] uppercase text-neutral-400"
-                  style={{ height: `${MM_CABECALHO_ITENS}mm` }}
-                >
-                  {modoEfetivo === "eventos" ? (
-                    <>
-                      <span className="flex-1">Evento</span>
-                      <span className="w-[40mm]">Detalhe</span>
-                      <span className="w-[24mm] text-right">Valor</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="flex-1">Item</span>
-                      <span className="w-[22mm] text-right">Qtd. × unitário</span>
-                      <span className="w-[16mm] text-right">Desconto</span>
-                      <span className="w-[20mm] text-right">Subtotal</span>
-                    </>
+                  {/* Os rótulos saem uma vez por folha, e não acima de cada ordem:
+                      repetidos, queimariam 4,5mm vezes o número de OS. */}
+                  {modoEfetivo !== "simples" && (
+                    <div
+                      className="flex items-center gap-2 border-b border-neutral-200 pb-[2px] pl-[14mm] pt-1 text-[7px] uppercase text-neutral-400"
+                      style={{ height: `${MM_CABECALHO_ITENS}mm` }}
+                    >
+                      {modoEfetivo === "eventos" ? (
+                        <>
+                          <span className="flex-1">Evento</span>
+                          <span className="w-[40mm]">Detalhe</span>
+                          <span className="w-[24mm] text-right">Valor</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="flex-1">Item</span>
+                          <span className="w-[22mm] text-right">Qtd. × unitário</span>
+                          <span className="w-[16mm] text-right">Desconto</span>
+                          <span className="w-[20mm] text-right">Subtotal</span>
+                        </>
+                      )}
+                    </div>
                   )}
-                </div>
-              )}
 
-              <div className="min-h-0 flex-1">
-                {pageRows.length ? (
-                  pageRows.map((fatia, index) => (
-                    <FatiaDaOrdem
-                      key={`${fatia.ordem.id}-${fatia.continuacao ? fatia.primeiroIndice : "abre"}`}
-                      fatia={fatia}
-                      modo={modoEfetivo}
-                      listrada={index % 2 === 1}
-                    />
-                  ))
-                ) : (
-                  <div className="py-20 text-center text-sm text-neutral-500">Nenhuma ordem encontrada no recorte.</div>
-                )}
-              </div>
+                  <div className="min-h-0 flex-1">
+                    {pages[pageIndex].length ? (
+                      pages[pageIndex].map((fatia, index) => (
+                        <FatiaDaOrdem
+                          key={`${fatia.ordem.id}-${fatia.continuacao ? fatia.primeiroIndice : "abre"}`}
+                          fatia={fatia}
+                          modo={modoEfetivo}
+                          listrada={index % 2 === 1}
+                          eventosDaOs={eventosPorOs?.get(fatia.ordem.id)}
+                        />
+                      ))
+                    ) : (
+                      <div className="py-20 text-center text-sm text-neutral-500">Nenhuma ordem encontrada no recorte.</div>
+                    )}
+                  </div>
 
-              {pageIndex === pages.length - 1 && rows.length > 0 && (
-                <div className="mt-1 flex items-center justify-between border-t-2 border-black pt-1.5 text-[10px]">
-                  <span className="uppercase text-neutral-500">
-                    Total · {rows.length} {rows.length === 1 ? "ordem" : "ordens"}
-                  </span>
-                  <strong className="tabular-nums">{money(total)}</strong>
-                </div>
+                  {pageIndex === pages.length - 1 && rows.length > 0 && (
+                    <div className="mt-1 flex items-center justify-between border-t-2 border-black pt-1.5 text-[10px]">
+                      <span className="uppercase text-neutral-500">
+                        Total · {rows.length} {rows.length === 1 ? "ordem" : "ordens"}
+                      </span>
+                      <strong className="tabular-nums">{money(total)}</strong>
+                    </div>
+                  )}
+                </>
               )}
             </section>
           ))}
@@ -862,19 +1052,37 @@ function Kpi({
   value,
   tone,
   destaque,
+  onClick,
 }: {
   label: string;
   value: string;
   tone?: string;
   destaque?: boolean;
+  /** Só nos cards que correspondem a um tipo do filtro. */
+  onClick?: () => void;
 }) {
+  const caixa = `rounded border px-2 py-1.5 ${destaque ? "border-black bg-white" : "border-neutral-300 bg-neutral-50"}`;
+  // `span` em bloco, e não `p`: parágrafo dentro de botão é HTML inválido.
+  const conteudo = (
+    <>
+      <span className="block text-[8px] font-semibold uppercase text-neutral-700">{label}</span>
+      <span className={`block text-[12px] font-bold tabular-nums ${tone ?? ""}`}>{value}</span>
+    </>
+  );
+
+  if (!onClick) return <div className={caixa}>{conteudo}</div>;
+
+  // A mesma caixa do card estático, para a altura medida do painel não mudar. O
+  // realce vem só no hover: um estado marcado sairia no PDF.
   return (
-    <div
-      className={`rounded border px-2 py-1.5 ${destaque ? "border-black bg-white" : "border-neutral-300 bg-neutral-50"}`}
+    <button
+      type="button"
+      onClick={onClick}
+      title="Mostrar só este tipo, sem agrupar por OS"
+      className={`${caixa} block w-full cursor-pointer text-left hover:border-neutral-500 hover:bg-white`}
     >
-      <p className="text-[8px] font-semibold uppercase text-neutral-700">{label}</p>
-      <p className={`text-[12px] font-bold tabular-nums ${tone ?? ""}`}>{value}</p>
-    </div>
+      {conteudo}
+    </button>
   );
 }
 
@@ -929,10 +1137,17 @@ function FatiaDaOrdem({
   fatia,
   modo,
   listrada,
+  eventosDaOs = [],
 }: {
   fatia: FatiaOrdem<ItemDaOrdem | EventoDaOrdem>;
   modo: ModoDaFolha;
   listrada: boolean;
+  /**
+   * Todos os eventos da OS, antes do filtro. O fechamento soma daqui, e não das
+   * linhas da fatia: a OS que atravessa a virada de folha só tem na última
+   * fatia as linhas que couberam nela, e o filtro esconde o resto.
+   */
+  eventosDaOs?: EventoDaOrdem[];
 }) {
   if (modo === "simples") return <OrderLine row={fatia.ordem} listrada={listrada} />;
 
@@ -956,7 +1171,11 @@ function FatiaDaOrdem({
           className="flex items-center pl-[14mm] text-[9px] italic text-neutral-500"
           style={{ height: `${MM_ITEM}mm` }}
         >
-          {eventos ? "Sem eventos financeiros" : "Sem itens lançados"}
+          {eventos
+            ? eventosDaOs.length
+              ? "Nenhum evento nos filtros selecionados"
+              : "Sem eventos financeiros"
+            : "Sem itens lançados"}
         </p>
       )}
 
@@ -971,7 +1190,7 @@ function FatiaDaOrdem({
 
       {fatia.fecha &&
         (eventos ? (
-          <FechamentoDeEventos linhas={fatia.linhas as EventoDaOrdem[]} row={fatia.ordem} />
+          <FechamentoDeEventos linhas={eventosDaOs} row={fatia.ordem} />
         ) : (
           <FechamentoDaOrdem row={fatia.ordem} />
         ))}
@@ -1128,19 +1347,19 @@ function cardsDoResultado(
       { chave: "ticket", label: "Média por ordem", value: money(ticket), valor: ticket },
     ],
     [
-      { chave: "receitaProdutos", label: "+ Receita de produtos", value: signedMoney(totais.receitaProdutos, 1), tone: TOM_SOMA, valor: totais.receitaProdutos },
-      { chave: "custoProdutos", label: "− Custo de produtos", value: signedMoney(totais.despesaProdutos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaProdutos },
-      { chave: "comissoesProdutos", label: `${sinalDoAbatimento(comissoes.produtos) < 0 ? "−" : "+"} Comissões de produtos`, value: signedMoney(comissoes.produtos, sinalDoAbatimento(comissoes.produtos)), tone: tomDoAbatimento(comissoes.produtos), valor: comissoes.produtos },
+      { chave: "receitaProdutos", label: "+ Receita de produtos", value: signedMoney(totais.receitaProdutos, 1), tone: TOM_SOMA, valor: totais.receitaProdutos, categoria: "RECEITA_PRODUTOS" },
+      { chave: "custoProdutos", label: "− Custo de produtos", value: signedMoney(totais.despesaProdutos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaProdutos, categoria: "CUSTO_PRODUTOS" },
+      { chave: "comissoesProdutos", label: `${sinalDoAbatimento(comissoes.produtos) < 0 ? "−" : "+"} Comissões de produtos`, value: signedMoney(comissoes.produtos, sinalDoAbatimento(comissoes.produtos)), tone: tomDoAbatimento(comissoes.produtos), valor: comissoes.produtos, categoria: "COMISSOES_PRODUTOS" },
       { chave: "liquidoProdutos", label: "= Líquido de produtos", value: money(liquidoProdutos), tone: tom(liquidoProdutos), valor: liquidoProdutos },
     ],
     [
-      { chave: "receitaServicos", label: "+ Receita de serviços", value: signedMoney(totais.receitaServicos, 1), tone: TOM_SOMA, valor: totais.receitaServicos },
-      { chave: "custoServicos", label: "− Custo de serviços", value: signedMoney(totais.despesaServicos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaServicos },
-      { chave: "comissoes", label: `${sinalDoAbatimento(comissoes.servicos) < 0 ? "−" : "+"} Comissões de serviços`, value: signedMoney(comissoes.servicos, sinalDoAbatimento(comissoes.servicos)), tone: tomDoAbatimento(comissoes.servicos), valor: comissoes.servicos },
+      { chave: "receitaServicos", label: "+ Receita de serviços", value: signedMoney(totais.receitaServicos, 1), tone: TOM_SOMA, valor: totais.receitaServicos, categoria: "RECEITA_SERVICOS" },
+      { chave: "custoServicos", label: "− Custo de serviços", value: signedMoney(totais.despesaServicos, -1), tone: TOM_SUBTRACAO, valor: totais.despesaServicos, categoria: "CUSTO_SERVICOS" },
+      { chave: "comissoes", label: `${sinalDoAbatimento(comissoes.servicos) < 0 ? "−" : "+"} Comissões de serviços`, value: signedMoney(comissoes.servicos, sinalDoAbatimento(comissoes.servicos)), tone: tomDoAbatimento(comissoes.servicos), valor: comissoes.servicos, categoria: "COMISSOES_SERVICOS" },
       { chave: "liquidoServicos", label: "= Líquido de serviços", value: money(liquidoServicos), tone: tom(liquidoServicos), valor: liquidoServicos },
     ],
     [
-      ...outrasDeducoes.map((deducao) => {
+      ...outrasDeducoes.map((deducao): CardFechamento => {
         const sinal = sinalDe(deducao.valor);
         return {
           chave: `origem-${deducao.origem}`,
@@ -1148,10 +1367,14 @@ function cardsDoResultado(
           value: signedMoney(deducao.valor, sinal),
           tone: tom(deducao.valor),
           valor: deducao.valor,
+          // Uma origem fora das conhecidas ganha card próprio, mas o filtro a
+          // junta em "Outros" com as demais — clicar mostraria mais do que o card.
+          categoria:
+            deducao.origem === "DESCONTO" ? "DESCONTOS" : deducao.origem === "CONSUMO" ? "CONSUMO" : undefined,
         };
       }),
-      { chave: "freteReceita", label: "+ Receita de frete", value: signedMoney(freteReceita, 1), tone: TOM_SOMA, valor: freteReceita },
-      { chave: "freteDespesa", label: "− Despesa de frete", value: signedMoney(freteDespesa, -1), tone: TOM_SUBTRACAO, valor: freteDespesa },
+      { chave: "freteReceita", label: "+ Receita de frete", value: signedMoney(freteReceita, 1), tone: TOM_SOMA, valor: freteReceita, categoria: "RECEITA_FRETE" },
+      { chave: "freteDespesa", label: "− Despesa de frete", value: signedMoney(freteDespesa, -1), tone: TOM_SUBTRACAO, valor: freteDespesa, categoria: "DESPESA_FRETE" },
       { chave: "lucro", label: "= Lucro real", value: money(totais.lucroReal), tone: "text-primary", destaque: true, valor: totais.lucroReal },
     ],
   ];
@@ -1283,6 +1506,97 @@ function FechamentoDaOrdem({ row }: { row: OrderRow }) {
           <span className={`tabular-nums ${TOM_SOMA}`}>{signedMoney(row.surcharge, 1)}</span>
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * A tabela crua dos lançamentos, sem agrupar por OS.
+ *
+ * A faixa de rótulos usa as mesmas classes da faixa "Ordem / Cliente /
+ * Orçamento" da folha agrupada: `MM_TOPO_DEMAIS` foi medido com ela, e mudar a
+ * altura aqui cortaria a última linha de cada folha.
+ */
+function TabelaDeLancamentos({
+  lancamentos,
+  ultimaFolha,
+  quantidade,
+  total,
+}: {
+  lancamentos: LancamentoDaFolha[];
+  ultimaFolha: boolean;
+  /** Do recorte inteiro, e não só desta folha. */
+  quantidade: number;
+  total: number;
+}) {
+  return (
+    <>
+      <div className="mt-2 flex items-center gap-2 border-b border-neutral-300 pb-1 text-[8px] uppercase text-neutral-500">
+        <span className="w-[12mm] shrink-0">OS</span>
+        <span className="w-[34mm] shrink-0">Cliente</span>
+        <span className="w-[16mm] shrink-0">Origem</span>
+        <span className="min-w-0 flex-1">Descrição</span>
+        <span className="w-[34mm] shrink-0">Detalhe</span>
+        <span className="w-[24mm] shrink-0 text-right">Valor</span>
+      </div>
+
+      <div className="min-h-0 flex-1">
+        {lancamentos.length ? (
+          <>
+            {lancamentos.map((lancamento, indice) => (
+              <LinhaDeLancamento key={lancamento.chave} lancamento={lancamento} listrada={indice % 2 === 1} />
+            ))}
+
+            {/* O total vem colado à última linha, e não no pé da folha: numa
+                última folha com poucas linhas ele ficava longe da coluna que
+                soma. Cabe no `MM_RODAPE_TOTAL` que toda folha já reserva. */}
+            {ultimaFolha && (
+              <div className="mt-1 flex items-center gap-2 border-t-2 border-black pt-1.5 text-[10px]">
+                <span className="min-w-0 flex-1 uppercase text-neutral-500">
+                  Total · {quantidade} {quantidade === 1 ? "lançamento" : "lançamentos"}
+                </span>
+                <strong className={`min-w-[24mm] shrink-0 text-right tabular-nums ${total < 0 ? TOM_SUBTRACAO : ""}`}>
+                  {money(total)}
+                </strong>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="py-20 text-center text-sm text-neutral-500">Nenhum lançamento nos filtros selecionados.</div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function LinhaDeLancamento({
+  lancamento: { ordem, evento },
+  listrada,
+}: {
+  lancamento: LancamentoDaFolha;
+  listrada: boolean;
+}) {
+  const receita = evento.natureza === "RECEITA";
+
+  return (
+    <div
+      className={`flex items-center gap-2 text-[9px] ${listrada ? "bg-neutral-50" : ""}`}
+      style={{ height: `${MM_ITEM}mm` }}
+    >
+      <span className="w-[12mm] shrink-0 font-bold tabular-nums">#{ordem.id}</span>
+      <span className="w-[34mm] shrink-0 truncate">{ordem.customer}</span>
+      <span
+        className={`w-[16mm] shrink-0 rounded px-1 py-[1px] text-center text-[7px] font-semibold uppercase ${
+          TOM_ORIGEM[evento.origem] ?? "bg-neutral-100 text-neutral-700"
+        }`}
+      >
+        {evento.origem}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{evento.descricao || "Sem descrição"}</span>
+      <span className="w-[34mm] shrink-0 truncate text-neutral-500">{evento.detalhe}</span>
+      <span className={`w-[24mm] shrink-0 text-right font-semibold tabular-nums ${receita ? TOM_SOMA : TOM_SUBTRACAO}`}>
+        {signedMoney(evento.valor, receita ? 1 : -1)}
+      </span>
     </div>
   );
 }
