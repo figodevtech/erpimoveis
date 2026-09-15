@@ -1,7 +1,7 @@
 // src/app/api/me/_helpers.ts
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { hasUsuariosAccess } from "@/app/api/_authz/perms";
+import { hasPerm, PERMS } from "@/app/api/_authz/perms";
 
 export {
   parsePeriodo,
@@ -17,8 +17,8 @@ export type { PeriodoConsulta as Periodo, TextosServico } from "@/lib/meu-perfil
  *
  * As rotas /api/me/* nao aparecem em ROUTE_PERMS do middleware: qualquer usuario
  * autenticado passa. Por padrao, elas devolvem exclusivamente dados do usuario
- * da sessao. A consulta de outro `usuarioId` so e aceita para quem possui a
- * permissao de visualizar usuarios.
+ * da sessao. A consulta de outro `usuarioId` so e aceita para quem possui
+ * `usuarios:ver-perfis`.
  */
 export async function getMeUserId(req?: Request): Promise<string | NextResponse> {
   const session = await auth();
@@ -35,7 +35,7 @@ export async function getMeUserId(req?: Request): Promise<string | NextResponse>
 
   if (!requestedUserId || requestedUserId === sessionUserId) return sessionUserId;
 
-  if (!(await hasUsuariosAccess())) {
+  if (!(await hasPerm(PERMS.USUARIOS_VER_PERFIS))) {
     return NextResponse.json(
       { error: "Sem permissao para visualizar o perfil de outro usuario." },
       { status: 403 },

@@ -240,8 +240,11 @@ function isExecutorOnly(user: any) {
   const perms = getSessionPerms(user);
   if (!perms.includes(normalizePermission(PERMS.EXECUCAO_OS))) return false;
 
+  // Ver outros perfis so muda o que aparece em /meu-perfil, que o executor ja
+  // acessa: nao pode tira-lo da tela de execucao.
+  const mantemModoExecutor = [PERMS.EXECUCAO_OS, PERMS.USUARIOS_VER_PERFIS].map((p) => normalizePermission(p));
   const appPerms = Object.values(PERMS).map((p) => normalizePermission(p));
-  return perms.every((p) => p === normalizePermission(PERMS.EXECUCAO_OS) || !appPerms.includes(p));
+  return perms.every((p) => mantemModoExecutor.includes(p) || !appPerms.includes(p));
 }
 
 async function fetchFreshUserState(userId: string) {

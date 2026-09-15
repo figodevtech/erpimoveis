@@ -8,8 +8,9 @@
 
 A rota `/meu-perfil` apresenta a identidade do usuário, resumos por período e listas paginadas de
 vendas, ordens e serviços. Todo usuário autenticado consulta os próprios dados. Quem possui
-`usuarios:visualizar` também pode navegar entre usuários e, pelo mesmo contrato de autorização,
-consultar e alterar a foto do perfil selecionado.
+`usuarios:ver-perfis` também pode navegar entre usuários e, pelo mesmo contrato de autorização,
+consultar e alterar a foto do perfil selecionado. Essa permissão não depende de
+`usuarios:visualizar`, que abre o cadastro de usuários.
 
 O upload de foto é **implementado** e independente de qualquer formulário: o ícone de lápis abre o
 seletor nativo e a seleção inicia imediatamente o processamento, upload e persistência. Não existe
@@ -24,11 +25,15 @@ escopo atual**.
   avatar/fallback, input nativo oculto, lápis e estado visual de envio.
 - [`lib/api.ts`](../../src/app/(app)/(pages)/meu-perfil/lib/api.ts): contratos HTTP do frontend.
 - [`GET /api/me/perfil`](../../src/app/api/me/perfil/route.ts): retorna identidade e `fotoUrl`.
+- [`GET /api/me/usuarios`](../../src/app/api/me/usuarios/route.ts): lista `id`, `nome` e `email` para
+  o seletor de perfil.
 - [`POST /api/me/perfil/foto`](../../src/app/api/me/perfil/foto/route.ts): autoriza, valida, normaliza,
   grava e substitui a foto.
 - [`foto-perfil.ts`](../../src/lib/meu-perfil/foto-perfil.ts): limites, formatos e isolamento de paths.
 - [`20260827130000_usuario_foto_perfil.sql`](../../supabase/migrations/20260827130000_usuario_foto_perfil.sql):
   campos e bucket.
+- [`20260915130000_permissao_usuarios_ver_perfis.sql`](../../supabase/migrations/20260915130000_permissao_usuarios_ver_perfis.sql):
+  permissão de navegar entre perfis.
 
 ## Fluxo do frontend
 
@@ -56,9 +61,19 @@ original e persiste no alvo autorizado correto.
 ```
 
 O helper [`getMeUserId`](../../src/app/api/me/_helpers.ts) exige sessão Auth.js. O próprio usuário
-sempre pode alterar sua foto. Para outro UUID, exige `usuarios:visualizar`, a mesma permissão que
+sempre pode alterar sua foto. Para outro UUID, exige `usuarios:ver-perfis`, a mesma permissão que
 habilita a navegação entre perfis. A API usa `service_role`; o navegador não recebe credencial de
 Storage nem permissão direta de escrita.
+
+`GET /api/me/usuarios` alimenta o seletor e também exige `usuarios:ver-perfis`. Ela existe em vez de
+`/api/users` porque aquela rota exige `usuarios:visualizar` e devolve salário e comissões.
+
+As APIs leem a permissão no banco a cada requisição. O seletor na tela lê as permissões da sessão,
+que só são recarregadas no login: quem recebe ou perde `usuarios:ver-perfis` precisa sair e entrar
+de novo para a tela refletir a mudança.
+
+Para o middleware, `usuarios:ver-perfis` não tira ninguém do modo executor: um perfil com
+`execucao_os:visualizar` e essa permissão continua restrito à execução, ao chat e à Central Pessoal.
 
 ## Imagens, banco e Storage
 
@@ -98,12 +113,13 @@ Consulte [`chat.md`](./chat.md).
 
 ## Testes e validação
 
-- `npx tsx --test src/lib/meu-perfil/*.test.ts "src/app/(app)/(pages)/meu-perfil/components/*.test.tsx"`
+- `npx tsx --test src/lib/meu-perfil/*.test.ts "src/app/(app)/(pages)/meu-perfil/components/*.test.tsx" src/app/api/_authz/action-permission.test.ts`
 - `npx eslint "src/app/(app)/(pages)/meu-perfil" src/app/api/me/perfil src/lib/meu-perfil`
 - `npx tsc --noEmit --incremental false`
 - `npm run build`
-- validar manualmente upload próprio e de outro usuário com `usuarios:visualizar`;
-- validar que um usuário sem essa permissão recebe `403` ao forçar outro `usuarioId`.
+- validar manualmente upload próprio e de outro usuário com `usuarios:ver-perfis`;
+- validar que um perfil com `usuarios:ver-perfis` e sem `usuarios:visualizar` vê o seletor;
+- validar que um usuário sem `usuarios:ver-perfis` recebe `403` ao forçar outro `usuarioId`.
 
 ## Regras para futuras implementações
 
@@ -125,3 +141,6 @@ Consulte [`chat.md`](./chat.md).
   da imagem pelo chat interno.
 - **2026-08-26 — Formatos aceitos:** HEIC e HEIF saíram da validação e do `accept`, porque o libvips
   do Sharp não decodifica HEVC; JPG, PNG, WebP e AVIF continuam aceitos.
+- **2026-09-15 — Permissão própria:** navegar entre perfis passou de `usuarios:visualizar` para
+  `usuarios:ver-perfis`, e o seletor deixou de ler `/api/users`. A migração concede a nova permissão
+  a todo perfil que já tinha `usuarios:visualizar`.
