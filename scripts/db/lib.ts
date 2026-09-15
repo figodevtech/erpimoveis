@@ -68,7 +68,7 @@ const DATABASES: Omit<DatabaseConfig, "url">[] = [
   },
 ];
 
-function parseSimpleEnv(file: string) {
+export function parseSimpleEnv(file: string) {
   if (!fs.existsSync(file)) return new Map<string, string>();
 
   const values = new Map<string, string>();

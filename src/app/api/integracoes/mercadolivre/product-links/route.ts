@@ -3,6 +3,7 @@ import { requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
+import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { extractMercadoLivrePackageSnapshot } from "@/lib/integrations/mercadolivre-package";
 
 export const runtime = "nodejs";
@@ -12,11 +13,14 @@ export async function GET() {
   try {
     await requireVendasEdit();
     const empresaId = await requireEmpresaId();
-    const account = await getDefaultAccount(empresaId);
+    const account = await getValidMercadoLivreAccount(empresaId);
     // A busca devolve no máximo 100 ids por chamada. Sem paginar, uma conta com
     // mais de 100 anúncios em qualquer status perdia o excedente silenciosamente.
+    // Em revisão e inativo entram para o anúncio moderado não sumir da aba.
     const itemIds = Array.from(
-      new Set((await Promise.all(["active", "paused", "closed"].map((status) => searchAllItems(account, status)))).flat()),
+      new Set(
+        (await Promise.all(SEARCH_STATUSES.map((status) => searchAllItems(account, status)))).flat(),
+      ),
     );
 
     const { data: links, error: linksError } = await supabaseAdmin
@@ -80,7 +84,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Informe o codigo do anuncio Mercado Livre." }, { status: 400 });
     }
 
-    const account = await getDefaultAccount(empresaId);
+    const account = await getValidMercadoLivreAccount(empresaId);
     const item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(mlItemId)}`);
     const userProduct = item?.user_product_id
       ? await mercadoLivreApiGet<any>(account.access_token, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
@@ -147,38 +151,25 @@ export async function DELETE(req: Request) {
   }
 }
 
+const SEARCH_STATUSES = ["active", "paused", "closed", "under_review", "inactive"];
 const SEARCH_PAGE_SIZE = 100;
 /** O `offset` da busca de itens é limitado a 1000 pelo Mercado Livre. */
 const SEARCH_MAX_OFFSET = 1000;
 
+/**
+ * Falha na busca sobe como erro. Engolida, ela virava lista vazia com cara de
+ * sucesso — com token vencido, os anúncios sem vínculo sumiam da aba sem aviso.
+ */
 async function searchAllItems(account: { access_token: string; ml_user_id: number | string }, status: string) {
   const ids: string[] = [];
   for (let offset = 0; offset <= SEARCH_MAX_OFFSET; offset += SEARCH_PAGE_SIZE) {
     const page = await mercadoLivreApiGet<any>(
       account.access_token,
       `/users/${account.ml_user_id}/items/search?status=${encodeURIComponent(status)}&limit=${SEARCH_PAGE_SIZE}&offset=${offset}`,
-    ).catch(() => null);
+    );
     const results = Array.isArray(page?.results) ? page.results.map(String).filter(Boolean) : [];
     ids.push(...results);
     if (results.length < SEARCH_PAGE_SIZE) break;
   }
   return ids;
-}
-
-async function getDefaultAccount(empresaId: number) {
-  const { data, error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .select("id, empresa_id, ml_user_id, access_token")
-    .eq("empresa_id", empresaId)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .single();
-
-  if (error) throw error;
-  return data as {
-    id: number;
-    empresa_id: number;
-    ml_user_id: number;
-    access_token: string;
-  };
 }

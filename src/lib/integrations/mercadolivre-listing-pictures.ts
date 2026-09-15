@@ -30,6 +30,16 @@ export function parseMercadoLivrePictureUrls(value: string) {
   return Array.from(urls.values());
 }
 
+/**
+ * Fotos do produto no ERP na ordem em que vão para o anúncio: a capa (`imgUrl`)
+ * primeiro e depois a galeria de `produto_imagem`, sem repetir a capa.
+ */
+export function productImageUrlsForListing(coverUrl: unknown, galleryUrls: unknown[]) {
+  return Array.from(
+    new Set([coverUrl, ...galleryUrls].map((url) => String(url ?? "").trim()).filter(Boolean)),
+  );
+}
+
 export function getMercadoLivrePictureRequirement(value: string): MercadoLivrePictureRequirement {
   const urls = parseMercadoLivrePictureUrls(value);
   return buildPictureRequirement(urls.length, urls);

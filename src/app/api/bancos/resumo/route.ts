@@ -232,7 +232,12 @@ export async function GET(req: Request) {
       const abs = Math.abs(signed);
 
       current.totalTransacoes += 1;
-      if (!current.ultimaMovimentacao || new Date(transacao.data) > new Date(current.ultimaMovimentacao)) {
+
+      // Pendente (a receber/a pagar) não movimentou a conta; costuma ter data futura de vencimento.
+      if (
+        !transacao.pendente &&
+        (!current.ultimaMovimentacao || new Date(transacao.data) > new Date(current.ultimaMovimentacao))
+      ) {
         current.ultimaMovimentacao = transacao.data;
       }
 

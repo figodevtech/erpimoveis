@@ -7,6 +7,7 @@ import {
   mercadoLivrePictureRequirementMessage,
   MIN_MERCADO_LIVRE_LISTING_PICTURES,
   parseMercadoLivrePictureUrls,
+  productImageUrlsForListing,
 } from "./mercadolivre-listing-pictures";
 
 test("exige pelo menos três fotos públicas válidas e distintas", () => {
@@ -39,6 +40,20 @@ test("edição usa a nova lista completa quando pictureUrl foi alterado", () => 
   });
   assert.equal(result.valid, false);
   assert.equal(result.count, 2);
+});
+
+test("anúncio recebe a capa e toda a galeria do produto, sem repetir a capa", () => {
+  assert.deepEqual(
+    productImageUrlsForListing("https://img.test/capa.jpg", [
+      "https://img.test/lado.jpg",
+      "https://img.test/capa.jpg",
+      " https://img.test/verso.jpg ",
+      null,
+      "",
+    ]),
+    ["https://img.test/capa.jpg", "https://img.test/lado.jpg", "https://img.test/verso.jpg"],
+  );
+  assert.deepEqual(productImageUrlsForListing(null, ["https://img.test/unica.jpg"]), ["https://img.test/unica.jpg"]);
 });
 
 test("ignora linhas vazias, protocolos inválidos e URLs repetidas", () => {

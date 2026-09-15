@@ -215,16 +215,16 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         await mercadoLivreApiPut(accessToken, `/items/${encodeURIComponent(itemId)}/family_name`, { family_name: familyName });
       }
     }
-    else if (action === "sync_stock_price") {
+    else if (action === "sync_stock") {
+      // Só o estoque segue o ERP: o preço do anúncio é independente de `precovenda`.
       const { data: product, error: productError } = await supabaseAdmin
         .from("produto")
-        .select("id, precovenda, estoque")
+        .select("id, estoque")
         .eq("id", link.produto_id)
         .single();
 
       if (productError) throw productError;
       payload = {
-        price: Number((product as any).precovenda ?? 0),
         available_quantity: Math.max(Number((product as any).estoque ?? 0), 0),
       };
     } else {
@@ -391,14 +391,15 @@ async function relistMercadoLivreItem(accessToken: string, itemId: string, link:
 
   const { data: product } = await supabaseAdmin
     .from("produto")
-    .select("precovenda, estoque")
+    .select("estoque")
     .eq("id", link.produto_id)
     .maybeSingle();
 
-  const price = Number(product?.precovenda ?? current?.price ?? 0);
+  // O preço do anúncio é independente do cadastro: republica com o preço que o anúncio já tinha.
+  const price = Number(current?.price ?? 0);
   const quantity = Math.max(Math.trunc(Number(product?.estoque ?? 0)), 0);
   if (!Number.isFinite(price) || price <= 0) {
-    throw fieldRestriction("price", "Informe um preço de venda no produto antes de republicar o anúncio.");
+    throw fieldRestriction("price", "O Mercado Livre não informou o preço do anúncio encerrado.");
   }
   if (quantity <= 0) {
     throw fieldRestriction("stock", "Não é possível republicar um anúncio sem estoque disponível.");
@@ -512,7 +513,7 @@ function hasOwn(value: unknown, key: string) {
  */
 function outboundTouchKinds(action: string, body: unknown): MercadoLivreOutboundTouchKind[] {
   if (action === "pause" || action === "activate" || action === "close") return ["STATUS"];
-  if (action === "sync_stock_price") return ["ESTOQUE", "PRECO"];
+  if (action === "sync_stock") return ["ESTOQUE"];
 
   const kinds = new Set<MercadoLivreOutboundTouchKind>(["ANUNCIO"]);
   if (hasOwn(body, "price")) kinds.add("PRECO");

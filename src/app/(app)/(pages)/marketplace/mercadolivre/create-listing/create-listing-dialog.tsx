@@ -341,7 +341,6 @@ export function MercadoLivreCreateListingDialog(props: Props) {
                 <ListingMediaManager
                   value={form.pictureUrl}
                   onChange={(value) => updateForm("pictureUrl", value)}
-                  produtoId={selectedProduct?.id ?? null}
                   productImageUrls={productImageUrls}
                   disabled={creating}
                 />

@@ -46,6 +46,7 @@ function formatCurrency(value: unknown) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
 }
 import { ListingMediaManager } from "../listing-media/listing-media-manager";
+import { loadProductImageUrls } from "../listing-media/product-image-urls";
 import { ListingStepper, type ListingStepDefinition } from "../listing-stepper";
 import { TabsContent } from "@/components/ui/tabs";
 import {
@@ -257,6 +258,17 @@ export function MercadoLivreEditListingDialog({
       )
     ).map(String);
     setProductImageUrls(fallbackImages);
+
+    // Vindo do cadastro de estoque, o produto só traz a capa; "Usar imagens do
+    // produto" precisa da galeria inteira.
+    const imageProductId = Number(produtoId || initialProduct?.id || 0);
+    if (!Array.isArray(initialProduct?.imageUrls) && imageProductId > 0) {
+      loadProductImageUrls(imageProductId, initialProduct?.imgUrl)
+        .then((urls) => {
+          if (active && urls.length) setProductImageUrls(urls);
+        })
+        .catch((error) => console.error("Falha ao carregar as imagens do produto:", error));
+    }
 
     fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}`, { cache: "no-store" })
       .then(async (res) => {
@@ -666,7 +678,6 @@ export function MercadoLivreEditListingDialog({
               <ListingMediaManager
                 value={form.pictureUrl}
                 onChange={(val) => updateForm("pictureUrl", val)}
-                produtoId={Number(form.produtoId) || null}
                 productImageUrls={productImageUrls}
                 disabled={saving || loading || !capabilities.pictures}
                 disabledReason={mediaDisabledReason}

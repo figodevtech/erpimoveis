@@ -36,6 +36,7 @@ import {
 } from "@/lib/integrations/mercadolivre-listing-pictures";
 import { preferencesAllowShippingMode } from "@/lib/integrations/mercadolivre-mercado-envios";
 import { shippingLogisticLabel } from "../edit-listing/edit-listing-dialog";
+import { loadProductImageUrls } from "../listing-media/product-image-urls";
 
 export type MercadoLivrePublishProductDialogProps = {
   open: boolean;
@@ -450,6 +451,25 @@ export function MercadoLivrePublishProductDialog({
       setStep("product");
       setListingFieldErrors({});
       loadListingOptions();
+      // O produto vindo do cadastro de estoque só traz a capa: as demais fotos
+      // ficam em `produto_imagem` e entram no anúncio assim que chegam, desde que
+      // a mídia ainda não tenha sido mexida.
+      if (!Array.isArray((produto as any).imageUrls) && row.id) {
+        const coverOnly = (row.imageUrls ?? []).join("\n");
+        loadProductImageUrls(row.id, row.imgUrl)
+          .then((urls) => {
+            if (!urls.length) return;
+            setChosenProduct((current) => (current?.id === row.id ? { ...current, imageUrls: urls } : current));
+            setListingForm((current) =>
+              current.produtoId === String(row.id) && current.pictureUrl === coverOnly
+                ? { ...current, pictureUrl: urls.join("\n") }
+                : current,
+            );
+          })
+          .catch((error) => {
+            toast.error("Não foi possível carregar todas as imagens do produto", { description: marketplaceErrorMessage(error) });
+          });
+      }
     }
     if (!open && prevOpenRef.current) {
       categoryRequestRef.current?.abort();

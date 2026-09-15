@@ -507,6 +507,8 @@ export type ProductRow = {
     health?: number | null;
     catalog_listing?: boolean | null;
     stop_time?: string | null;
+    /** Preço lido do anúncio no Mercado Livre; independe de `precovenda`. */
+    price_state?: { standardPrice: number | null; salePrice: number | null } | null;
     metrics_updated_at?: string | null;
     updated_at?: string | null;
   } | null;
@@ -3577,6 +3579,7 @@ export default function MarketplacePage() {
 
       const changed = Array.isArray(json?.data?.changed) ? json.data.changed : [];
       const removed = Array.isArray(json?.data?.removed) ? json.data.removed : [];
+      const failed = Array.isArray(json?.data?.failed) ? json.data.failed : [];
 
       if (removed.length) {
         toast.warning(`${removed.length} anúncio(s) excluído(s) no Mercado Livre.`, {
@@ -3596,9 +3599,20 @@ export default function MarketplacePage() {
           duration: 8000,
         });
       }
-      if (!changed.length && !removed.length) {
+      // Anúncio que não pôde ser consultado não foi conferido: dizer "nada mudou"
+      // nesse caso esconderia token vencido ou falha do Mercado Livre.
+      if (failed.length) {
+        toast.error(`${failed.length} anúncio(s) não puderam ser conferidos.`, {
+          description: failed
+            .slice(0, 3)
+            .map((entry: any) => `${entry.itemId}: ${entry.error || "falha na consulta"}`)
+            .join(" · "),
+          duration: 8000,
+        });
+      }
+      if (!changed.length && !removed.length && !failed.length) {
         toast.success("Situação dos anúncios conferida.", { description: "Nada mudou no Mercado Livre." });
-      } else {
+      } else if (changed.length || removed.length) {
         await Promise.all([loadProducts(), loadLinkedListingProducts()]);
       }
     } catch (error: any) {
@@ -3646,7 +3660,7 @@ export default function MarketplacePage() {
 
   async function itemAction(
     itemId: string,
-    action: "pause" | "activate" | "close" | "sync_stock_price" | "delete" | "relist",
+    action: "pause" | "activate" | "close" | "sync_stock" | "delete" | "relist",
   ) {
     setActionKey(`${action}:${itemId}`);
     try {
@@ -4948,9 +4962,9 @@ export default function MarketplacePage() {
               <CarFront className="mr-2 h-4 w-4" />
               Veículos compatíveis
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "sync_stock_price")} disabled={Boolean(busy)}>
+            <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "sync_stock")} disabled={Boolean(busy)}>
               <RefreshCcw className="mr-2 h-4 w-4" />
-              Atualizar estoque e preço
+              Atualizar estoque
             </DropdownMenuItem>
             {listingStatus === "active" && (
               <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "pause")} disabled={Boolean(busy)}>
@@ -5552,7 +5566,7 @@ export default function MarketplacePage() {
                             </TableCell>
                             <TableCell><div className="space-y-1 text-xs"><p><span className="text-muted-foreground">Visualizações:</span> <strong>{link.visits_total == null ? "—" : Number(link.visits_total).toLocaleString("pt-BR")}</strong></p><p><span className="text-muted-foreground">Vendidos:</span> <strong>{link.sold_quantity == null ? "—" : Number(link.sold_quantity).toLocaleString("pt-BR")}</strong></p></div></TableCell>
                             <TableCell><div className="space-y-1.5 text-xs"><p><span className="text-muted-foreground">Mercado Livre:</span> <strong>{link.available_quantity == null ? "—" : Number(link.available_quantity).toLocaleString("pt-BR")}</strong></p><div className="flex items-center gap-2"><span><span className="text-muted-foreground">ERP:</span> <strong>{product.estoque ?? 0}</strong></span>{stockStatusBadge(product.status_estoque, product.estoque)}</div></div></TableCell>
-                            <TableCell className="font-medium">{formatCurrency(product.precovenda)}</TableCell>
+                            <TableCell><div className="space-y-1 text-xs"><p className="text-sm font-medium">{link.price_state?.standardPrice == null ? "—" : formatCurrency(link.price_state.standardPrice)}</p>{link.price_state?.salePrice != null && link.price_state.standardPrice != null && link.price_state.salePrice < link.price_state.standardPrice ? <p><span className="text-muted-foreground">Promoção:</span> <strong>{formatCurrency(link.price_state.salePrice)}</strong></p> : null}<p className="text-muted-foreground">ERP: {formatCurrency(product.precovenda)}</p></div></TableCell>
                             <TableCell className="text-right">{productActions(product)}</TableCell>
                           </TableRow>
                         );
@@ -6508,7 +6522,6 @@ export default function MarketplacePage() {
               <ListingMediaManager
                 value={editForm.pictureUrl}
                 onChange={(value) => updateEditForm("pictureUrl", value)}
-                produtoId={Number(editForm.produtoId) || null}
                 productImageUrls={editingProductImageUrls}
                 disabled={editingListing || loadingEditListing || !editCapabilities.pictures}
                 disabledReason={editingMediaDisabledReason}
