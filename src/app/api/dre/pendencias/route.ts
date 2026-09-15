@@ -27,6 +27,53 @@ type Item = {
   valor: number | string | null;
 };
 
+type Registro = Record<string, unknown>;
+
+/** Mesma forma do detalhamento da linha: o que a tela abre ao clicar em corrigir. */
+type Documento = {
+  tipo: "OS" | "VENDA" | "ENTRADA" | "USO_CONSUMO" | "TRANSACAO";
+  id: number;
+} | null;
+
+function documentoDoEvento(row: Registro): Documento {
+  const tipo = row.source_type == null ? null : String(row.source_type);
+  const id = row.source_id == null ? null : Number(row.source_id);
+
+  if (row.ordemservicoid != null) return { tipo: "OS", id: Number(row.ordemservicoid) };
+  if (tipo === "TRANSACAO" && id) return { tipo: "TRANSACAO", id };
+  // O evento convertido guarda a transação que o liquidou; é ela que se edita.
+  if (row.transacaoid != null) return { tipo: "TRANSACAO", id: Number(row.transacaoid) };
+  if (!id) return null;
+  if (tipo === "ORDEM_SERVICO") return { tipo: "OS", id };
+  if (tipo === "VENDA") return { tipo: "VENDA", id };
+  if (tipo === "ENTRADA") return { tipo: "ENTRADA", id };
+  if (tipo === "USOCONSUMO_ENTRADA") return { tipo: "USO_CONSUMO", id };
+  return null;
+}
+
+/**
+ * Documento de cada item de EVENTO.
+ *
+ * A fila devolve o id do evento, e o evento não é editável: quem conserta é o
+ * documento que o gerou. Sem isso, o botão "Corrigir" de "lançamento sem linha"
+ * não abria nada — justamente o motivo mais comum, o do lançamento avulso que
+ * ficou sem plano de conta.
+ */
+async function documentosDosEventos(ids: number[]) {
+  const porEvento = new Map<number, Documento>();
+  for (let inicio = 0; inicio < ids.length; inicio += 200) {
+    const { data, error } = await supabaseAdmin
+      .from("eventos_financeiros")
+      .select("id, source_type, source_id, ordemservicoid, transacaoid")
+      .in("id", ids.slice(inicio, inicio + 200));
+    if (error) throw error;
+    for (const row of (data ?? []) as Registro[]) {
+      porEvento.set(Number(row.id), documentoDoEvento(row));
+    }
+  }
+  return porEvento;
+}
+
 /**
  * GET /api/dre/pendencias?de=&ate=[&motivo=&limite=&deslocamento=]
  *
@@ -66,7 +113,23 @@ export async function GET(req: Request) {
       });
       if (error) throw error;
 
-      const itens = ((data ?? []) as Item[]).map((item) => ({
+      const linhas = (data ?? []) as Item[];
+
+      /*
+       * O documento enriquece a lista, mas não é ela: se a consulta falhar, os
+       * itens continuam aparecendo, só sem o atalho de correção.
+       */
+      let documentos = new Map<number, Documento>();
+      const eventos = linhas.filter((item) => item.referencia_tipo === "EVENTO").map((item) => Number(item.referencia_id));
+      if (eventos.length) {
+        try {
+          documentos = await documentosDosEventos([...new Set(eventos)]);
+        } catch (erroDocumentos) {
+          console.error("[GET /api/dre/pendencias] documentos dos eventos", erroDocumentos);
+        }
+      }
+
+      const itens = linhas.map((item) => ({
         referencia_tipo: item.referencia_tipo,
         referencia_id: Number(item.referencia_id),
         descricao: item.descricao ?? null,
@@ -74,6 +137,8 @@ export async function GET(req: Request) {
         conta: item.conta_nome ?? null,
         competencia: item.competencia ?? null,
         valor: item.valor === null ? null : Number(item.valor),
+        documento:
+          item.referencia_tipo === "EVENTO" ? (documentos.get(Number(item.referencia_id)) ?? null) : null,
       }));
 
       return NextResponse.json({ motivo, periodo: { de, ate }, itens }, { headers: { "Cache-Control": "no-store" } });

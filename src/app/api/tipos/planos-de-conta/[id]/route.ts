@@ -24,8 +24,10 @@ async function relerConta(id: number) {
  * no meio, a RPC devolve PT409 e a rota responde 409 — em vez de sobrescrever
  * calada o que o outro gravou.
  *
- * Omitir `classificacao_id` não apaga a exceção: sem o campo, mantemos a que
- * está gravada. Só um `null` explícito remove.
+ * Campo omitido preserva o que está gravado — `classificacao_id` inclusive: só
+ * um `null` explícito remove a linha própria. Antes, `codigo` e `descricao`
+ * ausentes viravam nulos, e quem só trocava a linha da conta pela DRE apagava o
+ * código e a descrição dela sem saber.
  */
 export async function PUT(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -36,8 +38,13 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
     if (!id) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
-    const nome = String(body.nome ?? "").trim();
-    const grupoId = Number(body.grupo_id);
+    const informou = (campo: string) => Object.prototype.hasOwnProperty.call(body, campo);
+
+    const atual = await relerConta(id);
+    if (!atual) return NextResponse.json({ error: "Plano de conta não encontrado." }, { status: 404 });
+
+    const nome = informou("nome") ? String(body.nome ?? "").trim() : atual.conta_nome;
+    const grupoId = informou("grupo_id") ? Number(body.grupo_id) : Number(atual.grupo_id);
 
     if (!nome) {
       return NextResponse.json({ error: "Nome do plano de conta é obrigatório." }, { status: 400 });
@@ -46,10 +53,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       return NextResponse.json({ error: "Grupo do plano de conta é obrigatório." }, { status: 400 });
     }
 
-    const atual = await relerConta(id);
-    if (!atual) return NextResponse.json({ error: "Plano de conta não encontrado." }, { status: 404 });
-
-    const temClassificacao = Object.prototype.hasOwnProperty.call(body, "classificacao_id");
+    const temClassificacao = informou("classificacao_id");
     let classificacaoId: number | null = null;
     if (temClassificacao) {
       classificacaoId = body.classificacao_id ? Number(body.classificacao_id) : null;
@@ -64,9 +68,9 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
 
     const { error } = await supabaseAdmin.rpc("plano_contas_salvar_conta", {
       p_id: id,
-      p_codigo: body.codigo ?? null,
+      p_codigo: informou("codigo") ? (body.codigo ?? null) : atual.conta_codigo,
       p_nome: nome,
-      p_descricao: body.descricao ?? null,
+      p_descricao: informou("descricao") ? (body.descricao ?? null) : atual.conta_descricao,
       p_ativo: typeof body.ativo === "boolean" ? body.ativo : null,
       p_grupo_id: grupoId,
       p_classificacao_id: classificacaoId,

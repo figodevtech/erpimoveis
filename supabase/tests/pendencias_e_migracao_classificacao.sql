@@ -466,7 +466,10 @@ BEGIN
     RAISE EXCEPTION 'O conflito sobrescreveu a classificacao mesmo assim.';
   END IF;
 
-  -- Uma unidade que falha nao derruba as outras.
+  -- Uma unidade que falha nao derruba as outras. A falha provocada e a conta do
+  -- sistema pedindo outra classificacao, que a RPC recusa. Ate a 20260915140000
+  -- o erro vinha da trava de familia, que deixou de existir.
+  UPDATE public.planosdeconta SET origem_cadastro = 'SISTEMA' WHERE id = v_conta;
   INSERT INTO public.plano_contas_lote (referencia, vigencia_inicio, versao_catalogo)
   VALUES ('zzf4-erro', DATE '2026-11-01', 1) RETURNING id INTO v_lote;
   SELECT versao_registro INTO v_versao FROM public.planosdeconta WHERE id = v_conta;
