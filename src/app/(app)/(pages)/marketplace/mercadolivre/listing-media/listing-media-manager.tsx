@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
-import { Camera, Image as ImageIcon, Plus, Upload } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, Image as ImageIcon, Plus, Upload } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { prepareProductImageForUpload, productImageUploadError } from "@/lib/product-image-upload";
+import {
+  getMercadoLivrePictureRequirement,
+  mercadoLivrePictureRequirementMessage,
+  MIN_MERCADO_LIVRE_LISTING_PICTURES,
+  parseMercadoLivrePictureUrls,
+} from "@/lib/integrations/mercadolivre-listing-pictures";
 import {
   ProdutoImagensGallery,
   type ProdutoImagemPendente,
@@ -20,19 +26,7 @@ import {
  * grava no acervo do produto (para virar URL pública) e anexa ao anúncio.
  */
 
-export function parseListingPictureUrls(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((source) => source.trim())
-    .filter((source) => {
-      try {
-        const url = new URL(source);
-        return url.protocol === "https:" || url.protocol === "http:";
-      } catch {
-        return false;
-      }
-    });
-}
+export const parseListingPictureUrls = parseMercadoLivrePictureUrls;
 
 type Props = {
   /** URLs do anúncio, uma por linha — o mesmo formato do campo `pictureUrl`. */
@@ -71,7 +65,8 @@ export function ListingMediaManager({
   // do gesto (a reordenação acontece durante o drag, não só ao soltar).
   const idsRef = useRef(new Map<string, number>());
   const nextIdRef = useRef(1);
-  const urls = useMemo(() => parseListingPictureUrls(value), [value]);
+  const pictureRequirement = useMemo(() => getMercadoLivrePictureRequirement(value), [value]);
+  const urls = pictureRequirement.urls;
 
   const imagens = useMemo(() => {
     const ids = idsRef.current;
@@ -247,10 +242,25 @@ export function ListingMediaManager({
           <p className="text-xs text-muted-foreground">
             Arraste para reordenar. A primeira imagem é a capa enviada ao Mercado Livre.
           </p>
-          <p className="text-xs text-muted-foreground">
-            {urls.length} {urls.length === 1 ? "imagem no anúncio" : "imagens no anúncio"}
-            {pendentes.length > 0 ? `, ${pendentes.length} pendente(s) de envio` : ""}.
-          </p>
+          <div
+            role="status"
+            aria-live="polite"
+            className={`mt-2 flex w-fit items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium ${
+              pictureRequirement.valid
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+            }`}
+          >
+            {pictureRequirement.valid ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            {pictureRequirement.count} de {MIN_MERCADO_LIVRE_LISTING_PICTURES} fotos válidas
+          </div>
+          {!pictureRequirement.valid ? (
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+              {mercadoLivrePictureRequirementMessage(pictureRequirement.count)}
+              {pendentes.length > 0 ? " Fotos pendentes só contam depois de concluído o envio." : ""}
+            </p>
+          ) : null}
+          {pendentes.length > 0 ? <p className="text-xs text-muted-foreground">{pendentes.length} foto(s) pendente(s) de envio.</p> : null}
           {disabledReason ? <p className="text-xs text-amber-700 dark:text-amber-300">{disabledReason}</p> : null}
         </div>
 

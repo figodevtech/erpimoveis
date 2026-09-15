@@ -78,23 +78,20 @@ import {
 } from "@/lib/integrations/mercadolivre-listing-validation";
 import { preferencesAllowShippingMode } from "@/lib/integrations/mercadolivre-mercado-envios";
 import { parseModerationText } from "@/lib/integrations/mercadolivre-listing-status";
+import {
+  getMercadoLivrePictureRequirement,
+  mercadoLivrePictureRequirementMessage,
+} from "@/lib/integrations/mercadolivre-listing-pictures";
 
 type EditListingStep = "content" | "media" | "attributes" | "offer";
 
 const editListingSteps: ListingStepDefinition<EditListingStep>[] = [
   { value: "content", title: "Conteúdo do anúncio", short: "Conteúdo", description: "Textos e dados", icon: FileText },
-  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Imagens e ordem", icon: ImageIcon },
+  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Mínimo de 3 fotos", icon: ImageIcon },
   { value: "attributes", title: "Categoria e características", short: "Categoria", description: "Classifique o item", icon: Tags },
   { value: "offer", title: "Oferta e envio", short: "Oferta", description: "Preço e logística", icon: BadgeDollarSign },
 ];
 
-// A edição salva um diff: nenhuma etapa trava a seguinte nem o botão Salvar.
-const EDIT_STEP_VALIDITY: Record<EditListingStep, boolean> = {
-  content: true,
-  media: true,
-  attributes: true,
-  offer: true,
-};
 import { MarketplaceAttentionCenter, MarketplaceChatLauncher, MarketplaceHeader, MarketplaceListToolbar, MarketplaceLoadingLine, MarketplacePagination, MarketplaceSectionNav, useMarketplaceQueryValue, useMarketplaceSection, type MarketplaceAttentionItem } from "./marketplace-layout";
 import { MarketplaceConversationPanel } from "./marketplace-conversation-panel";
 import { ListingMediaManager } from "./mercadolivre/listing-media/listing-media-manager";
@@ -973,21 +970,6 @@ function isValidGtin(value?: string | null) {
     .reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 3 : 1), 0);
   return (10 - (sum % 10)) % 10 === Number(digits.at(-1));
 }
-
-function parsePictureUrls(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((url) => url.trim())
-    .filter((url) => {
-      try {
-        const parsed = new URL(url);
-        return parsed.protocol === "https:" || parsed.protocol === "http:";
-      } catch {
-        return false;
-      }
-    });
-}
-
 
 function ControlledAttributeInput({
   attribute,
@@ -2143,6 +2125,24 @@ export default function MarketplacePage() {
   const editTitleField = editForm.userProductEnabled ? "familyName" : "title";
   const editTitleMaxLength = editForm.userProductEnabled ? 120 : 60;
   const editTitleEditable = editCapabilities[editTitleField];
+  const editPictureRequirement = getMercadoLivrePictureRequirement(editForm.pictureUrl);
+  const editPictureIssue = editPictureRequirement.valid
+    ? ""
+    : mercadoLivrePictureRequirementMessage(editPictureRequirement.count);
+  const editStepValidity: Record<EditListingStep, boolean> = {
+    content: true,
+    media: editPictureRequirement.valid,
+    attributes: true,
+    offer: true,
+  };
+  const editIssueCountByStep: Partial<Record<EditListingStep, number>> = {
+    media: editPictureRequirement.valid ? 0 : 1,
+  };
+  const editingMediaDisabledReason = editCapabilities.pictures
+    ? null
+    : editPictureRequirement.valid
+      ? "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre."
+      : `As imagens são controladas pelo catálogo e este anúncio tem ${editPictureRequirement.count} de 3 fotos. Corrija as fotos diretamente no Mercado Livre; o salvamento pelo ERP permanecerá bloqueado até atender ao mínimo.`;
   const editRestrictions = [
     !editCapabilities.price && "preço com automação ativa",
     !editCapabilities.stock && "estoque administrado pela logística Full/multiorigem",
@@ -2241,7 +2241,8 @@ export default function MarketplacePage() {
     if (productsPage > productsTotalPages) setProductsPage(productsTotalPages);
   }, [productsPage, productsTotalPages]);
   useEffect(() => { setOrderPage(1); }, [orderSearch, orderStatusFilter, orderPageSize]);
-  const validPreviewImages = parsePictureUrls(listingForm.pictureUrl);
+  const pictureRequirement = getMercadoLivrePictureRequirement(listingForm.pictureUrl);
+  const validPreviewImages = pictureRequirement.urls;
   const requiredMissingAttributes = categoryAttributes.filter((attribute) => {
     if (!attribute.required) return false;
     if (attribute.id === "BRAND" && listingForm.brand.trim()) return false;
@@ -2374,7 +2375,9 @@ export default function MarketplacePage() {
     !listingForm.produtoId ? { step: "product", message: "Selecione um produto do ERP." } : null,
     selectedListingProduct?.mercadolivre ? { step: "product", message: "Este produto já possui anúncio Mercado Livre vinculado." } : null,
     !listingForm.title.trim() ? { step: "content", message: "Informe o título do anúncio." } : null,
-    validPreviewImages.length === 0 ? { step: "media", message: "Informe ao menos uma imagem pública válida." } : null,
+    !pictureRequirement.valid
+      ? { step: "media", message: mercadoLivrePictureRequirementMessage(pictureRequirement.count) }
+      : null,
     listingGtin && !isValidGtin(listingGtin) ? { step: "content", message: "Informe um GTIN/EAN válido ou deixe o campo vazio." } : null,
     !listingForm.categoryId ? { step: "category", message: "Selecione a categoria Mercado Livre." } : null,
     ...requiredMissingAttributes.map((attribute) => ({ step: "category" as const, message: `Preencha o atributo obrigatório: ${attribute.name}.` })),
@@ -3873,7 +3876,7 @@ export default function MarketplacePage() {
         condition: ["new", "used", "not_specified"].includes(String(item.condition)) ? item.condition : "new",
         description: item.description || fallbackForm.description,
         videoUrl: item.videoUrl || "",
-        pictureUrl: Array.isArray(item.pictures) && item.pictures.length ? item.pictures.join("\n") : fallbackForm.pictureUrl,
+        pictureUrl: Array.isArray(item.pictures) ? item.pictures.join("\n") : "",
         warranty: item.warranty || "",
         warrantyTime: item.warrantyTime || "",
         shippingMode,
@@ -3890,6 +3893,7 @@ export default function MarketplacePage() {
       setEditInitialForm(loadedForm);
       setEditInitialAttributes(dynamicAttributes);
       setEditCapabilities((current) => ({ ...current, ...(item.capabilities ?? {}) }));
+      if (!getMercadoLivrePictureRequirement(loadedForm.pictureUrl).valid) setEditStep("media");
       setEditFamilyMembers(
         (Array.isArray(item.familyMembers) ? item.familyMembers : []).map((member: any) => ({
           id: String(member?.id ?? ""),
@@ -4140,6 +4144,11 @@ export default function MarketplacePage() {
 
   async function saveEditedListing() {
     if (!editForm.itemId) return;
+    if (!editPictureRequirement.valid) {
+      setEditStep("media");
+      toast.error("Complete as fotos do anúncio", { description: editPictureIssue });
+      return;
+    }
     if (!editForm[editTitleField].trim()) {
       toast.error("Informe o título do anúncio.");
       return;
@@ -6374,8 +6383,9 @@ export default function MarketplacePage() {
             steps={editListingSteps}
             step={editStep}
             onStepChange={setEditStep}
-            stepValidity={EDIT_STEP_VALIDITY}
-            footerNote={<p className="mr-auto text-left text-xs text-muted-foreground">As alterações são enviadas ao Mercado Livre apenas quando você salva.</p>}
+            stepValidity={editStepValidity}
+            issueCountByStep={editIssueCountByStep}
+            footerNote={<p className={`mr-auto text-left text-xs ${editPictureIssue ? "text-destructive" : "text-muted-foreground"}`}>{editPictureIssue || "As alterações são enviadas ao Mercado Livre apenas quando você salva."}</p>}
             footerActions={<>
               <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={editingListing}>
                 Cancelar
@@ -6390,7 +6400,7 @@ export default function MarketplacePage() {
                   Avançar<ChevronRight className="h-4 w-4" />
                 </Button>
               ) : null}
-              <Button onClick={saveEditedListing} disabled={editingListing || loadingEditListing || !editForm.itemId}>
+              <Button onClick={saveEditedListing} disabled={editingListing || loadingEditListing || !editForm.itemId || !editPictureRequirement.valid}>
                 {editingListing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 Salvar alterações
               </Button>
@@ -6493,7 +6503,7 @@ export default function MarketplacePage() {
             </TabsContent>
 
             <TabsContent value="media" className="m-0 space-y-5">
-              <StepHeading number="2" title="Mídia do anúncio" description="Envie, reordene e escolha a capa. A primeira imagem é a principal no Mercado Livre." />
+              <StepHeading number="2" title="Mídia do anúncio" description="Adicione pelo menos 3 fotos, organize a ordem e escolha a capa do anúncio." />
             <div className="space-y-2">
               <ListingMediaManager
                 value={editForm.pictureUrl}
@@ -6501,7 +6511,7 @@ export default function MarketplacePage() {
                 produtoId={Number(editForm.produtoId) || null}
                 productImageUrls={editingProductImageUrls}
                 disabled={editingListing || loadingEditListing || !editCapabilities.pictures}
-                disabledReason={editCapabilities.pictures ? null : "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre."}
+                disabledReason={editingMediaDisabledReason}
               />
             </div>
             <div className="space-y-2">

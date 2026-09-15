@@ -9,6 +9,11 @@ import {
 } from "@/lib/integrations/mercadolivre";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { buildMercadoLivrePackageAttributes } from "@/lib/integrations/mercadolivre-listing-validation";
+import {
+  getMercadoLivreEditPictureRequirement,
+  mercadoLivrePictureRequirementMessage,
+  parseMercadoLivrePictureUrls,
+} from "@/lib/integrations/mercadolivre-listing-pictures";
 import { uploadMercadoLivrePictures } from "@/lib/integrations/mercadolivre-pictures";
 import { validateMercadoLivreShippingSelection } from "@/lib/integrations/mercadolivre-shipping-preferences";
 import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
@@ -166,6 +171,14 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       currentItemBefore = currentItem;
       const priceState = await getMercadoLivrePriceState(accessToken, itemId, currentItem);
       const capabilities = getEditCapabilities(currentItem, priceState.automationActive);
+      const pictureRequirement = getMercadoLivreEditPictureRequirement({
+        currentPictures: currentItem?.pictures,
+        pictureUrlProvided: hasOwn(effectiveBody, "pictureUrl"),
+        pictureUrl: effectiveBody?.pictureUrl,
+      });
+      if (!pictureRequirement.valid) {
+        throw imageFieldError(mercadoLivrePictureRequirementMessage(pictureRequirement.count));
+      }
       if (effectiveBody?.price !== undefined && !capabilities.price) {
         throw fieldRestriction(
           "price",
@@ -194,8 +207,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       const userProductEnabled = Boolean(currentItem?.family_name || currentItem?.user_product_id);
       payload = buildListingUpdatePayload(effectiveBody, userProductEnabled);
       if (effectiveBody?.pictureUrl !== undefined) {
-        const pictureSources = parsePictureUrls(String(effectiveBody.pictureUrl ?? ""));
-        if (!pictureSources.length) throw imageFieldError("Informe ao menos uma imagem pública válida para o anúncio.");
+        const pictureSources = parseMercadoLivrePictureUrls(String(effectiveBody.pictureUrl ?? ""));
         payload.pictures = await uploadMercadoLivrePictures(accessToken, pictureSources);
       }
       const familyName = String(effectiveBody?.familyName ?? "").replace(/\s+/g, " ").trim();
@@ -672,7 +684,7 @@ function buildEditConfirmations(changes: any, item: any, description: any, price
     results.push({ field: "freeShipping", status: requested === actual ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
   }
   if (changes.pictureUrl !== undefined) {
-    const requested = parsePictureUrls(String(changes.pictureUrl)).length;
+    const requested = parseMercadoLivrePictureUrls(String(changes.pictureUrl)).length;
     const actual = Array.isArray(item?.pictures) ? item.pictures.length : 0;
     results.push({ field: "images", status: requested === actual ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
   }
@@ -681,20 +693,6 @@ function buildEditConfirmations(changes: any, item: any, description: any, price
     compare("videoUrl", item?.video_id, requested);
   }
   return results;
-}
-
-function parsePictureUrls(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((source) => source.trim())
-    .filter((source) => {
-      try {
-        const url = new URL(source);
-        return url.protocol === "https:" || url.protocol === "http:";
-      } catch {
-        return false;
-      }
-    });
 }
 
 function imageFieldError(message: string) {

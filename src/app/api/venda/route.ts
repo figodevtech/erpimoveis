@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { idDeBusca } from "@/lib/busca-numerica";
 import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms";
 import { carregarAutores } from "@/lib/movement-authors";
@@ -345,8 +346,9 @@ export async function GET(req: Request) {
       if (Number.isFinite(numericValue)) {
         orFilters.push(`valortotal.eq.${numericValue}`);
       }
-      if (/^\d+$/.test(q)) {
-        orFilters.push(`id.eq.${Number(q)}`);
+      const idVenda = /^\d+$/.test(q) ? idDeBusca(q) : null;
+      if (idVenda !== null) {
+        orFilters.push(`id.eq.${idVenda}`);
       }
 
       if (orFilters.length === 0) return emptyResponse();

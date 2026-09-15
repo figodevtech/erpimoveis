@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { idDeBusca } from "@/lib/busca-numerica";
 import { getExecucaoSession, isNextResponse, STATUS_EXECUTAVEIS } from "../_helpers";
 
 function one<T>(value: T | T[] | null | undefined): T | null {
@@ -116,9 +117,9 @@ export async function GET(req: Request) {
 
     if (q) {
       const like = `%${q}%`;
-      const onlyDigits = q.replace(/\D/g, "");
+      const idNumerico = idDeBusca(q);
       const filters = [`descricao.ilike.${like}`];
-      if (onlyDigits) filters.push(`id.eq.${Number(onlyDigits)}`);
+      if (idNumerico !== null) filters.push(`id.eq.${idNumerico}`);
       query = query.or(filters.join(","));
     }
 

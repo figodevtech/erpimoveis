@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { matchesFiscalNoteSearch } from "@/lib/fiscal-search";
+import { normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
 
 export type FiscalViewMode = "TODAS" | "EMITIDAS_POR_NOS" | "EMITIDAS_TERCEIROS";
 
@@ -25,7 +26,10 @@ export type NotaFiscalListItem = {
   origem?: "PROPRIA" | "TERCEIROS";
   modelo: string;
   serie: number;
-  numero: number;
+  numero: number | string;
+  referencia?: string | null;
+  url_pdf?: string | null;
+  url_consulta?: string | null;
   chave_acesso: string;
   ambiente: string;
   status: string;
@@ -101,6 +105,55 @@ const SELECT_NOTAS = `
     cnpj
   )
 `;
+
+const SELECT_NFSES = `
+  id, numero, referencia, status, protocolo, codigo_verificacao,
+  valor_total, ordemservicoid, clienteid, empresaid, dataemissao, createdat,
+  url_pdf, url_consulta,
+  cliente:clienteid (id, nomerazaosocial, cpfcnpj),
+  empresa:empresaid (id, razaosocial, nomefantasia, cnpj)
+`;
+
+// Lê em lotes para não truncar a lista unificada no limite do PostgREST.
+async function buscarTodas(query: any): Promise<any[]> {
+  const rows: any[] = [];
+  const batchSize = 1000;
+  for (let offset = 0; ; offset += batchSize) {
+    const { data, error } = await query.range(offset, offset + batchSize - 1);
+    if (error) throw error;
+    rows.push(...(data ?? []));
+    if (!data || data.length < batchSize) return rows;
+  }
+}
+
+function mapNfse(row: any): NotaFiscalListItem {
+  return {
+    ...mapNotaFiscal({
+      ...row,
+      modelo: "NFSE",
+      status: normalizarStatusNFSe(row.status),
+      total_nfe: row.valor_total,
+      dataemissao: row.dataemissao || row.createdat,
+      protocolo: row.protocolo || row.codigo_verificacao,
+    }),
+    // A numeração municipal é textual e pode conter zeros à esquerda.
+    numero: row.numero ?? "",
+    referencia: row.referencia ?? null,
+    url_pdf: row.url_pdf ?? null,
+    url_consulta: row.url_consulta ?? null,
+  };
+}
+
+function matchesNfseFilters(nota: NotaFiscalListItem, params: NotaFiscalListParams) {
+  const status = normalizeText(params.status);
+  const dateFrom = normalizeText(params.dateFrom);
+  const dateTo = normalizeText(params.dateTo);
+  const endDate = dateTo.length === 10 ? `${dateTo}T23:59:59.999` : dateTo;
+  const emittedAt = new Date(nota.dataemissao).getTime();
+  return (!status || nota.status === status)
+    && (!dateFrom || emittedAt >= new Date(dateFrom).getTime())
+    && (!dateTo || emittedAt <= new Date(endDate).getTime());
+}
 
 function clampInt(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number(value);
@@ -221,37 +274,12 @@ function buildKpis(rows: NotaFiscalListItem[]): NotaFiscalKpis {
 }
 
 export async function buscarKpisNotasEmitidasProprias() {
-  const { data, error } = await supabaseAdmin
-    .from("nfe")
-    .select("id, status, total_nfe")
-    .eq("is_deleted", false);
-
-  if (error) throw error;
-
-  const rows = (data ?? []).map((row: any) => ({
-    id: Number(row.id),
-    origem: "PROPRIA" as const,
-    modelo: "NFE",
-    serie: 0,
-    numero: 0,
-    chave_acesso: "",
-    ambiente: "",
-    status: String(row.status ?? ""),
-    dataemissao: "",
-    dataautorizacao: null,
-    protocolo: null,
-    total_nfe: Number(row.total_nfe ?? 0),
-    ordemservicoid: null,
-    vendaid: null,
-    entradaid: null,
-    clienteid: null,
-    fornecedorid: null,
-    empresaid: 0,
-    tpNF: null,
-    direcao: "EMITIDAS_POR_NOS" as const,
-    destinatarioOuEmitente: null,
-    empresa: null,
-  }));
+  const [nfes, nfses] = await Promise.all([
+    buscarTodas(supabaseAdmin.from("nfe").select("id, status, total_nfe")
+      .eq("is_deleted", false).order("id")),
+    buscarTodas(supabaseAdmin.from("nfse").select("id, status, valor_total").order("id")),
+  ]);
+  const rows = [...nfes.map(mapNotaFiscal), ...nfses.map(mapNfse)];
 
   return buildKpis(rows);
 }
@@ -260,24 +288,30 @@ export async function listarNotasEmitidas(params: NotaFiscalListParams) {
   const page = clampInt(params.page, 1, 1, 10_000);
   const limit = clampInt(params.limit, 20, 1, 100);
   const from = (page - 1) * limit;
-  const baseQuery = applyFilters(
-    supabaseAdmin
-      .from("nfe")
-      .select(SELECT_NOTAS)
-      .order("dataemissao", { ascending: false, nullsFirst: false })
-      .order("id", { ascending: false }),
-    params,
-  );
+  const modelo = normalizeText(params.modelo);
+  const incluirNfse = params.viewMode !== "EMITIDAS_TERCEIROS" && (!modelo || modelo === "NFSE");
+  const [nfes, nfses] = await Promise.all([
+    modelo === "NFSE" ? Promise.resolve([]) : buscarTodas(applyFilters(
+      supabaseAdmin.from("nfe").select(SELECT_NOTAS)
+        .order("dataemissao", { ascending: false, nullsFirst: false })
+        .order("id", { ascending: false }),
+      params,
+    )),
+    incluirNfse
+      ? buscarTodas(supabaseAdmin.from("nfse").select(SELECT_NFSES).order("id", { ascending: false }))
+      : Promise.resolve([]),
+  ]);
 
-  const { data, error } = await baseQuery;
-
-  if (error) {
-    throw error;
-  }
-
-  const kpiRows = (data ?? [])
-    .map(mapNotaFiscal)
-    .filter((nota: NotaFiscalListItem) => matchesFiscalNoteSearch(nota, params.search));
+  const kpiRows = [
+    ...nfes.map(mapNotaFiscal),
+    ...nfses.map(mapNfse).filter((nota) => matchesNfseFilters(nota, params)),
+  ]
+    .filter((nota) => matchesFiscalNoteSearch(nota, params.search))
+    .sort((a, b) => {
+      const dateA = new Date(a.dataemissao).getTime() || 0;
+      const dateB = new Date(b.dataemissao).getTime() || 0;
+      return dateB - dateA || b.id - a.id || a.modelo.localeCompare(b.modelo);
+    });
   const notas = kpiRows.slice(from, from + limit);
 
   return {

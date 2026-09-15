@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+import { ehEntrada, filtroDeSituacao, totalizarFluxo, valorDaLinha } from "./report-model";
+
 export const runtime = "nodejs";
 export const metadata: Metadata = { title: "Fluxo de caixa — impressão" };
 
@@ -84,7 +86,7 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
   const buildQuery = () => {
     let query = supabaseAdmin
       .from("transacao")
-      .select('id, descricao, valor, "valorLiquido", nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, plano_de_conta, centro_custo, tipo, cliente_id, banco_id, banco:bancoconta!transacao_banco_id_fkey(titulo)')
+      .select('id, descricao, valor, "valorLiquido", valor_descontos, valor_baixado, baixa_de_transacao_id, adiantamento_id, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, plano_de_conta, centro_custo, tipo, cliente_id, banco_id, banco:bancoconta!transacao_banco_id_fkey(titulo)')
       .eq("is_deleted", false)
       .order("data", { ascending: true })
       .order("id", { ascending: true });
@@ -95,7 +97,7 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
     if (search) query = query.ilike("descricao", `%${search}%`);
     if (params.tipo) query = query.eq("tipo", params.tipo);
     if (params.metodopagamento) query = query.eq("metodopagamento", params.metodopagamento);
-    if (params.pendente === "true" || params.pendente === "false") query = query.eq("pendente", params.pendente === "true");
+    query = query.or(filtroDeSituacao(params.pendente));
     if (nomePagador) query = query.ilike("nomepagador", `%${nomePagador}%`);
     if (documento) query = query.ilike("cpfcnpjpagador", `%${documento}%`);
 
@@ -132,10 +134,22 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
     if (!data || data.length < 1000) break;
   }
 
-  const isIncome = (row: any) => row.tipo === "RECEITA" || row.tipo === "DEPOSITO";
-  const totalIncome = rows.filter(isIncome).reduce((sum, row) => sum + Number(row.valor ?? 0), 0);
-  const totalExpense = rows.filter((row) => !isIncome(row)).reduce((sum, row) => sum + Number(row.valor ?? 0), 0);
-  const balance = totalIncome - totalExpense;
+  const totais = totalizarFluxo(rows);
+  const cartoes = [
+    ...(params.pendente !== "true"
+      ? [
+          { label: "Entradas", value: totais.entradas, tone: "text-emerald-700" },
+          { label: "Saídas", value: totais.saidas, tone: "text-red-700" },
+          { label: "Saldo", value: totais.saldo, tone: totais.saldo >= 0 ? "text-blue-700" : "text-red-700" },
+        ]
+      : []),
+    ...(params.pendente !== "false"
+      ? [
+          { label: "A receber em aberto", value: totais.aReceber, tone: "text-emerald-700" },
+          { label: "A pagar em aberto", value: totais.aPagar, tone: "text-red-700" },
+        ]
+      : []),
+  ];
   const pages = reportPages(rows);
   const filters = [
     params.dateFrom || params.dateTo ? `Período: ${params.dateFrom || "início"} a ${params.dateTo || "hoje"}` : "",
@@ -219,10 +233,13 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                 )}
 
                 {pageIndex === 0 && (
-                  <div className="mb-3 grid grid-cols-3 gap-3 rounded border border-neutral-300 bg-neutral-100 px-3 py-2 text-[8px]">
-                    <Kpi label="Entradas" value={money(totalIncome)} tone="text-emerald-700" />
-                    <Kpi label="Saídas" value={money(totalExpense)} tone="text-red-700" />
-                    <Kpi label="Saldo" value={money(balance)} tone={balance >= 0 ? "text-blue-700" : "text-red-700"} />
+                  <div
+                    className="mb-3 grid gap-3 rounded border border-neutral-300 bg-neutral-100 px-3 py-2 text-[8px]"
+                    style={{ gridTemplateColumns: `repeat(${cartoes.length}, minmax(0, 1fr))` }}
+                  >
+                    {cartoes.map((cartao) => (
+                      <Kpi key={cartao.label} label={cartao.label} value={money(cartao.value)} tone={cartao.tone} />
+                    ))}
                   </div>
                 )}
 
@@ -249,7 +266,7 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                   </thead>
                   <tbody>
                     {pageRows.length ? pageRows.map((row) => {
-                      const entrada = isIncome(row);
+                      const entrada = ehEntrada(row.tipo);
                       const { day, time } = dateParts(row.data);
 
                       return (
@@ -283,7 +300,7 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                           </Td>
                           <Td className={`text-right font-semibold tabular-nums ${entrada ? "text-emerald-700" : "text-red-700"}`}>
                             {entrada ? "+ " : "- "}
-                            {money(row.valor)}
+                            {money(valorDaLinha(row))}
                           </Td>
                         </tr>
                       );
@@ -301,9 +318,9 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                       <tr className="h-[7mm] border-t-2 border-neutral-400 bg-neutral-100">
                         <Td colSpan={6}>
                           <div className="flex items-center justify-end gap-6 pr-1">
-                            <Total label="Saídas" value={money(totalExpense)} tone="text-red-700" />
-                            <Total label="Entradas" value={money(totalIncome)} tone="text-emerald-700" />
-                            <Total label="Saldo" value={money(balance)} tone={balance >= 0 ? "text-blue-700" : "text-red-700"} />
+                            {cartoes.map((cartao) => (
+                              <Total key={cartao.label} label={cartao.label} value={money(cartao.value)} tone={cartao.tone} />
+                            ))}
                           </div>
                         </Td>
                       </tr>
