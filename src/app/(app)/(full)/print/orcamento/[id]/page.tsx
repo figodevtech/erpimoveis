@@ -27,6 +27,7 @@ import {
 import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
+import { formatCpfCnpj } from "@/lib/nfe/recipientNormalization";
 
 export const runtime = "nodejs";
 
@@ -75,12 +76,7 @@ function fmtText(value?: string | number | null) {
 }
 
 function fmtDoc(cpfCnpj: unknown) {
-  const digitos = String(cpfCnpj ?? "").replace(/\D/g, "");
-  if (!digitos) return EMPTY;
-  if (digitos.length === 11) return digitos.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  if (digitos.length === 14)
-    return digitos.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-  return digitos;
+  return formatCpfCnpj(cpfCnpj) || EMPTY;
 }
 
 function fmtPhone(value?: string | null) {

@@ -13,6 +13,7 @@ import {
   NFE_PRESENCE_OPTIONS,
 } from "@/lib/nfe/originFiscalDefaults";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
@@ -166,7 +167,7 @@ function toNumber(value: unknown) {
 }
 
 function clienteToDraft(cliente: ClienteRow): NFeAvulsaDraftInput["destinatario"] {
-  const documento = onlyDigits(cliente.cpfcnpj);
+  const documento = normalizeCpfOrCnpj(cliente.cpfcnpj);
   return {
     clienteId: cliente.id,
     tipoPessoa:
@@ -199,7 +200,7 @@ function clienteToDraft(cliente: ClienteRow): NFeAvulsaDraftInput["destinatario"
 }
 
 function fornecedorToDraft(fornecedor: FornecedorRow): NFeAvulsaDraftInput["destinatario"] {
-  const documento = onlyDigits(fornecedor.cpfcnpj);
+  const documento = normalizeCpfOrCnpj(fornecedor.cpfcnpj);
   return {
     clienteId: null,
     tipoPessoa: documento.length === 14 ? "JURIDICA" : "FISICA",

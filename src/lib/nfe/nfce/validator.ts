@@ -12,6 +12,7 @@
 import { MODELO_NFCE } from "../modeloDocumento";
 import { validarRegrasEstaduais, type ViolacaoRegraEstadual } from "../fiscalRules";
 import { isValidCnpj, isValidCpf } from "../recipientNormalization";
+import { normalizeCnpj } from "@/lib/fiscal-identifiers";
 import type { NFeItem } from "../types";
 
 export type ConsumidorNfce = {
@@ -111,7 +112,7 @@ export function validarNfce(contexto: ContextoNfce): ViolacaoNfce[] {
   // Consumidor não identificado é legítimo na NFC-e. Mas se veio documento, ele
   // precisa ser válido: CPF inventado é pior que consumidor anônimo.
   const cpf = onlyDigits(contexto.consumidor?.cpf);
-  const cnpj = onlyDigits(contexto.consumidor?.cnpj);
+  const cnpj = normalizeCnpj(contexto.consumidor?.cnpj);
 
   if (cpf && !isValidCpf(cpf)) {
     violacoes.push({

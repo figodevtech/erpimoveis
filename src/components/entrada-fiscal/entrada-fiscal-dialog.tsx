@@ -100,6 +100,7 @@ import { SearchCombobox } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/co
 import type { Banco } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/types";
 import type { UsoConsumoGrupo, UsoConsumoItem } from "@/types/usoconsumo";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 
 import {
   apenasDigitos,
@@ -258,7 +259,7 @@ export function EntradaFiscalDialog({
   // Emitentes de NF-e podem ser pessoa jurídica (CNPJ) ou física (CPF). Os
   // fallbacks mantêm compatibilidade com respostas produzidas antes de
   // `documento` existir no contrato da rota.
-  const documentoEmitente = apenasDigitos(
+  const documentoEmitente = normalizeCpfOrCnpj(
     parsed?.emitente?.documento ??
       parsed?.emitente?.cnpj ??
       parsed?.emitente?.cpf,
@@ -780,7 +781,7 @@ export function EntradaFiscalDialog({
 
   function selecionarFornecedor(fornecedor: Fornecedor) {
     if (
-      apenasDigitos(fornecedor.cpfcnpj) !==
+      normalizeCpfOrCnpj(fornecedor.cpfcnpj) !==
       documentoEmitente
     ) {
       toast.error("O fornecedor selecionado não corresponde ao CPF/CNPJ da NF-e.");

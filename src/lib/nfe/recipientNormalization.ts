@@ -1,4 +1,12 @@
 import { sanitizeString } from "./xmlUtils";
+import {
+  formatCnpj,
+  formatCpf,
+  isValidCnpj as validateCnpj,
+  isValidCpf as validateCpf,
+  normalizeCnpj,
+  normalizeCpf,
+} from "@/lib/fiscal-identifiers";
 
 export type FiscalRecipientInput = {
   clienteId?: number | null;
@@ -27,59 +35,21 @@ export function onlyFiscalDigits(value: unknown) {
 }
 
 export function hasValidCpfCnpjLength(value: unknown) {
-  return [11, 14].includes(onlyFiscalDigits(value).length);
-}
-
-function hasRepeatedDigits(value: string) {
-  return /^(\d)\1+$/.test(value);
+  const raw = String(value ?? "");
+  return normalizeCpf(raw).length === 11 || normalizeCnpj(raw).length === 14;
 }
 
 export function isValidCpf(value: unknown) {
-  const cpf = onlyFiscalDigits(value);
-  if (cpf.length !== 11 || hasRepeatedDigits(cpf)) return false;
-
-  const calculate = (length: number) => {
-    let sum = 0;
-    for (let index = 0; index < length; index += 1) {
-      sum += Number(cpf[index]) * (length + 1 - index);
-    }
-    const remainder = (sum * 10) % 11;
-    return remainder === 10 ? 0 : remainder;
-  };
-
-  return calculate(9) === Number(cpf[9]) && calculate(10) === Number(cpf[10]);
+  return validateCpf(value);
 }
 
 export function isValidCnpj(value: unknown) {
-  const cnpj = onlyFiscalDigits(value);
-  if (cnpj.length !== 14 || hasRepeatedDigits(cnpj)) return false;
-
-  const calculate = (base: string, weights: number[]) => {
-    const sum = base
-      .split("")
-      .reduce((total, digit, index) => total + Number(digit) * weights[index], 0);
-    const remainder = sum % 11;
-    return remainder < 2 ? 0 : 11 - remainder;
-  };
-
-  const first = calculate(cnpj.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  const second = calculate(`${cnpj.slice(0, 12)}${first}`, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
-  return first === Number(cnpj[12]) && second === Number(cnpj[13]);
+  return validateCnpj(value);
 }
 
 export function formatCpfCnpj(value: unknown) {
-  const digits = onlyFiscalDigits(value).slice(0, 14);
-  if (digits.length <= 11) {
-    return digits
-      .replace(/^(\d{3})(\d)/, "$1.$2")
-      .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
-      .replace(/\.(\d{3})(\d)/, ".$1-$2");
-  }
-  return digits
-    .replace(/^(\d{2})(\d)/, "$1.$2")
-    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
-    .replace(/\.(\d{3})(\d)/, ".$1/$2")
-    .replace(/(\d{4})(\d)/, "$1-$2");
+  const cnpj = normalizeCnpj(value);
+  return cnpj.length > 11 || /[A-Z]/.test(cnpj) ? formatCnpj(cnpj) : formatCpf(value);
 }
 
 export function formatFiscalCep(value: unknown) {
@@ -93,10 +63,16 @@ export function normalizeFiscalText(value: unknown, uppercase = false) {
 
 export function normalizeFiscalRecipient<T extends FiscalRecipientInput>(value: T) {
   const tipoPessoa = value.tipoPessoa ?? "JURIDICA";
+  const documento =
+    tipoPessoa === "FISICA"
+      ? normalizeCpf(value.cpfCnpj)
+      : tipoPessoa === "JURIDICA"
+        ? normalizeCnpj(value.cpfCnpj)
+        : normalizeFiscalText(value.cpfCnpj, true);
   return {
     ...value,
     tipoPessoa,
-    cpfCnpj: onlyFiscalDigits(value.cpfCnpj),
+    cpfCnpj: documento,
     nomeRazaoSocial: normalizeFiscalText(value.nomeRazaoSocial),
     indicadorIe: ["1", "2", "9"].includes(String(value.indicadorIe))
       ? String(value.indicadorIe)

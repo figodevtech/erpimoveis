@@ -27,6 +27,7 @@ import {
   mapearItemHistorico,
   type ItemHistoricoDetalhado,
 } from "@/lib/ordens/itens-historicos";
+import { formatCpfCnpj } from "@/lib/nfe/recipientNormalization";
 
 export const runtime = "nodejs";
 
@@ -134,14 +135,7 @@ function CodigoProduto({ id, etiqueta }: { id?: unknown; etiqueta?: unknown }) {
 }
 
 function fmtDoc(cpfCnpj: unknown) {
-  if (cpfCnpj == null) return EMPTY;
-  const s = String(cpfCnpj).replace(/\D/g, "");
-  if (!s) return EMPTY;
-  if (s.length === 11)
-    return s.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  if (s.length === 14)
-    return s.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-  return s;
+  return formatCpfCnpj(cpfCnpj) || EMPTY;
 }
 
 function fmtPhone(value?: string | null) {

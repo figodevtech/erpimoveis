@@ -74,6 +74,14 @@ import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import type { Fornecedor, Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { isValidCnpj } from "@/lib/nfe/recipientNormalization";
+import {
+  formatCnpj,
+  formatCpf,
+  normalizeCnpj,
+  normalizeForeignFiscalId,
+  normalizeCpf,
+  normalizeCpfOrCnpj,
+} from "@/lib/fiscal-identifiers";
 import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
 import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
@@ -667,9 +675,9 @@ function parseNumberInput(value: unknown) {
 }
 
 function formatCpfCnpj(value?: string | null) {
-  const digits = onlyDigits(String(value ?? ""));
-  if (digits.length === 11) return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  if (digits.length === 14) return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+  const document = normalizeCpfOrCnpj(value);
+  if (document.length === 11 && /^\d+$/.test(document)) return formatCpf(document);
+  if (document.length === 14) return formatCnpj(document);
   return value || "-";
 }
 
@@ -704,7 +712,7 @@ function normalizePagamento(value: unknown): DraftPayload["pagamento"] {
     meio: meio ? meio.padStart(2, "0").slice(0, 2) : initialDraft.pagamento.meio,
     valor: Math.max(0, parseNumberInput(pagamento.valor)),
     tipoIntegracao,
-    cnpjCredenciadora: onlyDigits(String(pagamento.cnpjCredenciadora ?? "")),
+    cnpjCredenciadora: normalizeCnpj(pagamento.cnpjCredenciadora),
     bandeira: onlyDigits(String(pagamento.bandeira ?? "")),
     autorizacao: String(pagamento.autorizacao ?? ""),
     descricao: String(pagamento.descricao ?? ""),
@@ -735,7 +743,7 @@ function normalizeTransporte(value: unknown): DraftTransporte {
     transportadora: {
       ...initialDraft.transporte.transportadora,
       ...(transporte.transportadora ?? {}),
-      documento: onlyDigits(String(transporte.transportadora?.documento ?? "")),
+      documento: normalizeCpfOrCnpj(transporte.transportadora?.documento),
       inscricaoEstadual: onlyDigits(String(transporte.transportadora?.inscricaoEstadual ?? "")),
       uf: String(transporte.transportadora?.uf ?? "").toUpperCase().slice(0, 2),
     },
@@ -761,7 +769,9 @@ function normalizeEntrega(value: unknown): DraftEntrega {
     ...entrega,
     habilitado: Boolean(entrega.habilitado),
     tipoPessoa,
-    cpfCnpj: onlyDigits(String(entrega.cpfCnpj ?? "")),
+    cpfCnpj: tipoPessoa === "JURIDICA"
+      ? normalizeCnpj(entrega.cpfCnpj)
+      : normalizeCpf(entrega.cpfCnpj),
     estado: String(entrega.estado ?? "").toUpperCase().slice(0, 2),
     cep: onlyDigits(String(entrega.cep ?? "")),
     codigoMunicipio: onlyDigits(String(entrega.codigoMunicipio ?? "")),
@@ -1117,7 +1127,7 @@ export default function NFeAvulsaPage() {
         result.push(`Informe a bandeira de ${getPaymentLabel(pagamento.meio)}.`);
       }
       if (pagamento.tipoIntegracao === "1") {
-        if (onlyDigits(pagamento.cnpjCredenciadora).length !== 14) {
+        if (!isValidCnpj(pagamento.cnpjCredenciadora)) {
           result.push(`Informe o CNPJ da credenciadora de ${getPaymentLabel(pagamento.meio)}.`);
         }
         if (!pagamento.autorizacao.trim()) {
@@ -1555,7 +1565,7 @@ export default function NFeAvulsaPage() {
    * de emitir.
    */
   function preencherDestinatarioComFornecedor(fornecedor: Fornecedor) {
-    const documento = onlyDigits(fornecedor.cpfcnpj ?? "");
+    const documento = normalizeCpfOrCnpj(fornecedor.cpfcnpj);
     updateDraft((current) => ({
       ...current,
       itens: current.itens.map((item) => ({
@@ -1601,9 +1611,13 @@ export default function NFeAvulsaPage() {
    * a API pública tem limite por minuto.
    */
   async function buscarPorCnpj(documento?: string) {
-    const cnpj = onlyDigits(documento ?? draft.destinatario.cpfCnpj);
+    const cnpj = normalizeCnpj(documento ?? draft.destinatario.cpfCnpj);
     if (!isValidCnpj(cnpj)) {
       toast.error("Informe um CNPJ válido para consultar.");
+      return;
+    }
+    if (!/^\d{14}$/.test(cnpj)) {
+      toast.info("A consulta automática ainda não aceita CNPJ alfanumérico. Preencha os dados manualmente.");
       return;
     }
 
@@ -2337,14 +2351,15 @@ export default function NFeAvulsaPage() {
                   <Field label="CPF/CNPJ" required={!isDestinatarioExterior}>
                     <div className="relative">
                       <Input
-                        inputMode="numeric"
+                        inputMode={draft.destinatario.tipoPessoa === "FISICA" ? "numeric" : "text"}
                         className={isDestinatarioJuridica ? "pr-10" : undefined}
                         value={draft.destinatario.cpfCnpj}
                         onChange={(event) => {
-                          const documento = onlyDigits(event.target.value).slice(
-                            0,
-                            draft.destinatario.tipoPessoa === "FISICA" ? 11 : 14,
-                          );
+                          const documento = draft.destinatario.tipoPessoa === "FISICA"
+                            ? normalizeCpf(event.target.value).slice(0, 11)
+                            : draft.destinatario.tipoPessoa === "JURIDICA"
+                              ? normalizeCnpj(event.target.value).slice(0, 14)
+                              : normalizeForeignFiscalId(event.target.value);
                           updateDraft((current) => ({
                             ...current,
                             destinatario: { ...current.destinatario, cpfCnpj: documento },
@@ -2354,7 +2369,7 @@ export default function NFeAvulsaPage() {
                           // cadastro de cliente não deve disparar consulta.
                           if (
                             draft.destinatario.tipoPessoa === "JURIDICA" &&
-                            documento.length === 14 &&
+                            /^\d{14}$/.test(documento) &&
                             isValidCnpj(documento) &&
                             documento !== ultimoCnpjConsultado.current &&
                             !buscandoCnpj
@@ -3122,7 +3137,7 @@ export default function NFeAvulsaPage() {
                             value={pagamento.cnpjCredenciadora}
                             onChange={(event) =>
                               updatePayment(pagamento.meio, {
-                                cnpjCredenciadora: onlyDigits(event.target.value),
+                                cnpjCredenciadora: normalizeCnpj(event.target.value).slice(0, 14),
                               })
                             }
                           />
@@ -3861,7 +3876,7 @@ function TransporteStep({
                 <Field label="CPF/CNPJ">
                   <Input
                     value={draft.transporte.transportadora.documento}
-                    onChange={(event) => updateTransportadora({ documento: onlyDigits(event.target.value) })}
+                    onChange={(event) => updateTransportadora({ documento: normalizeCpfOrCnpj(event.target.value).slice(0, 14) })}
                     maxLength={14}
                   />
                 </Field>
@@ -4023,9 +4038,13 @@ function EntregaStep({
    * equivalente. Nada aqui toca o destinatario fiscal do `<dest>`.
    */
   async function buscarCnpjEntrega(documento?: string) {
-    const cnpj = onlyDigits(documento ?? draft.entrega.cpfCnpj);
+    const cnpj = normalizeCnpj(documento ?? draft.entrega.cpfCnpj);
     if (!isValidCnpj(cnpj)) {
       toast.error("Informe um CNPJ válido para consultar.");
+      return;
+    }
+    if (!/^\d{14}$/.test(cnpj)) {
+      toast.info("A consulta automática ainda não aceita CNPJ alfanumérico. Preencha os dados manualmente.");
       return;
     }
 
@@ -4193,21 +4212,20 @@ function EntregaStep({
               <Field label={isEntregaJuridica ? "CNPJ" : "CPF"} required>
                 <div className="relative">
                   <Input
-                    inputMode="numeric"
+                    inputMode={isEntregaJuridica ? "text" : "numeric"}
                     className={isEntregaJuridica ? "pr-10" : undefined}
                     value={draft.entrega.cpfCnpj}
                     maxLength={isEntregaJuridica ? 14 : 11}
                     onChange={(event) => {
-                      const documento = onlyDigits(event.target.value).slice(
-                        0,
-                        isEntregaJuridica ? 14 : 11,
-                      );
+                      const documento = isEntregaJuridica
+                        ? normalizeCnpj(event.target.value).slice(0, 14)
+                        : normalizeCpf(event.target.value).slice(0, 11);
                       updateEntrega({ cpfCnpj: documento });
                       // Mesmo comportamento do destinatario: fechou um CNPJ
                       // valido, consulta na hora sem esperar a lupa.
                       if (
                         isEntregaJuridica &&
-                        documento.length === 14 &&
+                        /^\d{14}$/.test(documento) &&
                         isValidCnpj(documento) &&
                         documento !== ultimoCnpjEntrega.current &&
                         !buscandoCnpjEntrega

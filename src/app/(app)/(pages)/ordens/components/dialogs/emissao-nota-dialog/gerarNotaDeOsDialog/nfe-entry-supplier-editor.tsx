@@ -37,6 +37,7 @@ import {
   onlyFiscalDigits,
 } from "@/lib/nfe/recipientNormalization";
 import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
+import { normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
@@ -87,7 +88,9 @@ export const emptyEntrySupplier: NFeEntrySupplierDraft = {
 export function getEntrySupplierFieldErrors(value: NFeEntrySupplierDraft) {
   const errors: Partial<Record<keyof NFeEntrySupplierDraft, string>> = {};
   const exterior = value.tipoPessoa === "ESTRANGEIRO";
-  const document = onlyFiscalDigits(value.cpfCnpj);
+  const document = value.tipoPessoa === "JURIDICA"
+    ? normalizeCnpj(value.cpfCnpj)
+    : normalizeCpf(value.cpfCnpj);
 
   if (value.tipoPessoa === "FISICA" && !isValidCpf(document)) {
     errors.cpfCnpj = "Informe um CPF válido.";
@@ -216,9 +219,13 @@ export function NfeEntrySupplierEditor({
   }
 
   async function searchCnpj() {
-    const cnpj = onlyFiscalDigits(value.cpfCnpj);
+    const cnpj = normalizeCnpj(value.cpfCnpj);
     if (!isValidCnpj(cnpj)) {
       toast.error("Informe um CNPJ válido para realizar a consulta.");
+      return;
+    }
+    if (/[A-Z]/.test(cnpj)) {
+      toast.info("A consulta automática ainda não declara suporte ao CNPJ alfanumérico. Preencha os dados manualmente.");
       return;
     }
 
@@ -326,7 +333,7 @@ export function NfeEntrySupplierEditor({
         <Field label="CPF/CNPJ" required={!exterior} error={fieldErrors.cpfCnpj}>
           <div className="relative">
             <Input
-              inputMode="numeric"
+              inputMode={value.tipoPessoa === "FISICA" ? "numeric" : "text"}
               aria-invalid={Boolean(value.cpfCnpj) && !documentValid}
               value={formatCpfCnpj(value.cpfCnpj)}
               maxLength={value.tipoPessoa === "FISICA" ? 14 : 18}
@@ -335,7 +342,9 @@ export function NfeEntrySupplierEditor({
               onChange={(event) =>
                 update(
                   "cpfCnpj",
-                  onlyFiscalDigits(event.target.value).slice(
+                  (value.tipoPessoa === "JURIDICA"
+                    ? normalizeCnpj(event.target.value)
+                    : normalizeCpf(event.target.value)).slice(
                     0,
                     value.tipoPessoa === "FISICA" ? 11 : 14,
                   ),

@@ -2,6 +2,7 @@ import https from "https";
 import { XMLParser } from "fast-xml-parser";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isValidCnpj, normalizeCnpj } from "@/lib/fiscal-identifiers";
 import { matchesFiscalNoteSearch } from "@/lib/fiscal-search";
 import { parsePostgresIntegerId } from "@/lib/postgres-id";
 import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
@@ -104,9 +105,9 @@ function onlyDigits(value: unknown) {
 }
 
 function maskCnpj(value: unknown) {
-  const digits = onlyDigits(value);
-  if (digits.length !== 14) return "Não informado";
-  return `**.***.***/${digits.slice(8, 12)}-${digits.slice(12)}`;
+  const canonical = normalizeCnpj(value);
+  if (canonical.length !== 14) return "Não informado";
+  return `**.***.***/${canonical.slice(8, 12)}-${canonical.slice(12)}`;
 }
 
 function normalizeText(value: unknown) {
@@ -165,7 +166,7 @@ async function getEmpresa(empresaId?: number) {
 
   if (error) throw error;
   if (!data) throw new Error("Empresa não encontrada para sincronização fiscal.");
-  if (!onlyDigits(data.cnpj)) throw new Error("Empresa não possui CNPJ válido.");
+  if (!isValidCnpj(data.cnpj)) throw new Error("Empresa não possui CNPJ válido.");
 
   return data;
 }
@@ -218,7 +219,7 @@ type DistribuicaoDfeRequest =
 
 function buildDistDFeEnvelope(empresa: EmpresaRow, request: DistribuicaoDfeRequest) {
   const ambiente = empresa.ambiente === "PRODUCAO" ? "1" : "2";
-  const cnpj = onlyDigits(empresa.cnpj);
+  const cnpj = normalizeCnpj(empresa.cnpj);
   const cUFAutor = getCufAutor(empresa);
   const consulta =
     request.tipo === "distNSU"
@@ -386,10 +387,10 @@ async function salvarConsultaPontualDfe(
 export async function sincronizarDfeRecebidas(params: SyncDfeParams = {}) {
   const empresa = await getEmpresa(params.empresaId);
   const empresaId = Number(empresa.id);
-  const currentCnpj = onlyDigits(empresa.cnpj);
+  const currentCnpj = normalizeCnpj(empresa.cnpj);
   const currentAmbiente = normalizeAmbiente(empresa.ambiente);
   let controle = await getControle(empresaId);
-  const controlCnpj = onlyDigits(controle.cnpj_consultado);
+  const controlCnpj = normalizeCnpj(controle.cnpj_consultado);
   const controlAmbiente = normalizeText(controle.ambiente_consultado).toUpperCase();
 
   if (!controlCnpj || !controlAmbiente) {
@@ -563,7 +564,7 @@ function buildEnvEventoManifestacao(params: {
 }) {
   const config = MANIFESTACAO_CONFIG[params.tipo];
   const chave = onlyDigits(params.chave);
-  const cnpj = onlyDigits(params.empresa.cnpj);
+  const cnpj = normalizeCnpj(params.empresa.cnpj);
   const tpAmb = params.empresa.ambiente === "PRODUCAO" ? "1" : "2";
   const nSeqEvento = 1;
   const nSeqEventoId = String(nSeqEvento).padStart(2, "0");

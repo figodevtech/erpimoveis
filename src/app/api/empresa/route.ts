@@ -1,6 +1,7 @@
 // app/api/empresa/route.ts
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { isValidCnpj, normalizeCnpj } from '@/lib/fiscal-identifiers';
 
 export const runtime = 'nodejs';
 
@@ -54,7 +55,15 @@ function filtrarCampos(body: any): Partial<Record<CampoEmpresa, any>> {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const cnpj = searchParams.get('cnpj')?.replace(/\D/g, '') ?? null;
+    const cnpjParam = searchParams.get('cnpj');
+    const cnpj = cnpjParam ? normalizeCnpj(cnpjParam) : null;
+
+    if (cnpj && !isValidCnpj(cnpj)) {
+      return NextResponse.json(
+        { ok: false, mensagem: 'CNPJ numérico ou alfanumérico inválido.' },
+        { status: 400 },
+      );
+    }
 
     let query = supabaseAdmin.from('empresa').select(CAMPOS_RETORNO);
 
@@ -115,7 +124,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const dados = filtrarCampos(body);
+    const cnpj = normalizeCnpj(body.cnpj);
+    if (!isValidCnpj(cnpj)) {
+      return NextResponse.json(
+        { ok: false, mensagem: 'CNPJ numérico ou alfanumérico inválido.' },
+        { status: 400 },
+      );
+    }
+
+    const dados = { ...filtrarCampos(body), cnpj };
 
     const { data, error } = await supabaseAdmin
       .from('empresa')

@@ -32,6 +32,7 @@ import {
   normalizeFiscalRecipient,
 } from "@/lib/nfe/recipientNormalization";
 import { truncateNfeXNome } from "@/lib/nfe/xmlUtils";
+import { isValidCnpj as isValidCanonicalCnpj, normalizeCnpj, normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 
 type NFeConfigRow = {
   id: number;
@@ -382,7 +383,7 @@ function getDestinatarioSnapshot(
   empresa: EmpresaRow,
 ): NFeDestinatario | undefined {
   const dest = normalizeFiscalRecipient(input.destinatario);
-  const documento = onlyDigits(dest.cpfCnpj);
+  const documento = normalizeCpfOrCnpj(dest.cpfCnpj);
 
   if ((input.modelo ?? MODELO_NFE) === MODELO_NFCE) {
     if (!documento) return undefined;
@@ -462,7 +463,7 @@ function getPagamentoFiscal(input: NFeAvulsaDraftInput): NFePagamentoOptions {
   return {
     tPag: meio,
     tpIntegra: input.pagamento?.tipoIntegracao === "1" ? "1" : "2",
-    cnpjCredenciadora: onlyDigits(input.pagamento?.cnpjCredenciadora),
+    cnpjCredenciadora: normalizeCnpj(input.pagamento?.cnpjCredenciadora),
     bandeira: onlyDigits(input.pagamento?.bandeira),
     autorizacao: cleanText(input.pagamento?.autorizacao),
     xPag: cleanText(input.pagamento?.descricao),
@@ -482,7 +483,7 @@ function getPagamentosFiscais(input: NFeAvulsaDraftInput): NFePagamentoOptions[]
     // contradiz o próprio código e a SEFAZ rejeita.
     valor: tPag === "90" ? 0 : toDecimalNumber(pagamento.valor),
     tpIntegra: pagamento.tipoIntegracao === "1" ? "1" : "2",
-    cnpjCredenciadora: onlyDigits(pagamento.cnpjCredenciadora),
+    cnpjCredenciadora: normalizeCnpj(pagamento.cnpjCredenciadora),
     bandeira: onlyDigits(pagamento.bandeira),
     autorizacao: cleanText(pagamento.autorizacao),
     xPag: cleanText(pagamento.descricao),
@@ -526,7 +527,7 @@ function getTransporteFiscal(input: NFeAvulsaDraftInput): NFeTransporteOptions {
   return {
     modFrete,
     transportadora: {
-      documento: onlyDigits(input.transporte?.transportadora?.documento),
+      documento: normalizeCpfOrCnpj(input.transporte?.transportadora?.documento),
       nome: cleanText(input.transporte?.transportadora?.nome),
       inscricaoEstadual: onlyDigits(input.transporte?.transportadora?.inscricaoEstadual),
       endereco: cleanText(input.transporte?.transportadora?.endereco),
@@ -562,7 +563,7 @@ function getEntregaFiscal(input: NFeAvulsaDraftInput): NFeEntregaOptions | null 
   if (!input.entrega?.habilitado) return null;
 
   return {
-    documento: onlyDigits(input.entrega.cpfCnpj),
+    documento: normalizeCpfOrCnpj(input.entrega.cpfCnpj),
     nome: cleanText(input.entrega.nome),
     endereco: {
       logradouro: cleanText(input.entrega.endereco),
@@ -588,7 +589,7 @@ function validarEmpresa(
 ) {
   const erros: string[] = [];
   if (!empresa) return ["Empresa ativa não encontrada."];
-  if (onlyDigits(empresa.cnpj).length !== 14) erros.push("CNPJ da empresa inválido ou ausente.");
+  if (!isValidCanonicalCnpj(empresa.cnpj)) erros.push("CNPJ da empresa inválido ou ausente.");
   if (!empresa.razaosocial) erros.push("Razão social da empresa ausente.");
   if (!empresa.inscricaoestadual) erros.push("Inscrição estadual da empresa ausente.");
   if (!empresa.endereco) erros.push("Endereço da empresa ausente.");
@@ -702,7 +703,7 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
 
   const modelo = input.modelo ?? MODELO_NFE;
   const destinatario = input.destinatario ?? {};
-  const docDestinatario = onlyDigits(destinatario.cpfCnpj);
+  const docDestinatario = normalizeCpfOrCnpj(destinatario.cpfCnpj);
   const isExterior = destinatario.tipoPessoa === "ESTRANGEIRO";
 
   if (modelo === MODELO_NFCE) {
@@ -856,7 +857,7 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
     // PIX entra junto com cartão desde a NT 2025.001 (RV YA04-10/YA05-10).
     const exigeGrupoCard = ["03", "04", "17"].includes(pagamentoFiscal.tPag);
     if (exigeGrupoCard && pagamentoFiscal.tpIntegra === "1") {
-      if (onlyDigits(pagamentoFiscal.cnpjCredenciadora).length !== 14) {
+      if (!isValidCanonicalCnpj(pagamentoFiscal.cnpjCredenciadora)) {
         errors.push({
           step: "payment",
           field: `pagamentos.${paymentIndex}.cnpjCredenciadora`,
@@ -954,14 +955,14 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
   // metade é pior que não mandar nada.
   const transportadoraInformada = Boolean(
     cleanText(transporteFiscal.transportadora?.nome) ||
-      onlyDigits(transporteFiscal.transportadora?.documento) ||
+      normalizeCpfOrCnpj(transporteFiscal.transportadora?.documento) ||
       cleanText(transporteFiscal.transportadora?.uf) ||
       onlyDigits(transporteFiscal.transportadora?.inscricaoEstadual) ||
       cleanText(transporteFiscal.transportadora?.endereco) ||
       cleanText(transporteFiscal.transportadora?.municipio),
   );
   if (transportadoraInformada) {
-    const docTransportadora = onlyDigits(transporteFiscal.transportadora?.documento);
+    const docTransportadora = normalizeCpfOrCnpj(transporteFiscal.transportadora?.documento);
     if (!cleanText(transporteFiscal.transportadora?.nome)) {
       errors.push({
         step: "transport",
@@ -995,7 +996,7 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
   }
 
   if (input.entrega?.habilitado) {
-    const docEntrega = onlyDigits(input.entrega.cpfCnpj);
+    const docEntrega = normalizeCpfOrCnpj(input.entrega.cpfCnpj);
     const tipoPessoaEntrega =
       input.entrega.tipoPessoa === "JURIDICA" || docEntrega.length === 14 ? "JURIDICA" : "FISICA";
     const documentoValidoEntrega =

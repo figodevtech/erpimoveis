@@ -24,6 +24,7 @@ import {
   NFCE_HOMOLOGACAO_PRIMEIRO_ITEM_DESCRICAO,
   NFE_HOMOLOGACAO_DESTINATARIO_NOME,
 } from './constants';
+import { normalizeCnpj, normalizeCpfOrCnpj } from '@/lib/fiscal-identifiers';
 
 /**
  * Formata data/hora para o padrão da NF-e 4.00:
@@ -165,7 +166,7 @@ function formatDecimal(value: unknown) {
 }
 
 function buildTransportaXml(transportadora?: NFeTransporteOptions["transportadora"] | null) {
-  const documento = onlyDigits(transportadora?.documento);
+  const documento = normalizeCpfOrCnpj(transportadora?.documento);
   const nome = truncateNfeXNome(cleanText(transportadora?.nome));
   const ie = cleanText(transportadora?.inscricaoEstadual);
   const endereco = cleanText(transportadora?.endereco);
@@ -269,7 +270,7 @@ function buildTranspXml(params: {
 
   const transportadora =
     params.transporte?.transportadora &&
-    (cleanText(params.transporte.transportadora.nome) || onlyDigits(params.transporte.transportadora.documento))
+    (cleanText(params.transporte.transportadora.nome) || normalizeCpfOrCnpj(params.transporte.transportadora.documento))
       ? params.transporte.transportadora
       : getTransportadoraPropria(modFrete, params.empresa, params.destinatario);
 
@@ -290,7 +291,7 @@ function buildTranspXml(params: {
  * pior que não mandar, porque a SEFAZ valida cada campo presente.
  */
 function buildEntregaXml(entrega?: NFeEntregaOptions | null): string {
-  const documento = onlyDigits(entrega?.documento);
+  const documento = normalizeCpfOrCnpj(entrega?.documento);
   const nome = truncateNfeXNome(cleanText(entrega?.nome));
   const logradouro = cleanText(entrega?.endereco?.logradouro);
   const numero = cleanText(entrega?.endereco?.numero);
@@ -350,7 +351,7 @@ function buildPagXml(params: {
     // Sem ele a SEFAZ devolve a rejeição 391.
     const isCartao = tPag === "03" || tPag === "04" || tPag === "17";
     const tpIntegra = pagamento.tpIntegra === "1" ? "1" : "2";
-    const cnpjCredenciadora = onlyDigits(pagamento.cnpjCredenciadora);
+    const cnpjCredenciadora = normalizeCnpj(pagamento.cnpjCredenciadora);
     const bandeira = onlyDigits(pagamento.bandeira);
     const autorizacao = String(pagamento.autorizacao ?? "").trim();
     const xPag = String(pagamento.xPag ?? "").trim();

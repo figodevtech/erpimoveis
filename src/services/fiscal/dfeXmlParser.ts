@@ -1,5 +1,7 @@
 import { gunzipSync } from "zlib";
 import { XMLParser } from "fast-xml-parser";
+import { parseFiscalDate, type FiscalDateValue } from "@/lib/fiscal-date";
+import { normalizeCnpj } from "@/lib/fiscal-identifiers";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -17,6 +19,7 @@ type ParsedDfe = {
   tipoDocumento: string;
   chaveAcesso: string | null;
   dataEmissao: string | null;
+  dataEmissaoFiscal: FiscalDateValue | null;
   emitenteNome: string | null;
   emitenteCnpj: string | null;
   valorTotal: number | null;
@@ -101,8 +104,9 @@ function parseResumoNfe(parsed: any, schema: string, xml: string): ParsedDfe {
     tipoDocumento: schemaToTipo(schema),
     chaveAcesso,
     dataEmissao: resNFe?.dhEmi ? String(resNFe.dhEmi) : null,
+    dataEmissaoFiscal: parseFiscalDate(resNFe?.dhEmi),
     emitenteNome: resNFe?.xNome ? String(resNFe.xNome) : null,
-    emitenteCnpj: resNFe?.CNPJ ? onlyDigits(resNFe.CNPJ) : null,
+    emitenteCnpj: resNFe?.CNPJ ? normalizeCnpj(resNFe.CNPJ) : null,
     valorTotal: toNumber(resNFe?.vNF),
     status: resNFe?.cSitNFe ? String(resNFe.cSitNFe) : null,
     resumo: {
@@ -133,8 +137,9 @@ function parseProcNfe(parsed: any, schema: string, xml: string): ParsedDfe {
     tipoDocumento: schemaToTipo(schema),
     chaveAcesso,
     dataEmissao: ide?.dhEmi ? String(ide.dhEmi) : null,
+    dataEmissaoFiscal: parseFiscalDate(ide?.dhEmi ?? ide?.dEmi),
     emitenteNome: emit?.xNome ? String(emit.xNome) : null,
-    emitenteCnpj: emit?.CNPJ ? onlyDigits(emit.CNPJ) : null,
+    emitenteCnpj: emit?.CNPJ ? normalizeCnpj(emit.CNPJ) : null,
     valorTotal: toNumber(total?.vNF),
     status: prot?.cStat ? String(prot.cStat) : null,
     resumo: {
@@ -159,8 +164,9 @@ function parseEvento(parsed: any, schema: string, xml: string): ParsedDfe {
     tipoDocumento: schemaToTipo(schema),
     chaveAcesso: normalizeChaveAcesso(infEvento?.chNFe ?? retEvento?.chNFe, xml),
     dataEmissao: infEvento?.dhEvento ? String(infEvento.dhEvento) : retEvento?.dhRegEvento ? String(retEvento.dhRegEvento) : null,
+    dataEmissaoFiscal: parseFiscalDate(infEvento?.dhEvento ?? retEvento?.dhRegEvento),
     emitenteNome: null,
-    emitenteCnpj: infEvento?.CNPJ ? onlyDigits(infEvento.CNPJ) : null,
+    emitenteCnpj: infEvento?.CNPJ ? normalizeCnpj(infEvento.CNPJ) : null,
     valorTotal: null,
     status: retEvento?.cStat ? String(retEvento.cStat) : null,
     resumo: {
@@ -327,6 +333,7 @@ export function parseDfeXml(xml: string, schema: string): ParsedDfe {
     tipoDocumento: schemaToTipo(schema),
     chaveAcesso: null,
     dataEmissao: null,
+    dataEmissaoFiscal: null,
     emitenteNome: null,
     emitenteCnpj: null,
     valorTotal: null,

@@ -13,6 +13,7 @@ import {
   gerarQrCodeDataUrl,
 } from "@/lib/nfe/nfce/danfeNfceData";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { normalizeCnpj } from "@/lib/fiscal-identifiers";
 
 export const runtime = "nodejs";
 
@@ -56,8 +57,6 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     title: `DANFE ${data.modelo === "NFCE" ? "NFC-e" : "NF-e"} #${data.numero}`,
   };
 }
-
-const onlyDigits = (valor: unknown) => String(valor ?? "").replace(/\D/g, "");
 
 /** vTroco não é lido pelo parser do DANFE A4; aqui vem direto do XML. */
 function extrairTroco(xml: string | null | undefined): number {
@@ -106,7 +105,7 @@ export default async function DanfePage({ params, searchParams }: PageProps) {
     // Consumidor não identificado é o caso normal: o grupo dest nem existe.
     consumidorDocumento: view.destinatarioDoc && view.destinatarioDoc !== "-" ? view.destinatarioDoc : null,
     consumidorTipoDocumento:
-      onlyDigits(view.destinatarioDoc).length === 14 ? "CNPJ" : "CPF",
+      normalizeCnpj(view.destinatarioDoc).length === 14 ? "CNPJ" : "CPF",
     consumidorNome:
       view.destinatarioNome && view.destinatarioNome !== "-" ? view.destinatarioNome : null,
 

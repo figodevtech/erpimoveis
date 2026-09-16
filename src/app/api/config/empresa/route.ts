@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
+import { isValidCnpj, normalizeCnpj } from "@/lib/fiscal-identifiers";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -107,8 +108,13 @@ export async function PUT(request: Request) {
     // normalizações simples de dígitos
     const onlyDigits = (s: string) => (s || "").replace(/\D+/g, "");
 
+    const cnpj = normalizeCnpj(v.cnpj);
+    if (!isValidCnpj(cnpj)) {
+      return NextResponse.json({ error: "CNPJ numérico ou alfanumérico inválido." }, { status: 400 });
+    }
+
     const payload = {
-      cnpj: onlyDigits(v.cnpj || ""),
+      cnpj,
       razaosocial: String(v.razaosocial || ""),
       nomefantasia: v.nomefantasia ? String(v.nomefantasia) : null,
       inscricaoestadual: v.inscricaoestadual ? onlyDigits(v.inscricaoestadual) : null,

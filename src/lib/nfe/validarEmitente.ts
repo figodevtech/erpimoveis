@@ -1,6 +1,7 @@
 // src/lib/nfe/validarEmitente.ts
 
 import type { EmpresaRow } from './types';
+import { isValidCnpj } from '@/lib/fiscal-identifiers';
 
 type ErroValidacao = {
   campo: string;
@@ -25,8 +26,8 @@ export function validarEmitenteEmpresa(empresa: EmpresaRow): ErroValidacao[] {
 
   if (vazio(empresa.cnpj)) {
     erros.push({ campo: 'cnpj', mensagem: 'CNPJ e obrigatorio.' });
-  } else if (soNumeros(empresa.cnpj).length !== 14) {
-    erros.push({ campo: 'cnpj', mensagem: 'CNPJ deve ter 14 digitos numericos.' });
+  } else if (!isValidCnpj(empresa.cnpj)) {
+    erros.push({ campo: 'cnpj', mensagem: 'CNPJ numerico ou alfanumerico invalido.' });
   }
 
   if (vazio(empresa.razaosocial)) {

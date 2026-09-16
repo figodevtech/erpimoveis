@@ -1,4 +1,10 @@
 import { extractNfseUrls } from "@/lib/nfse-urls";
+import {
+  isValidCnpj,
+  isValidCpf,
+  normalizeCnpj,
+  normalizeCpf,
+} from "@/lib/fiscal-identifiers";
 
 export type NFSeEmitirParams = {
   referencia: string;
@@ -124,6 +130,17 @@ export class NFSeValidationError extends Error {
 const textoObrigatorio = (value: unknown) => String(value ?? "").trim();
 const somenteDigitos = (value: unknown) => textoObrigatorio(value).replace(/\D/g, "");
 
+function documentoTomador(cliente: any) {
+  const valor = cliente?.cpfcnpj;
+  const tipo = String(cliente?.tipopessoa ?? "").toUpperCase();
+  const cnpj = normalizeCnpj(valor);
+  if (tipo === "JURIDICA" || /[A-Z]/.test(cnpj) || cnpj.length === 14) {
+    return { tipo: "CNPJ" as const, valor: cnpj, valido: isValidCnpj(cnpj) };
+  }
+  const cpf = normalizeCpf(valor);
+  return { tipo: "CPF" as const, valor: cpf, valido: isValidCpf(cpf) };
+}
+
 export type NFSePendenciaOrigem = "EMPRESA" | "CLIENTE" | "SERVICO";
 
 export type NFSePendencia = {
@@ -143,13 +160,13 @@ export function listarPendenciasNFSe(
   const pendencias: NFSePendencia[] = [];
   const cliente = os?.cliente;
   const itens = Array.isArray(itensServico) ? itensServico : [itensServico];
-  const documentoEmpresa = somenteDigitos(empresa?.cnpj);
+  const documentoEmpresa = normalizeCnpj(empresa?.cnpj);
   const municipioEmpresa = somenteDigitos(empresa?.codigomunicipio);
   const registrar = (origem: NFSePendenciaOrigem, mensagem: string) => {
     pendencias.push({ origem, mensagem });
   };
 
-  if (documentoEmpresa.length !== 14) registrar("EMPRESA", "CNPJ da empresa com 14 dígitos");
+  if (!isValidCnpj(documentoEmpresa)) registrar("EMPRESA", "CNPJ numérico ou alfanumérico válido da empresa");
   if (municipioEmpresa.length !== 7) registrar("EMPRESA", "código IBGE do município da empresa com 7 dígitos");
   if (!textoObrigatorio(empresa?.regimetributario)) registrar("EMPRESA", "regime tributário da empresa");
   if (modelo !== "NACIONAL" && !somenteDigitos(empresa?.inscricaomunicipal)) {
@@ -159,12 +176,12 @@ export function listarPendenciasNFSe(
   if (!cliente) {
     registrar("CLIENTE", "cliente/tomador vinculado à OS");
   } else {
-    const documentoCliente = somenteDigitos(cliente.cpfcnpj);
+    const documentoCliente = documentoTomador(cliente);
     const municipioCliente = somenteDigitos(cliente.codigomunicipio);
     const cepCliente = somenteDigitos(cliente.cep);
     const ufCliente = textoObrigatorio(cliente.estado).toUpperCase();
 
-    if (![11, 14].includes(documentoCliente.length)) registrar("CLIENTE", "CPF ou CNPJ do cliente com 11 ou 14 dígitos");
+    if (!documentoCliente.valido) registrar("CLIENTE", "CPF ou CNPJ numérico/alfanumérico válido do cliente");
     if (!textoObrigatorio(cliente.nomerazaosocial)) registrar("CLIENTE", "nome ou razão social do cliente");
     if (!textoObrigatorio(cliente.endereco)) registrar("CLIENTE", "logradouro do cliente");
     if (!textoObrigatorio(cliente.endereconumero)) registrar("CLIENTE", "número do endereço do cliente");
@@ -524,6 +541,7 @@ export class NFSeService {
   private apiUrl: string;
   private token: string;
   private ambiente: "PRODUCAO" | "HOMOLOGACAO" = "HOMOLOGACAO";
+  private timezoneIana = "America/Fortaleza";
 
   constructor() {
     this.token = "";
@@ -534,8 +552,13 @@ export class NFSeService {
    * Configura o ambiente (Homologação ou Produção) baseado na coluna ambiente da tabela empresa.
    * Chamado antes de qualquer emissão ou consulta.
    */
-  configurarAmbiente(ambiente: "PRODUCAO" | "HOMOLOGACAO" | string, tokenConfigurado?: string | null) {
+  configurarAmbiente(
+    ambiente: "PRODUCAO" | "HOMOLOGACAO" | string,
+    tokenConfigurado?: string | null,
+    timezoneIana?: string | null,
+  ) {
     this.ambiente = ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO";
+    if (timezoneIana?.trim()) this.timezoneIana = timezoneIana.trim();
     if (ambiente === "PRODUCAO") {
       this.token = process.env.FOCUS_NFE_API_TOKEN || tokenConfigurado?.trim() || "";
       this.apiUrl = "https://api.focusnfe.com.br";
@@ -568,7 +591,7 @@ export class NFSeService {
 
     // Ajuste manual de Timezone para fuso Brasília (UTC-3)
     // Isso evita que, à noite, o envio seja visto como "dia seguinte" pela prefeitura em UTC.
-    const dataEmissao = formatDateTimeForFocus(new Date(Date.now() - 5 * 60 * 1000));
+    const dataEmissao = formatDateTimeForFocus(new Date(Date.now() - 5 * 60 * 1000), this.timezoneIana);
 
     const dados = Object.fromEntries(
       Object.entries(params).filter(([chave]) => chave !== "referencia"),
@@ -619,7 +642,7 @@ export class NFSeService {
   async emitirNacional(params: NFSeNacionalEmitirParams) {
     this.assertToken();
     const { referencia, ...dados } = params;
-    const payload = { data_emissao: `${formatDateTimeForFocus(new Date())}-03:00`, ...dados };
+    const payload = { data_emissao: formatDateTimeForFocus(new Date(), this.timezoneIana, true), ...dados };
     const url = `${this.apiUrl}/v2/nfsen?ref=${encodeURIComponent(referencia)}`;
     const res = await fetch(url, {
       method: "POST",
@@ -716,12 +739,12 @@ export class NFSeService {
   async configurarEmpresa(empresa: any, certificadoBase64?: string, senhaCertificado?: string) {
     this.assertToken();
 
-    const cnpj = somenteDigitos(empresa?.cnpj);
+    const cnpj = normalizeCnpj(empresa?.cnpj);
     const inscricaoMunicipal = somenteDigitos(empresa?.inscricaomunicipal);
     const codigoMunicipio = somenteDigitos(empresa?.codigomunicipio);
     const cep = somenteDigitos(empresa?.cep);
     const camposObrigatorios = [
-      cnpj.length === 14 ? null : "CNPJ com 14 dígitos",
+      isValidCnpj(cnpj) ? null : "CNPJ numérico ou alfanumérico válido",
       inscricaoMunicipal ? null : "inscrição municipal",
       textoObrigatorio(empresa?.razaosocial) ? null : "razão social",
       textoObrigatorio(empresa?.endereco) ? null : "logradouro",
@@ -817,7 +840,7 @@ export class NFSeService {
     exigirDadosObrigatoriosNFSe(os, empresa, itensServico, "MUNICIPAL_JOAO_PESSOA");
     exigirCodigosFiscais("MUNICIPAL_JOAO_PESSOA", codigosFiscais);
     const cliente = os.cliente;
-    const documento = somenteDigitos(cliente.cpfcnpj);
+    const documento = documentoTomador(cliente);
     const informacoesComplementares = validarInformacoesComplementares(codigosFiscais.informacoes_complementares);
     const discriminacao = montarDiscriminacaoServicos(os.id, itensServico, informacoesComplementares);
 
@@ -827,13 +850,13 @@ export class NFSeService {
       optante_simples_nacional: empresa.regimetributario === "1",
       regime_especial_tributacao: empresa.regimetributario === "1" ? 6 : undefined,
       prestador: {
-        cnpj: somenteDigitos(empresa.cnpj),
+        cnpj: normalizeCnpj(empresa.cnpj),
         inscricao_municipal: somenteDigitos(empresa.inscricaomunicipal),
         codigo_municipio: somenteDigitos(empresa.codigomunicipio),
       },
       tomador: {
-        cpf: documento.length === 11 ? documento : undefined,
-        cnpj: documento.length === 14 ? documento : undefined,
+        cpf: documento.tipo === "CPF" ? documento.valor : undefined,
+        cnpj: documento.tipo === "CNPJ" ? documento.valor : undefined,
         razao_social: textoObrigatorio(cliente.nomerazaosocial),
         email: textoObrigatorio(cliente.email) || undefined,
         endereco: {
@@ -867,7 +890,7 @@ export class NFSeService {
     exigirDadosObrigatoriosNFSe(os, empresa, itensServico, "MUNICIPAL_CABEDELO");
     exigirCodigosFiscais("MUNICIPAL_CABEDELO", codigosFiscais);
     const cliente = os.cliente;
-    const documento = somenteDigitos(cliente.cpfcnpj);
+    const documento = documentoTomador(cliente);
     const cnae = String(codigosFiscais.codigo_cnae || "").replace(/\D/g, "");
     const itemLista = String(codigosFiscais.item_lista_servico || "").trim();
     const informacoesComplementares = validarInformacoesComplementares(codigosFiscais.informacoes_complementares);
@@ -886,13 +909,13 @@ export class NFSeService {
       consumidor_final: codigosFiscais.consumidor_final,
       indicador_destinatario: codigosFiscais.indicador_destinatario,
       prestador: {
-        cnpj: somenteDigitos(empresa.cnpj),
+        cnpj: normalizeCnpj(empresa.cnpj),
         inscricao_municipal: somenteDigitos(empresa.inscricaomunicipal),
         codigo_municipio: somenteDigitos(empresa.codigomunicipio),
       },
       tomador: {
-        cpf: documento.length === 11 ? documento : undefined,
-        cnpj: documento.length === 14 ? documento : undefined,
+        cpf: documento.tipo === "CPF" ? documento.valor : undefined,
+        cnpj: documento.tipo === "CNPJ" ? documento.valor : undefined,
         razao_social: textoObrigatorio(cliente.nomerazaosocial),
         email: textoObrigatorio(cliente.email) || undefined,
         telefone: somenteDigitos(cliente.telefone) || undefined,
@@ -930,8 +953,9 @@ export class NFSeService {
     exigirDadosObrigatoriosNFSe(os, empresa, itensServico, "NACIONAL");
     exigirCodigosFiscais("NACIONAL", codigosFiscais);
     const cliente = os.cliente;
-    const documento = somenteDigitos(cliente.cpfcnpj);
-    const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const documento = documentoTomador(cliente);
+    const timezone = textoObrigatorio(empresa.timezone_iana) || "America/Fortaleza";
+    const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: timezone }).format(new Date());
     // descricao_servico (xDescServ) do DPS Nacional aceita no máximo 1.000 caracteres.
     const discriminacao = montarDiscriminacaoServicos(os.id, itensServico, undefined, 1000);
     const informacoesComplementares = validarInformacoesComplementares(codigosFiscais.informacoes_complementares);
@@ -939,12 +963,12 @@ export class NFSeService {
       referencia: criarReferencia(os.id, itensServico),
       data_competencia: hoje,
       codigo_municipio_emissora: Number(somenteDigitos(empresa.codigomunicipio)),
-      cnpj_prestador: somenteDigitos(empresa.cnpj),
+      cnpj_prestador: normalizeCnpj(empresa.cnpj),
       inscricao_municipal_prestador: somenteDigitos(empresa.inscricaomunicipal) || undefined,
       codigo_opcao_simples_nacional: 2,
       regime_especial_tributacao: 0,
-      cpf_tomador: documento.length === 11 ? documento : undefined,
-      cnpj_tomador: documento.length === 14 ? documento : undefined,
+      cpf_tomador: documento.tipo === "CPF" ? documento.valor : undefined,
+      cnpj_tomador: documento.tipo === "CNPJ" ? documento.valor : undefined,
       razao_social_tomador: textoObrigatorio(cliente.nomerazaosocial),
       codigo_municipio_tomador: Number(somenteDigitos(cliente.codigomunicipio)),
       cep_tomador: somenteDigitos(cliente.cep),
@@ -976,9 +1000,9 @@ export class NFSeService {
   }
 }
 
-function formatDateTimeForFocus(date: Date) {
+function formatDateTimeForFocus(date: Date, timezoneIana: string, includeOffset = false) {
   const parts = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "America/Sao_Paulo",
+    timeZone: timezoneIana,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -986,9 +1010,15 @@ function formatDateTimeForFocus(date: Date) {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
+    timeZoneName: includeOffset ? "longOffset" : undefined,
   }).formatToParts(date);
 
   const byType = new Map(parts.map((part) => [part.type, part.value]));
-  return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}T${byType.get("hour")}:${byType.get("minute")}:${byType.get("second")}`;
+  const local = `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}T${byType.get("hour")}:${byType.get("minute")}:${byType.get("second")}`;
+  if (!includeOffset) return local;
+  const offset = String(byType.get("timeZoneName") ?? "GMT")
+    .replace(/^GMT(?:UTC)?/, "")
+    .replace(/\u2212/g, "-") || "+00:00";
+  return `${local}${offset}`;
 }
 

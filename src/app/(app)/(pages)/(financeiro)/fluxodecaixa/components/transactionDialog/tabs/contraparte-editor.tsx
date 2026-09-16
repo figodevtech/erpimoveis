@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 
 import { formatCpfCnpj } from "../../../utils";
 import type { FormularioTransacao } from "../use-transacao-edicao";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 
 /**
  * Quem pagou ou recebeu — o único lugar onde isso se edita.
@@ -150,12 +151,12 @@ export function ContraparteEditor({
           <Input
             id="cpfcnpjpagador"
             disabled={!editavel || vinculado}
-            inputMode="numeric"
+            inputMode="text"
             maxLength={18}
             value={formatCpfCnpj(form.cpfcnpjpagador || "") || ""}
             onChange={(evento) =>
               trocar({
-                cpfcnpjpagador: evento.target.value.replace(/\D/g, "").slice(0, 14),
+                cpfcnpjpagador: normalizeCpfOrCnpj(evento.target.value).slice(0, 14),
               })
             }
             placeholder="CPF/CNPJ"

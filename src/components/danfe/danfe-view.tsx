@@ -7,6 +7,7 @@ import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import { encodeCode128C } from "@/lib/nfe/code128";
+import { formatCnpj, formatCpf, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 import {
   aumentarFonteDanfe,
   DANFE_DEFAULT_FONT_SCALE,
@@ -131,10 +132,11 @@ function fmtDecimal(value: number | string | null | undefined, digits = 4) {
 }
 
 function fmtDoc(value: unknown) {
-  const digits = String(value ?? "").replace(/\D/g, "");
-  if (digits.length === 11) return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  if (digits.length === 14) return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-  return digits || "-";
+  const cnpj = normalizeCnpj(value);
+  if (cnpj.length === 14 || /[A-Z]/.test(cnpj)) return formatCnpj(cnpj);
+  const cpf = normalizeCpf(value);
+  if (cpf.length === 11) return formatCpf(cpf);
+  return String(value ?? "").trim() || "-";
 }
 
 function downloadBlob(blob: Blob, filename: string) {

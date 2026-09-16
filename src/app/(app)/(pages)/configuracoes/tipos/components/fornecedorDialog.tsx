@@ -14,16 +14,18 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
 import {
+  formatCpfCnpj,
   hasValidCpfCnpjLength,
   isValidCnpj,
   onlyFiscalDigits,
 } from "@/lib/nfe/recipientNormalization";
-import { formatCpfCnpj } from "../../../(financeiro)/fluxodecaixa/utils";
+import { isValidCpf, normalizeCnpj, normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import { formatCep } from "../../../clientes/components/customerDialogRegister/utils";
 
 type Fornecedor = {
   id: number;
   cpfcnpj: string;
+  inscricaoestadual?: string | null;
   nomerazaosocial: string;
   nomefantasia: string | null;
   endereco: string | null;
@@ -39,6 +41,7 @@ type Fornecedor = {
 
 type FornecedorForm = {
   cpfcnpj: string;
+  inscricaoestadual?: string;
   nomerazaosocial: string;
   nomefantasia: string;
   endereco: string;
@@ -54,6 +57,7 @@ type FornecedorForm = {
 
 const emptyForm: FornecedorForm = {
   cpfcnpj: "",
+  inscricaoestadual: "",
   nomerazaosocial: "",
   nomefantasia: "",
   endereco: "",
@@ -103,9 +107,13 @@ export default function FornecedorDialog({
   }
 
   async function handleGetCnpj(document?: string) {
-    const cnpj = onlyFiscalDigits(document ?? form.cpfcnpj);
+    const cnpj = normalizeCnpj(document ?? form.cpfcnpj);
     if (!isValidCnpj(cnpj)) {
       toast.warning("Informe um CNPJ válido para realizar a consulta.");
+      return;
+    }
+    if (!/^\d{14}$/.test(cnpj)) {
+      toast.info("A consulta automática ainda não aceita CNPJ alfanumérico. Preencha os dados manualmente.");
       return;
     }
 
@@ -149,12 +157,19 @@ export default function FornecedorDialog({
           establishment.telefone1 ?? establishment.telefone2 ?? ""
         }`,
       ).slice(0, 14);
+      const stateRegistrations = Array.isArray(establishment.inscricoes_estaduais)
+        ? establishment.inscricoes_estaduais
+        : [];
+      const stateRegistration = stateRegistrations.find(
+        (entry: any) => entry?.ativo !== false && String(entry?.estado?.sigla ?? "").toUpperCase() === state,
+      ) ?? stateRegistrations.find((entry: any) => entry?.ativo !== false) ?? stateRegistrations[0];
 
       if (requestId !== cnpjRequestSequence.current) return;
 
       setForm((current) => ({
         ...current,
         cpfcnpj: cnpj,
+        inscricaoestadual: String(stateRegistration?.inscricao_estadual ?? "").trim(),
         nomerazaosocial: String(company.razao_social ?? "").trim(),
         nomefantasia: String(establishment.nome_fantasia ?? "").trim(),
         endereco: String(establishment.logradouro ?? "").trim(),
@@ -178,9 +193,9 @@ export default function FornecedorDialog({
   }
 
   async function handleSave() {
-    const cpfCnpj = onlyFiscalDigits(form.cpfcnpj);
+    const cpfCnpj = normalizeCpfOrCnpj(form.cpfcnpj);
 
-    if (!hasValidCpfCnpjLength(cpfCnpj)) {
+    if (!hasValidCpfCnpjLength(cpfCnpj) || !(isValidCpf(cpfCnpj) || isValidCnpj(cpfCnpj))) {
       toast.error("Digite um CPF ou CNPJ válido.");
       return;
     }
@@ -192,6 +207,7 @@ export default function FornecedorDialog({
 
     const payload = {
       cpfcnpj: cpfCnpj,
+      inscricaoestadual: form.inscricaoestadual?.trim() || null,
       nomerazaosocial: form.nomerazaosocial?.trim(),
       nomefantasia: form.nomefantasia?.trim() || null,
       endereco: form.endereco?.trim() || null,
@@ -252,6 +268,7 @@ export default function FornecedorDialog({
     if (fornecedorToEdit) {
       setForm({
         cpfcnpj: fornecedorToEdit.cpfcnpj ?? "",
+        inscricaoestadual: fornecedorToEdit.inscricaoestadual ?? "",
         nomerazaosocial: fornecedorToEdit.nomerazaosocial ?? "",
         nomefantasia: fornecedorToEdit.nomefantasia ?? "",
         endereco: fornecedorToEdit.endereco ?? "",
@@ -305,10 +322,10 @@ export default function FornecedorDialog({
                   <div className="relative">
                     <Input
                       className="pr-10"
-                      inputMode="numeric"
+                      inputMode="text"
                       value={formatCpfCnpj(form.cpfcnpj || "")}
                       onChange={(event) => {
-                        const cnpj = onlyFiscalDigits(event.target.value).slice(0, 14);
+                        const cnpj = normalizeCnpj(event.target.value).slice(0, 14);
                         handleChange("cpfcnpj", cnpj);
 
                         if (cnpj.length < 14) {
@@ -317,6 +334,7 @@ export default function FornecedorDialog({
                           lastCnpjRequested.current = "";
                           setIsLoadingCnpj(false);
                         } else if (
+                          /^\d{14}$/.test(cnpj) &&
                           isValidCnpj(cnpj) &&
                           cnpj !== lastCnpjRequested.current
                         ) {
@@ -339,7 +357,7 @@ export default function FornecedorDialog({
                       className="absolute right-0 top-0 h-9 w-9"
                       disabled={
                         isLoadingCnpj ||
-                        onlyFiscalDigits(form.cpfcnpj).length !== 14
+                        !/^\d{14}$/.test(normalizeCnpj(form.cpfcnpj))
                       }
                       onClick={() => void handleGetCnpj()}
                       aria-label="Consultar CNPJ"
@@ -362,6 +380,14 @@ export default function FornecedorDialog({
                     }
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Inscrição estadual (opcional)</Label>
+                <Input
+                  value={form.inscricaoestadual || ""}
+                  onChange={(event) => handleChange("inscricaoestadual", event.target.value.trim().toUpperCase())}
+                />
               </div>
 
               <div className="space-y-1.5">

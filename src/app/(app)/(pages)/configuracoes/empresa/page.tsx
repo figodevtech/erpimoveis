@@ -9,6 +9,7 @@ import { toast } from "@/lib/toast";
 
 import { EmpresaForm } from "./components/empresa-form";
 import { EMPRESA_DEFAULTS, empresaDoServidor, type EmpresaFormValues } from "./types";
+import { isValidCnpj, normalizeCnpj } from "@/lib/fiscal-identifiers";
 
 const limparDigitos = (s: string) => (s || "").replace(/\D+/g, "");
 
@@ -39,7 +40,7 @@ export default function ConfigEmpresaPage() {
 
   async function onSalvar(values: EmpresaFormValues) {
     const empresa = { ...values.empresa };
-    empresa.cnpj = limparDigitos(empresa.cnpj);
+    empresa.cnpj = normalizeCnpj(empresa.cnpj);
     empresa.codigomunicipio = limparDigitos(empresa.codigomunicipio);
     if (empresa.inscricaoestadual) empresa.inscricaoestadual = limparDigitos(empresa.inscricaoestadual);
     if (empresa.inscricaomunicipal) empresa.inscricaomunicipal = limparDigitos(empresa.inscricaomunicipal);
@@ -49,7 +50,7 @@ export default function ConfigEmpresaPage() {
     if (empresa.codigopais) empresa.codigopais = limparDigitos(empresa.codigopais);
 
     const erros: string[] = [];
-    if (empresa.cnpj.length < 14) erros.push("CNPJ invalido.");
+    if (!isValidCnpj(empresa.cnpj)) erros.push("CNPJ numérico ou alfanumérico inválido.");
     if (!empresa.razaosocial?.trim()) erros.push("Razao social obrigatoria.");
     if (!empresa.endereco?.trim()) erros.push("Endereco obrigatorio.");
     if (!empresa.numero?.trim()) erros.push("Numero do endereco obrigatorio.");

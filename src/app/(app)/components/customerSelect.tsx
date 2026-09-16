@@ -50,6 +50,7 @@ import {
 } from "@/components/ui/select";
 import { SelectSearchInput } from "./select-search-input";
 import { CustomerDialog } from "../(pages)/clientes/components/customerDialogRegister/customerDialog";
+import { formatCnpj, formatCpf, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 
 interface CustomerSelectProps {
   children?: ReactNode;
@@ -60,13 +61,10 @@ interface CustomerSelectProps {
 
 function formatarCpfCnpj(val?: string | null) {
   if (!val) return "—";
-  const clean = val.replace(/\D+/g, "");
-  if (clean.length === 11) {
-    return clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  }
-  if (clean.length === 14) {
-    return clean.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-  }
+  const cnpj = normalizeCnpj(val);
+  if (cnpj.length === 14 || /[A-Z]/.test(cnpj)) return formatCnpj(cnpj);
+  const cpf = normalizeCpf(val);
+  if (cpf.length === 11) return formatCpf(cpf);
   return val;
 }
 

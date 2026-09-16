@@ -6,6 +6,11 @@ import { onlyDigits } from "@/lib/agendamentos";
 import { checkLoginRateLimit, registerLoginFailure } from "@/lib/login-rate-limit";
 import { buildAppointmentRateLimitKeys } from "@/lib/login-security";
 import { verifyTurnstileToken } from "@/lib/turnstile";
+import {
+  isValidCnpj,
+  isValidCpf,
+  normalizeCpfOrCnpj,
+} from "@/lib/fiscal-identifiers";
 
 const PUBLIC_SELECT = `
   inicio,
@@ -55,12 +60,12 @@ function validEmail(value?: string | null) {
 }
 
 function getSolicitantePayload(body: any) {
-  const cpfcnpj = onlyDigits(requiredString(body?.cpfcnpj, "cpfcnpj"));
+  const cpfcnpj = normalizeCpfOrCnpj(requiredString(body?.cpfcnpj, "cpfcnpj"));
   const telefone = boundedString(body?.telefone, "telefone", 32);
   const email = boundedString(body?.email, "email", 254);
   const nome = boundedString(body?.nome, "nome", 120, true)!;
 
-  if (![11, 14].includes(cpfcnpj.length)) {
+  if (!(cpfcnpj.length === 11 ? isValidCpf(cpfcnpj) : isValidCnpj(cpfcnpj))) {
     const error = new Error("cpfcnpj invalido");
     (error as any).statusCode = 400;
     throw error;

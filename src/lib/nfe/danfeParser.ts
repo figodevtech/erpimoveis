@@ -9,6 +9,9 @@ export type DanfeAddress = {
   uf: string;
   cep: string;
   telefone: string;
+  codigoMunicipio?: string;
+  codigoPais?: string;
+  pais?: string;
 };
 
 export type DanfeParty = {
@@ -19,6 +22,7 @@ export type DanfeParty = {
   iest: string;
   im: string;
   endereco: DanfeAddress;
+  documentoTipo?: "CNPJ" | "CPF" | "ID_EXTERIOR" | "SEM_DOCUMENTO";
 };
 
 export type DanfeTaxTotals = {
@@ -82,6 +86,19 @@ export type DanfeItem = {
   cst_cofins: string | null;
   aliquota_cofins: number;
   valor_cofins: number;
+  cst_icms?: string | null;
+  valor_frete?: number;
+  valor_seguro?: number;
+  valor_outras_despesas?: number;
+  valor_bc_icms_st?: number;
+  aliquota_icms_st?: number;
+  valor_icms_st?: number;
+  valor_bc_pis?: number;
+  valor_bc_cofins?: number;
+  codigo_enquadramento_ipi?: string | null;
+  valor_fcp_uf_dest?: number;
+  valor_icms_uf_dest?: number;
+  valor_icms_uf_remet?: number;
   cst_ibs_cbs: string | null;
   classificacao_tributaria: string | null;
   base_ibs_cbs: number;
@@ -142,6 +159,8 @@ export type ParsedDanfeNFe = {
     idDest: string;
     numero: number;
     serie: number;
+    modelo?: string;
+    indicadorPagamento?: string;
   };
   protocolo: {
     chave: string;
@@ -223,18 +242,25 @@ function parseAddress(node: Element | null): DanfeAddress {
     uf: value(node, "UF"),
     cep: value(node, "CEP"),
     telefone: value(node, "fone"),
+    codigoMunicipio: value(node, "cMun"),
+    codigoPais: value(node, "cPais"),
+    pais: value(node, "xPais"),
   };
 }
 
 function parseParty(node: Element | null, addressTag: string): DanfeParty {
+  const cnpj = value(node, "CNPJ");
+  const cpf = value(node, "CPF");
+  const exterior = value(node, "idEstrangeiro");
   return {
     nome: value(node, "xNome"),
     fantasia: value(node, "xFant"),
-    documento: value(node, "CNPJ") || value(node, "CPF") || value(node, "idEstrangeiro"),
+    documento: cnpj || cpf || exterior,
     ie: value(node, "IE"),
     iest: value(node, "IEST"),
     im: value(node, "IM"),
     endereco: parseAddress(child(node, addressTag)),
+    documentoTipo: cnpj ? "CNPJ" : cpf ? "CPF" : exterior ? "ID_EXTERIOR" : "SEM_DOCUMENTO",
   };
 }
 
@@ -273,6 +299,7 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
     const ipi = children(ipiGroup).find((node) => tagName(node) === "IPITrib" || tagName(node) === "IPINT") ?? null;
     const pis = firstTaxChild(imposto, "PIS");
     const cofins = firstTaxChild(imposto, "COFINS");
+    const icmsUfDest = child(imposto, "ICMSUFDest");
     const ibsCbs = child(imposto, "IBSCBS");
     const gIbsCbs = child(ibsCbs, "gIBSCBS");
     const gIbsUf = child(gIbsCbs, "gIBSUF");
@@ -297,19 +324,32 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
       valor_desconto: numberValue(prod, "vDesc"),
       origem: value(icms, "orig"),
       csosn: value(icms, "CSOSN") || value(icms, "CST") || null,
+      cst_icms: value(icms, "CST") || null,
       valor_bc_icms: numberValue(icms, "vBC"),
       aliquotaicms: numberValue(icms, "pICMS"),
       valor_icms: numberValue(icms, "vICMS"),
+      valor_frete: numberValue(prod, "vFrete"),
+      valor_seguro: numberValue(prod, "vSeg"),
+      valor_outras_despesas: numberValue(prod, "vOutro"),
+      valor_bc_icms_st: numberValue(icms, "vBCST") || numberValue(icms, "vBCSTRet"),
+      aliquota_icms_st: numberValue(icms, "pICMSST") || numberValue(icms, "pST"),
+      valor_icms_st: numberValue(icms, "vICMSST") || numberValue(icms, "vICMSSTRet"),
       cst_ipi: value(ipi, "CST") || null,
       valor_bc_ipi: numberValue(ipi, "vBC"),
       aliquota_ipi: numberValue(ipi, "pIPI"),
       valor_ipi: numberValue(ipi, "vIPI"),
+      codigo_enquadramento_ipi: value(ipiGroup, "cEnq") || null,
       cst_pis: value(pis, "CST") || null,
       aliquota_pis: numberValue(pis, "pPIS"),
       valor_pis: numberValue(pis, "vPIS"),
+      valor_bc_pis: numberValue(pis, "vBC"),
       cst_cofins: value(cofins, "CST") || null,
       aliquota_cofins: numberValue(cofins, "pCOFINS"),
       valor_cofins: numberValue(cofins, "vCOFINS"),
+      valor_bc_cofins: numberValue(cofins, "vBC"),
+      valor_fcp_uf_dest: numberValue(icmsUfDest, "vFCPUFDest"),
+      valor_icms_uf_dest: numberValue(icmsUfDest, "vICMSUFDest"),
+      valor_icms_uf_remet: numberValue(icmsUfDest, "vICMSUFRemet"),
       cst_ibs_cbs: value(ibsCbs, "CST") || null,
       classificacao_tributaria: value(ibsCbs, "cClassTrib") || null,
       base_ibs_cbs: numberValue(gIbsCbs, "vBC"),
@@ -346,6 +386,8 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
       idDest: value(ide, "idDest"),
       numero: Number(value(ide, "nNF")) || 0,
       serie: Number(value(ide, "serie")) || 0,
+      modelo: value(ide, "mod"),
+      indicadorPagamento: value(ide, "indPag"),
     },
     protocolo: {
       chave: value(prot, "chNFe"),

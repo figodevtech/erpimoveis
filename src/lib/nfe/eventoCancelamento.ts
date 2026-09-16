@@ -1,5 +1,7 @@
 // src/lib/nfe/buildEventoCancelamento.ts
 
+import { assertValidCnpj } from '@/lib/fiscal-identifiers';
+
 function soNumeros(valor: string | null | undefined): string {
   if (!valor) return '';
   return valor.replace(/\D/g, '');
@@ -59,7 +61,7 @@ export function buildEnvEventoCancelamento(
   params: BuildEventoCancelamentoParams
 ): { xml: string; id: string } {
   const chNFe = soNumeros(params.chNFe);
-  const cnpj = soNumeros(params.cnpj);
+  const cnpj = assertValidCnpj(params.cnpj);
   const cOrgao = params.cOrgao.padStart(2, '0') || '25';
   const tpAmbStr = String(params.tpAmb);
   const nSeq = params.nSeqEvento ?? 1;

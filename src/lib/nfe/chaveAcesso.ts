@@ -67,7 +67,17 @@ export function gerarChaveAcesso(params: ParamsChave): {
 } {
   const aa = String(params.ano).slice(-2);
   const mm = String(params.mes).padStart(2, '0');
-  const cnpjLimpo = params.cnpj.replace(/\D/g, '').padStart(14, '0');
+  const cnpjCanonical = normalizeCnpj(params.cnpj);
+  // A chave de acesso 4.00 usada por este emissor ainda é estritamente
+  // numérica. Não descarte letras: bloqueie até que o leiaute de emissão
+  // aplicável defina a codificação do CNPJ alfanumérico na chave.
+  if (/[A-Z]/.test(cnpjCanonical) && !isValidCnpj(cnpjCanonical)) {
+    throw new Error('CNPJ alfanumerico invalido para chave de acesso.');
+  }
+  if (!/^\d{14}$/.test(cnpjCanonical)) {
+    throw new Error('CNPJ alfanumerico ainda nao suportado pela chave de acesso NF-e 4.00 configurada.');
+  }
+  const cnpjLimpo = cnpjCanonical;
   const serie = String(params.serie).padStart(3, '0');
   const nNF = String(params.nNF).padStart(9, '0');
   const cUF = params.cUF.padStart(2, '0');
@@ -126,3 +136,4 @@ export function decomporChaveAcesso(chave: string) {
     dv,
   };
 }
+import { isValidCnpj, normalizeCnpj } from "@/lib/fiscal-identifiers";

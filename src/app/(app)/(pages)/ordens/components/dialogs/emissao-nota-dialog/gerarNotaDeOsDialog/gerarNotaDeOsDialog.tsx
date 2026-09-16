@@ -70,6 +70,7 @@ import { PB_NFCE_PISO_IDENTIFICACAO } from "@/lib/nfe/fiscalRules";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
 import { ConfirmarIndicadorIe } from "@/components/fiscal/confirmar-indicador-ie";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 
 import {
   aplicarCamposFiscais,
@@ -131,7 +132,7 @@ type SaidaFiscalResponse = {
  * para satisfazer essa conferência.
  */
 function fornecedorParaDestinatario(fornecedor: any): NFeEntrySupplierDraft {
-  const documento = onlyDigits(fornecedor?.cpfcnpj);
+  const documento = normalizeCpfOrCnpj(fornecedor?.cpfcnpj);
   return {
     ...emptyEntrySupplier,
     fornecedorId: Number(fornecedor?.id ?? 0) || null,
@@ -287,7 +288,7 @@ function indicadorDoCliente(
 function validateFiscalCustomer(cliente?: FiscalCustomer | null) {
   if (!cliente) return ["Cliente não encontrado na origem."];
   const errors: string[] = [];
-  const document = onlyDigits(cliente.cpfcnpj);
+  const document = normalizeCpfOrCnpj(cliente.cpfcnpj);
   if (!(document.length === 11 ? isValidCpf(document) : isValidCnpj(document))) {
     errors.push("CPF/CNPJ inválido ou ausente.");
   }
@@ -363,7 +364,7 @@ function validarConsumidorNfce(
   ufEmitente: string | null | undefined,
 ): string[] {
   const erros: string[] = [];
-  const digitos = onlyDigits(documento);
+  const digitos = normalizeCpfOrCnpj(documento);
 
   if (digitos) {
     const valido = digitos.length === 14 ? isValidCnpj(digitos) : isValidCpf(digitos);
@@ -825,8 +826,10 @@ export function GerarNotaDeOsDialog({
       return [];
     }
     const errors: string[] = [];
-    const document = onlyDigits(fiscalConfig.transportadora.documento);
-    if (document.length !== 11 && document.length !== 14) errors.push("Informe o CPF/CNPJ da transportadora.");
+    const document = normalizeCpfOrCnpj(fiscalConfig.transportadora.documento);
+    if (!(document.length === 11 ? isValidCpf(document) : isValidCnpj(document))) {
+      errors.push("Informe um CPF/CNPJ válido da transportadora.");
+    }
     if (!fiscalConfig.transportadora.nome.trim()) errors.push("Informe o nome da transportadora.");
     if (fiscalConfig.transportadora.uf.trim().length !== 2) errors.push("Informe a UF da transportadora.");
     return errors;
@@ -965,7 +968,7 @@ export function GerarNotaDeOsDialog({
     const entrada = relacaoUnica<any>(candidato?.entrada);
     const fornecedor = relacaoUnica<any>(entrada?.fornecedor);
     if (!fornecedor?.id) return;
-    if (onlyDigits(fornecedor.cpfcnpj) === onlyDigits(entrySupplier.cpfCnpj)) return;
+    if (normalizeCpfOrCnpj(fornecedor.cpfcnpj) === normalizeCpfOrCnpj(entrySupplier.cpfCnpj)) return;
 
     updateEntrySupplier({
       // Mantém o que já foi completado à mão (IE, indicador, e-mail) quando o
@@ -1337,8 +1340,8 @@ export function GerarNotaDeOsDialog({
             ? {
                 destinatario: {
                   clienteId: source?.cliente?.id ?? null,
-                  cpfCnpj: onlyDigits(consumidorDoc) || null,
-                  nomeRazaoSocial: onlyDigits(consumidorDoc)
+                  cpfCnpj: normalizeCpfOrCnpj(consumidorDoc) || null,
+                  nomeRazaoSocial: normalizeCpfOrCnpj(consumidorDoc)
                     ? source?.cliente?.nomerazaosocial ?? source?.cliente?.nome ?? null
                     : null,
                 },
@@ -1536,16 +1539,16 @@ export function GerarNotaDeOsDialog({
                         <Label htmlFor="nfce-consumidor-doc">CPF ou CNPJ</Label>
                         <Input
                           id="nfce-consumidor-doc"
-                          inputMode="numeric"
+                          inputMode="text"
                           onChange={(event) => setConsumidorDoc(event.target.value)}
-                          placeholder="Somente números"
+                          placeholder="CPF ou CNPJ"
                           value={consumidorDoc}
                         />
                       </div>
                       {source.cliente?.cpfcnpj ? (
                         <div className="flex items-end">
                           <Button
-                            onClick={() => setConsumidorDoc(onlyDigits(source.cliente?.cpfcnpj))}
+                            onClick={() => setConsumidorDoc(normalizeCpfOrCnpj(source.cliente?.cpfcnpj))}
                             size="sm"
                             type="button"
                             variant="outline"
@@ -1821,10 +1824,13 @@ export function GerarNotaDeOsDialog({
                             <Label>CPF/CNPJ *</Label>
                             <Input
                               value={fiscalConfig.transportadora.documento}
-                              inputMode="numeric"
+                              inputMode="text"
                               onChange={(event) => setFiscalConfig((current) => ({
                                 ...current,
-                                transportadora: { ...current.transportadora, documento: onlyDigits(event.target.value).slice(0, 14) },
+                                transportadora: {
+                                  ...current.transportadora,
+                                  documento: normalizeCpfOrCnpj(event.target.value).slice(0, 14),
+                                },
                               }))}
                             />
                           </div>

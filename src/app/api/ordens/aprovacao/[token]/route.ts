@@ -13,6 +13,7 @@ import {
   sanitizeTipoDesconto,
   type TipoDesconto,
 } from "@/lib/ordens/desconto";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 
 type DBStatusOS =
   | "AGUARDANDO_CHECKLIST"
@@ -91,10 +92,6 @@ type Bundle = {
   statusOS: DBStatusOS;
   statusAprovacao: DBAprovacao;
 };
-
-function onlyDigits(s: string | null | undefined) {
-  return (s || "").replace(/\D+/g, "");
-}
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
@@ -393,8 +390,8 @@ export async function POST(
       );
     }
 
-    const doc = onlyDigits(body.doc);
-    if (!doc || doc !== onlyDigits(cliente.cpfcnpj)) {
+    const doc = normalizeCpfOrCnpj(body.doc);
+    if (!doc || doc !== normalizeCpfOrCnpj(cliente.cpfcnpj)) {
       const blockedFor = await registerLoginFailure(rateLimitKeys);
       if (blockedFor > 0) return rateLimited(blockedFor);
       return NextResponse.json(

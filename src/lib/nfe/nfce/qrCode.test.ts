@@ -153,6 +153,16 @@ describe("QR Code v3 OFFLINE (Manual 4.4.2, Tabela 7)", () => {
     assert.equal(campos[6], "19131243000197");
   });
 
+  it("CNPJ alfanumérico preserva as letras no payload assinado", () => {
+    const { qrCode } = gerarQrCodeNfce({
+      ...offline,
+      documentoDestinatario: "00.000.000/E08G-12",
+    });
+    const campos = parametros(qrCode);
+    assert.equal(campos[5], TP_ID_DEST.CNPJ);
+    assert.equal(campos[6], "00000000E08G12");
+  });
+
   it("CPF usa tp_idDest 2", () => {
     const { qrCode } = gerarQrCodeNfce({ ...offline, documentoDestinatario: "11144477735" });
     assert.equal(parametros(qrCode)[5], "2");
