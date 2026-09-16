@@ -445,7 +445,7 @@ function Conteudo({
                     onClick={() => setFatiaAtiva(ativa ? null : fatia.chave)}
                     aria-pressed={ativa}
                     title={ativa ? "Mostrar todos os lançamentos" : "Mostrar só estes lançamentos"}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 px-3 py-2 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
                   >
                     <span className={cn("size-2.5 shrink-0 rounded-full", corDaFatia(fatia.chave))} aria-hidden />
                     <span className="min-w-0 flex-1">
@@ -468,7 +468,7 @@ function Conteudo({
                           type="button"
                           onClick={() => abrirMover(fatia.plano!)}
                           aria-label={`Mover ${fatia.rotulo} para outra linha`}
-                          className="flex w-10 shrink-0 items-center justify-center border-l text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
+                          className="flex w-10 shrink-0 cursor-pointer items-center justify-center border-l text-muted-foreground hover:bg-muted/50 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset"
                         >
                           <ArrowRightLeft className="size-4" aria-hidden />
                         </button>
@@ -728,7 +728,7 @@ function LinhaLancamento({
                 type="button"
                 onClick={() => onAbrirDocumento(documento)}
                 title={`Abrir ${DOCUMENTO[documento.tipo].rotulo.toLowerCase()} #${documento.id}`}
-                className="inline-flex items-center gap-1 rounded-sm underline-offset-4 hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="inline-flex cursor-pointer items-center gap-1 rounded-sm underline-offset-4 hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               >
                 <Icone className="size-3.5 shrink-0" aria-hidden />
                 {DOCUMENTO[documento.tipo].rotulo} #{documento.id}
@@ -748,7 +748,7 @@ function LinhaLancamento({
                 <button
                   type="button"
                   onClick={() => onMoverPlano(item.planoConta!)}
-                  className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-sm font-medium text-primary underline decoration-dotted underline-offset-4 hover:decoration-solid focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  className="inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1 rounded-sm font-medium text-primary underline decoration-dotted underline-offset-4 hover:decoration-solid focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 >
                   <FolderTree className="size-3.5 shrink-0" aria-hidden />
                   <span className="truncate">{nomeDoPlano(item.planoConta)}</span>

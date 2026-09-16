@@ -691,6 +691,35 @@ resultado é o mesmo nas duas ordens; o que muda é a linha em que cada valor ca
 enquanto o plano não estiver classificado (IPVA e IPTU caem em 2.1, peças em
 4.3).
 
+## O que entra numa linha — 16/09/2026
+
+Clicar no **valor** da linha responde "de onde veio este número". Clicar no
+**nome** passou a responder outra pergunta, que é de cadastro e não de mês: o que
+cai aqui. [`/api/dre/origens`](../src/app/api/dre/origens/route.ts) devolve as
+duas fontes de uma linha (ou do grupo inteiro, somando a subárvore):
+
+- **planos de conta** cujo destino é a linha, com grupo, se a linha é própria ou
+  herdada, se a conta é do sistema, e o movimento no período. Conta sem
+  lançamento no mês aparece igual — senão a resposta dependeria do período;
+- **origens automáticas**, as 11 chaves `origem:natureza` do mapeamento (peças
+  vendidas, serviços, comissões, tributos de entrada…), com rótulo em português.
+  Chave que aparecer sem mapeamento declarado é mostrada assim mesmo: valor
+  chegando por caminho que a tela não conhece é o que mais precisa ser visto.
+
+No [diálogo](../src/app/(app)/(pages)/(financeiro)/dre/components/origens-linha-dialog.tsx),
+cada plano de conta tem "Mover" — a mesma troca de linha do detalhamento, que
+leva junto todos os lançamentos da conta. Origem automática e conta do sistema
+não movem: o significado vem do documento, não de uma conta escolhida.
+
+O mapa transação → plano de conta saiu da rota do detalhamento para
+[`_planos.ts`](../src/app/api/dre/_planos.ts), usado pelas duas rotas: a mesma
+regra em dois arquivos diverge na primeira correção.
+
+Conferência somente leitura no Demir, setembro/2026: linha 1.1 com 5 contas
+ligadas e a automática `PRODUTO:RECEITA` (111 lançamentos, R$ 267.525,00); grupo
+4 com 10 contas e 7 automáticas; grupo 6 com 39 contas e nenhuma automática —
+despesa só entra por plano de conta.
+
 ## Tarja e fila de pendências — 15/09/2026
 
 Só aplicação. Os textos dos motivos vinham do banco, sem acento e escritos para
