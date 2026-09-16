@@ -119,6 +119,7 @@ import { podeEditarRealizadores } from "@/lib/ordens/realizadores";
 import { tituloServicoDaOs } from "@/lib/ordens/titulo-servico";
 import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 import { TrocarClienteOsButton } from "./trocar-cliente-os-dialog";
+import { CriadorOsCard } from "./criador-os-card";
 import type {
   ChecklistDocumentoResumo,
   ChecklistTipo,
@@ -273,6 +274,7 @@ function fileNameFromUrl(url: string) {
 
 type OS = {
   id: number;
+  criador?: { id: string; nome?: string | null } | null;
   orcamentototal?: number | null;
   valor_frete?: number | null;
   subtotal?: number | null;
@@ -1877,6 +1879,13 @@ export function OSDetalhesDialog({
                       </div>
                       <div className="text-sm">{data.os.setor?.nome ?? "—"}</div>
                     </div>
+
+                    <CriadorOsCard
+                      osId={data.os.id}
+                      criador={data.os.criador}
+                      responsaveis={responsaveis}
+                      onTrocado={() => void recarregarDetalhes()}
+                    />
 
                     <div className="rounded-lg border bg-card p-4">
                       <div className="flex items-center gap-2 mb-1.5">

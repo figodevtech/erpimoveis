@@ -18,6 +18,8 @@ export const PERMS = {
   ORDENS_EVENTOS_FINANCEIROS: "ordens:eventos_financeiros",
   ORDENS_FINALIZAR_SEM_COBRANCA: "ordens:finalizar_sem_cobranca",
   ORDENS_EXCLUIR_CHECKLIST_ASSINADO: "ordens:excluir_checklist_assinado",
+  // Troca o criador e transfere a comissao de criacao. Sem backfill: concedida a dedo.
+  ORDENS_ALTERAR_CRIADOR: "ordens:alterar_criador",
 
   ORCAMENTOS: "orcamentos:visualizar",
   ORCAMENTOS_CRIAR: "orcamentos:criar",

@@ -95,6 +95,7 @@ recalcular_comissao_osservico(p_ordemservicoid integer, p_servicoid integer)
 recarimbar_comissao_osservico(p_ordemservicoid integer, p_servicoid integer DEFAULT NULL)
 recalcular_comissao_criacao_os(p_ordemservicoid integer, p_forcar boolean DEFAULT false)
 recarimbar_comissao_criacao_os(p_ordemservicoid integer)
+trocar_criador_os(p_ordemservicoid integer, p_usuarioid uuid) RETURNS jsonb
 
 -- publicação no livro
 reconciliar_eventos_financeiros_os(p_ordemservicoid integer, p_incluir_comissoes boolean DEFAULT false)
@@ -349,6 +350,24 @@ A integração retroativa começa em **1º de setembro de 2026, às 00:00, UTC�
 - **Ordem de exibição:** a receita abre o bloco, as despesas vêm sob ela, a
   comissão fecha — igual em produto e em serviço (`ordemNoGrupo`). Produto já foi
   ao contrário; foi alinhado quando a comissão passou a incidir sobre produto.
+- **Nunca troque o criador com UPDATE em `usuariocriadorid`.** Nenhum gatilho
+  olha a coluna, e o snapshot carimba o dono na primeira apuração: a comissão
+  ficaria com quem saiu, e OS encerrada e nunca apurada ficaria sem comissão. A
+  troca é `trocar_criador_os` (`20260917100000`), chamada pelo card "Criado por"
+  dos detalhes da OS com a permissão `ordens:alterar_criador`. Ela reapura pela
+  taxa de quem entrou — a regra da venda (`20260909125000`) —, republica os
+  eventos quando a OS já os tem e recusa OS cancelada e comissão de criação já
+  lançada ou corrigida à mão.
+- **Comissão de criação não sai ao iniciar a OS.** `sincronizar_eventos_financeiros_os`
+  (gatilho de `EM_ANDAMENTO`) publica só a de realização; a de criação entra pela
+  reconciliação — orçamento salvo em execução, realizador atribuído ou `PAGAMENTO`.
+- **Reiniciar a OS desfaz a conclusão, não os eventos** (`20260916180000`).
+  Voltar a qualquer status anterior à execução apaga `execucao_fim_em`, e a
+  competência dos eventos sai junto — a DRE para de somá-los. Eles continuam
+  `ATIVO`, comissão inclusive: cancelar abriria um buraco, porque voltar a
+  `EM_ANDAMENTO` publica com `sincronizar_eventos_financeiros_os`, que não
+  reativa evento cancelado. Consequência aceita: a comissão da OS reiniciada
+  segue lançável na fila, que não filtra pelo status da OS.
 
 ---
 
@@ -363,6 +382,8 @@ A integração retroativa começa em **1º de setembro de 2026, às 00:00, UTC�
 | `…/20260903180000` | comissão zerada consta no histórico |
 | `…/20260904120000` | lançamento multi-OS |
 | `…/20260904130000`, `140000`, `150000` | comissão de criação (base, `p_forcar`, por item) |
+| `…/20260917100000_trocar_criador_os.sql` | troca do criador com a comissão de criação |
+| `src/app/api/ordens/[id]/criador/route.ts` | prévia e troca do criador (`ordens:alterar_criador`) |
 | `src/lib/ordens/eventos-financeiros.ts` | leitura, ordenação, somas — **fonte única** |
 | `src/lib/ordens/comissoes-de-servico.ts` | relatórios de comissão |
 | `src/lib/meu-perfil/regras.ts` | recorte de período e status (compartilhado) |
@@ -371,4 +392,5 @@ A integração retroativa começa em **1º de setembro de 2026, às 00:00, UTC�
 | `src/components/financeiro/eventos-financeiros/` | painel compartilhado OS ↔ financeiro |
 | `scripts/db/simular-comissao-criacao.ts` | simulação somente leitura |
 | `scripts/migracao/demir-comissao-criacao-retroativa.ts` | apuração retroativa, com `--aplicar` |
+| `scripts/migracao/demir-trocar-criador-os.ts` | troca o criador de várias OS via `trocar_criador_os`, com antes e depois e `--aplicar` |
 | `supabase/tests/comissao_*.sql` | testes das regras de comissão |
