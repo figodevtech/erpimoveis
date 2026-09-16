@@ -66,3 +66,47 @@ export async function calcularDre(params: { de: string; ate: string; deAnterior:
     indicadorPorCodigo: Object.fromEntries(plano.map((l) => [l.codigo, l.valor])),
   };
 }
+
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Período no formato em que a tela o envia: dois dias AAAA-MM-DD. */
+export function periodoValido(de: string, ate: string) {
+  return DATA_ISO.test(de) && DATA_ISO.test(ate);
+}
+
+/** Período imediatamente anterior, com a mesma quantidade de dias: a coluna "Anterior". */
+export function periodoAnterior(de: string, ate: string) {
+  const inicio = new Date(`${de}T00:00:00.000Z`);
+  const fim = new Date(`${ate}T00:00:00.000Z`);
+  const dias = Math.max(1, Math.round((fim.getTime() - inicio.getTime()) / 86_400_000) + 1);
+
+  const fimAnterior = new Date(inicio);
+  fimAnterior.setUTCDate(fimAnterior.getUTCDate() - 1);
+  const inicioAnterior = new Date(fimAnterior);
+  inicioAnterior.setUTCDate(inicioAnterior.getUTCDate() - (dias - 1));
+
+  return {
+    de: inicioAnterior.toISOString().slice(0, 10),
+    ate: fimAnterior.toISOString().slice(0, 10),
+  };
+}
+
+/**
+ * A DRE de um período com o comparativo, como a tela e a folha impressa a leem.
+ *
+ * Os limites do dia e o período anterior são decididos aqui, uma vez só. Se a
+ * impressão fizesse a própria conta, bastaria um ajuste de fuso de um dos lados
+ * para o papel divergir da tela.
+ */
+export async function apurarDre(de: string, ate: string) {
+  const anterior = periodoAnterior(de, ate);
+
+  const dre = await calcularDre({
+    de: `${de}T00:00:00.000Z`,
+    ate: `${ate}T23:59:59.999Z`,
+    deAnterior: `${anterior.de}T00:00:00.000Z`,
+    ateAnterior: `${anterior.ate}T23:59:59.999Z`,
+  });
+
+  return { periodo: { de, ate, anterior }, ...dre };
+}

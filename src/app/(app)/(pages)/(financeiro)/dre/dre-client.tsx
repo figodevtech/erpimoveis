@@ -2,7 +2,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Info, Minus, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronRight, Info, Minus, Printer, TrendingDown, TrendingUp } from "lucide-react";
 import { endOfMonth, startOfMonth } from "date-fns";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { Badge } from "@/components/ui/badge";
@@ -18,10 +18,7 @@ import type { LinhaDre, PendenciaDre, PeriodoDre, RespostaDre } from "./types";
 import { DetalheLinhaDialog } from "./components/detalhe-linha-dialog";
 import { PendenciasDialog } from "./components/pendencias-dialog";
 import { TarjaPendencias } from "./components/tarja-pendencias";
-
-const MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
-const brl = (v: number) => MOEDA.format(Number.isFinite(v) ? v : 0);
-const pct = (v: number | null) => (v === null ? "—" : `${v.toFixed(1).replace(".", ",")}%`);
+import { brl, direcaoDaVariacao, montarIndicadores, pct } from "./apresentacao";
 
 function paraInput(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -43,25 +40,11 @@ function acharLinha(linhas: LinhaDre[], id: number | null): LinhaDre | null {
   return null;
 }
 
-/** Cards do topo. Margens só existem se houver receita líquida. */
-function montarIndicadores(ind: Record<string, number>) {
-  const receitaLiquida = ind["3"] ?? 0;
-  const margem = (v: number) => (receitaLiquida === 0 ? null : (v / receitaLiquida) * 100);
-
-  return [
-    { chave: "rl", rotulo: "Receita líquida", valor: ind["3"] ?? 0, extra: null as number | null },
-    { chave: "lb", rotulo: "Lucro bruto", valor: ind["5"] ?? 0, extra: margem(ind["5"] ?? 0) },
-    { chave: "ebitda", rotulo: "EBITDA", valor: ind["7"] ?? 0, extra: margem(ind["7"] ?? 0) },
-    { chave: "rl2", rotulo: "Resultado líquido", valor: ind["14"] ?? 0, extra: margem(ind["14"] ?? 0) },
-  ];
-}
-
 function Tendencia({ linha }: { linha: LinhaDre }) {
-  if (linha.valorAnterior === 0 && linha.valor === 0) return <span className="text-muted-foreground">—</span>;
+  const direcao = direcaoDaVariacao(linha);
+  if (direcao === null) return <span className="text-muted-foreground">—</span>;
 
-  const subiu = linha.variacao > 0;
-  const igual = linha.variacao === 0;
-  const Icone = igual ? Minus : subiu ? TrendingUp : TrendingDown;
+  const Icone = direcao === "IGUAL" ? Minus : direcao === "SUBIU" ? TrendingUp : TrendingDown;
 
   return (
     <span className="inline-flex items-center justify-end gap-1 tabular-nums">
@@ -244,9 +227,26 @@ export function DreClient() {
               {dados && ` · ${dados.template.nome} v${dados.template.versao}`}
             </p>
           </div>
-          <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400">
-            Preliminar
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+              Preliminar
+            </Badge>
+            {/* A folha relê a DRE do mesmo período, com a mesma apuração da tela. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="cursor-pointer"
+              disabled={!periodo.de || !periodo.ate}
+              onClick={() => {
+                const consulta = new URLSearchParams({ de: periodo.de, ate: periodo.ate });
+                window.open(`/print/relatorios/dre?${consulta.toString()}`, "_blank", "noopener,noreferrer");
+              }}
+            >
+              <Printer className="size-4" aria-hidden />
+              Imprimir DRE
+            </Button>
+          </div>
         </header>
 
         <section aria-label="Período" className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3">

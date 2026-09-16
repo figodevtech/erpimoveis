@@ -6,25 +6,7 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
-import { calcularDre } from "./_calculo";
-
-const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
-
-function periodoAnterior(de: string, ate: string) {
-  const inicio = new Date(`${de}T00:00:00.000Z`);
-  const fim = new Date(`${ate}T00:00:00.000Z`);
-  const dias = Math.max(1, Math.round((fim.getTime() - inicio.getTime()) / 86_400_000) + 1);
-
-  const fimAnterior = new Date(inicio);
-  fimAnterior.setUTCDate(fimAnterior.getUTCDate() - 1);
-  const inicioAnterior = new Date(fimAnterior);
-  inicioAnterior.setUTCDate(inicioAnterior.getUTCDate() - (dias - 1));
-
-  return {
-    de: inicioAnterior.toISOString().slice(0, 10),
-    ate: fimAnterior.toISOString().slice(0, 10),
-  };
-}
+import { apurarDre, periodoValido } from "./_calculo";
 
 export async function GET(req: Request) {
   try {
@@ -34,18 +16,12 @@ export async function GET(req: Request) {
     const de = (searchParams.get("de") ?? "").trim();
     const ate = (searchParams.get("ate") ?? "").trim();
 
-    if (!DATA_ISO.test(de) || !DATA_ISO.test(ate)) {
+    if (!periodoValido(de, ate)) {
       return NextResponse.json({ error: "Informe o período (de/ate) no formato AAAA-MM-DD." }, { status: 400 });
     }
 
-    const anterior = periodoAnterior(de, ate);
-
-    const dre = await calcularDre({
-      de: `${de}T00:00:00.000Z`,
-      ate: `${ate}T23:59:59.999Z`,
-      deAnterior: `${anterior.de}T00:00:00.000Z`,
-      ateAnterior: `${anterior.ate}T23:59:59.999Z`,
-    });
+    // A impressão (/print/relatorios/dre) lê a mesma apuração.
+    const dre = await apurarDre(de, ate);
 
     /*
      * Alertas do periodo. Existem porque o modulo pode estar tecnicamente
@@ -119,7 +95,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(
       {
-        periodo: { de, ate, anterior },
+        periodo: dre.periodo,
         template: dre.template,
         linhas: dre.linhas,
         indicadores: dre.indicadorPorCodigo,

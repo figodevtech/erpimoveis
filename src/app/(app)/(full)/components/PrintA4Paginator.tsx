@@ -66,6 +66,8 @@ export function PrintA4Paginator() {
       const sourceHeader = source.querySelector<HTMLElement>(":scope > .header-os");
       const repeatHeader = root.hasAttribute("data-print-pagination-repeat-header");
       const numberedPages = root.hasAttribute("data-print-pagination-number-pages");
+      // Texto fixo do rodapé de cada folha, ao lado da numeração. Opcional.
+      const footerLabel = root.getAttribute("data-print-pagination-footer")?.trim() ?? "";
       const items = sourceContent?.querySelector<HTMLElement>(`:scope > ${ITEMS_SELECTOR}`);
       const finalBlock = sourceContent?.querySelector<HTMLElement>(`:scope > ${FINAL_SELECTOR}`);
 
@@ -236,6 +238,15 @@ export function PrintA4Paginator() {
         });
       }
 
+      if (footerLabel) {
+        pages.forEach((page) => {
+          const label = document.createElement("div");
+          label.className = "print-generated-page-footer";
+          label.textContent = footerLabel;
+          page.sheet.appendChild(label);
+        });
+      }
+
       generated.style.removeProperty("position");
       generated.style.removeProperty("left");
       generated.style.removeProperty("top");
@@ -338,6 +349,18 @@ const PRINT_A4_PAGINATION_CSS = `
     color:#64748b;
     font-size:8px;
     font-variant-numeric:tabular-nums;
+  }
+
+  .print-generated-page-footer{
+    position:absolute;
+    left:12mm;
+    bottom:6mm;
+    max-width:60%;
+    overflow:hidden;
+    color:#64748b;
+    font-size:8px;
+    white-space:nowrap;
+    text-overflow:ellipsis;
   }
 
   .print-generated-page > .conteudo{
