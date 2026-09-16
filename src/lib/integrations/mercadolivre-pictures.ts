@@ -8,37 +8,80 @@ type UploadedPicture = {
   id: string;
 };
 
+export type MercadoLivreUploadedPicture = {
+  id: string;
+  /** Endereço público da foto já hospedada no Mercado Livre. */
+  url: string | null;
+};
+
+/**
+ * Fotos do produto chegam aqui pelo link que já existe no ERP: o Mercado Livre
+ * recebe os bytes e guarda a cópia dele, sem nada novo no armazenamento do ERP.
+ */
 export async function uploadMercadoLivrePictures(accessToken: string, sources: string[]) {
   const uploaded: UploadedPicture[] = [];
   for (const [index, source] of sources.entries()) {
     try {
       const image = await downloadPublicImage(source);
-      const formData = new FormData();
-      formData.append("file", new Blob([image.bytes], { type: image.contentType }), `imagem-${index + 1}.${extensionFor(image.contentType)}`);
-
-      const response = await fetch("https://api.mercadolibre.com/pictures/items/upload", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: formData,
-        cache: "no-store",
-      });
-      const text = await response.text();
-      let result: any = {};
-      try {
-        result = text ? JSON.parse(text) : {};
-      } catch {
-        result = { message: text };
-      }
-
-      if (!response.ok || !result?.id) {
-        throw new Error(result?.message || result?.error || `Upload recusado com status ${response.status}.`);
-      }
-      uploaded.push({ id: String(result.id) });
+      const picture = await uploadMercadoLivrePictureFile(
+        accessToken,
+        new Blob([image.bytes], { type: image.contentType }),
+        `imagem-${index + 1}`,
+      );
+      uploaded.push({ id: picture.id });
     } catch (error: any) {
       throw pictureError(`Imagem ${index + 1}: ${error?.message || "não foi possível enviá-la ao Mercado Livre."}`, source);
     }
   }
   return uploaded;
+}
+
+/**
+ * Envia um arquivo direto para o Mercado Livre. É o caminho da foto enviada na
+ * mídia do anúncio: ela passa a existir só lá, sem ocupar o armazenamento do ERP
+ * nem entrar na galeria do produto.
+ */
+export async function uploadMercadoLivrePictureFile(
+  accessToken: string,
+  file: Blob,
+  fileName: string,
+): Promise<MercadoLivreUploadedPicture> {
+  const contentType = file.type.split(";")[0].trim().toLowerCase();
+  if (!SUPPORTED_IMAGE_TYPES.has(contentType)) throw new Error(`formato ${contentType || "não informado"} não é uma imagem compatível.`);
+  if (!file.size) throw new Error("o arquivo está vazio.");
+  if (file.size > MAX_IMAGE_BYTES) throw new Error("o arquivo excede o limite de 10 MB.");
+
+  const baseName = fileName.replace(/\.[^.]+$/, "") || "imagem";
+  const formData = new FormData();
+  formData.append("file", file, `${baseName}.${extensionFor(contentType)}`);
+
+  const response = await fetch("https://api.mercadolibre.com/pictures/items/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: formData,
+    cache: "no-store",
+  });
+  const text = await response.text();
+  let result: any = {};
+  try {
+    result = text ? JSON.parse(text) : {};
+  } catch {
+    result = { message: text };
+  }
+
+  if (!response.ok || !result?.id) {
+    throw new Error(result?.message || result?.error || `Upload recusado com status ${response.status}.`);
+  }
+  return { id: String(result.id), url: mercadoLivrePictureUrlFromUpload(result) };
+}
+
+/** A maior variação devolvida pelo upload: é a que a galeria mostra e a que volta como fonte ao publicar. */
+export function mercadoLivrePictureUrlFromUpload(result: unknown): string | null {
+  const upload = (result ?? {}) as { max_size?: unknown; variations?: unknown };
+  const variations = Array.isArray(upload.variations) ? (upload.variations as Array<Record<string, unknown>>) : [];
+  const largest = variations.find((variation) => variation?.size && variation.size === upload.max_size) ?? variations[0];
+  const url = String(largest?.secure_url ?? largest?.url ?? "").trim();
+  return url || null;
 }
 
 async function downloadPublicImage(source: string) {

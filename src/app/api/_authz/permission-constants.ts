@@ -62,6 +62,9 @@ export const PERMS = {
   USUARIOS_CRIAR: "usuarios:criar",
   USUARIOS_EDITAR: "usuarios:editar",
   USUARIOS_EXCLUIR: "usuarios:excluir",
+  // Navegar entre perfis em /meu-perfil. Independe de USUARIOS, que abre o
+  // cadastro com salario e comissoes.
+  USUARIOS_VER_PERFIS: "usuarios:ver-perfis",
 
   PERMISSOES: "permissoes:visualizar",
   PERMISSOES_CRIAR: "permissoes:criar",

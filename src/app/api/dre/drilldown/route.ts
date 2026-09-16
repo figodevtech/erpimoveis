@@ -1,4 +1,3 @@
-// src/app/api/dre/drilldown/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -6,6 +5,7 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import type { LinhaVisaoConta } from "@/app/api/tipos/planos-de-conta/_mapa";
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -16,6 +16,40 @@ const num = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 const texto = (v: unknown) => (v == null ? null : String(v));
+
+/** Documento que originou o lançamento — é o que a tela abre ao clicar na origem. */
+type Documento = {
+  tipo: "OS" | "VENDA" | "ENTRADA" | "USO_CONSUMO" | "TRANSACAO";
+  id: number;
+} | null;
+
+/**
+ * Plano de conta de um lançamento avulso. Só existe para `source_type =
+ * TRANSACAO`: é o único caso em que a conta decide a linha. Receita de OS ou de
+ * venda tem significado próprio, e mover a conta do recebimento não a moveria.
+ */
+type PlanoDoLancamento = {
+  id: number;
+  codigo: string | null;
+  nome: string;
+  grupo: string;
+  /** A conta tem linha própria; `false` é seguir o grupo (ou o mapeamento antigo). */
+  linhaPropria: boolean;
+};
+
+function documentoDoEvento(row: Registro): Documento {
+  const tipo = texto(row.source_type);
+  const id = row.source_id == null ? null : Number(row.source_id);
+
+  if (row.ordemservicoid != null) return { tipo: "OS", id: Number(row.ordemservicoid) };
+  if (!id) return null;
+  if (tipo === "ORDEM_SERVICO") return { tipo: "OS", id };
+  if (tipo === "VENDA") return { tipo: "VENDA", id };
+  if (tipo === "ENTRADA") return { tipo: "ENTRADA", id };
+  if (tipo === "USOCONSUMO_ENTRADA") return { tipo: "USO_CONSUMO", id };
+  if (tipo === "TRANSACAO") return { tipo: "TRANSACAO", id };
+  return null;
+}
 
 /** Linha clicada mais toda a subarvore: quem abre "CUSTOS" espera ver 4.1 a 4.7. */
 async function descendentes(templateId: number, linhaId: number): Promise<number[]> {
@@ -42,6 +76,46 @@ async function descendentes(templateId: number, linhaId: number): Promise<number
     pilha.push(...(filhosDe.get(atual) ?? []));
   }
 
+  return resultado;
+}
+
+/**
+ * Conta de cada transação avulsa, com o destino como a tela de planos de conta
+ * o explica. A visão é a mesma que `sincronizar_eventos_financeiros_transacao`
+ * usa para decidir a linha: o que aparece aqui é o que moveu o lançamento.
+ */
+async function planosDasTransacoes(ids: number[]) {
+  const contaDaTransacao = new Map<number, number>();
+  // Em lotes: centenas de ids numa query string só estouram o limite da URL.
+  for (let inicio = 0; inicio < ids.length; inicio += 200) {
+    const { data, error } = await supabaseAdmin
+      .from("transacao")
+      .select("id, plano_de_conta_id")
+      .in("id", ids.slice(inicio, inicio + 200));
+    if (error) throw error;
+    for (const row of (data ?? []) as Registro[]) {
+      if (row.plano_de_conta_id != null) contaDaTransacao.set(Number(row.id), Number(row.plano_de_conta_id));
+    }
+  }
+
+  const resultado = new Map<number, PlanoDoLancamento>();
+  if (!contaDaTransacao.size) return resultado;
+
+  const { data, error } = await supabaseAdmin.rpc("plano_contas_visao", { p_competencia: null });
+  if (error) throw error;
+  const contas = new Map(((data ?? []) as LinhaVisaoConta[]).map((l) => [Number(l.conta_id), l]));
+
+  for (const [transacaoId, contaId] of contaDaTransacao) {
+    const conta = contas.get(contaId);
+    if (!conta) continue;
+    resultado.set(transacaoId, {
+      id: contaId,
+      codigo: conta.conta_codigo ?? null,
+      nome: conta.conta_nome,
+      grupo: conta.grupo_nome,
+      linhaPropria: Boolean(conta.classificacao_especifica),
+    });
+  }
   return resultado;
 }
 
@@ -77,6 +151,7 @@ export async function GET(req: Request) {
           linha: { id: linhaId, codigo: registro.codigo, nome: registro.nome, calculada: true },
           items: [],
           total: 0,
+          planosIndisponiveis: false,
         },
         { headers: { "Cache-Control": "no-store" } },
       );
@@ -93,29 +168,56 @@ export async function GET(req: Request) {
 
     if (error) throw error;
 
-    const items = ((data ?? []) as Registro[]).map((row) => ({
-      id: Number(row.id),
-      competenciaEm: texto(row.competencia_em),
-      origem: texto(row.origem),
-      natureza: texto(row.natureza),
-      naturezaDre: texto(row.natureza_dre),
-      descricao: texto(row.descricao) ?? "—",
-      detalhe: texto(row.detalhe),
-      valor: num(row.valor),
-      sourceType: texto(row.source_type),
-      sourceId: row.source_id == null ? null : Number(row.source_id),
-      ordemServicoId: row.ordemservicoid == null ? null : Number(row.ordemservicoid),
-      transacaoId: row.transacaoid == null ? null : Number(row.transacaoid),
-      isManual: row.is_manual === true,
-      isEstorno: row.estorno_de_id != null,
-      semCusto: row.sem_custo === true,
-    }));
+    const rows = (data ?? []) as Registro[];
+
+    /*
+     * O plano de conta enriquece a lista, mas não é ela. Se a consulta dele
+     * falhar, os lançamentos continuam sendo mostrados — e a tela sabe que a
+     * coluna do plano está indisponível, em vez de concluir que nenhum
+     * lançamento tem conta.
+     */
+    const transacoesAvulsas = rows
+      .filter((row) => texto(row.source_type) === "TRANSACAO" && row.source_id != null)
+      .map((row) => Number(row.source_id));
+    let planos = new Map<number, PlanoDoLancamento>();
+    let planosIndisponiveis = false;
+    try {
+      planos = await planosDasTransacoes([...new Set(transacoesAvulsas)]);
+    } catch (erroPlanos) {
+      planosIndisponiveis = true;
+      console.error("[GET /api/dre/drilldown] planos de conta", erroPlanos);
+    }
+
+    const items = rows.map((row) => {
+      const documento = documentoDoEvento(row);
+      return {
+        id: Number(row.id),
+        linhaId: row.linha_id == null ? null : Number(row.linha_id),
+        competenciaEm: texto(row.competencia_em),
+        origem: texto(row.origem),
+        natureza: texto(row.natureza),
+        naturezaDre: texto(row.natureza_dre),
+        descricao: texto(row.descricao) ?? "—",
+        detalhe: texto(row.detalhe),
+        valor: num(row.valor),
+        sourceType: texto(row.source_type),
+        sourceId: row.source_id == null ? null : Number(row.source_id),
+        ordemServicoId: row.ordemservicoid == null ? null : Number(row.ordemservicoid),
+        transacaoId: row.transacaoid == null ? null : Number(row.transacaoid),
+        isManual: row.is_manual === true,
+        isEstorno: row.estorno_de_id != null,
+        semCusto: row.sem_custo === true,
+        documento,
+        planoConta: documento?.tipo === "TRANSACAO" ? (planos.get(documento.id) ?? null) : null,
+      };
+    });
 
     return NextResponse.json(
       {
         linha: { id: linhaId, codigo: registro.codigo, nome: registro.nome, calculada: false },
         items,
         total: Number(items.reduce((acc, i) => acc + i.valor, 0).toFixed(2)),
+        planosIndisponiveis,
       },
       { headers: { "Cache-Control": "no-store" } },
     );

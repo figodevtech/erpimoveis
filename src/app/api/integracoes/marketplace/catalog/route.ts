@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireEstoqueAccess } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
+import { idDeBusca } from "@/lib/busca-numerica";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -41,8 +42,8 @@ export async function GET(request: NextRequest) {
     if (search) {
       const term = search.replace(/[,%()]/g, " ").trim();
       if (/^#?\d+$/.test(term)) {
-        const id = Number(term.replace("#", ""));
-        query = query.or(`id.eq.${id},titulo.ilike.%${term}%,referencia.ilike.%${term}%,codigobarras.ilike.%${term}%`);
+        const id = idDeBusca(term);
+        query = query.or(`${id !== null ? `id.eq.${id},` : ""}titulo.ilike.%${term}%,referencia.ilike.%${term}%,codigobarras.ilike.%${term}%`);
       } else {
         query = query.or(`titulo.ilike.%${term}%,referencia.ilike.%${term}%,fabricante.ilike.%${term}%,codigobarras.ilike.%${term}%`);
       }

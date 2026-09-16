@@ -84,10 +84,10 @@ export async function GET(req: Request) {
         .gte("competencia_em", `${de}T00:00:00.000Z`)
         .lte("competencia_em", `${ate}T23:59:59.999Z`),
       /*
-       * Em LEGADO a soma resolve pelo mapeamento de grupo e ignora a
-       * classificação da conta. A tela precisa saber disso para avisar antes:
-       * sem o aviso, quem classifica uma conta pela fila não vê o total mexer e
-       * conclui que gravou errado.
+       * Modo de apuração, informativo. Desde a 20260915140000 a linha escolhida
+       * por plano de conta vale também em LEGADO — classificar pela fila refaz
+       * os lançamentos na hora —, então a tela não precisa mais avisar que o
+       * total não mexe.
        */
       supabaseAdmin.rpc("dre_modo_apuracao"),
     ]);

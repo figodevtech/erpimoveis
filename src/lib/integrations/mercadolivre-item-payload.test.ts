@@ -16,7 +16,11 @@ const BASE_BODY = {
   availableQuantity: 3,
   condition: "new",
   listingTypeId: "gold_special",
-  pictureUrl: "https://exemplo.com/foto.jpg",
+  pictureUrl: [
+    "https://exemplo.com/foto-1.jpg",
+    "https://exemplo.com/foto-2.jpg",
+    "https://exemplo.com/foto-3.jpg",
+  ].join("\n"),
   shippingMode: "me2",
   logisticType: "drop_off",
   freeShipping: false,
@@ -115,6 +119,24 @@ test("um familyName explicito ainda prevalece para chamadas que enviem um nome p
 test("aceita um anuncio ME2 completo", () => {
   const request = parseMercadoLivreListingRequest(BASE_BODY);
   assert.deepEqual(collectMercadoLivreListingRequestErrors(request), []);
+});
+
+test("recusa anuncio com menos de três fotos válidas e distintas", () => {
+  const errors = collectMercadoLivreListingRequestErrors(
+    parseMercadoLivreListingRequest({
+      ...BASE_BODY,
+      pictureUrl: [
+        "https://exemplo.com/repetida.jpg",
+        "https://exemplo.com/repetida.jpg",
+        "arquivo-local.jpg",
+        "https://exemplo.com/segunda.jpg",
+      ].join("\n"),
+    }),
+  );
+
+  const imageError = errors.find((issue) => issue.field === "images");
+  assert.ok(imageError);
+  assert.match(imageError.message, /Adicione mais 1 foto/);
 });
 
 test("exige logistica e dimensoes quando o modo e ME2", () => {

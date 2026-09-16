@@ -30,8 +30,13 @@ import {
   disabledMercadoLivreListingTypeMessage,
   isMercadoLivreListingTypeEnabled,
 } from "@/lib/integrations/mercadolivre-listing-validation";
+import {
+  getMercadoLivrePictureRequirement,
+  mercadoLivrePictureRequirementMessage,
+} from "@/lib/integrations/mercadolivre-listing-pictures";
 import { preferencesAllowShippingMode } from "@/lib/integrations/mercadolivre-mercado-envios";
 import { shippingLogisticLabel } from "../edit-listing/edit-listing-dialog";
+import { loadProductImageUrls } from "../listing-media/product-image-urls";
 
 export type MercadoLivrePublishProductDialogProps = {
   open: boolean;
@@ -144,20 +149,6 @@ function buildListingFamilyName(
     .join(" ");
 
   return value.replace(/\s+/g, " ").trim().slice(0, 60);
-}
-
-function parsePictureUrls(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((url) => url.trim())
-    .filter((url) => {
-      try {
-        const parsed = new URL(url);
-        return parsed.protocol === "https:" || parsed.protocol === "http:";
-      } catch {
-        return false;
-      }
-    });
 }
 
 function listingErrorStep(errors: Record<string, string>): CreateListingStep {
@@ -460,6 +451,25 @@ export function MercadoLivrePublishProductDialog({
       setStep("product");
       setListingFieldErrors({});
       loadListingOptions();
+      // O produto vindo do cadastro de estoque só traz a capa: as demais fotos
+      // ficam em `produto_imagem` e entram no anúncio assim que chegam, desde que
+      // a mídia ainda não tenha sido mexida.
+      if (!Array.isArray((produto as any).imageUrls) && row.id) {
+        const coverOnly = (row.imageUrls ?? []).join("\n");
+        loadProductImageUrls(row.id, row.imgUrl)
+          .then((urls) => {
+            if (!urls.length) return;
+            setChosenProduct((current) => (current?.id === row.id ? { ...current, imageUrls: urls } : current));
+            setListingForm((current) =>
+              current.produtoId === String(row.id) && current.pictureUrl === coverOnly
+                ? { ...current, pictureUrl: urls.join("\n") }
+                : current,
+            );
+          })
+          .catch((error) => {
+            toast.error("Não foi possível carregar todas as imagens do produto", { description: marketplaceErrorMessage(error) });
+          });
+      }
     }
     if (!open && prevOpenRef.current) {
       categoryRequestRef.current?.abort();
@@ -748,7 +758,11 @@ export function MercadoLivrePublishProductDialog({
     loadCategories({ parentId: previousParent?.id ?? "" });
   }
 
-  const validPreviewImages = useMemo(() => parsePictureUrls(listingForm.pictureUrl), [listingForm.pictureUrl]);
+  const pictureRequirement = useMemo(
+    () => getMercadoLivrePictureRequirement(listingForm.pictureUrl),
+    [listingForm.pictureUrl],
+  );
+  const validPreviewImages = pictureRequirement.urls;
 
   const requiredMissingAttributes = useMemo(() => {
     return categoryAttributes.filter((attribute) => {
@@ -898,7 +912,9 @@ export function MercadoLivrePublishProductDialog({
     !listingForm.produtoId ? { step: "product", message: "Selecione um produto do ERP." } : null,
     selectedProduct?.mercadolivre ? { step: "product", message: "Este produto já possui anúncio Mercado Livre vinculado." } : null,
     !listingForm.title.trim() ? { step: "content", message: "Informe o título do anúncio." } : null,
-    validPreviewImages.length === 0 ? { step: "media", message: "Informe ao menos uma imagem pública válida." } : null,
+    !pictureRequirement.valid
+      ? { step: "media", message: mercadoLivrePictureRequirementMessage(pictureRequirement.count) }
+      : null,
     listingGtin && !isValidGtin(listingGtin) ? { step: "content", message: "Informe um GTIN/EAN válido ou deixe o campo vazio." } : null,
     !listingForm.categoryId ? { step: "category", message: "Selecione a categoria Mercado Livre." } : null,
     ...requiredMissingAttributes.map((attribute) => ({ step: "category" as const, message: `Preencha o atributo obrigatório: ${attribute.name}.` })),
@@ -913,19 +929,15 @@ export function MercadoLivrePublishProductDialog({
     listingTypeIssue ? { step: "offer", message: listingTypeIssue } : null,
   ];
 
-  const listingIssueDetails = useMemo(() => {
-    const details = [...clientListingIssues.filter((issue): issue is CreateListingIssue => Boolean(issue))];
-    for (const [field, message] of Object.entries(listingFieldErrors)) {
-      const issue = { step: listingErrorStep({ [field]: message }), message } satisfies CreateListingIssue;
-      if (!details.some((current) => current.step === issue.step && current.message === issue.message)) {
-        details.push(issue);
-      }
+  const listingIssueDetails = [...clientListingIssues.filter((issue): issue is CreateListingIssue => Boolean(issue))];
+  for (const [field, message] of Object.entries(listingFieldErrors)) {
+    const issue = { step: listingErrorStep({ [field]: message }), message } satisfies CreateListingIssue;
+    if (!listingIssueDetails.some((current) => current.step === issue.step && current.message === issue.message)) {
+      listingIssueDetails.push(issue);
     }
-    return details;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientListingIssues, listingFieldErrors]);
+  }
 
-  const listingIssues = useMemo(() => listingIssueDetails.map((issue) => issue.message), [listingIssueDetails]);
+  const listingIssues = listingIssueDetails.map((issue) => issue.message);
   const listingReadyToValidate = listingIssues.length === 0;
   const canPublishListing = listingReadyToValidate && listingValidationState === "valid";
 

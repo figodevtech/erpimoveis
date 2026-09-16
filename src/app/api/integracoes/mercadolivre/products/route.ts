@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
+import { productImageUrlsForListing } from "@/lib/integrations/mercadolivre-listing-pictures";
 import { getProductSearchTokens } from "@/lib/product-search";
 import { syncMercadoLivreProductLinks } from "@/lib/integrations/mercadolivre-reconciliation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
     const { data: links, error: linksError } = productIds.length
       ? await supabaseAdmin
           .from("mercadolivre_product_link")
-          .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, user_product_id, family_id, family_name, domain_id, catalog_product_id, user_product_enabled, item_tags, visits_total, sold_quantity, available_quantity, listing_type_id, item_condition, health, catalog_listing, stop_time, metrics_updated_at, updated_at")
+          .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, user_product_id, family_id, family_name, domain_id, catalog_product_id, user_product_enabled, item_tags, visits_total, sold_quantity, available_quantity, listing_type_id, item_condition, health, catalog_listing, stop_time, metrics_updated_at, updated_at, price_state:raw_item->_erp_price_state")
           .eq("empresa_id", empresaId)
           .in("produto_id", productIds)
       : { data: [], error: null };
@@ -77,7 +78,7 @@ export async function GET(req: NextRequest) {
 
     const items = (products ?? []).map((product: any) => ({
       ...product,
-      imageUrls: Array.from(new Set([product.imgUrl, ...(imagesByProduct.get(Number(product.id)) ?? [])].filter(Boolean))),
+      imageUrls: productImageUrlsForListing(product.imgUrl, imagesByProduct.get(Number(product.id)) ?? []),
       mercadolivre: linkByProduct.get(Number(product.id)) ?? null,
     }));
 

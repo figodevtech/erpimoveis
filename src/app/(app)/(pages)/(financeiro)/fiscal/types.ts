@@ -11,7 +11,10 @@ export interface NotaFiscal {
   origem?: "PROPRIA" | "TERCEIROS";
   modelo: string;
   serie: number;
-  numero: number;
+  numero: number | string;
+  referencia?: string | null;
+  url_pdf?: string | null;
+  url_consulta?: string | null;
   chave_acesso: string;
   ambiente: string;
   status: string;

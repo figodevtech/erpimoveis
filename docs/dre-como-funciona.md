@@ -143,8 +143,9 @@ Nem todo dinheiro que se move é resultado. O sistema ignora:
 | Saldo trazido de sistema anterior | O fato econômico aconteceu antes de o ERP existir. |
 | Compra de máquina, ferramenta, imobilizado | Vira patrimônio, e entra no resultado aos poucos, como depreciação. |
 
-As quatro últimas dependem de o lançamento estar classificado num grupo do plano
-de contas marcado como **fora do resultado**.
+As quatro últimas dependem de o lançamento estar numa conta do plano de contas
+cuja linha é **fora do resultado** — seja a linha da própria conta, seja a do
+grupo dela.
 
 ---
 
@@ -157,46 +158,48 @@ de contas marcado como **fora do resultado**.
 | 1.2 Receita de prestação de serviços | serviços da OS, pelo preço de tabela |
 | 1.3 Outras receitas da atividade | frete cobrado em OS e em venda |
 | **2 DEDUÇÕES DA RECEITA** | soma de 2.1 a 2.5 |
-| 2.1 Impostos sobre vendas e serviços | lançamentos do financeiro classificados no grupo de impostos |
-| 2.2 Devoluções | *sem origem automática* — hoje sempre zero |
-| 2.3 Cancelamentos | *sem origem automática* — hoje sempre zero |
-| 2.4 Abatimentos | *sem origem automática* — hoje sempre zero |
+| 2.1 Impostos sobre vendas e serviços | lançamentos do financeiro em conta com linha 2.1 (Simples, ISS, ICMS, PIS, COFINS) |
+| 2.2 Devoluções | lançamentos do financeiro em conta com linha 2.2 — devolução não existe como operação própria |
+| 2.3 Cancelamentos | só por conta com linha 2.3 — cancelar a OS ou a venda já tira a receita |
+| 2.4 Abatimentos | só por conta com linha 2.4 |
 | 2.5 Descontos incondicionais | desconto concedido em OS e em venda |
 | **3 RECEITA LÍQUIDA** | 1 − 2 |
 | **4 CUSTOS** | soma de 4.1 a 4.7 |
 | 4.1 Custo das mercadorias vendidas | custo das peças e produtos que saíram, congelado no momento da saída |
 | 4.2 Custo dos produtos vendidos | *sem origem automática* — todo custo de item vai para 4.1 |
-| 4.3 Custo dos serviços prestados | despesa lançada dentro da OS ligada a um serviço + lançamentos do financeiro no grupo de custos diretos |
-| 4.4 Materiais aplicados | *sem origem automática* |
+| 4.3 Custo dos serviços prestados | despesa lançada dentro da OS ligada a um serviço + contas com linha 4.3 |
+| 4.4 Materiais aplicados | contas com linha 4.4 |
 | 4.5 Mão de obra direta | comissões dos realizadores e vendedores |
-| 4.6 Serviços terceirizados diretos | *sem origem automática* |
-| 4.7 Outros custos diretos | *sem origem automática* |
+| 4.6 Serviços terceirizados diretos | contas com linha 4.6 |
+| 4.7 Outros custos diretos | contas com linha 4.7 |
 | **5 LUCRO BRUTO** | 3 − 4 |
 | **6 DESPESAS OPERACIONAIS** | soma de 6.1 a 6.6 — **tudo vem do financeiro**, pela conta do plano de contas |
-| 6.1 Despesas comerciais | grupo comercial do plano de contas |
-| 6.2 Despesas administrativas | grupo administrativo |
-| 6.3 Despesas com pessoal | grupo de pessoal (salários, encargos, benefícios) |
-| 6.4 Despesas de ocupação | grupo de ocupação (aluguel, energia, água, condomínio) |
-| 6.5 Despesas com tecnologia | grupo de tecnologia (sistemas, internet) |
-| 6.6 Outras despesas operacionais | grupo genérico, e o que não se encaixa nos anteriores |
+| 6.1 Despesas comerciais | contas com linha 6.1 (propaganda, feiras, comissão de terceiros, envio ao cliente) |
+| 6.2 Despesas administrativas | contas com linha 6.2 (contabilidade, jurídico, seguros, taxas) |
+| 6.3 Despesas com pessoal | contas com linha 6.3 (salários, encargos, benefícios) |
+| 6.4 Despesas de ocupação | contas com linha 6.4 (aluguel, energia, água, IPTU, manutenção predial) |
+| 6.5 Despesas com tecnologia | contas com linha 6.5 (sistemas, internet, telefone) |
+| 6.6 Outras despesas operacionais | contas com linha 6.6 — só o que não cabe nas anteriores |
 | **7 EBITDA GERENCIAL** | 5 − 6 |
 | **8 DEPRECIAÇÃO E AMORTIZAÇÃO** | **só lançamento manual** — o sistema não controla patrimônio |
 | **9 RESULTADO OPERACIONAL** | 7 − 8 |
 | **10 RESULTADO FINANCEIRO** | 10.1 − 10.2 |
 | 10.1 Receitas financeiras | rendimento de aplicação, juros recebidos — pelo plano de contas |
 | 10.2 Despesas financeiras | juros pagos, tarifas bancárias, deságio de antecipação — pelo plano de contas |
-| **11 OUTRAS RECEITAS E DESPESAS** | *sem origem automática* — hoje sempre zero |
+| **11 OUTRAS RECEITAS E DESPESAS** | 11.1 outros ganhos e 11.2 outras perdas, pelas contas com essa linha (ex.: aluguel recebido, despesa não identificada) |
 | **12 RESULTADO ANTES DOS TRIBUTOS** | 9 + 10 + 11 |
-| **13 TRIBUTOS SOBRE O LUCRO** | **só lançamento manual** — IRPJ, CSLL |
+| **13 TRIBUTOS SOBRE O LUCRO** | contas com linha 13.1 (IRPJ), 13.2 (CSLL) ou 13.3 |
 | **14 RESULTADO LÍQUIDO** | 12 − 13 |
 
 ### Resumindo por origem
 
 - **Vem da ordem de serviço**: 1.1, 1.2, 1.3, 2.5, 4.1, 4.3, 4.5
 - **Vem da venda**: 1.1, 1.3, 2.5, 4.1
-- **Vem do financeiro (plano de contas)**: 2.1, 4.3, todas as 6.x, 10.1, 10.2
-- **Só manual**: 8, 13
-- **Sem origem nenhuma hoje**: 2.2, 2.3, 2.4, 4.2, 4.4, 4.6, 4.7, 11
+- **Vem do financeiro (linha escolhida no plano de contas)**: qualquer linha de
+  detalhe — é a conta do lançamento que decide
+- **Só por lançamento manual**: 8 (não há controle de patrimônio)
+- **Sem origem automática**: 2.3, 2.4, 4.2 — só recebem valor se alguma conta
+  apontar para elas
 
 ---
 
@@ -205,29 +208,47 @@ de contas marcado como **fora do resultado**.
 Toda a parte de despesa da DRE (linha 6) e as deduções (2.1) e o resultado
 financeiro (10) dependem de **como o plano de contas da empresa está montado**.
 
-O sistema liga **grupos** do plano de contas às linhas da DRE. Um exemplo real:
+Em **Configurações → Tipos → Planos de conta**, cada grupo e cada conta têm uma
+**linha da DRE**. A regra é:
+
+1. se a conta tem linha própria, vale a da conta;
+2. senão, vale a linha do grupo;
+3. se nenhum dos dois foi escolhido, vale o destino antigo do grupo, e a tela
+   mostra "Pelo grupo — nenhuma linha escolhida ainda".
+
+Um exemplo real, do Demir:
 
 ```
-Grupo "Pessoal"                    ->  6.3 Despesas com pessoal
-Grupo "Despesas operacionais"      ->  6.6 Outras despesas operacionais
-Grupo "Impostos e taxas"           ->  2.1 Impostos sobre vendas e serviços
-Grupo "Movimentações não operac."  ->  FORA DO RESULTADO
+Grupo "Impostos e taxas"        ->  2.1 Impostos sobre vendas e serviços
+  conta "Simples Nacional"      ->  segue o grupo (2.1)
+  conta "IRPJ"                  ->  13.1 IRPJ           (linha própria)
+  conta "IPTU"                  ->  6.4 Ocupação        (linha própria)
+Grupo "Movimentações não op."   ->  fora do resultado
+  conta "Despesas não identif." ->  11.2 Outras perdas  (linha própria)
 ```
+
+Qualquer linha pode ser escolhida para qualquer conta. O que o sistema protege é
+a **natureza**: numa conta com linha de receita, lançamento de despesa não entra
+em linha nenhuma e aparece na fila de pendências.
+
+**Mudar a linha corrige todo o histórico.** Ao salvar, os lançamentos já feitos
+naquela conta são refeitos e a DRE dos meses anteriores muda junto. Para quando
+a regra mudou de verdade — uma troca de regime tributário, por exemplo —, a
+tela deixa escolher "só a partir de uma data", e os meses anteriores ficam como
+estavam.
 
 Duas coisas importantes disso:
 
 **O detalhe da DRE nunca é melhor que o detalhe do plano de contas.** Se aluguel,
-material de escritório e propaganda estiverem todos num mesmo grupo, a DRE não
-consegue separá-los — vão todos para a mesma linha.
+material de escritório e propaganda estiverem todos numa conta só, a DRE não
+consegue separá-los.
 
-**Cada empresa tem seu plano de contas.** A DRE de uma empresa é correta dentro
-dela mesma, mas comparar linha a linha entre empresas diferentes não funciona: o
-que numa cai em "Despesas de ocupação" na outra pode cair em "Outras despesas
-operacionais".
+**A linha segue a conta, não o lançamento.** Uma parcela de dívida lançada na
+conta "Simples Nacional" vai para 2.1 como se fosse o DAS do mês. Lançamento na
+conta errada se corrige no lançamento.
 
-Se um grupo do plano de contas não estiver ligado a nenhuma linha nem marcado
-como fora do resultado, os lançamentos dele **somem do relatório sem aviso**.
-Por isso, ao configurar uma empresa nova, o mapeamento precisa ser conferido.
+Conta ou grupo sem linha nenhuma aparecem na fila de pendências da DRE, com a
+quantidade — nada some do relatório sem aviso.
 
 ---
 
@@ -235,10 +256,20 @@ Por isso, ao configurar uma empresa nova, o mapeamento precisa ser conferido.
 
 1. Abra a DRE e escolha o período.
 2. Clique no valor da linha que quer conferir.
-3. O sistema mostra todos os lançamentos daquela linha, com data de competência,
-   descrição e o documento de origem.
-4. No rodapé aparece o total, com a confirmação de que ele bate com o valor da
+3. No topo, **De onde vem o valor** reparte a linha por origem — ordens de
+   serviço, vendas, entradas de nota e cada plano de conta dos lançamentos do
+   financeiro —, com valor e percentual. Clicar numa origem mostra só os
+   lançamentos dela.
+4. Abaixo vêm os lançamentos, com busca, filtro entre "do sistema" e "avulsos",
+   e ordem por valor ou data. Clicar no documento (OS, venda, entrada ou
+   lançamento) abre o documento.
+5. No rodapé aparece o total, com a confirmação de que ele bate com o valor da
    linha.
+
+**Lançamento no plano de conta errado?** Nos avulsos, o nome do plano de conta é
+clicável. Ele abre a troca de linha: escolhida a nova linha, **todos** os
+lançamentos daquele plano, em qualquer mês, vão junto, e a DRE é refeita na
+hora. Mover exige a permissão de editar configurações.
 
 Clicar numa linha de grupo (como "CUSTOS") traz também as linhas filhas. Linhas
 de fórmula — receita líquida, lucro bruto, EBITDA — não abrem, porque são
@@ -272,21 +303,18 @@ dentro do DAS e pertencem às deduções (2.1), não à linha 13.
 
 ## 10. Limitações que você precisa conhecer
 
-**Oito linhas não têm origem automática.** 2.2 Devoluções, 2.3 Cancelamentos,
-2.4 Abatimentos, 4.2, 4.4, 4.6, 4.7 e 11 aparecem no relatório sempre zeradas. Não
-é erro de cálculo — é que o sistema ainda não tem de onde tirar esses números.
-Devolução de venda, por exemplo, não existe como operação no sistema.
+**Três linhas só recebem valor por conta do plano.** 2.3 Cancelamentos, 2.4
+Abatimentos e 4.2 não têm origem automática: aparecem zeradas até alguma conta
+apontar para elas. Devolução de venda também não existe como operação — a 2.2
+vem das contas com essa linha.
 
 **Não há fechamento de período.** A DRE de um mês passado pode mudar se alguém
-corrigir uma OS antiga ou lançar uma despesa com competência retroativa. Isso é
-bom para corrigir erros e ruim para um relatório já entregue ao contador. O
-travamento de período está previsto e ainda não foi construído.
+corrigir uma OS antiga, lançar uma despesa com competência retroativa ou mudar a
+linha de uma conta — que, por padrão, corrige todo o histórico. Isso é bom para
+corrigir erros e ruim para um relatório já entregue ao contador. O travamento de
+período está previsto e ainda não foi construído.
 
 **Não há exportação.** O relatório é visto na tela; não há PDF nem planilha.
-
-**Não existe tela de pendências.** A DRE avisa na própria tela quando há
-lançamento sem classificação, item sem custo ou período sem despesa lançada, mas
-não há um lugar que liste esses casos para serem resolvidos um a um.
 
 **A comissão é calculada sobre o valor líquido.** Mesmo com a receita mostrada
 pelo valor de tabela, a comissão continua sendo calculada sobre o que o cliente

@@ -20,11 +20,14 @@ async function reler(id: number) {
 /**
  * PUT /api/tipos/grupos-planos-de-conta/[id]
  *
- * Trocar a classificação do grupo abre uma regra nova a partir da vigência
- * informada e fecha a anterior — competências passadas continuam resolvendo
- * pelo destino antigo. Renomear não abre regra nenhuma: nome é apresentação.
+ * Trocar a linha do grupo corrige todo o histórico quando a vigência vem em
+ * branco (decisão de 15/09/2026); com data, vale a partir dela. Os lançamentos
+ * das contas que herdam o grupo são refeitos na mesma operação. Renomear não
+ * abre regra nenhuma: nome é apresentação.
  *
- * Omitir `classificacao_id` preserva a atual; só `null` explícito a remove.
+ * Campo omitido preserva o que está gravado — `classificacao_id` inclusive: só
+ * `null` explícito a remove. Antes o código era obrigatório no corpo, e dar
+ * linha a um grupo pela fila da DRE, que só manda a classificação, voltava 400.
  */
 export async function PUT(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -35,15 +38,17 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
     if (!id) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
-    const codigo = String(body.codigo ?? "").trim();
-    const nome = String(body.nome ?? "").trim();
-    if (!codigo) return NextResponse.json({ error: "Código do grupo é obrigatório." }, { status: 400 });
-    if (!nome) return NextResponse.json({ error: "Nome do grupo é obrigatório." }, { status: 400 });
+    const informou = (campo: string) => Object.prototype.hasOwnProperty.call(body, campo);
 
     const atual = await reler(id);
     if (!atual) return NextResponse.json({ error: "Grupo não encontrado." }, { status: 404 });
 
-    const informouClassificacao = Object.prototype.hasOwnProperty.call(body, "classificacao_id");
+    const codigo = informou("codigo") ? String(body.codigo ?? "").trim() : String(atual.codigo ?? "");
+    const nome = informou("nome") ? String(body.nome ?? "").trim() : atual.nome;
+    if (!codigo) return NextResponse.json({ error: "Código do grupo é obrigatório." }, { status: 400 });
+    if (!nome) return NextResponse.json({ error: "Nome do grupo é obrigatório." }, { status: 400 });
+
+    const informouClassificacao = informou("classificacao_id");
     let classificacaoId: number | null = null;
     if (informouClassificacao) {
       classificacaoId = body.classificacao_id ? Number(body.classificacao_id) : null;
@@ -60,7 +65,7 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       p_id: id,
       p_codigo: codigo,
       p_nome: nome,
-      p_descricao: body.descricao ?? null,
+      p_descricao: informou("descricao") ? (body.descricao ?? null) : atual.descricao,
       p_ativo: typeof body.ativo === "boolean" ? body.ativo : null,
       p_classificacao_id: classificacaoId,
       p_versao_esperada: Number.isInteger(Number(body.versao_registro))

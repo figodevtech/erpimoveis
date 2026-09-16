@@ -1,14 +1,10 @@
 // src/app/api/products/[id]/route.ts
 export const runtime = "nodejs";
 
-import { after, NextResponse, NextRequest } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { carregarAutores } from "@/lib/movement-authors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireEstoqueAccess, requireEstoqueDelete, requireEstoqueEdit } from "@/app/api/_authz/perms";
-import {
-  enqueueMercadoLivreProductSync,
-  syncPendingMercadoLivreStock,
-} from "@/lib/integrations/mercadolivre-stock-sync";
 
 type Params = { id: string };
 
@@ -273,28 +269,6 @@ async function validarNcm(id: number, payload: Record<string, any>) {
   }
 }
 
-async function scheduleMercadoLivrePriceSync(productId: number) {
-  try {
-    const queued = await enqueueMercadoLivreProductSync(productId);
-    if (queued === 0) return;
-
-    after(async () => {
-      try {
-        const results = await syncPendingMercadoLivreStock({ productIds: [productId], limit: queued });
-        const failures = results.filter((result) => result.ok === false);
-        if (failures.length) {
-          console.warn("Falha ao sincronizar preço do produto com o Mercado Livre:", failures);
-        }
-      } catch (error) {
-        console.error("Falha ao processar sincronização de preço do Mercado Livre:", error);
-      }
-    });
-  } catch (error) {
-    // O produto permanece salvo; o gatilho no banco e o cron permitem uma nova tentativa.
-    console.error("Falha ao enfileirar sincronização de preço do Mercado Livre:", error);
-  }
-}
-
 /**
  * - Converte strings vazias para null (com exceções)
  * - Coerce campos numéricos para number
@@ -478,7 +452,6 @@ export async function PATCH(req: NextRequest, context: { params: Promise<Params>
     }
 
     const data = await updateProduto(id, payload, expectedUpdatedAt, fieldChanges?.expectedFields);
-    if ("precovenda" in payload) await scheduleMercadoLivrePriceSync(id);
 
     return NextResponse.json({ data, id: data.id });
   } catch (e: any) {
@@ -506,7 +479,6 @@ export async function PUT(req: NextRequest, context: { params: Promise<Params> }
     await validarNcm(id, payload);
 
     const data = await updateProduto(id, payload, expectedUpdatedAt);
-    if ("precovenda" in payload) await scheduleMercadoLivrePriceSync(id);
 
     return NextResponse.json({ data, id: data.id });
   } catch (e: any) {

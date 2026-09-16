@@ -28,42 +28,6 @@ export async function syncPendingMercadoLivreStock(params?: { productIds?: numbe
   return results;
 }
 
-export async function enqueueMercadoLivreProductSync(productId: number) {
-  if (!Number.isInteger(productId) || productId <= 0) return 0;
-
-  const [{ data: product, error: productError }, { data: links, error: linksError }] = await Promise.all([
-    supabaseAdmin.from("produto").select("id, estoque").eq("id", productId).maybeSingle(),
-    supabaseAdmin
-      .from("mercadolivre_product_link")
-      .select("id, empresa_id")
-      .eq("produto_id", productId),
-  ]);
-  if (productError) throw productError;
-  if (linksError) throw linksError;
-  if (!product || !links?.length) return 0;
-
-  const { error } = await supabaseAdmin
-    .from("mercadolivre_stock_sync_queue")
-    .upsert(
-      links.map((link) => ({
-        empresa_id: Number(link.empresa_id),
-        product_link_id: Number(link.id),
-        produto_id: productId,
-        desired_quantity: Math.max(Math.trunc(Number(product.estoque) || 0), 0),
-        status: "PENDENTE",
-        attempts: 0,
-        next_retry_at: null,
-        locked_at: null,
-        last_error: null,
-        processed_at: null,
-        updated_at: new Date().toISOString(),
-      })),
-      { onConflict: "product_link_id" },
-    );
-  if (error) throw error;
-  return links.length;
-}
-
 async function processStockSync(job: ReservedStockSync) {
   try {
     const { data: link, error: linkError } = await supabaseAdmin

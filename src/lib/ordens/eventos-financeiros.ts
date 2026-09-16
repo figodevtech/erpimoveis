@@ -316,19 +316,20 @@ export function comissoesPorTipoDeItem(
 
     const valor = Number(evento.valor ?? 0);
     const efeito = evento.natureza === "RECEITA" ? valor : -valor;
-    const doProduto = Number(evento.comissaoProdutos ?? 0);
-
-    const fatia =
-      valor > 0 && Number.isFinite(doProduto) && doProduto > 0
-        ? Math.min(1, doProduto / valor)
-        : 0;
-    const parteProduto = arredondar(efeito * fatia);
+    const parteProduto = arredondar(efeito * fatiaDeProdutoDaComissao(evento));
 
     produtos += parteProduto;
     servicos += efeito - parteProduto;
   }
 
   return { produtos: arredondar(produtos), servicos: arredondar(servicos) };
+}
+
+/** A parte de produto de uma comissão, de 0 a 1. Sem valor pago não há proporção. */
+function fatiaDeProdutoDaComissao(evento: EventoComissionavel) {
+  const valor = Number(evento.valor ?? 0);
+  const doProduto = Number(evento.comissaoProdutos ?? 0);
+  return valor > 0 && Number.isFinite(doProduto) && doProduto > 0 ? Math.min(1, doProduto / valor) : 0;
 }
 
 function arredondar(valor: number) {
@@ -357,4 +358,79 @@ export function somaOrigemNatureza(
 /** Margem do lucro sobre a receita, em porcento. Sem receita não há margem. */
 export function margemDoLucro(totais: Pick<TotaisDosEventos, "receita" | "lucroReal">) {
   return totais.receita > 0 ? (totais.lucroReal / totais.receita) * 100 : 0;
+}
+
+/**
+ * Os tipos de evento que a relação de OS deixa filtrar, na ordem dos cards.
+ *
+ * `OUTROS` é o balde do que não cabe nos dez — `AVULSO`, `ENTRADA_FISCAL` e a
+ * origem que o banco vier a aceitar. Sem ele, marcar tudo esconderia esses
+ * eventos, e a lista deixaria de fechar com o lucro real.
+ */
+export const CATEGORIAS_DE_EVENTO = [
+  { chave: "RECEITA_PRODUTOS", label: "Receita de produtos" },
+  { chave: "CUSTO_PRODUTOS", label: "Custo de produtos" },
+  { chave: "RECEITA_SERVICOS", label: "Receita de serviços" },
+  { chave: "CUSTO_SERVICOS", label: "Custo de serviços" },
+  { chave: "COMISSOES_PRODUTOS", label: "Comissões de produtos" },
+  { chave: "COMISSOES_SERVICOS", label: "Comissões de serviços" },
+  { chave: "DESCONTOS", label: "Descontos" },
+  { chave: "CONSUMO", label: "Consumo" },
+  { chave: "RECEITA_FRETE", label: "Receita de frete" },
+  { chave: "DESPESA_FRETE", label: "Despesa de frete" },
+  { chave: "OUTROS", label: "Outros" },
+] as const;
+
+export type CategoriaDeEvento = (typeof CATEGORIAS_DE_EVENTO)[number]["chave"];
+
+export type EventoClassificavel = EventoComissionavel & {
+  /**
+   * O item que a comissão cobre, quando se sabe. Decide só a comissão zerada:
+   * zero de zero não é proporção, e `comissaoProdutos` nada diz ali.
+   */
+  itemDaComissao?: "PRODUTO" | "SERVICO" | null;
+};
+
+/**
+ * Em que tipo do filtro o evento cai.
+ *
+ * A comissão se reparte pela mesma proporção de `comissoesPorTipoDeItem`, para
+ * o filtro e os cards contarem a mesma história. O evento antigo de criação,
+ * que somava produto e serviço, cai nos dois tipos — e aparece se qualquer um
+ * estiver marcado.
+ */
+export function categoriasDoEvento(evento: EventoClassificavel): CategoriaDeEvento[] {
+  const receita = evento.natureza === "RECEITA";
+
+  switch (evento.origem) {
+    case "PRODUTO":
+      return [receita ? "RECEITA_PRODUTOS" : "CUSTO_PRODUTOS"];
+    case "SERVICO":
+      return [receita ? "RECEITA_SERVICOS" : "CUSTO_SERVICOS"];
+    case "DESCONTO":
+      return ["DESCONTOS"];
+    case "CONSUMO":
+      return ["CONSUMO"];
+    case "FRETE":
+      return [receita ? "RECEITA_FRETE" : "DESPESA_FRETE"];
+    case "COMISSAO": {
+      if (Number(evento.valor ?? 0) <= 0) {
+        return [evento.itemDaComissao === "PRODUTO" ? "COMISSOES_PRODUTOS" : "COMISSOES_SERVICOS"];
+      }
+      const fatia = fatiaDeProdutoDaComissao(evento);
+      const categorias: CategoriaDeEvento[] = [];
+      if (fatia > 0) categorias.push("COMISSOES_PRODUTOS");
+      if (fatia < 1) categorias.push("COMISSOES_SERVICOS");
+      return categorias;
+    }
+    default:
+      return ["OUTROS"];
+  }
+}
+
+export function eventoPassaNoFiltro(
+  evento: EventoClassificavel,
+  selecionadas: ReadonlySet<CategoriaDeEvento>,
+) {
+  return categoriasDoEvento(evento).some((categoria) => selecionadas.has(categoria));
 }

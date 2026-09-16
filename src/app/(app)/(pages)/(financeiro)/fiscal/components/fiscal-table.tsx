@@ -223,17 +223,19 @@ export default function FiscalTable({
         ? "Notas emitidas por terceiros"
         : "Notas fiscais";
 
-  async function consultarStatus(id: number) {
+  async function consultarStatus(nota: NotaFiscal) {
+    const { id } = nota;
+    const isNfse = nota.modelo === "NFSE";
     const endpoint =
-      viewMode === "EMITIDAS_TERCEIROS"
+      isNfse ? `/api/nfse/consultar/${id}` : viewMode === "EMITIDAS_TERCEIROS"
         ? `/api/fiscal/notas-recebidas/${id}/status`
         : `/api/nfe/consultar/${id}`;
-    const toastId = toast.loading("Consultando status na SEFAZ...");
+    const toastId = toast.loading(isNfse ? "Consultando NFS-e..." : "Consultando status na SEFAZ...");
     try {
       const response = await axios.post(endpoint);
       toast.success("Consulta concluída", {
         id: toastId,
-        description: response.data?.sefaz?.xMotivo ?? "Status fiscal atualizado.",
+        description: response.data?.message ?? response.data?.sefaz?.xMotivo ?? "Status fiscal atualizado.",
       });
       await handleGetNotas(pagination.page, pagination.limit);
     } catch (error) {
@@ -250,7 +252,7 @@ export default function FiscalTable({
   ): Promise<boolean> {
     const id = nota.id;
     const endpoint =
-      viewMode === "EMITIDAS_TERCEIROS"
+      nota.modelo === "NFSE" ? `/api/nfse/${id}/xml` : viewMode === "EMITIDAS_TERCEIROS"
         ? `/api/fiscal/notas-recebidas/${id}/xml`
         : `/api/fiscal/notas-emitidas/${id}/xml`;
     const toastId = options.toastId ?? toast.loading("Preparando XML...");
@@ -265,7 +267,7 @@ export default function FiscalTable({
           : "";
         const title = body?.xmlCompleto === false ? "XML ainda não disponível" : "XML indisponível";
         const description =
-          `${body?.detail ?? body?.error ?? "Não foi possível baixar o XML."}${nextCheckText}`;
+          `${body?.detail ?? body?.message ?? body?.error ?? "Não foi possível baixar o XML."}${nextCheckText}`;
         const toastOptions = {
           id: toastId,
           description,
@@ -557,7 +559,10 @@ export default function FiscalTable({
               </button>
               <button
                 type="button"
-                onClick={() => setViewMode("EMITIDAS_TERCEIROS")}
+                onClick={() => {
+                  if (modelo === "NFSE") setModelo("");
+                  setViewMode("EMITIDAS_TERCEIROS");
+                }}
                 className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${
                   viewMode === "EMITIDAS_TERCEIROS"
                     ? "bg-primary text-primary-foreground shadow-sm"
@@ -623,8 +628,8 @@ export default function FiscalTable({
                   <div className="space-y-3">
                     <p className="text-xs font-medium text-muted-foreground">Documento fiscal</p>
                     <div className="space-y-3">
-                      <div className="space-y-1"><p className="text-[11px] text-muted-foreground">Status</p><Select value={status || "TODOS"} onValueChange={(value) => setStatus(value === "TODOS" ? "" : value)}><SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos status</SelectItem><SelectItem value="RASCUNHO">Rascunho</SelectItem><SelectItem value="AUTORIZADA">Autorizada</SelectItem><SelectItem value="CANCELADA">Cancelada</SelectItem><SelectItem value="REJEITADA">Rejeitada</SelectItem><SelectItem value="DENEGADA">Denegada</SelectItem></SelectContent></Select></div>
-                      <div className="space-y-1"><p className="text-[11px] text-muted-foreground">Modelo</p><Select value={modelo || "TODOS"} onValueChange={(value) => setModelo(value === "TODOS" ? "" : value)}><SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos modelos</SelectItem><SelectItem value="NFE">NF-e</SelectItem><SelectItem value="NFCE">NFC-e</SelectItem></SelectContent></Select></div>
+                      <div className="space-y-1"><p className="text-[11px] text-muted-foreground">Status</p><Select value={status || "TODOS"} onValueChange={(value) => setStatus(value === "TODOS" ? "" : value)}><SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos status</SelectItem><SelectItem value="RASCUNHO">Rascunho</SelectItem><SelectItem value="AUTORIZADA">Autorizada</SelectItem><SelectItem value="CANCELADA">Cancelada</SelectItem><SelectItem value="REJEITADA">Rejeitada</SelectItem><SelectItem value="DENEGADA">Denegada</SelectItem><SelectItem value="PROCESSANDO">Processando</SelectItem></SelectContent></Select></div>
+                      <div className="space-y-1"><p className="text-[11px] text-muted-foreground">Modelo</p><Select value={modelo || "TODOS"} onValueChange={(value) => setModelo(value === "TODOS" ? "" : value)}><SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos modelos</SelectItem><SelectItem value="NFE">NF-e</SelectItem><SelectItem value="NFCE">NFC-e</SelectItem>{viewMode !== "EMITIDAS_TERCEIROS" ? <SelectItem value="NFSE">NFS-e</SelectItem> : null}</SelectContent></Select></div>
                     </div>
                   </div>
                 </div>
@@ -677,8 +682,11 @@ export default function FiscalTable({
 
             {notas.map((nota) => {
               const pessoa = nota.destinatarioOuEmitente;
-              const triggerId = `nota-${nota.id}-menu-btn`;
-              const menuId = `nota-${nota.id}-menu`;
+              const isNfse = nota.modelo === "NFSE";
+              const modeloLabel = ({ NFE: "NF-e", NFCE: "NFC-e", NFSE: "NFS-e" } as Record<string, string>)[nota.modelo] ?? nota.modelo;
+              const notaKey = `${nota.origem ?? viewMode}-${nota.modelo}-${nota.id}`;
+              const triggerId = `nota-${notaKey}-menu-btn`;
+              const menuId = `nota-${notaKey}-menu`;
               const manifestacao = String(nota.statusManifestacao ?? "");
               const canManifestarTerceiros =
                 viewMode === "EMITIDAS_TERCEIROS" &&
@@ -688,7 +696,7 @@ export default function FiscalTable({
               const podeManifestarOperacao =
                 canManifestarTerceiros && (!manifestacao || manifestacao === "CIENCIA");
               const podeVerDanfe =
-                viewMode !== "EMITIDAS_TERCEIROS" || nota.xmlStatus === "XML_COMPLETO";
+                !isNfse && (viewMode !== "EMITIDAS_TERCEIROS" || nota.xmlStatus === "XML_COMPLETO");
               const isRascunho = String(nota.status).toUpperCase() === "RASCUNHO";
               // Rejeição não consome a numeração: o número volta para a fila e é
               // atribuído de novo no próximo envio, desta ou de outra nota.
@@ -696,25 +704,26 @@ export default function FiscalTable({
               // Enquanto a nota não foi transmitida com sucesso, o número exibido
               // é só uma prévia.
               const numeroProvisorio =
-                viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
+                !isNfse && viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
               const statusTraduzido = traduzStatusNfe(nota.status).toUpperCase();
-              const podeConsultarSefaz = !isRascunho;
+              const podeConsultarStatus = isNfse ? Boolean(nota.referencia) : !isRascunho;
+              const podeBaixarXml = !isNfse || ["AUTORIZADA", "CANCELADA"].includes(nota.status);
               const podeExcluirRascunho =
-                viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
-              const podeEditar = viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
+                !isNfse && viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
+              const podeEditar = !isNfse && viewMode !== "EMITIDAS_TERCEIROS" && (isRascunho || isRejeitada);
               const podeCancelarNota =
-                viewMode !== "EMITIDAS_TERCEIROS" &&
+                !isNfse && viewMode !== "EMITIDAS_TERCEIROS" &&
                 !isRascunho &&
                 (String(nota.status).toUpperCase() === "AUTORIZADA" ||
                   statusTraduzido === "AUTORIZADA");
-// a
               return (
-                <TableRow key={nota.id} className="hover:cursor-pointer">
+                <TableRow key={notaKey} className="hover:cursor-pointer">
                   <TableCell>
                     <div className="flex flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-2 max-w-[200px] lg:max-w-[400px]">
                         <span className="font-medium ">
-                          {nota.modelo} {nota.numero}
+                          <Badge variant={isNfse ? "secondary" : "outline"}>{modeloLabel}</Badge>{" "}
+                          {nota.numero || "Sem número"}
                         </span>
                         {numeroProvisorio ? (
                           <span
@@ -737,6 +746,9 @@ export default function FiscalTable({
                         ) : null}
                       </div>
                       <span className="text-xs text-muted-foreground">ID: {nota.id}</span>
+                      {isNfse && nota.referencia ? (
+                        <span className="text-xs text-muted-foreground break-all">Referência: {nota.referencia}</span>
+                      ) : null}
                       <span className="text-xs text-muted-foreground md:hidden">
                         {formatDate(nota.dataemissao)}
                       </span>
@@ -826,20 +838,28 @@ export default function FiscalTable({
                             Ver DANFE
                           </DropdownMenuItem>
                         ) : null}
-                        <DropdownMenuItem onClick={() => baixarXml(nota)}>
-                          <Download className="mr-2 h-4 w-4" />
-                          Baixar XML
-                        </DropdownMenuItem>
+                        {isNfse && (nota.url_pdf || nota.url_consulta) ? (
+                          <DropdownMenuItem onClick={() => window.open(nota.url_pdf || nota.url_consulta || "", "_blank", "noopener,noreferrer")}>
+                            <Eye className="mr-2 h-4 w-4" />
+                            {nota.url_pdf ? "Ver NFS-e (PDF)" : "Ver NFS-e"}
+                          </DropdownMenuItem>
+                        ) : null}
+                        {podeBaixarXml ? (
+                          <DropdownMenuItem onClick={() => baixarXml(nota)}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Baixar XML
+                          </DropdownMenuItem>
+                        ) : null}
                         {viewMode === "EMITIDAS_TERCEIROS" && nota.xmlStatus === "XML_COMPLETO" ? (
                           <DropdownMenuItem onClick={() => setNotaGerarEntrada(nota)}>
                             <PackagePlus className="mr-2 h-4 w-4" />
                             Gerar Entrada
                           </DropdownMenuItem>
                         ) : null}
-                        {podeConsultarSefaz ? (
-                          <DropdownMenuItem onClick={() => consultarStatus(nota.id)}>
+                        {podeConsultarStatus ? (
+                          <DropdownMenuItem onClick={() => consultarStatus(nota)}>
                             <FileSearch className="mr-2 h-4 w-4" />
-                            Consultar SEFAZ
+                            {isNfse ? "Consultar NFS-e" : "Consultar SEFAZ"}
                           </DropdownMenuItem>
                         ) : null}
                         {podeEditar ? (

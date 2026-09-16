@@ -35,6 +35,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { ordenarPorLinha, rotuloDaLinha } from "@/lib/financeiro/plano-contas/opcoes-de-linha";
 import { toast } from "@/lib/toast";
 
 type Destino = {
@@ -92,12 +93,20 @@ type PlanoConta = {
   transacoes: number;
 };
 
+/**
+ * Até onde a mudança de linha alcança. O padrão corrige o histórico inteiro
+ * (decisão de 15/09/2026): a mudança comum é corrigir uma classificação errada,
+ * e não existe fechamento de período que o proteja.
+ */
+type VigenciaModo = "HISTORICO" | "DATA";
+
 type GroupForm = {
   codigo: string;
   nome: string;
   descricao: string;
   ativo: boolean;
   classificacao_id: string;
+  vigencia_modo: VigenciaModo;
   vigencia_inicio: string;
 };
 
@@ -115,6 +124,7 @@ const emptyGroupForm: GroupForm = {
   descricao: "",
   ativo: true,
   classificacao_id: HERDAR,
+  vigencia_modo: "HISTORICO",
   vigencia_inicio: "",
 };
 const emptyPlanForm: PlanForm = { ...emptyGroupForm, grupo_id: "" };
@@ -132,7 +142,16 @@ function textoDoDestino(destino: Destino) {
     return `DRE ${destino.linha_codigo} · ${destino.linha_nome ?? ""}`.trim();
   }
   if (destino.situacao === "EXCLUIDO") return "Fora da DRE";
-  return "Sem classificação";
+  return "Sem linha da DRE";
+}
+
+/**
+ * Destino sem classificação é o mapeamento antigo do grupo: a DRE soma, só
+ * ninguém escolheu a linha pela tela ainda. Chamar isso de "sem classificação"
+ * era o que fazia a tela contradizer o relatório.
+ */
+function peloMapeamentoAntigo(classificacao: Classificacao | null, destino: Destino) {
+  return !classificacao && destino.situacao !== "PENDENTE";
 }
 
 function DestinoBadge({ destino }: { destino: Destino }) {
@@ -143,6 +162,11 @@ function DestinoBadge({ destino }: { destino: Destino }) {
       {textoDoDestino(destino)}
     </Badge>
   );
+}
+
+/** A data só vai quando a pessoa escolheu "a partir de"; em branco, a RPC corrige o histórico inteiro. */
+function vigenciaDoEnvio(form: Pick<GroupForm, "vigencia_modo" | "vigencia_inicio">) {
+  return form.vigencia_modo === "DATA" && form.vigencia_inicio ? form.vigencia_inicio : null;
 }
 
 export default function PlanosDeContaSection() {
@@ -283,6 +307,9 @@ export default function PlanosDeContaSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, plans, search, filtroSituacao, filtroOrigem, filtroStatus]);
 
+  /** A pessoa escolhe a linha; as opções saem na ordem do relatório. */
+  const opcoesDeLinha = useMemo(() => ordenarPorLinha(catalogo), [catalogo]);
+
   function suggestGroupCode() {
     const numericCodes = groups.map((group) => Number(group.codigo)).filter(Number.isFinite);
     return String((numericCodes.length ? Math.max(...numericCodes) : 0) + 1);
@@ -315,6 +342,7 @@ export default function PlanosDeContaSection() {
       descricao: group.descricao ?? "",
       ativo: group.ativo,
       classificacao_id: atual ? String(atual.id) : HERDAR,
+      vigencia_modo: "HISTORICO",
       vigencia_inicio: "",
     });
     setGroupDialogOpen(true);
@@ -337,6 +365,7 @@ export default function PlanosDeContaSection() {
       descricao: plan.descricao ?? "",
       ativo: plan.ativo,
       classificacao_id: excecao ? String(excecao.id) : HERDAR,
+      vigencia_modo: "HISTORICO",
       vigencia_inicio: "",
     });
     setPlanDialogOpen(true);
@@ -347,15 +376,13 @@ export default function PlanosDeContaSection() {
     [groups, planForm.grupo_id],
   );
 
-  /**
-   * A exceção precisa ficar na mesma família do grupo. Filtrar aqui dá a resposta
-   * na hora; a RPC repete a regra, porque a tela não é a única forma de gravar.
-   */
-  const excecoesPossiveis = useMemo(() => {
-    const familia = grupoDoFormulario?.classificacao?.familia ?? null;
-    if (!familia) return catalogo;
-    return catalogo.filter((item) => item.familia === familia);
-  }, [catalogo, grupoDoFormulario]);
+  /** Rótulo de "sem linha própria" no grupo: depende do que o grupo já tem hoje. */
+  function rotuloSemLinhaDoGrupo(group: PlanoContaGrupo | null) {
+    if (group && peloMapeamentoAntigo(group.classificacao, group.destino)) {
+      return `Manter como está (${textoDoDestino(group.destino)})`;
+    }
+    return group ? "Sem linha própria" : "Sem linha (fica pendente)";
+  }
 
   async function enviar(url: string, method: string, body: unknown, generico: string) {
     const response = await fetch(url, {
@@ -379,6 +406,10 @@ export default function PlanosDeContaSection() {
       toast.error("Informe o código e o nome do grupo.");
       return;
     }
+    if (groupForm.vigencia_modo === "DATA" && !groupForm.vigencia_inicio) {
+      toast.error("Informe a partir de que data a nova linha vale.");
+      return;
+    }
     try {
       setSaving(true);
       await enviar(
@@ -392,7 +423,7 @@ export default function PlanosDeContaSection() {
           descricao: groupForm.descricao,
           ativo: groupForm.ativo,
           classificacao_id: groupForm.classificacao_id === HERDAR ? null : Number(groupForm.classificacao_id),
-          vigencia_inicio: groupForm.vigencia_inicio || null,
+          vigencia_inicio: vigenciaDoEnvio(groupForm),
           versao_registro: editingGroup?.versao_registro ?? null,
         },
         "Erro ao salvar grupo.",
@@ -412,6 +443,10 @@ export default function PlanosDeContaSection() {
       toast.error("Informe o grupo, o código e o nome do plano de conta.");
       return;
     }
+    if (planForm.vigencia_modo === "DATA" && !planForm.vigencia_inicio) {
+      toast.error("Informe a partir de que data a nova linha vale.");
+      return;
+    }
     try {
       setSaving(true);
       await enviar(
@@ -424,7 +459,7 @@ export default function PlanosDeContaSection() {
           ativo: planForm.ativo,
           grupo_id: Number(planForm.grupo_id),
           classificacao_id: planForm.classificacao_id === HERDAR ? null : Number(planForm.classificacao_id),
-          vigencia_inicio: planForm.vigencia_inicio || null,
+          vigencia_inicio: vigenciaDoEnvio(planForm),
           versao_registro: editingPlan?.versao_registro ?? null,
         },
         "Erro ao salvar plano de conta.",
@@ -450,7 +485,7 @@ export default function PlanosDeContaSection() {
             </CardTitle>
             <CardDescription>
               {groups.length} grupo(s) · {plans.length} plano(s) de conta
-              {pendentes > 0 ? ` · ${pendentes} sem classificação` : ""}
+              {pendentes > 0 ? ` · ${pendentes} sem linha da DRE` : ""}
             </CardDescription>
           </div>
           <Button size="sm" onClick={openNewGroup}>
@@ -471,10 +506,10 @@ export default function PlanosDeContaSection() {
             <Select value={filtroSituacao} onValueChange={setFiltroSituacao}>
               <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="todas">Toda classificação</SelectItem>
+                <SelectItem value="todas">Todo destino</SelectItem>
                 <SelectItem value="CLASSIFICADO">Na DRE</SelectItem>
                 <SelectItem value="EXCLUIDO">Fora da DRE</SelectItem>
-                <SelectItem value="PENDENTE">Sem classificação</SelectItem>
+                <SelectItem value="PENDENTE">Sem linha da DRE</SelectItem>
               </SelectContent>
             </Select>
             <Select value={filtroOrigem} onValueChange={setFiltroOrigem}>
@@ -595,10 +630,10 @@ export default function PlanosDeContaSection() {
                                 <Badge variant="secondary" className="font-normal">Sistema</Badge>
                               ) : null}
                               {plan.classificacao?.herdada && plan.classificacao ? (
-                                <Badge variant="outline" className="font-normal">Herdada</Badge>
+                                <Badge variant="outline" className="font-normal">Segue o grupo</Badge>
                               ) : null}
                               {plan.classificacao_especifica ? (
-                                <Badge variant="outline" className="font-normal">Exceção</Badge>
+                                <Badge variant="outline" className="font-normal">Linha própria</Badge>
                               ) : null}
                             </div>
                           </div>
@@ -608,7 +643,10 @@ export default function PlanosDeContaSection() {
                             <p className="mt-1 break-words text-xs text-muted-foreground">
                               {plan.destino.situacao === "EXCLUIDO" && plan.destino.motivo
                                 ? plan.destino.motivo
-                                : plan.classificacao?.nome ?? plan.descricao ?? "—"}
+                                : plan.classificacao?.nome
+                                  ?? (peloMapeamentoAntigo(plan.classificacao, plan.destino)
+                                    ? "Pelo grupo — nenhuma linha escolhida ainda"
+                                    : plan.descricao ?? "—")}
                             </p>
                           </div>
                           <Badge variant={plan.ativo ? "default" : "outline"} className="w-fit">
@@ -635,11 +673,11 @@ export default function PlanosDeContaSection() {
       </CardContent>
 
       <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingGroup ? "Editar grupo" : "Novo grupo"}</DialogTitle>
             <DialogDescription>
-              O grupo organiza os planos de conta e define o destino que as contas dele herdam na DRE.
+              O grupo organiza os planos de conta e define a linha da DRE que as contas dele seguem.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2 sm:grid-cols-[120px_1fr]">
@@ -652,23 +690,18 @@ export default function PlanosDeContaSection() {
               <Input value={groupForm.nome} onChange={(event) => setGroupForm((current) => ({ ...current, nome: event.target.value }))} />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label>Classificação padrão</Label>
+              <Label>Linha da DRE do grupo</Label>
               <Select
                 value={groupForm.classificacao_id}
                 onValueChange={(classificacao_id) => setGroupForm((current) => ({ ...current, classificacao_id }))}
                 disabled={editingGroup?.origem_cadastro === "SISTEMA"}
               >
-                <SelectTrigger><SelectValue placeholder="Sem classificação" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={HERDAR}>Sem classificação (fica pendente)</SelectItem>
-                  {catalogo.map((item) => (
+                <SelectTrigger><SelectValue placeholder="Sem linha" /></SelectTrigger>
+                <SelectContent className="max-h-80">
+                  <SelectItem value={HERDAR}>{rotuloSemLinhaDoGrupo(editingGroup)}</SelectItem>
+                  {opcoesDeLinha.map((item) => (
                     <SelectItem key={item.id} value={String(item.id)}>
-                      {item.nome}
-                      {item.destino?.fora_da_dre
-                        ? " · fora da DRE"
-                        : item.destino?.linha_codigo
-                          ? ` · DRE ${item.destino.linha_codigo}`
-                          : ""}
+                      {rotuloDaLinha(item)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -676,21 +709,17 @@ export default function PlanosDeContaSection() {
               <p className="text-xs text-muted-foreground">
                 {editingGroup?.origem_cadastro === "SISTEMA"
                   ? "Grupo do sistema: o nome é seu, a finalidade não muda."
-                  : "As contas deste grupo sem exceção própria herdam esta classificação."}
+                  : "As contas deste grupo sem linha própria seguem esta."}
               </p>
             </div>
             {editingGroup ? (
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Vale a partir de</Label>
-                <Input
-                  type="date"
-                  value={groupForm.vigencia_inicio}
-                  onChange={(event) => setGroupForm((current) => ({ ...current, vigencia_inicio: event.target.value }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Competências anteriores continuam com o destino atual. Em branco, vale de hoje em diante.
-                </p>
-              </div>
+              <VigenciaField
+                modo={groupForm.vigencia_modo}
+                data={groupForm.vigencia_inicio}
+                alcance={`as ${editingGroup.contas} conta(s) do grupo que seguem esta linha`}
+                onModo={(vigencia_modo) => setGroupForm((current) => ({ ...current, vigencia_modo }))}
+                onData={(vigencia_inicio) => setGroupForm((current) => ({ ...current, vigencia_inicio }))}
+              />
             ) : null}
             <div className="space-y-1.5 sm:col-span-2">
               <Label>Descrição</Label>
@@ -711,7 +740,9 @@ export default function PlanosDeContaSection() {
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{editingPlan ? "Editar plano de conta" : "Novo plano de conta"}</DialogTitle>
-            <DialogDescription>Cadastre o plano dentro de um grupo e defina seu código contábil.</DialogDescription>
+            <DialogDescription>
+              Cadastre o plano dentro de um grupo e escolha em que linha da DRE os lançamentos dele entram.
+            </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 rounded-2xl bg-card p-4 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">
@@ -719,7 +750,7 @@ export default function PlanosDeContaSection() {
               <Select
                 value={planForm.grupo_id}
                 onValueChange={(grupo_id) =>
-                  setPlanForm((current) => ({ ...current, grupo_id, classificacao_id: HERDAR }))
+                  setPlanForm((current) => ({ ...current, grupo_id }))
                 }
                 disabled={editingPlan?.origem_cadastro === "SISTEMA"}
               >
@@ -732,13 +763,6 @@ export default function PlanosDeContaSection() {
                   ))}
                 </SelectContent>
               </Select>
-              {grupoDoFormulario ? (
-                <p className="text-xs text-muted-foreground">
-                  {grupoDoFormulario.classificacao
-                    ? `Sem exceção, esta conta vai para: ${textoDoDestino(grupoDoFormulario.destino)}.`
-                    : "Este grupo ainda não tem classificação: a conta ficará pendente até alguém definir."}
-                </p>
-              ) : null}
             </div>
             <div className="space-y-1.5">
               <Label>Código *</Label>
@@ -749,46 +773,44 @@ export default function PlanosDeContaSection() {
               <Input value={planForm.nome} onChange={(event) => setPlanForm((current) => ({ ...current, nome: event.target.value }))} />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label>Classificação específica</Label>
+              <Label>Linha da DRE</Label>
               <Select
                 value={planForm.classificacao_id}
                 onValueChange={(classificacao_id) => setPlanForm((current) => ({ ...current, classificacao_id }))}
                 disabled={editingPlan?.origem_cadastro === "SISTEMA"}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={HERDAR}>Herdar do grupo</SelectItem>
-                  {excecoesPossiveis.map((item) => (
+                <SelectContent className="max-h-80">
+                  <SelectItem value={HERDAR}>
+                    {grupoDoFormulario && grupoDoFormulario.destino.situacao !== "PENDENTE"
+                      ? `Seguir o grupo (${textoDoDestino(grupoDoFormulario.destino)})`
+                      : "Seguir o grupo"}
+                  </SelectItem>
+                  {opcoesDeLinha.map((item) => (
                     <SelectItem key={item.id} value={String(item.id)}>
-                      {item.nome}
-                      {item.destino?.fora_da_dre
-                        ? " · fora da DRE"
-                        : item.destino?.linha_codigo
-                          ? ` · DRE ${item.destino.linha_codigo}`
-                          : ""}
+                      {rotuloDaLinha(item)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Use só quando esta conta tiver destino diferente do grupo. Mudar entre receita, despesa e
-                patrimônio exige trocar de grupo.
+                {grupoDoFormulario && grupoDoFormulario.destino.situacao === "PENDENTE"
+                  ? "Este grupo ainda não tem linha da DRE: escolha uma para a conta ou para o grupo."
+                  : "Escolha uma linha só quando esta conta for diferente do grupo. Uma conta de despesa numa linha de receita não recebe lançamento de despesa."}
               </p>
             </div>
             {editingPlan ? (
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Vale a partir de</Label>
-                <Input
-                  type="date"
-                  value={planForm.vigencia_inicio}
-                  onChange={(event) => setPlanForm((current) => ({ ...current, vigencia_inicio: event.target.value }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {editingPlan.transacoes > 0
-                    ? `Esta conta tem ${editingPlan.transacoes} lançamento(s). Competências anteriores mantêm o destino atual.`
-                    : "Competências anteriores continuam com o destino atual."}
-                </p>
-              </div>
+              <VigenciaField
+                modo={planForm.vigencia_modo}
+                data={planForm.vigencia_inicio}
+                alcance={
+                  editingPlan.transacoes > 0
+                    ? `os ${editingPlan.transacoes} lançamento(s) desta conta`
+                    : "os lançamentos desta conta"
+                }
+                onModo={(vigencia_modo) => setPlanForm((current) => ({ ...current, vigencia_modo }))}
+                onData={(vigencia_inicio) => setPlanForm((current) => ({ ...current, vigencia_inicio }))}
+              />
             ) : null}
             <div className="space-y-1.5 sm:col-span-2">
               <Label>Descrição</Label>
@@ -805,6 +827,45 @@ export default function PlanosDeContaSection() {
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+/**
+ * Até onde uma mudança de linha alcança. Só tem efeito quando a linha (ou o
+ * grupo) muda: renomear não reclassifica nada.
+ */
+function VigenciaField({
+  modo,
+  data,
+  alcance,
+  onModo,
+  onData,
+}: {
+  modo: VigenciaModo;
+  data: string;
+  alcance: string;
+  onModo: (modo: VigenciaModo) => void;
+  onData: (data: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5 sm:col-span-2">
+      <Label>Se a linha mudar, vale para</Label>
+      <Select value={modo} onValueChange={(valor) => onModo(valor as VigenciaModo)}>
+        <SelectTrigger><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="HISTORICO">Todo o histórico</SelectItem>
+          <SelectItem value="DATA">Só a partir de uma data</SelectItem>
+        </SelectContent>
+      </Select>
+      {modo === "DATA" ? (
+        <Input type="date" value={data} onChange={(event) => onData(event.target.value)} />
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        {modo === "HISTORICO"
+          ? `Para corrigir uma classificação errada: ${alcance} são refeitos e a DRE dos meses anteriores muda junto.`
+          : "Para quando a regra mudou de verdade, como uma troca de regime. Antes da data, fica o destino atual."}
+      </p>
+    </div>
   );
 }
 

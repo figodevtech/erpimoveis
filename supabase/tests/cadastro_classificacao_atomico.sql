@@ -78,7 +78,8 @@ BEGIN
     RAISE EXCEPTION 'Excecao deveria levar a 6.3; veio %.', v_previa.linha_codigo;
   END IF;
 
-  -- Excecao de outra familia esconderia uma mudanca de natureza.
+  -- Excecao de outra familia e aceita desde a 20260915140000: a conta escolhe a
+  -- propria linha, e o que protege o numero e a natureza do lancamento.
   BEGIN
     PERFORM public.plano_contas_salvar_conta(
       NULL, 'ZZF3.3', 'Conta cruzando familia', NULL, true, v_grupo, v_receita,
@@ -87,8 +88,15 @@ BEGIN
   EXCEPTION WHEN sqlstate 'PT422' THEN
     v_aceitou := false;
   END;
-  IF v_aceitou THEN
-    RAISE EXCEPTION 'Excecao de outra familia foi aceita.';
+  IF NOT v_aceitou THEN
+    RAISE EXCEPTION 'Excecao de outra familia foi recusada.';
+  END IF;
+
+  SELECT * INTO v_previa
+    FROM public.dre_previa_da_conta(
+      (SELECT id FROM public.planosdeconta WHERE codigo = 'ZZF3.3'), 'DESPESA', DATE '2026-08-15');
+  IF v_previa.resultado <> 'INCOMPATIVEL' THEN
+    RAISE EXCEPTION 'Despesa na conta que virou receita deveria ser INCOMPATIVEL; veio %.', v_previa.resultado;
   END IF;
 
   -- ------------------------------------------------- nome nao reclassifica

@@ -82,7 +82,7 @@ export type CreateListingIssue = {
 const createListingSteps: ListingStepDefinition<CreateListingStep>[] = [
   { value: "product", title: "Produto do ERP", short: "Produto", description: "Escolha o item", icon: PackageSearch },
   { value: "content", title: "Conteúdo do anúncio", short: "Conteúdo", description: "Textos e dados", icon: FileText },
-  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Imagens e ordem", icon: ImageIcon },
+  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Mínimo de 3 fotos", icon: ImageIcon },
   { value: "category", title: "Categoria e características", short: "Categoria", description: "Classifique o item", icon: Tags },
   { value: "offer", title: "Oferta e envio", short: "Oferta", description: "Preço e logística", icon: BadgeDollarSign },
   { value: "review", title: "Revisar anúncio", short: "Revisão", description: "Confira e publique", icon: ClipboardCheck },
@@ -337,11 +337,10 @@ export function MercadoLivreCreateListingDialog(props: Props) {
               </TabsContent>
 
               <TabsContent value="media" className="m-0 space-y-5">
-                <StepHeading number="3" title="Mídia do anúncio" description="Envie, reordene e escolha a capa. A primeira imagem é a principal no Mercado Livre." />
+                <StepHeading number="3" title="Mídia do anúncio" description="Adicione pelo menos 3 fotos, organize a ordem e escolha a capa do anúncio." />
                 <ListingMediaManager
                   value={form.pictureUrl}
                   onChange={(value) => updateForm("pictureUrl", value)}
-                  produtoId={selectedProduct?.id ?? null}
                   productImageUrls={productImageUrls}
                   disabled={creating}
                 />

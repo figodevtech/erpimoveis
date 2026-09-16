@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { idDeBusca } from "@/lib/busca-numerica";
 import { requireClientesAccess, requireClientesCreate } from "@/app/api/_authz/perms";
 
 type Status = "ATIVO" | "INATIVO" | "PENDENTE";
@@ -135,9 +136,10 @@ export async function GET(req: Request) {
         }
 
         const conditions: string[] = [];
+        const idNumerico = isNumeric ? idDeBusca(cleanQ) : null;
 
-        if (isNumeric) {
-          conditions.push(`id.eq.${cleanQ}`);
+        if (idNumerico !== null) {
+          conditions.push(`id.eq.${idNumerico}`);
         }
 
         conditions.push(`nomerazaosocial.ilike.%${cleanQ}%`);

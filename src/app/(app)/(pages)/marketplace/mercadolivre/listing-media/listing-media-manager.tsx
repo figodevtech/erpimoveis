@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { Button } from "@/components/ui/button";
-import { Camera, Image as ImageIcon, Plus, Upload } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, Image as ImageIcon, Plus, Upload } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { prepareProductImageForUpload, productImageUploadError } from "@/lib/product-image-upload";
+import {
+  getMercadoLivrePictureRequirement,
+  mercadoLivrePictureRequirementMessage,
+  MIN_MERCADO_LIVRE_LISTING_PICTURES,
+  parseMercadoLivrePictureUrls,
+} from "@/lib/integrations/mercadolivre-listing-pictures";
 import {
   ProdutoImagensGallery,
   type ProdutoImagemPendente,
@@ -15,31 +21,18 @@ import {
  * Mídia do anúncio Mercado Livre: mesma galeria da aba de imagens do produto,
  * porém operando sobre a lista ordenada de URLs públicas que vai no anúncio.
  *
- * A primeira imagem da lista é a capa enviada ao Mercado Livre. Remover aqui tira
- * a imagem do anúncio e não apaga a imagem do produto no ERP; enviar um arquivo
- * grava no acervo do produto (para virar URL pública) e anexa ao anúncio.
+ * A primeira imagem da lista é a capa enviada ao Mercado Livre. As fotos do
+ * produto entram pelo link que já existe no ERP, sem cópia. Enviar um arquivo
+ * manda a foto direto para o Mercado Livre: ela fica só no anúncio e não entra
+ * no cadastro do produto. Remover aqui também só tira a foto do anúncio.
  */
 
-export function parseListingPictureUrls(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((source) => source.trim())
-    .filter((source) => {
-      try {
-        const url = new URL(source);
-        return url.protocol === "https:" || url.protocol === "http:";
-      } catch {
-        return false;
-      }
-    });
-}
+export const parseListingPictureUrls = parseMercadoLivrePictureUrls;
 
 type Props = {
   /** URLs do anúncio, uma por linha — o mesmo formato do campo `pictureUrl`. */
   value: string;
   onChange: (value: string) => void;
-  /** Produto do ERP que recebe os arquivos enviados; sem ele o upload fica indisponível. */
-  produtoId: number | null;
   /** Imagens já cadastradas no produto, oferecidas como atalho. */
   productImageUrls?: string[];
   disabled?: boolean;
@@ -50,7 +43,6 @@ type Props = {
 export function ListingMediaManager({
   value,
   onChange,
-  produtoId,
   productImageUrls = [],
   disabled = false,
   disabledReason = null,
@@ -71,7 +63,8 @@ export function ListingMediaManager({
   // do gesto (a reordenação acontece durante o drag, não só ao soltar).
   const idsRef = useRef(new Map<string, number>());
   const nextIdRef = useRef(1);
-  const urls = useMemo(() => parseListingPictureUrls(value), [value]);
+  const pictureRequirement = useMemo(() => getMercadoLivrePictureRequirement(value), [value]);
+  const urls = pictureRequirement.urls;
 
   const imagens = useMemo(() => {
     const ids = idsRef.current;
@@ -158,10 +151,6 @@ export function ListingMediaManager({
   }
 
   async function enviarPendentes() {
-    if (!produtoId) {
-      toast.error("Selecione o produto do ERP antes de enviar imagens.");
-      return;
-    }
     const fila = [...pendentesRef.current];
     if (!fila.length) return;
 
@@ -180,7 +169,7 @@ export function ListingMediaManager({
           const formData = new FormData();
           formData.append("files", arquivo);
 
-          const response = await axios.post(`/api/products/${produtoId}/images`, formData, {
+          const response = await axios.post("/api/integracoes/mercadolivre/pictures", formData, {
             onUploadProgress: (event) => {
               const total = event.total ?? arquivo.size;
               const pct = total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 0;
@@ -188,10 +177,9 @@ export function ListingMediaManager({
             },
           });
 
-          const salva = response.data?.imagens?.[0] ?? null;
-          if (!salva?.url) throw new Error("Upload concluído sem retorno da imagem.");
+          const urlSalva = String(response.data?.pictures?.[0]?.url ?? "");
+          if (!urlSalva) throw new Error("O Mercado Livre não devolveu o endereço da foto.");
 
-          const urlSalva = String(salva.url);
           enviadas.push(urlSalva);
           const novoId = nextIdRef.current++;
           idsRef.current.set(urlSalva, novoId);
@@ -247,10 +235,25 @@ export function ListingMediaManager({
           <p className="text-xs text-muted-foreground">
             Arraste para reordenar. A primeira imagem é a capa enviada ao Mercado Livre.
           </p>
-          <p className="text-xs text-muted-foreground">
-            {urls.length} {urls.length === 1 ? "imagem no anúncio" : "imagens no anúncio"}
-            {pendentes.length > 0 ? `, ${pendentes.length} pendente(s) de envio` : ""}.
-          </p>
+          <div
+            role="status"
+            aria-live="polite"
+            className={`mt-2 flex w-fit items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium ${
+              pictureRequirement.valid
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+            }`}
+          >
+            {pictureRequirement.valid ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+            {pictureRequirement.count} de {MIN_MERCADO_LIVRE_LISTING_PICTURES} fotos válidas
+          </div>
+          {!pictureRequirement.valid ? (
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+              {mercadoLivrePictureRequirementMessage(pictureRequirement.count)}
+              {pendentes.length > 0 ? " Fotos pendentes só contam depois de concluído o envio." : ""}
+            </p>
+          ) : null}
+          {pendentes.length > 0 ? <p className="text-xs text-muted-foreground">{pendentes.length} foto(s) pendente(s) de envio.</p> : null}
           {disabledReason ? <p className="text-xs text-amber-700 dark:text-amber-300">{disabledReason}</p> : null}
         </div>
 
@@ -283,7 +286,7 @@ export function ListingMediaManager({
             type="button"
             variant="outline"
             className="gap-2"
-            disabled={bloqueado || !produtoId}
+            disabled={bloqueado}
             onClick={() => cameraInputRef.current?.click()}
           >
             <Camera className="h-4 w-4" />
@@ -293,7 +296,7 @@ export function ListingMediaManager({
             type="button"
             variant="outline"
             className="gap-2"
-            disabled={bloqueado || !produtoId}
+            disabled={bloqueado}
             onClick={() => fileInputRef.current?.click()}
           >
             <Upload className="h-4 w-4" />
@@ -325,10 +328,9 @@ export function ListingMediaManager({
         imgUrlPrincipal={urls[0] ?? null}
         emptyText="Nenhuma imagem no anúncio. Envie arquivos ou use as imagens já cadastradas no produto."
         uploading={subindo}
-        uploadLabel="Enviar e anexar"
-        uploadDisabledReason={produtoId ? undefined : "Selecione o produto do ERP para enviar arquivos."}
+        uploadLabel="Enviar ao anúncio"
         removeConfirmTitle="Remover imagem do anúncio?"
-        removeConfirmDescription="A imagem sai deste anúncio do Mercado Livre. O arquivo continua no acervo do produto no ERP."
+        removeConfirmDescription="A imagem sai só deste anúncio do Mercado Livre. O cadastro do produto no ERP não muda."
         onUpload={enviarPendentes}
         onReorder={bloqueado ? undefined : handleReorder}
         onRemovePendente={removerPendente}

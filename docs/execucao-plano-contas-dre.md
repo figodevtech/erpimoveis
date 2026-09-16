@@ -500,6 +500,258 @@ Os clientes continuam em `20260905110000`. `npm run db:deploy:clients` aplicaria
 junto a `20260907100000` da Stone, que está adiada — confirmado pela conferência
 de pendentes: os três clientes têm a migration Stone na fila.
 
+## Linha da DRE por plano de conta, valendo em LEGADO — 15/09/2026
+
+Migration: [`20260915140000_linha_da_dre_por_plano_de_conta.sql`](../supabase/migrations/20260915140000_linha_da_dre_por_plano_de_conta.sql).
+
+### O que a revisão encontrou
+
+Em 15/09/2026 os três bancos tinham as migrations da Entrega A, estavam em
+`LEGADO` e tinham **zero** contas, grupos e regras classificados. Nesse estado:
+
+- a DRE somava pelo mapeamento `PLANO_GRUPO` e ignorava a classificação da
+  conta — escolher linha na tela não mexia no relatório;
+- a tela mostrava os 40 grupos e as 411 contas como "Sem classificação", porque
+  a visão lia só a classificação, enquanto a DRE somava todos eles;
+- a fila acusava todas as contas em `CONTA_SEM_REGRA`, e a tarja "resultado
+  incompleto" nunca saía da DRE;
+- `ATIVO` não podia ser ligado: nenhuma gravação de evento chama
+  `dre_gravar_classificacao_evento`, e todo evento novo ficaria sem linha.
+
+### O que mudou
+
+Uma regra só, `dre_destino_do_cadastro`: classificação da conta, do grupo e, sem
+nenhuma, o mapeamento antigo do grupo. Usam essa regra a sincronização do avulso,
+`transacao_gera_evento_de_resultado`, as visões da tela, a prévia e a fila.
+
+- **Vigência em branco corrige o histórico inteiro** (decisão de negócio de
+  15/09/2026). A regra é gravada desde `plano_contas_inicio_do_historico()` e as
+  anteriores do cadastro são apagadas. Data explícita continua valendo "a partir
+  de".
+- **Salvar refaz os lançamentos** do cadastro na mesma transação
+  (`plano_contas_refazer_lancamentos`).
+- **A trava de família saiu.** Grupos amplos não conseguiam mandar cada conta
+  para a sua linha. A natureza continua protegida: despesa em conta de receita
+  fica sem linha e aparece na fila.
+- **O campo do cadastro só decide sem regra nenhuma.** Antes, a primeira
+  classificação gravada com data valia também para trás, pelo campo.
+
+`ATIVO` e `dre_resolver_evento` não foram tocados: continuam sem uso.
+
+### Validação
+
+`npm run db:test:linha-dre-conta -- <banco>`, nos três bancos, com rollback:
+
+- aplicar a migration não altera evento nenhum, comparando evento a evento
+  (status, linha, valor, natureza, competência);
+- refazer **todas** as transações pela regra nova dá eventos idênticos aos da
+  regra antiga — Demonstração 173, Demir 2.263, Garage 1.338;
+- DRE idêntica linha a linha no histórico inteiro, e o detalhamento fecha;
+- as regressões das Fases 1 a 4 passam, com dois ajustes de teste: exceção de
+  outra família agora é aceita, e o erro proposital do lote passou a vir de
+  conta do sistema;
+- [o teste novo](../supabase/tests/linha_da_dre_por_plano_de_conta.sql) cobre
+  legado intacto, histórico inteiro, "a partir de", conta patrimonial, voltar a
+  herdar, grupo refazendo as contas, perda saindo de grupo excluído e natureza
+  incompatível.
+
+Fila de cadastro depois da migration: Demonstração 197 → 15 (o grupo "Despesas
+comerciais", que de fato não tem destino); Demir 111 → 0; Garage 103 → 0.
+
+Também passaram `npm run test:negocio` (1457 testes) e `eslint`. `tsc` acusa só
+um erro anterior, em `src/lib/supabase.ts`.
+
+### Classificação do Demir
+
+As decisões conta a conta, com o motivo, estão em
+[`classificar-plano-contas-demir.ts`](../scripts/db/classificar-plano-contas-demir.ts),
+que simula o antes e depois mês a mês e só grava com `--aplicar`. Os 9 grupos
+recebem a linha da maioria das contas; 58 das 111 contas têm linha própria.
+
+Simulação de 15/09/2026, com a migration aplicada só dentro da transação e
+revertida:
+
+| Período | Resultado líquido antes | Depois |
+|---|---:|---:|
+| julho/2026 | 10.717,58 | 10.717,58 |
+| agosto/2026 | −700.053,51 | −999.044,33 |
+| setembro/2026 | 214.946,04 | 215.621,31 |
+| 2026 (jan–set) | −466.458,75 | −764.774,30 |
+
+A diferença de agosto (−298.990,82) vem inteira de quatro contas: despesas não
+identificadas entrando em 11.2 (−161.547,60), venda do carro saindo de 10.1
+(−160.000,00), receitas não identificadas em 11.1 (+14.100,00) e estorno de
+antecipação saindo de 10.2 (+8.456,78). O resto troca valor de linha sem mudar o
+resultado: IRPJ e CSLL de 2.1 para 13 (R$ 47.431,49 em 2026), devolução de
+custo para 2.2, custos diretos repartidos entre 4.1, 4.4, 4.6 e 4.7, e despesas
+de 6.6 para 6.1 a 6.5.
+
+Achado que a classificação não resolve: R$ 885.614,48 dos R$ 917.219,79 da 2.1
+em agosto são 119 lançamentos de parcelamento de dívida ativa do Simples, todos
+com competência de agosto, na conta "Simples Nacional". A conta está certa; o
+lançamento é que está nela.
+
+Decisão de 15/09/2026: parcela de parcelamento vai para a conta "Parcelamentos",
+fora do resultado. [`mover-parcelamentos-simples-demir.ts`](../scripts/db/mover-parcelamentos-simples-demir.ts)
+move os 126 lançamentos da conta "Simples Nacional" cuja descrição diz
+"parcelamento" — os 119 de agosto e 7 parcelas mensais de outros dois
+parcelamentos (set, out e dez/2025 e jul/2026, R$ 8.897,58) —, pelo mesmo gatilho
+que a tela usa. Fica o "DARF SIMPLES NACIONAL" do mês. Não depende da migration.
+
+Simulação com rollback: resultado líquido de agosto de −700.053,51 para
++185.560,97, e de 2026 (jan–set) de −466.458,75 para +421.911,82. O script trava
+se a contagem (126) ou o valor (R$ 894.512,06) mudarem.
+
+### Publicação — 15/09/2026
+
+O responsável rodou, nesta ordem, `db:mover:parcelamentos-demir -- --aplicar`,
+`db:deploy` e `db:classificar:demir -- --aplicar`. A execução automática tinha sido
+bloqueada pela política do ambiente.
+
+Conferência depois, somente leitura:
+
+- `db:status`: três bancos com 272 migrations, nenhuma pendente, schema igual;
+- Demir: 9 grupos e 111 contas com destino, 58 com linha própria, 67 regras;
+  nenhuma conta sem linha;
+- os 126 parcelamentos na conta "Parcelamentos", sem evento ativo, com a lista
+  em `artifacts/captures/dre-plano-contas/`;
+- Demonstração e Garage sem nenhuma classificação gravada: seguem pelo
+  mapeamento antigo, como antes.
+
+DRE do Demir depois das duas mudanças — igual, centavo a centavo, à soma das
+duas simulações:
+
+| Período | Resultado líquido antes | Depois |
+|---|---:|---:|
+| julho/2026 | 10.717,58 | 13.473,67 |
+| agosto/2026 | −700.053,51 | −113.429,85 |
+| setembro/2026 | 214.946,04 | 215.621,31 |
+| 2026 (jan–set) | −466.458,75 | 123.596,27 |
+
+Pendências que continuam, todas anteriores: na Demonstração, o grupo "Despesas
+comerciais" sem destino (15 contas) e 3 despesas de R$ 766,66 somando receita;
+no Garage, 10 despesas de agosto sem linha (R$ 22.918,75) e o grupo
+"EQUIPAMENTOS DE SEGURANÇA" sem destino e sem contas.
+
+## Classificação do Garage Premium — 15/09/2026
+
+[`classificar-plano-contas-garage.ts`](../scripts/db/classificar-plano-contas-garage.ts),
+no mesmo formato do Demir: 16 grupos e 103 contas, 34 com linha própria.
+
+O cadastro do Garage é o padrão semeado e quase não tem uso — 9 contas com
+lançamento, R$ 9,5 mil —, então a classificação vale sobretudo para o que vem
+pela frente. Duas diferenças de estrutura em relação ao Demir mudaram decisões:
+
+- os tributos sobre receita ficam no grupo "Deduções de receita"; o grupo
+  "Tributos e taxas" só tem tributo que **não** incide sobre faturamento (IRPJ,
+  CSLL, IPVA, IPTU, taxas, licenciamento). O padrão dele passou a ser despesa
+  administrativa, com IRPJ/CSLL em 13 e IPTU em 6.4 — antes o grupo inteiro caía
+  em 2.1;
+- "Despesas administrativas" e "Oficina e estrutura" já eram grupos separados.
+
+O grupo vazio "EQUIPAMENTOS DE SEGURANÇA", único sem destino, recebeu ocupação
+(6.4): sem conta e sem lançamento, não muda número e sai da fila.
+
+Simulação com rollback: **o resultado líquido não muda em mês nenhum**. Muda o
+lugar: R$ 3.606,05 de compra de peças de 4.3 para 4.1, R$ 200,00 de serviço
+terceirizado para 4.6, R$ 974,64 de despesas diversas de 6.2 para 6.6 e R$ 84,72
+de IOF saindo da dedução de receita (2.1) para despesa administrativa — o que
+sobe a receita líquida nos mesmos R$ 84,72.
+
+Fica de fora do alcance da classificação: **51 lançamentos, R$ 46.396,54, estão
+sem plano de conta** (retiradas de sócio, aluguel do galpão, IPVA, seguros,
+fornecedores). Nenhuma classificação os traz para a DRE — é preciso escolher a
+conta de cada um no financeiro.
+
+### Os 51 lançamentos sem conta — 15/09/2026
+
+[`classificar-lancamentos-sem-conta-garage.ts`](../scripts/db/classificar-lancamentos-sem-conta-garage.ts)
+dá conta a cada um, pela descrição, pela categoria escolhida por quem lançou e
+pelo fornecedor. Três são suposição declarada no próprio script (`confirmar`):
+Ecocare Ambiental (R$ 1.250,00), Casa Norte (R$ 425,10) e Jonas Teixeira
+(R$ 300,00) — o nome da empresa não diz o que foi comprado.
+
+Duas contas novas, porque o cadastro não tinha onde pôr:
+
+- **Recuperações e devoluções de compras** (Custos diretos, linha 4.9): os dois
+  estornos de compra do Mercado Livre, R$ 953,23, que devolvem dinheiro e abatem
+  custo. Como receita financeira inflariam o resultado financeiro; como receita
+  da atividade, o faturamento.
+- **Perdas não operacionais** (Transferências e ajustes, linha 11.2): a cobrança
+  descrita como golpe, R$ 754,69. É perda, não despesa da operação.
+
+Simulação com rollback: nenhum dos 51 fica sem conta ou sem linha, as duas
+retiradas de sócio saem do resultado (viram exclusão, não despesa) e
+`EVENTO_SEM_LINHA` zera na fila. O resultado líquido do histórico cai de
+R$ 138.977,51 para R$ 114.487,43 — os R$ 24.490,08 de despesa que estavam fora
+do relatório.
+
+Ordem para rodar: a classificação do plano primeiro, os lançamentos depois. O
+resultado é o mesmo nas duas ordens; o que muda é a linha em que cada valor cai
+enquanto o plano não estiver classificado (IPVA e IPTU caem em 2.1, peças em
+4.3).
+
+## Tarja e fila de pendências — 15/09/2026
+
+Só aplicação. Os textos dos motivos vinham do banco, sem acento e escritos para
+quem lê o SQL ("Lancamento de OS ainda em execucao: a competencia so e carimbada
+no encerramento"). Isso serve de rastro na migration, não de texto de tela.
+
+[`pendencias-catalogo.ts`](../src/app/(app)/(pages)/(financeiro)/dre/components/pendencias-catalogo.ts)
+passa a ser a fonte dos dois lugares: título, resumo de uma linha, explicação,
+ícone, verbo do botão e **tom** — problema ou aviso. OS em execução é estado
+normal de oficina; misturá-la com "despesa fora do relatório" ensina a ignorar a
+tarja inteira. Motivo sem entrada no catálogo continua aparecendo, com a
+descrição do banco como título.
+
+Na [tarja](../src/app/(app)/(pages)/(financeiro)/dre/components/tarja-pendencias.tsx),
+cada pendência virou cartão com contagem, valor, escopo e ação — um clique do
+aviso até o conserto. Saiu a lista de tópicos que repetia a tabela; ficaram nela
+só os avisos que não vêm da fila (consulta indisponível, período sem despesa).
+
+No [diálogo](../src/app/(app)/(pages)/(financeiro)/dre/components/pendencias-dialog.tsx):
+cabeçalho com escopo e valor, a explicação do motivo, busca na lista, paginação
+por "carregar mais" e, para pendência de cadastro, **seleção múltipla** — dar a
+mesma linha a 40 contas uma a uma é o tipo de trabalho que faz o usuário desistir
+da fila. O lote grava um PUT por cadastro, com a versão de cada um; falha no meio
+não desfaz o que passou, e a mensagem final diz quantos foram e quantos não.
+
+## Detalhamento da linha e mover plano de conta — 15/09/2026
+
+Só aplicação; nenhuma migration. O que faltava — a conta de cada lançamento
+avulso e se a linha vem da conta ou do grupo — sai de `plano_contas_visao`, a
+mesma função que a tela de planos de conta usa, enriquecendo
+[a rota do detalhamento](../src/app/api/dre/drilldown/route.ts). Se essa consulta
+falhar, a lista e o total continuam: a resposta traz `planosIndisponiveis` e a
+tela diz que só a coluna do plano está indisponível.
+
+No [diálogo](../src/app/(app)/(pages)/(financeiro)/dre/components/detalhe-linha-dialog.tsx):
+composição por origem com barra e percentual, filtro por origem, busca, ordem por
+valor ou data, atalho para abrir o documento (OS, venda, entrada, lançamento) e,
+nos avulsos, o plano de conta clicável que abre a troca de linha. A troca usa o
+diálogo de classificação, agora com destino atual, impacto na linha aberta,
+opção de voltar a seguir o grupo e aviso quando a linha escolhida não aceita a
+natureza dos lançamentos.
+
+Dois defeitos anteriores corrigidos no caminho, ambos na gravação do cadastro
+por um corpo parcial:
+
+- `PUT /api/tipos/planos-de-conta/[id]` gravava `codigo` e `descricao` nulos
+  quando o corpo não os trazia — era o que o botão "Corrigir" da fila enviava.
+  Nenhum dos três bancos tinha conta com código apagado.
+- `PUT /api/tipos/grupos-planos-de-conta/[id]` exigia `codigo` no corpo, então
+  dar linha a um grupo pela fila voltava 400.
+
+Agora campo omitido preserva o que está gravado, nas duas rotas.
+
+Um terceiro, achado ao olhar os 51 lançamentos sem conta do Garage: na fila de
+pendências, o botão "Corrigir" de "lançamento sem linha" não abria nada. A fila
+devolve o id do **evento**, e evento não se edita — quem conserta é o documento
+que o gerou. [A rota](../src/app/api/dre/pendencias/route.ts) passou a devolver
+`documento` em cada item de evento, e a fila abre o lançamento do financeiro
+quando é avulso. Quando não há o que abrir — evento de OS ou de venda —, o botão
+some, em vez de existir e não fazer nada.
+
 ## Pendente
 
 - Publicar a Fase 1 nos clientes. **Cuidado da seção 17.1 do plano:** `npm run

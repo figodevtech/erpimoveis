@@ -13,6 +13,7 @@ import {
   capacidadeDaFolha,
   contarParcelasDoFechamento,
   MM_FILEIRA_PAINEL,
+  paginarLancamentos,
   paginarOrdens,
   type FatiaOrdem,
   type LinhaDaOrdem,
@@ -181,4 +182,46 @@ test("os cards de lucro por status também reservam espaço na primeira folha", 
   const ordens = Array.from({ length: 50 }, (_, i) => ({ ordem: ordem(i + 1), linhas: [] }));
   const folhas = paginarOrdens(ordens, "simples", 4, alturaStatus);
   assert.ok(folhas[0].length * MM_ORDEM <= comStatus);
+});
+
+test("no modo de eventos a OS com o filtro escondendo tudo continua fechando", () => {
+  const [folha] = paginarOrdens([{ ordem: ordem(1), linhas: [], fechamento: true }], "eventos");
+
+  assert.equal(folha[0].fecha, true, "o filtro esconde linhas, não a conta da OS");
+  assert.equal(folha[0].linhas.length, 0);
+  assert.equal(
+    alturaDaFatia(folha[0], "eventos"),
+    MM_ORDEM + MM_ITEM + MM_FECHAMENTO_DUPLO + MM_ESPACO_ORDEM,
+    "a linha do aviso e o fechamento precisam estar reservados",
+  );
+});
+
+test("a tabela de lançamentos enche a folha sem estourar e sem perder linha", () => {
+  const linhas = Array.from({ length: 500 }, (_, i) => i);
+  // O cabeçalho do modo de eventos: quatro fileiras de cards e o lucro por status.
+  const alturaStatus = alturaLucroRealPorStatus(5);
+  const capacidade = (indice: number) => capacidadeDaFolha(indice, "simples", 4, alturaStatus);
+  const folhas = paginarLancamentos(linhas, 4, alturaStatus);
+
+  assert.deepEqual(folhas.flat(), linhas);
+  folhas.forEach((folha, indice) => {
+    assert.ok(folha.length * MM_ITEM <= capacidade(indice), `folha ${indice + 1} estourou`);
+    if (indice < folhas.length - 1) {
+      assert.ok((folha.length + 1) * MM_ITEM > capacidade(indice), `folha ${indice + 1} saiu com sobra`);
+    }
+  });
+
+  assert.ok(
+    folhas[0].length < paginarLancamentos(linhas)[0].length,
+    "o painel mais alto tem que tirar linhas da primeira folha",
+  );
+  assert.deepEqual(paginarLancamentos([]), [[]]);
+});
+
+test("sem o cabeçalho geral a primeira folha devolve as duas fileiras às linhas", () => {
+  assert.equal(capacidadeDaFolha(0, "simples", 0) - capacidadeDaFolha(0, "simples", 2), 2 * MM_FILEIRA_PAINEL);
+  assert.equal(capacidadeDaFolha(1, "simples", 0), capacidadeDaFolha(1, "simples", 2), "só a primeira folha tem painel");
+
+  const ordens = Array.from({ length: 50 }, (_, i) => ({ ordem: ordem(i + 1), linhas: [] }));
+  assert.ok(paginarOrdens(ordens, "simples", 0)[0].length > paginarOrdens(ordens, "simples", 2)[0].length);
 });

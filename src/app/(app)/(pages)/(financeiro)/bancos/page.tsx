@@ -38,7 +38,8 @@ type BancoTransacao = {
   metodopagamento: string | null;
   valor: number;
   valorAssinado: number;
-  pendente: boolean;
+  /** Saldo da conta logo depois desta transação; null se ela chegou entre as leituras. */
+  saldoApos: number | null;
   data: string;
 };
 
@@ -394,20 +395,21 @@ export default function BancosFinanceiroPage() {
                 <TableHead className="hidden lg:table-cell">Categoria</TableHead>
                 <TableHead className="hidden lg:table-cell">Método</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="hidden sm:table-cell text-right">Saldo</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isPrimeiroCarregamentoTransacoes ? (
                 Array.from({ length: Math.min(transacaoLimit, 5) }).map((_, index) => (
                   <TableRow key={index}>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={7}>
                       <div className="h-10 animate-pulse rounded-md bg-muted" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : transacoesSelecionadas.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                     {selectedBanco ? "Nenhuma movimentação encontrada para esta conta." : "Selecione uma conta com movimentações."}
                   </TableCell>
                 </TableRow>
@@ -417,6 +419,8 @@ export default function BancosFinanceiroPage() {
                   const pagador = transacao.nomepagador?.trim();
                   const tituloLinha = pagador || transacao.descricao;
                   const detalheLinha = pagador ? transacao.descricao : transacao.categoria;
+                  const saldoApos = transacao.saldoApos == null ? "-" : formatarEmReal(transacao.saldoApos);
+                  const saldoNegativo = (transacao.saldoApos ?? 0) < 0;
 
                   return (
                     <TableRow key={transacao.id}>
@@ -429,18 +433,23 @@ export default function BancosFinanceiroPage() {
                           <span className="text-xs text-muted-foreground md:hidden">
                             {formatDate(new Date(transacao.data))} - {transacao.tipo}
                           </span>
-                          {transacao.pendente ? (
-                            <Badge variant="outline" className="mt-1">Pendente</Badge>
-                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell">{formatDate(new Date(transacao.data))}</TableCell>
                       <TableCell className="hidden md:table-cell">{transacao.tipo}</TableCell>
                       <TableCell className="hidden lg:table-cell">{transacao.categoria ?? "-"}</TableCell>
                       <TableCell className="hidden lg:table-cell">{transacao.metodopagamento ?? "-"}</TableCell>
-                      <TableCell className={cn("text-right font-medium", entrada ? "text-emerald-600" : "text-red-600")}>
-                        {entrada ? "+ " : "- "}
-                        {formatarEmReal(Math.abs(transacao.valorAssinado))}
+                      <TableCell className="text-right">
+                        <div className={cn("font-medium", entrada ? "text-emerald-600" : "text-red-600")}>
+                          {entrada ? "+ " : "- "}
+                          {formatarEmReal(Math.abs(transacao.valorAssinado))}
+                        </div>
+                        <div className={cn("text-xs text-muted-foreground sm:hidden", saldoNegativo && "text-red-600")}>
+                          Saldo {saldoApos}
+                        </div>
+                      </TableCell>
+                      <TableCell className={cn("hidden sm:table-cell text-right tabular-nums", saldoNegativo && "text-red-600")}>
+                        {saldoApos}
                       </TableCell>
                     </TableRow>
                   );

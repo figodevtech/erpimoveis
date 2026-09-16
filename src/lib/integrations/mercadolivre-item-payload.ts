@@ -5,6 +5,12 @@ import {
   isMercadoLivreListingTypeEnabled,
 } from "@/lib/integrations/mercadolivre-listing-validation";
 import { buildMercadoLivreShippingDimensions } from "@/lib/integrations/mercadolivre-mercado-envios";
+import {
+  getMercadoLivrePictureRequirement,
+  mercadoLivrePictureRequirementMessage,
+} from "@/lib/integrations/mercadolivre-listing-pictures";
+
+export { parseMercadoLivrePictureUrls as parsePictureUrls } from "@/lib/integrations/mercadolivre-listing-pictures";
 
 /**
  * Montagem do payload de `POST /items` e da validação oficial em `POST /items/validate`.
@@ -136,8 +142,9 @@ export function collectMercadoLivreListingRequestErrors(
   if (request.gtin && !isValidGtin(request.gtin)) {
     push("gtin", "O GTIN/EAN informado possui tamanho ou dígito verificador inválido.");
   }
-  if (!parsePictureUrls(request.pictureUrl).length) {
-    push("images", "Informe ao menos uma imagem pública válida para o anúncio.");
+  const pictureRequirement = getMercadoLivrePictureRequirement(request.pictureUrl);
+  if (!pictureRequirement.valid) {
+    push("images", mercadoLivrePictureRequirementMessage(pictureRequirement.count));
   }
   if (!["me2", "custom", "pickup"].includes(request.shippingMode)) {
     push("shipping", "O ERP publica anúncios apenas com Mercado Envios habilitado.");
@@ -398,20 +405,6 @@ export function isValidGtin(value: unknown) {
     .reverse()
     .reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 3 : 1), 0);
   return (10 - (sum % 10)) % 10 === Number(digits.at(-1));
-}
-
-export function parsePictureUrls(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((source) => source.trim())
-    .filter((source) => {
-      try {
-        const url = new URL(source);
-        return url.protocol === "https:" || url.protocol === "http:";
-      } catch {
-        return false;
-      }
-    });
 }
 
 /* -------------------------------------------------------------------------- */

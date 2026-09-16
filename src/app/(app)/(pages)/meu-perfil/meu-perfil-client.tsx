@@ -8,7 +8,7 @@ import { MotionConfig, motion } from "motion/react";
 import { Tabs } from "@/components/ui/tabs";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { toast } from "@/lib/toast";
-import { buscarPerfil, buscarResumo, enviarFotoPerfil } from "./lib/api";
+import { buscarPerfil, buscarResumo, buscarUsuariosDoSeletor, enviarFotoPerfil } from "./lib/api";
 import { periodoPadrao } from "./lib/format";
 import { MOLA_SUAVE, containerEscalonado, itemQueSobe } from "./lib/motion";
 import { ABAS, ListaDeAbas, PainelDeAba } from "./components/abas-central";
@@ -41,7 +41,7 @@ export function MeuPerfilClient() {
   const usuarioLogadoId = String((session?.user as { id?: string } | undefined)?.id ?? "");
   const podeVerUsuarios = permissionSetHas(
     (session?.user as { permissoes?: unknown } | undefined)?.permissoes,
-    PERMS.USUARIOS,
+    PERMS.USUARIOS_VER_PERFIS,
   );
   const [usuarios, setUsuarios] = useState<Array<{ id: string; nome: string; email: string }>>([]);
   const [perfilEnviandoFoto, setPerfilEnviandoFoto] = useState<string | null>(null);
@@ -108,11 +108,9 @@ export function MeuPerfilClient() {
   useEffect(() => {
     if (!podeVerUsuarios) return;
     const controller = new AbortController();
-    fetch("/api/users", { cache: "no-store", signal: controller.signal })
-      .then(async (resposta) => {
-        const corpo = await resposta.json();
-        if (!resposta.ok) throw new Error(corpo?.error);
-        if (!controller.signal.aborted) setUsuarios(corpo.users ?? []);
+    buscarUsuariosDoSeletor(controller.signal)
+      .then((lista) => {
+        if (!controller.signal.aborted) setUsuarios(lista);
       })
       .catch(() => {});
     return () => controller.abort();

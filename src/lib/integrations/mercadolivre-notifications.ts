@@ -4,7 +4,7 @@ import { getMercadoLivreOrder, isMercadoLivreNotFound, mercadoLivreApiGet } from
 import { describeMercadoLivreListingStatus } from "@/lib/integrations/mercadolivre-listing-status";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
-import { applyMercadoLivrePriceToErp, getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
+import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mercadoLivreSystemNotification } from "@/lib/integrations/mercadolivre-system-notification";
 import {
@@ -400,9 +400,8 @@ async function processItem(
     : null;
 
   const priceState = await getMercadoLivrePriceState(accessToken, itemId, item);
-  // O preço do anúncio no Mercado Livre é independente do cadastro de produtos do ERP.
-  // A alteração de preço do anúncio não reflete no cadastro do produto (produto.precovenda),
-  // portanto NÃO chamamos applyMercadoLivrePriceToErp.
+  // O preço do anúncio no Mercado Livre é independente do cadastro de produtos do ERP:
+  // é só lido e guardado no vínculo, nunca gravado em produto.precovenda.
 
   const { error } = await supabaseAdmin
     .from("mercadolivre_product_link")

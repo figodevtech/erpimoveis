@@ -67,12 +67,22 @@ export type PendenciaDre = {
 
 export type PeriodoDre = { de: string; ate: string };
 
+/** Documento que originou um lançamento — o que a tela abre para ver ou corrigir. */
+export type DocumentoDre = {
+  tipo: "OS" | "VENDA" | "ENTRADA" | "USO_CONSUMO" | "TRANSACAO";
+  id: number;
+};
+
 /**
  * Um item de uma pendência, como `dre_pendencias_itens` devolve.
  *
- * `referenciaTipo` é o que decide qual formulário de correção abrir: GRUPO e
+ * `referencia_tipo` é o que decide qual formulário de correção abrir: GRUPO e
  * CONTA vão para a classificação do cadastro, TRANSACAO para o diálogo do
- * financeiro, EVENTO para a correção do lançamento.
+ * financeiro.
+ *
+ * EVENTO não se edita: um lançamento da DRE é consequência de um documento, e
+ * quem conserta é o documento. Por isso a rota devolve `documento` junto — sem
+ * ele, o botão de corrigir de "lançamento sem linha" não tinha o que abrir.
  */
 export type ItemPendencia = {
   referencia_tipo: "GRUPO" | "CONTA" | "TRANSACAO" | "EVENTO";
@@ -82,4 +92,5 @@ export type ItemPendencia = {
   conta: string | null;
   competencia: string | null;
   valor: number | null;
+  documento?: DocumentoDre | null;
 };

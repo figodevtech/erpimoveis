@@ -54,6 +54,17 @@ export function buscarPerfil(usuarioId?: string, signal?: AbortSignal): Promise<
   return buscarJson<MeuPerfil>(`/api/me/perfil?${params.toString()}`, signal);
 }
 
+/** Opções do seletor de perfil; a API recusa quem não pode ver outros usuários. */
+export async function buscarUsuariosDoSeletor(
+  signal?: AbortSignal,
+): Promise<Array<{ id: string; nome: string; email: string }>> {
+  const corpo = await buscarJson<{ users?: Array<{ id: string; nome: string; email: string }> }>(
+    "/api/me/usuarios",
+    signal,
+  );
+  return corpo.users ?? [];
+}
+
 export async function enviarFotoPerfil(file: File, usuarioId?: string): Promise<{ fotoUrl: string }> {
   const params = comUsuario(new URLSearchParams(), usuarioId);
   const formData = new FormData();

@@ -1,6 +1,7 @@
 // src/app/api/servicos/buscar/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
+import { idDeBusca } from "@/lib/busca-numerica";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0; // sem cache
@@ -71,8 +72,9 @@ export async function GET(request: Request) {
         const hasDiffAccents = unaccented !== cleanQ.toLowerCase();
 
         if (isNumeric) {
+          const idNumerico = idDeBusca(cleanQ);
           query = query.or(
-            `id.eq.${cleanQ},codigo.ilike.%${cleanQ}%,descricao.ilike.%${cleanQ}%,codigoservicomunicipal.ilike.%${cleanQ}%,cnae.ilike.%${cleanQ}%,itemlistaservico.ilike.%${cleanQ}%`
+            `${idNumerico !== null ? `id.eq.${idNumerico},` : ""}codigo.ilike.%${cleanQ}%,descricao.ilike.%${cleanQ}%,codigoservicomunicipal.ilike.%${cleanQ}%,cnae.ilike.%${cleanQ}%,itemlistaservico.ilike.%${cleanQ}%`
           );
         } else if (hasDiffAccents) {
           query = query.or(

@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
+import { idDeBusca } from "@/lib/busca-numerica";
 import { requireVeiculosAccess, requireVeiculosCreate } from "@/app/api/_authz/perms";
 
 function respostaJSON(body: any, status = 200) {
@@ -110,7 +111,8 @@ export async function GET(request: Request) {
         ];
 
         if (isNumeric) {
-          conditions.push(`id.eq.${cleanQ}`);
+          const idNumerico = idDeBusca(cleanQ);
+          if (idNumerico !== null) conditions.push(`id.eq.${idNumerico}`);
           if (cleanQ.length === 4) {
             conditions.push(`ano.eq.${cleanQ}`);
           }

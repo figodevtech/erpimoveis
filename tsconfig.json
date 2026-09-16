@@ -32,11 +32,14 @@
     "**/*.ts",
     "**/*.tsx",
     ".next-codex-pdv/types/**/*.ts",
+    ".next-dev/types/**/*.ts",
+    ".next-verificacao/types/**/*.ts",
+    ".next-verificacao2/types/**/*.ts",
     ".next-verify-nfe/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
     "src/app/(app)/(pages)/dashboard/components/dashboard-clientes",
-    ".next-dev/types/**/*.ts"
+    ".next-verificacao3/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

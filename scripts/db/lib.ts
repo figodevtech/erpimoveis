@@ -32,6 +32,7 @@ export type DatabaseInspection = {
   pending: LocalMigration[];
   remoteOnly: string[];
   fingerprints: Record<string, { count: number; hash: string }>;
+  anonRoutines: string[];
 };
 
 const DATABASES: Omit<DatabaseConfig, "url">[] = [
@@ -67,7 +68,7 @@ const DATABASES: Omit<DatabaseConfig, "url">[] = [
   },
 ];
 
-function parseSimpleEnv(file: string) {
+export function parseSimpleEnv(file: string) {
   if (!fs.existsSync(file)) return new Map<string, string>();
 
   const values = new Map<string, string>();
@@ -157,6 +158,43 @@ export function readLocalMigrations(): LocalMigration[] {
   return migrations;
 }
 
+// A URL configurada é a direta (db.<ref>.supabase.co), e o pooler que atende o
+// projeto depende de quando ele foi criado: aws-0 ou aws-1. Testar o host errado
+// não quebra nada aqui, mas cada tentativa vira "tenant/user ... not found" nos
+// logs do Supavisor do cliente, e isso já foi lido como falha de produção. Por
+// isso o host que conectou fica guardado para as próximas execuções, e um host
+// que não conhece o projeto não é testado de novo na outra porta.
+const POOLER_CACHE_FILE = path.join(
+  projectRoot,
+  "node_modules",
+  ".cache",
+  "erpoficina-db",
+  "pooler-hosts.json",
+);
+
+function readPoolerCache(): Record<string, string> {
+  try {
+    return JSON.parse(fs.readFileSync(POOLER_CACHE_FILE, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function rememberPoolerHost(database: DatabaseConfig, connectionString: string) {
+  const host = new URL(connectionString).hostname;
+  if (!database.poolerHosts.includes(host)) return;
+
+  const cache = readPoolerCache();
+  if (cache[database.projectRef] === host) return;
+  cache[database.projectRef] = host;
+  try {
+    fs.mkdirSync(path.dirname(POOLER_CACHE_FILE), { recursive: true });
+    fs.writeFileSync(POOLER_CACHE_FILE, JSON.stringify(cache, null, 2));
+  } catch {
+    // Sem o cache a próxima execução apenas volta a testar os hosts.
+  }
+}
+
 function connectionCandidates(database: DatabaseConfig) {
   const source = new URL(database.url);
   const urls: string[] = [];
@@ -165,7 +203,12 @@ function connectionCandidates(database: DatabaseConfig) {
     urls.push(source.toString());
   }
 
-  for (const host of database.poolerHosts) {
+  const remembered = readPoolerCache()[database.projectRef];
+  const hosts = remembered && database.poolerHosts.includes(remembered)
+    ? [remembered, ...database.poolerHosts.filter((host) => host !== remembered)]
+    : database.poolerHosts;
+
+  for (const host of hosts) {
     for (const port of ["5432", "6543"]) {
       const candidate = new URL(source.toString());
       candidate.hostname = host;
@@ -182,7 +225,11 @@ function connectionCandidates(database: DatabaseConfig) {
 
 export async function connectDatabase(database: DatabaseConfig) {
   const failures: string[] = [];
+  const unknownHosts = new Set<string>();
   for (const connectionString of connectionCandidates(database)) {
+    const host = new URL(connectionString).hostname;
+    if (unknownHosts.has(host)) continue;
+
     const client = new Client({
       connectionString,
       ssl: { rejectUnauthorized: false },
@@ -191,9 +238,12 @@ export async function connectDatabase(database: DatabaseConfig) {
 
     try {
       await client.connect();
+      rememberPoolerHost(database, connectionString);
       return { client, connectionString };
     } catch (error) {
-      failures.push(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      failures.push(message);
+      if (/tenant.*not found/i.test(message)) unknownHosts.add(host);
       await client.end().catch(() => undefined);
     }
   }
@@ -379,7 +429,28 @@ export async function inspectDatabase(
       fingerprints[category] = { count: rows.length, hash: fingerprint(rows) };
     }
 
-    return { database, applied, pending, remoteOnly, fingerprints };
+    // A chave anon vai no navegador. Função do public que ela executa é RPC
+    // aberta, e SECURITY DEFINER roda como dono. Toda função nova nasce com
+    // EXECUTE para PUBLIC, então esquecer o REVOKE numa migration basta.
+    const exposed = await client.query<{ signature: string }>(
+      `select format('%I.%I(%s)', n.nspname, p.proname,
+                     pg_get_function_identity_arguments(p.oid)) as signature
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.prokind in ('f', 'p')
+          and not exists (
+            select 1 from pg_depend d
+             where d.classid = 'pg_proc'::regclass
+               and d.objid = p.oid
+               and d.deptype = 'e'
+          )
+          and has_function_privilege('anon', p.oid, 'EXECUTE')
+        order by 1`,
+    );
+    const anonRoutines = exposed.rows.map((row) => row.signature);
+
+    return { database, applied, pending, remoteOnly, fingerprints, anonRoutines };
   } finally {
     await client.end();
   }
@@ -418,6 +489,9 @@ export function printInspectionSummary(inspections: DatabaseInspection[]) {
     }
     for (const version of inspection.remoteOnly) {
       console.log(`    somente remoto: ${version}`);
+    }
+    for (const signature of inspection.anonRoutines) {
+      console.log(`    executável por anon: ${signature}`);
     }
   }
 

@@ -3,6 +3,20 @@ import type { Metadata } from "next";
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+import { FluxoAgrupamentoMenu } from "./agrupamento-menu";
+import {
+  agruparPorBanco,
+  ehEntrada,
+  filtroDeSituacao,
+  paginarAgrupado,
+  saldosDoBanco,
+  totalizarFluxo,
+  valorDaLinha,
+  type ContaDoGrupo,
+  type ItemDaFolhaAgrupada,
+  type MovimentoDoBanco,
+} from "./report-model";
+
 export const runtime = "nodejs";
 export const metadata: Metadata = { title: "Fluxo de caixa — impressão" };
 
@@ -78,16 +92,87 @@ function safeSearch(value: string | undefined) {
   return (value ?? "").trim().slice(0, 200).replace(/[%_]/g, "");
 }
 
+type Cartao = { label: string; value: number; tone: string };
+
+/**
+ * Os movimentos liquidados de cada conta, na ordem do extrato — dia, registro,
+ * id —, que é a ordem em que o saldo acumula. Sem nenhum filtro da folha.
+ */
+async function lerHistoricoDasContas(ids: number[]) {
+  const porBanco = new Map<number, MovimentoDoBanco[]>();
+
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabaseAdmin
+      .from("transacao")
+      .select('id, banco_id, tipo, valor, "valorLiquido", valor_descontos')
+      .in("banco_id", ids)
+      .eq("is_deleted", false)
+      // Título em aberto ainda não mexeu no dinheiro.
+      .not("pendente", "is", true)
+      .order("banco_id", { ascending: true })
+      .order("data_dia", { ascending: true })
+      .order("movimento_registrado_em", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw new Error(`Não foi possível calcular o saldo dos bancos: ${error.message}`);
+
+    for (const row of data ?? []) {
+      const bancoId = Number(row.banco_id);
+      const lista = porBanco.get(bancoId) ?? [];
+      lista.push(row as MovimentoDoBanco);
+      porBanco.set(bancoId, lista);
+    }
+    if (!data || data.length < 1000) break;
+  }
+
+  return porBanco;
+}
+
+/**
+ * As linhas da folha por conta, com o saldo de cada conta depois de cada
+ * lançamento. O saldo é o real da conta — a história inteira, como na tela de
+ * bancos —, então não muda com os filtros desta folha.
+ */
+async function montarGruposPorBanco(rows: any[]) {
+  const ids = [...new Set(rows.filter((row) => row.banco_id != null).map((row) => Number(row.banco_id)))];
+  if (!ids.length) return agruparPorBanco(rows, new Map(), new Map());
+
+  const [{ data: bancos, error }, historico] = await Promise.all([
+    supabaseAdmin.from("bancoconta").select("id, titulo, agencia, contanumero, valorinicial").in("id", ids),
+    lerHistoricoDasContas(ids),
+  ]);
+  if (error) throw new Error(`Não foi possível carregar os bancos: ${error.message}`);
+
+  const contas = new Map<number, ContaDoGrupo>();
+  const saldos = new Map<number, Map<number, number>>();
+  for (const banco of bancos ?? []) {
+    const id = Number(banco.id);
+    const inicial = Number(banco.valorinicial ?? 0);
+    contas.set(id, { titulo: banco.titulo, detalhe: joinParts(banco.agencia, banco.contanumero) });
+    saldos.set(id, saldosDoBanco(Number.isFinite(inicial) ? inicial : 0, historico.get(id) ?? []));
+  }
+
+  return agruparPorBanco(rows, contas, saldos);
+}
+
 export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
   const raw = await searchParams;
   const params = Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, one(value)]));
+  const agrupar = params.agrupar === "banco";
   const buildQuery = () => {
     let query = supabaseAdmin
       .from("transacao")
-      .select('id, descricao, valor, "valorLiquido", nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, plano_de_conta, centro_custo, tipo, cliente_id, banco_id, banco:bancoconta!transacao_banco_id_fkey(titulo)')
-      .eq("is_deleted", false)
-      .order("data", { ascending: true })
-      .order("id", { ascending: true });
+      .select('id, descricao, valor, "valorLiquido", valor_descontos, valor_baixado, baixa_de_transacao_id, adiantamento_id, nomepagador, cpfcnpjpagador, pendente, data, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, plano_de_conta, centro_custo, tipo, cliente_id, banco_id, banco:bancoconta!transacao_banco_id_fkey(titulo)')
+      .eq("is_deleted", false);
+    // Agrupado por banco, a ordem é a do extrato — dia, registro, id —, a mesma em
+    // que o saldo acumula: pelo instante cru, o saldo andaria para trás dentro do
+    // dia. Sem agrupar, segue o livro cronológico de sempre.
+    query = agrupar
+      ? query
+          .order("data_dia", { ascending: true })
+          .order("movimento_registrado_em", { ascending: true })
+          .order("id", { ascending: true })
+      : query.order("data", { ascending: true }).order("id", { ascending: true });
 
     const search = safeSearch(params.search);
     const nomePagador = safeSearch(params.nomePagador);
@@ -95,7 +180,7 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
     if (search) query = query.ilike("descricao", `%${search}%`);
     if (params.tipo) query = query.eq("tipo", params.tipo);
     if (params.metodopagamento) query = query.eq("metodopagamento", params.metodopagamento);
-    if (params.pendente === "true" || params.pendente === "false") query = query.eq("pendente", params.pendente === "true");
+    query = query.or(filtroDeSituacao(params.pendente));
     if (nomePagador) query = query.ilike("nomepagador", `%${nomePagador}%`);
     if (documento) query = query.ilike("cpfcnpjpagador", `%${documento}%`);
 
@@ -132,17 +217,34 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
     if (!data || data.length < 1000) break;
   }
 
-  const isIncome = (row: any) => row.tipo === "RECEITA" || row.tipo === "DEPOSITO";
-  const totalIncome = rows.filter(isIncome).reduce((sum, row) => sum + Number(row.valor ?? 0), 0);
-  const totalExpense = rows.filter((row) => !isIncome(row)).reduce((sum, row) => sum + Number(row.valor ?? 0), 0);
-  const balance = totalIncome - totalExpense;
+  const totais = totalizarFluxo(rows);
+  const cartoes: Cartao[] = [
+    ...(params.pendente !== "true"
+      ? [
+          { label: "Entradas", value: totais.entradas, tone: "text-emerald-700" },
+          { label: "Saídas", value: totais.saidas, tone: "text-red-700" },
+          { label: "Saldo", value: totais.saldo, tone: totais.saldo >= 0 ? "text-blue-700" : "text-red-700" },
+        ]
+      : []),
+    ...(params.pendente !== "false"
+      ? [
+          { label: "A receber em aberto", value: totais.aReceber, tone: "text-emerald-700" },
+          { label: "A pagar em aberto", value: totais.aPagar, tone: "text-red-700" },
+        ]
+      : []),
+  ];
   const pages = reportPages(rows);
+  const folhasAgrupadas = agrupar
+    ? paginarAgrupado(await montarGruposPorBanco(rows), FIRST_PAGE_ROWS, NEXT_PAGE_ROWS)
+    : null;
+  const quantasFolhas = folhasAgrupadas?.length ?? pages.length;
   const filters = [
     params.dateFrom || params.dateTo ? `Período: ${params.dateFrom || "início"} a ${params.dateTo || "hoje"}` : "",
     params.tipo ? `Tipo: ${params.tipo}` : "",
     params.pendente ? `Situação: ${params.pendente === "true" ? "Pendente" : "Realizada"}` : "",
     params.vinculo ? `Origem: ${params.vinculo}` : "",
     params.metodopagamento ? `Pagamento: ${params.metodopagamento}` : "",
+    agrupar ? "Agrupado por banco" : "",
   ].filter(Boolean);
 
   return (
@@ -190,12 +292,17 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
         }
       `}</style>
       <main className="report-shell min-h-screen bg-neutral-200 px-4 py-6 text-black">
-        <div className="mx-auto mb-4 flex w-[210mm] justify-end">
+        <div className="mx-auto mb-4 flex w-[210mm] items-center justify-between gap-2 print:hidden">
+          <FluxoAgrupamentoMenu
+            consulta={new URLSearchParams(params).toString()}
+            agrupamento={agrupar ? "BANCO" : "NENHUM"}
+          />
           <A4PdfActions filename="relatorio-fluxo-caixa.pdf" backHref="/relatorios" />
         </div>
         <div className="mx-auto flex w-[210mm] flex-col gap-4 print:gap-0">
-          {pages.map((pageRows, pageIndex) => {
-            const ultimaFolha = pageIndex === pages.length - 1;
+          {Array.from({ length: quantasFolhas }, (_, pageIndex) => {
+            const ultimaFolha = pageIndex === quantasFolhas - 1;
+            const pageRows = pages[pageIndex] ?? [];
 
             return (
               <section key={pageIndex} className="report-sheet h-[297mm] w-[210mm] overflow-hidden border border-neutral-300 bg-white p-[10mm] shadow-xl print:break-after-page">
@@ -207,109 +314,83 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                     </div>
                     <div className="shrink-0 text-right text-[9px] text-neutral-500">
                       <p>Gerado em {dateTime(new Date().toISOString())}</p>
-                      <p>Página 1 de {pages.length}</p>
+                      <p>Página 1 de {quantasFolhas}</p>
                     </div>
                   </header>
                 ) : (
                   // Sem cabeçalho, mas com a numeração: folha solta de relatório
                   // financeiro sem página vira problema na hora de conferir.
                   <p className="mb-2 text-right text-[8px] text-neutral-500">
-                    Página {pageIndex + 1} de {pages.length}
+                    Página {pageIndex + 1} de {quantasFolhas}
                   </p>
                 )}
 
                 {pageIndex === 0 && (
-                  <div className="mb-3 grid grid-cols-3 gap-3 rounded border border-neutral-300 bg-neutral-100 px-3 py-2 text-[8px]">
-                    <Kpi label="Entradas" value={money(totalIncome)} tone="text-emerald-700" />
-                    <Kpi label="Saídas" value={money(totalExpense)} tone="text-red-700" />
-                    <Kpi label="Saldo" value={money(balance)} tone={balance >= 0 ? "text-blue-700" : "text-red-700"} />
+                  <div
+                    className="mb-3 grid gap-3 rounded border border-neutral-300 bg-neutral-100 px-3 py-2 text-[8px]"
+                    style={{ gridTemplateColumns: `repeat(${cartoes.length}, minmax(0, 1fr))` }}
+                  >
+                    {cartoes.map((cartao) => (
+                      <Kpi key={cartao.label} label={cartao.label} value={money(cartao.value)} tone={cartao.tone} />
+                    ))}
                   </div>
                 )}
 
-                <table className="w-full table-fixed border-collapse text-[7px]">
-                  {/* O colgroup é quem fixa a largura sob table-fixed; classe no
-                      <th> perde para o conteúdo quando o rótulo é maior. */}
-                  <colgroup>
-                    <col style={{ width: "20mm" }} />
-                    <col />
-                    <col style={{ width: "28mm" }} />
-                    <col style={{ width: "24mm" }} />
-                    <col style={{ width: "22mm" }} />
-                    <col style={{ width: "28mm" }} />
-                  </colgroup>
-                  <thead>
-                    <tr className="bg-neutral-100 text-left uppercase">
-                      <Th>Data</Th>
-                      <Th>Descrição</Th>
-                      <Th>Categoria</Th>
-                      <Th>Origem</Th>
-                      <Th>Situação</Th>
-                      <Th className="text-right">Valor</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageRows.length ? pageRows.map((row) => {
-                      const entrada = isIncome(row);
-                      const { day, time } = dateParts(row.data);
-
-                      return (
+                {folhasAgrupadas ? (
+                  <TabelaPorBanco
+                    itens={folhasAgrupadas[pageIndex] ?? []}
+                    ultimaFolha={ultimaFolha}
+                    cartoes={cartoes}
+                    pendente={params.pendente}
+                  />
+                ) : (
+                  <table className="w-full table-fixed border-collapse text-[7px]">
+                    {/* O colgroup é quem fixa a largura sob table-fixed; classe no
+                        <th> perde para o conteúdo quando o rótulo é maior. */}
+                    <colgroup>
+                      <col style={{ width: "20mm" }} />
+                      <col />
+                      <col style={{ width: "28mm" }} />
+                      <col style={{ width: "24mm" }} />
+                      <col style={{ width: "22mm" }} />
+                      <col style={{ width: "28mm" }} />
+                    </colgroup>
+                    <thead>
+                      <tr className="bg-neutral-100 text-left uppercase">
+                        <Th>Data</Th>
+                        <Th>Descrição</Th>
+                        <Th>Categoria</Th>
+                        <Th>Origem</Th>
+                        <Th>Situação</Th>
+                        <Th className="text-right">Valor</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pageRows.length ? pageRows.map((row) => (
                         // Escala de cinza: entrada em branco, saída em cinza claro.
-                        <tr key={row.id} className={`h-[7mm] break-inside-avoid border-t border-neutral-300 ${entrada ? "bg-white" : "bg-neutral-50"}`}>
-                          <Td className="tabular-nums">
-                            <div>{day}</div>
-                            {time && <Sub>{time}</Sub>}
-                          </Td>
-                          <Td>
-                            <div className="truncate" title={row.descricao || undefined}>
-                              <strong>#{row.id}</strong> {row.descricao || "—"}
-                            </div>
-                            {row.nomepagador && <Sub>{row.nomepagador}</Sub>}
-                          </Td>
-                          <Td>
-                            <div className="truncate">{row.categoria || "—"}</div>
-                            {joinParts(row.plano_de_conta, row.centro_custo) && (
-                              <Sub>{joinParts(row.plano_de_conta, row.centro_custo)}</Sub>
-                            )}
-                          </Td>
-                          <Td>
-                            <div className="truncate">{origin(row)}</div>
-                            {joinParts(row.metodopagamento, row.banco?.titulo) && (
-                              <Sub>{joinParts(row.metodopagamento, row.banco?.titulo)}</Sub>
-                            )}
-                          </Td>
-                          <Td>
-                            <div className="truncate">{row.pendente ? "Pendente" : "Realizada"}</div>
-                            {row.tipo && <Sub>{row.tipo}</Sub>}
-                          </Td>
-                          <Td className={`text-right font-semibold tabular-nums ${entrada ? "text-emerald-700" : "text-red-700"}`}>
-                            {entrada ? "+ " : "- "}
-                            {money(row.valor)}
+                        <tr key={row.id} className={`h-[7mm] break-inside-avoid border-t border-neutral-300 ${ehEntrada(row.tipo) ? "bg-white" : "bg-neutral-50"}`}>
+                          <CelulasDoLancamento row={row} />
+                        </tr>
+                      )) : (
+                        <tr className="h-[7mm] border-t border-neutral-300">
+                          <Td className="py-12 text-center text-neutral-500" colSpan={6}>
+                            Nenhum lançamento encontrado para os filtros informados.
                           </Td>
                         </tr>
-                      );
-                    }) : (
-                      <tr className="h-[7mm] border-t border-neutral-300">
-                        <Td className="py-12 text-center text-neutral-500" colSpan={6}>
-                          Nenhum lançamento encontrado para os filtros informados.
-                        </Td>
-                      </tr>
-                    )}
-                  </tbody>
+                      )}
+                    </tbody>
 
-                  {ultimaFolha && pageRows.length > 0 && (
-                    <tfoot>
-                      <tr className="h-[7mm] border-t-2 border-neutral-400 bg-neutral-100">
-                        <Td colSpan={6}>
-                          <div className="flex items-center justify-end gap-6 pr-1">
-                            <Total label="Saídas" value={money(totalExpense)} tone="text-red-700" />
-                            <Total label="Entradas" value={money(totalIncome)} tone="text-emerald-700" />
-                            <Total label="Saldo" value={money(balance)} tone={balance >= 0 ? "text-blue-700" : "text-red-700"} />
-                          </div>
-                        </Td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
+                    {ultimaFolha && pageRows.length > 0 && (
+                      <tfoot>
+                        <tr className="h-[7mm] border-t-2 border-neutral-400 bg-neutral-100">
+                          <Td colSpan={6}>
+                            <TotaisDaFolha cartoes={cartoes} />
+                          </Td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                )}
               </section>
             );
           })}
@@ -343,4 +424,194 @@ function Th({ children, className = "" }: React.PropsWithChildren<{ className?: 
 }
 function Td({ children, className = "", colSpan }: React.PropsWithChildren<{ className?: string; colSpan?: number }>) {
   return <td colSpan={colSpan} className={`border-x border-neutral-200 px-2 py-1 align-middle ${className}`}>{children}</td>;
+}
+
+function TotaisDaFolha({ cartoes }: { cartoes: Cartao[] }) {
+  return (
+    <div className="flex items-center justify-end gap-6 pr-1">
+      {cartoes.map((cartao) => (
+        <Total key={cartao.label} label={cartao.label} value={money(cartao.value)} tone={cartao.tone} />
+      ))}
+    </div>
+  );
+}
+
+/** As seis colunas de um lançamento — as mesmas nas duas formas da folha. */
+function CelulasDoLancamento({ row, mostrarBanco = true }: { row: any; mostrarBanco?: boolean }) {
+  const entrada = ehEntrada(row.tipo);
+  const { day, time } = dateParts(row.data);
+  // Agrupado, o banco já está no cabeçalho da conta; repeti-lo só gastaria a linha.
+  const pagamento = joinParts(row.metodopagamento, mostrarBanco ? row.banco?.titulo : null);
+
+  return (
+    <>
+      <Td className="tabular-nums">
+        <div>{day}</div>
+        {time && <Sub>{time}</Sub>}
+      </Td>
+      <Td>
+        <div className="truncate" title={row.descricao || undefined}>
+          <strong>#{row.id}</strong> {row.descricao || "—"}
+        </div>
+        {row.nomepagador && <Sub>{row.nomepagador}</Sub>}
+      </Td>
+      <Td>
+        <div className="truncate">{row.categoria || "—"}</div>
+        {joinParts(row.plano_de_conta, row.centro_custo) && (
+          <Sub>{joinParts(row.plano_de_conta, row.centro_custo)}</Sub>
+        )}
+      </Td>
+      <Td>
+        <div className="truncate">{origin(row)}</div>
+        {pagamento && <Sub>{pagamento}</Sub>}
+      </Td>
+      <Td>
+        <div className="truncate">{row.pendente ? "Pendente" : "Realizada"}</div>
+        {row.tipo && <Sub>{row.tipo}</Sub>}
+      </Td>
+      <Td className={`text-right font-semibold tabular-nums ${entrada ? "text-emerald-700" : "text-red-700"}`}>
+        {entrada ? "+ " : "- "}
+        {money(valorDaLinha(row))}
+      </Td>
+    </>
+  );
+}
+
+/**
+ * A folha agrupada por banco.
+ *
+ * Cada conta abre com o saldo anterior, cada lançamento traz o saldo da conta
+ * logo depois dele, e a conta fecha com os totais e o saldo final. Título em
+ * aberto não mexeu no dinheiro e fica sem saldo. Cabeçalho, lançamento e
+ * subtotal medem os mesmos 7mm — é o que deixa `paginarAgrupado` contar os três
+ * como linha.
+ */
+function TabelaPorBanco({
+  itens,
+  ultimaFolha,
+  cartoes,
+  pendente,
+}: {
+  itens: ItemDaFolhaAgrupada<any>[];
+  ultimaFolha: boolean;
+  cartoes: Cartao[];
+  /** O filtro de situação: decide quais totais cada conta mostra, como nos cartões. */
+  pendente?: string;
+}) {
+  return (
+    <table className="w-full table-fixed border-collapse text-[7px]">
+      <colgroup>
+        <col style={{ width: "18mm" }} />
+        <col />
+        <col style={{ width: "26mm" }} />
+        <col style={{ width: "22mm" }} />
+        <col style={{ width: "18mm" }} />
+        <col style={{ width: "25mm" }} />
+        <col style={{ width: "25mm" }} />
+      </colgroup>
+      <thead>
+        <tr className="bg-neutral-100 text-left uppercase">
+          <Th>Data</Th>
+          <Th>Descrição</Th>
+          <Th>Categoria</Th>
+          <Th>Origem</Th>
+          <Th>Situação</Th>
+          <Th className="text-right">Valor</Th>
+          <Th className="text-right">Saldo</Th>
+        </tr>
+      </thead>
+      <tbody>
+        {itens.length ? (
+          itens.map((item) => {
+            if (item.tipo === "espaco") {
+              // Sem borda nem fundo: é o vão que separa uma conta da seguinte.
+              return (
+                <tr key={`espaco-${item.grupo.bancoId}`} aria-hidden className="h-[4mm]">
+                  <td colSpan={7} className="border-0 p-0" />
+                </tr>
+              );
+            }
+
+            if (item.tipo === "banco") {
+              return (
+                <tr key={`banco-${item.grupo.bancoId}`} className="h-[7mm] border-t-2 border-neutral-500 bg-neutral-200">
+                  <Td colSpan={6}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-[8px] font-bold uppercase">{item.grupo.titulo}</div>
+                        {item.grupo.detalhe && <Sub>{item.grupo.detalhe}</Sub>}
+                      </div>
+                      <span className="shrink-0 uppercase text-neutral-600">Saldo anterior</span>
+                    </div>
+                  </Td>
+                  <Saldo valor={item.grupo.saldoAnterior} />
+                </tr>
+              );
+            }
+
+            if (item.tipo === "subtotal") {
+              const { totais } = item.grupo;
+              return (
+                <tr key={`subtotal-${item.grupo.bancoId}`} className="h-[7mm] border-t border-neutral-400 bg-neutral-100">
+                  <Td colSpan={6}>
+                    <div className="flex items-center justify-end gap-4">
+                      {pendente !== "true" && (
+                        <>
+                          <Total label="Entradas" value={money(totais.entradas)} tone="text-emerald-700" />
+                          <Total label="Saídas" value={money(totais.saidas)} tone="text-red-700" />
+                        </>
+                      )}
+                      {pendente !== "false" && (
+                        <>
+                          <Total label="A receber" value={money(totais.aReceber)} tone="text-emerald-700" />
+                          <Total label="A pagar" value={money(totais.aPagar)} tone="text-red-700" />
+                        </>
+                      )}
+                      <span className="uppercase text-neutral-600">Saldo final</span>
+                    </div>
+                  </Td>
+                  <Saldo valor={item.grupo.saldoFinal} />
+                </tr>
+              );
+            }
+
+            return (
+              <tr
+                key={item.linha.id}
+                className={`h-[7mm] break-inside-avoid border-t border-neutral-300 ${ehEntrada(item.linha.tipo) ? "bg-white" : "bg-neutral-50"}`}
+              >
+                <CelulasDoLancamento row={item.linha} mostrarBanco={false} />
+                <Saldo valor={item.saldoApos} />
+              </tr>
+            );
+          })
+        ) : (
+          <tr className="h-[7mm] border-t border-neutral-300">
+            <Td className="py-12 text-center text-neutral-500" colSpan={7}>
+              Nenhum lançamento encontrado para os filtros informados.
+            </Td>
+          </tr>
+        )}
+      </tbody>
+
+      {ultimaFolha && itens.length > 0 && (
+        <tfoot>
+          <tr className="h-[7mm] border-t-2 border-neutral-400 bg-neutral-100">
+            <Td colSpan={7}>
+              <TotaisDaFolha cartoes={cartoes} />
+            </Td>
+          </tr>
+        </tfoot>
+      )}
+    </table>
+  );
+}
+
+/** Saldo da conta: vermelho quando negativo, travessão quando a linha não mexeu nela. */
+function Saldo({ valor }: { valor: number | null }) {
+  return (
+    <Td className={`text-right font-semibold tabular-nums ${valor != null && valor < 0 ? "text-red-700" : ""}`}>
+      {valor == null ? "—" : money(valor)}
+    </Td>
+  );
 }

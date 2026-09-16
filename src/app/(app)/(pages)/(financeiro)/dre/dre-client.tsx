@@ -1,20 +1,13 @@
 // src/app/(app)/(pages)/(financeiro)/dre/dre-client.tsx
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ChevronRight, Info, Minus, TrendingDown, TrendingUp } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, Info, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { endOfMonth, startOfMonth } from "date-fns";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,13 +15,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { LinhaDre, PendenciaDre, PeriodoDre, RespostaDre } from "./types";
+import { DetalheLinhaDialog } from "./components/detalhe-linha-dialog";
 import { PendenciasDialog } from "./components/pendencias-dialog";
-
-/**
- * Motivos que descrevem estado legítimo, não defeito. Aparecem na tabela quando
- * a tarja já está aberta, mas não a abrem sozinhos.
- */
-const MOTIVOS_INFORMATIVOS = new Set(["EVENTO_OS_EM_ABERTO"]);
+import { TarjaPendencias } from "./components/tarja-pendencias";
 
 const MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const brl = (v: number) => MOEDA.format(Number.isFinite(v) ? v : 0);
@@ -41,6 +30,17 @@ function paraInput(d: Date) {
 function mesCorrente(): PeriodoDre {
   const hoje = new Date();
   return { de: paraInput(startOfMonth(hoje)), ate: paraInput(endOfMonth(hoje)) };
+}
+
+/** Procura a linha na árvore pelo id: depois de refazer a DRE, o objeto antigo tem o valor antigo. */
+function acharLinha(linhas: LinhaDre[], id: number | null): LinhaDre | null {
+  if (id === null) return null;
+  for (const linha of linhas) {
+    if (linha.id === id) return linha;
+    const filho = acharLinha(linha.filhos, id);
+    if (filho) return filho;
+  }
+  return null;
 }
 
 /** Cards do topo. Margens só existem se houver receita líquida. */
@@ -168,7 +168,12 @@ export function DreClient() {
   const [dados, setDados] = useState<RespostaDre | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [expandidas, setExpandidas] = useState<ReadonlySet<number>>(new Set());
-  const [detalhe, setDetalhe] = useState<LinhaDre | null>(null);
+  /*
+   * Guarda o id, não a linha. Mover um plano de conta pelo detalhamento refaz a
+   * DRE; um objeto guardado continuaria com o valor de antes, e a conferência do
+   * detalhamento acusaria diferença que não existe.
+   */
+  const [detalheId, setDetalheId] = useState<number | null>(null);
   const [pendenciaAberta, setPendenciaAberta] = useState<PendenciaDre | null>(null);
   /*
    * Recarregamento silencioso. Depois de corrigir uma pendência o relatório
@@ -177,10 +182,13 @@ export function DreClient() {
    * justamente isso.
    */
   const [versao, setVersao] = useState(0);
+  const refazer = useCallback(() => setVersao((n) => n + 1), []);
 
   const chave = `${periodo.de}|${periodo.ate}`;
   const [carregado, setCarregado] = useState("");
   const carregando = carregado !== chave;
+  /** Período cujos grupos já foram abertos uma vez. */
+  const expandidasDaChave = useRef("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -197,7 +205,12 @@ export function DreClient() {
         setErro(null);
         setCarregado(chave);
         // Grupos de primeiro nível já abertos: a DRE é para ser lida, não caçada.
-        setExpandidas(new Set(resposta.linhas.filter((l) => l.filhos.length).map((l) => l.id)));
+        // Só na primeira carga do período — na recarga silenciosa a pessoa pode ter
+        // recolhido grupos, e reabrir tudo desfaria o que ela arrumou.
+        if (expandidasDaChave.current !== chave) {
+          expandidasDaChave.current = chave;
+          setExpandidas(new Set(resposta.linhas.filter((l) => l.filhos.length).map((l) => l.id)));
+        }
       })
       .catch((e: unknown) => {
         if (controller.signal.aborted) return;
@@ -217,30 +230,8 @@ export function DreClient() {
     });
   }, []);
 
-  const alertas = dados?.alertas;
-  const pendencias = dados?.pendencias;
-  /*
-   * A tarja precisa nascer da fila, não só dos cinco alertas nomeados. Enquanto
-   * dependia deles, um motivo sem alerta próprio — evento órfão, por exemplo —
-   * só aparecia de carona: bastava cadastrar o custo dos itens para a tarja
-   * sumir levando junto R$ 121 mil que continuavam fora do relatório.
-   *
-   * OS em execução é a exceção. Competência nula ali é estado legítimo, então
-   * ela informa quando a tarja já está aberta, mas não a abre sozinha — senão
-   * toda oficina com serviço em andamento veria "resultado incompleto" o ano
-   * inteiro, e o aviso viraria paisagem.
-   */
-  const pendenciasQueAlertam = (pendencias?.porMotivo ?? []).filter(
-    (linha) => !MOTIVOS_INFORMATIVOS.has(linha.motivo),
-  );
-  const temAlerta =
-    !!alertas &&
-    (alertas.semDespesaOperacional === true ||
-      (alertas.itensSemCusto ?? 0) > 0 ||
-      (alertas.lancamentosSemClassificacao ?? 0) > 0 ||
-      (alertas.gruposSemDestino ?? 0) > 0 ||
-      alertas.filaIndisponivel ||
-      pendenciasQueAlertam.length > 0);
+  const detalhe = useMemo(() => (dados ? acharLinha(dados.linhas, detalheId) : null), [dados, detalheId]);
+  const abrirDetalhe = useCallback((linha: LinhaDre) => setDetalheId(linha.id), []);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -279,87 +270,7 @@ export function DreClient() {
           )}
         </section>
 
-        {temAlerta && (
-          <motion.div
-            role="alert"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm"
-          >
-            <p className="flex items-center gap-2 font-medium">
-              <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
-              Este resultado está incompleto
-            </p>
-            <ul className="mt-1.5 ml-6 list-disc space-y-0.5 text-muted-foreground">
-              {alertas?.filaIndisponivel && (
-                <li>
-                  Não foi possível apurar as pendências deste período. O relatório pode estar incompleto sem que
-                  este aviso saiba dizer quanto.
-                </li>
-              )}
-              {alertas?.semDespesaOperacional === true && (
-                <li>Nenhuma despesa operacional foi lançada no período — o lucro aparece maior do que é.</li>
-              )}
-              {alertas?.itensSemCusto === null && (
-                <li>Não foi possível conferir itens vendidos sem custo cadastrado.</li>
-              )}
-              {(alertas?.itensSemCusto ?? 0) > 0 && (
-                <li>{alertas?.itensSemCusto} item(ns) vendido(s) sem custo cadastrado — a margem está superestimada.</li>
-              )}
-              {(alertas?.lancamentosSemClassificacao ?? 0) > 0 && (
-                <li>
-                  {alertas?.lancamentosSemClassificacao} lançamento(s) sem classificação, somando{" "}
-                  {brl(alertas?.valorSemClassificacao ?? 0)}, ficaram fora do relatório.
-                </li>
-              )}
-              {(alertas?.gruposSemDestino ?? 0) > 0 && (
-                <li>
-                  {alertas?.gruposSemDestino} grupo(s) do plano de contas sem linha da DRE — o que for lançado neles
-                  não aparece em nenhuma linha do relatório.
-                </li>
-              )}
-            </ul>
-            {pendencias && !pendencias.indisponivel && pendencias.porMotivo.length > 0 && (
-              <div className="mt-3 overflow-x-auto">
-                <table className="w-full min-w-[28rem] text-left text-xs">
-                  <thead className="text-muted-foreground">
-                    <tr>
-                      <th className="py-1 pr-3 font-medium">Pendência</th>
-                      <th className="py-1 pr-3 text-right font-medium">Itens</th>
-                      <th className="py-1 text-right font-medium">Valor</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pendencias.porMotivo.map((linha) => (
-                      <tr
-                        key={linha.motivo}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Ver os ${linha.quantidade} item(ns): ${linha.descricao}`}
-                        onClick={() => setPendenciaAberta(linha)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setPendenciaAberta(linha);
-                          }
-                        }}
-                        className="cursor-pointer border-t border-amber-500/20 outline-none hover:bg-amber-500/10 focus-visible:bg-amber-500/10"
-                      >
-                        <td className="py-1 pr-3 underline decoration-dotted underline-offset-2">
-                          {linha.descricao}
-                        </td>
-                        <td className="py-1 pr-3 text-right tabular-nums">{linha.quantidade}</td>
-                        <td className="py-1 text-right tabular-nums">
-                          {linha.valor === null ? "—" : brl(linha.valor)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </motion.div>
-        )}
+        <TarjaPendencias alertas={dados?.alertas} pendencias={dados?.pendencias} onAbrir={setPendenciaAberta} />
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {dados
@@ -418,7 +329,7 @@ export function DreClient() {
                     linha={linha}
                     expandidas={expandidas}
                     alternar={alternar}
-                    onAbrirDetalhe={setDetalhe}
+                    onAbrirDetalhe={abrirDetalhe}
                   />
                 ))
               )}
@@ -432,160 +343,21 @@ export function DreClient() {
           </p>
         )}
 
-        <DetalheLinha linha={detalhe} periodo={periodo} onFechar={() => setDetalhe(null)} />
+        <DetalheLinhaDialog
+          linha={detalhe}
+          periodo={periodo}
+          versao={versao}
+          onFechar={() => setDetalheId(null)}
+          onAlterado={refazer}
+        />
 
         <PendenciasDialog
           pendencia={pendenciaAberta}
           periodo={periodo}
-          emLegado={dados?.implantacao?.estado === "LEGADO"}
           onFechar={() => setPendenciaAberta(null)}
-          onCorrigido={() => setVersao((n) => n + 1)}
+          onCorrigido={refazer}
         />
       </div>
     </MotionConfig>
-  );
-}
-
-type LancamentoDre = {
-  id: number;
-  competenciaEm: string | null;
-  origem: string | null;
-  descricao: string;
-  detalhe: string | null;
-  valor: number;
-  sourceType: string | null;
-  sourceId: number | null;
-  ordemServicoId: number | null;
-  transacaoId: number | null;
-  isManual: boolean;
-  isEstorno: boolean;
-  semCusto: boolean;
-};
-
-/** Lançamentos que compõem a linha. O total precisa bater com o da DRE. */
-function DetalheLinha({
-  linha,
-  periodo,
-  onFechar,
-}: {
-  linha: LinhaDre | null;
-  periodo: PeriodoDre;
-  onFechar: () => void;
-}) {
-  // Mesmo padrão do resto do projeto: o estado carrega a chave da consulta que o
-  // produziu, então "carregando" é derivado e não precisa de setState no efeito.
-  const chave = linha ? `${linha.id}|${periodo.de}|${periodo.ate}` : "";
-  const [resultado, setResultado] = useState<{
-    chave: string;
-    items: LancamentoDre[];
-    total: number;
-  }>({ chave: "", items: [], total: 0 });
-
-  const carregando = !!linha && resultado.chave !== chave;
-  const items = carregando ? null : resultado.items;
-  const total = carregando ? 0 : resultado.total;
-
-  useEffect(() => {
-    if (!linha) return;
-
-    const controller = new AbortController();
-
-    fetch(`/api/dre/drilldown?linha=${linha.id}&de=${periodo.de}&ate=${periodo.ate}`, {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then((r) => r.json())
-      .then((corpo: { items?: LancamentoDre[]; total?: number }) => {
-        if (controller.signal.aborted) return;
-        setResultado({ chave, items: corpo.items ?? [], total: corpo.total ?? 0 });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setResultado({ chave, items: [], total: 0 });
-      });
-
-    return () => controller.abort();
-  }, [chave, linha, periodo.ate, periodo.de]);
-
-  const confere = !!linha && !carregando && Math.abs(total - linha.valor) < 0.01;
-
-  return (
-    <Dialog open={!!linha} onOpenChange={(aberto) => !aberto && onFechar()}>
-      <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>
-            {linha?.codigo} {linha?.nome}
-          </DialogTitle>
-          <DialogDescription>
-            {periodo.de} a {periodo.ate} · {items?.length ?? 0} lançamento(s)
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="max-h-[55vh] overflow-y-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-28">Competência</TableHead>
-                <TableHead>Descrição</TableHead>
-                <TableHead className="w-32">Origem</TableHead>
-                <TableHead className="w-32 text-right">Valor</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {!items ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i}>
-                    {Array.from({ length: 4 }).map((__, j) => (
-                      <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
-                    ))}
-                  </TableRow>
-                ))
-              ) : items.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center text-sm text-muted-foreground">
-                    {linha?.tipo === "FORMULA"
-                      ? "Linha calculada a partir de outras — não possui lançamentos próprios."
-                      : "Nenhum lançamento no período."}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="text-muted-foreground tabular-nums">
-                      {item.competenciaEm ? new Date(item.competenciaEm).toLocaleDateString("pt-BR") : "—"}
-                    </TableCell>
-                    <TableCell className="max-w-[22rem]">
-                      <span className="block truncate">{item.descricao}</span>
-                      {item.detalhe && (
-                        <span className="block truncate text-xs text-muted-foreground">{item.detalhe}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {item.ordemServicoId
-                        ? `OS #${item.ordemServicoId}`
-                        : item.sourceType === "VENDA"
-                          ? `Venda #${item.sourceId}`
-                          : item.transacaoId
-                            ? `Transação #${item.transacaoId}`
-                            : (item.sourceType ?? "—")}
-                      {item.isManual && " · manual"}
-                      {item.isEstorno && " · estorno"}
-                      {item.semCusto && " · sem custo"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">{brl(item.valor)}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-
-        <div className="flex items-center justify-between border-t pt-3 text-sm">
-          <span className="text-muted-foreground">
-            {confere ? "Confere com o total da linha" : "Total diferente do exibido na DRE"}
-          </span>
-          <span className={cn("font-semibold tabular-nums", !confere && "text-destructive")}>{brl(total)}</span>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }

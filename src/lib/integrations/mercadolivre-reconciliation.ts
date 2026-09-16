@@ -2,7 +2,7 @@ import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";
 import { isMercadoLivreNotFound, mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
 import { describeMercadoLivreListingStatus } from "@/lib/integrations/mercadolivre-listing-status";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
-import { applyMercadoLivrePriceToErp, getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
+import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
@@ -49,9 +49,8 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
           ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
           : null;
         const priceState = await getMercadoLivrePriceState(accessToken, String(link.ml_item_id), item);
-        // O preço do anúncio no Mercado Livre é independente do cadastro de produtos do ERP.
-        // A alteração de preço do anúncio não reflete no cadastro do produto (produto.precovenda),
-        // portanto NÃO chamamos applyMercadoLivrePriceToErp.
+        // O preço do anúncio no Mercado Livre é independente do cadastro de produtos do ERP:
+        // é só lido e guardado no vínculo, nunca gravado em produto.precovenda.
         const synchronized = {
           ...link,
           status: item?.status ?? link.status,
@@ -72,6 +71,7 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
           health: numberOrNull(item?.health) ?? link.health ?? null,
           catalog_listing: typeof item?.catalog_listing === "boolean" ? item.catalog_listing : link.catalog_listing ?? null,
           stop_time: item?.stop_time ?? link.stop_time ?? null,
+          price_state: priceState,
           metrics_updated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };

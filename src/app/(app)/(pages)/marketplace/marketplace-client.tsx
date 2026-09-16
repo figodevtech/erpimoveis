@@ -78,23 +78,20 @@ import {
 } from "@/lib/integrations/mercadolivre-listing-validation";
 import { preferencesAllowShippingMode } from "@/lib/integrations/mercadolivre-mercado-envios";
 import { parseModerationText } from "@/lib/integrations/mercadolivre-listing-status";
+import {
+  getMercadoLivrePictureRequirement,
+  mercadoLivrePictureRequirementMessage,
+} from "@/lib/integrations/mercadolivre-listing-pictures";
 
 type EditListingStep = "content" | "media" | "attributes" | "offer";
 
 const editListingSteps: ListingStepDefinition<EditListingStep>[] = [
   { value: "content", title: "Conteúdo do anúncio", short: "Conteúdo", description: "Textos e dados", icon: FileText },
-  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Imagens e ordem", icon: ImageIcon },
+  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Mínimo de 3 fotos", icon: ImageIcon },
   { value: "attributes", title: "Categoria e características", short: "Categoria", description: "Classifique o item", icon: Tags },
   { value: "offer", title: "Oferta e envio", short: "Oferta", description: "Preço e logística", icon: BadgeDollarSign },
 ];
 
-// A edição salva um diff: nenhuma etapa trava a seguinte nem o botão Salvar.
-const EDIT_STEP_VALIDITY: Record<EditListingStep, boolean> = {
-  content: true,
-  media: true,
-  attributes: true,
-  offer: true,
-};
 import { MarketplaceAttentionCenter, MarketplaceChatLauncher, MarketplaceHeader, MarketplaceListToolbar, MarketplaceLoadingLine, MarketplacePagination, MarketplaceSectionNav, useMarketplaceQueryValue, useMarketplaceSection, type MarketplaceAttentionItem } from "./marketplace-layout";
 import { MarketplaceConversationPanel } from "./marketplace-conversation-panel";
 import { MercadoLivreContactDialog } from "./mercadolivre-contact-dialog";
@@ -511,6 +508,8 @@ export type ProductRow = {
     health?: number | null;
     catalog_listing?: boolean | null;
     stop_time?: string | null;
+    /** Preço lido do anúncio no Mercado Livre; independe de `precovenda`. */
+    price_state?: { standardPrice: number | null; salePrice: number | null } | null;
     metrics_updated_at?: string | null;
     updated_at?: string | null;
   } | null;
@@ -974,21 +973,6 @@ function isValidGtin(value?: string | null) {
     .reduce((total, digit, index) => total + Number(digit) * (index % 2 === 0 ? 3 : 1), 0);
   return (10 - (sum % 10)) % 10 === Number(digits.at(-1));
 }
-
-function parsePictureUrls(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((url) => url.trim())
-    .filter((url) => {
-      try {
-        const parsed = new URL(url);
-        return parsed.protocol === "https:" || parsed.protocol === "http:";
-      } catch {
-        return false;
-      }
-    });
-}
-
 
 function ControlledAttributeInput({
   attribute,
@@ -2147,6 +2131,24 @@ export default function MarketplacePage() {
   const editTitleField = editForm.userProductEnabled ? "familyName" : "title";
   const editTitleMaxLength = editForm.userProductEnabled ? 120 : 60;
   const editTitleEditable = editCapabilities[editTitleField];
+  const editPictureRequirement = getMercadoLivrePictureRequirement(editForm.pictureUrl);
+  const editPictureIssue = editPictureRequirement.valid
+    ? ""
+    : mercadoLivrePictureRequirementMessage(editPictureRequirement.count);
+  const editStepValidity: Record<EditListingStep, boolean> = {
+    content: true,
+    media: editPictureRequirement.valid,
+    attributes: true,
+    offer: true,
+  };
+  const editIssueCountByStep: Partial<Record<EditListingStep, number>> = {
+    media: editPictureRequirement.valid ? 0 : 1,
+  };
+  const editingMediaDisabledReason = editCapabilities.pictures
+    ? null
+    : editPictureRequirement.valid
+      ? "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre."
+      : `As imagens são controladas pelo catálogo e este anúncio tem ${editPictureRequirement.count} de 3 fotos. Corrija as fotos diretamente no Mercado Livre; o salvamento pelo ERP permanecerá bloqueado até atender ao mínimo.`;
   const editRestrictions = [
     !editCapabilities.price && "preço com automação ativa",
     !editCapabilities.stock && "estoque administrado pela logística Full/multiorigem",
@@ -2245,7 +2247,8 @@ export default function MarketplacePage() {
     if (productsPage > productsTotalPages) setProductsPage(productsTotalPages);
   }, [productsPage, productsTotalPages]);
   useEffect(() => { setOrderPage(1); }, [orderSearch, orderStatusFilter, orderPageSize]);
-  const validPreviewImages = parsePictureUrls(listingForm.pictureUrl);
+  const pictureRequirement = getMercadoLivrePictureRequirement(listingForm.pictureUrl);
+  const validPreviewImages = pictureRequirement.urls;
   const requiredMissingAttributes = categoryAttributes.filter((attribute) => {
     if (!attribute.required) return false;
     if (attribute.id === "BRAND" && listingForm.brand.trim()) return false;
@@ -2378,7 +2381,9 @@ export default function MarketplacePage() {
     !listingForm.produtoId ? { step: "product", message: "Selecione um produto do ERP." } : null,
     selectedListingProduct?.mercadolivre ? { step: "product", message: "Este produto já possui anúncio Mercado Livre vinculado." } : null,
     !listingForm.title.trim() ? { step: "content", message: "Informe o título do anúncio." } : null,
-    validPreviewImages.length === 0 ? { step: "media", message: "Informe ao menos uma imagem pública válida." } : null,
+    !pictureRequirement.valid
+      ? { step: "media", message: mercadoLivrePictureRequirementMessage(pictureRequirement.count) }
+      : null,
     listingGtin && !isValidGtin(listingGtin) ? { step: "content", message: "Informe um GTIN/EAN válido ou deixe o campo vazio." } : null,
     !listingForm.categoryId ? { step: "category", message: "Selecione a categoria Mercado Livre." } : null,
     ...requiredMissingAttributes.map((attribute) => ({ step: "category" as const, message: `Preencha o atributo obrigatório: ${attribute.name}.` })),
@@ -3586,6 +3591,7 @@ export default function MarketplacePage() {
 
       const changed = Array.isArray(json?.data?.changed) ? json.data.changed : [];
       const removed = Array.isArray(json?.data?.removed) ? json.data.removed : [];
+      const failed = Array.isArray(json?.data?.failed) ? json.data.failed : [];
 
       if (removed.length) {
         toast.warning(`${removed.length} anúncio(s) excluído(s) no Mercado Livre.`, {
@@ -3605,9 +3611,20 @@ export default function MarketplacePage() {
           duration: 8000,
         });
       }
-      if (!changed.length && !removed.length) {
+      // Anúncio que não pôde ser consultado não foi conferido: dizer "nada mudou"
+      // nesse caso esconderia token vencido ou falha do Mercado Livre.
+      if (failed.length) {
+        toast.error(`${failed.length} anúncio(s) não puderam ser conferidos.`, {
+          description: failed
+            .slice(0, 3)
+            .map((entry: any) => `${entry.itemId}: ${entry.error || "falha na consulta"}`)
+            .join(" · "),
+          duration: 8000,
+        });
+      }
+      if (!changed.length && !removed.length && !failed.length) {
         toast.success("Situação dos anúncios conferida.", { description: "Nada mudou no Mercado Livre." });
-      } else {
+      } else if (changed.length || removed.length) {
         await Promise.all([loadProducts(), loadLinkedListingProducts()]);
       }
     } catch (error: any) {
@@ -3655,7 +3672,7 @@ export default function MarketplacePage() {
 
   async function itemAction(
     itemId: string,
-    action: "pause" | "activate" | "close" | "sync_stock_price" | "delete" | "relist",
+    action: "pause" | "activate" | "close" | "sync_stock" | "delete" | "relist",
   ) {
     setActionKey(`${action}:${itemId}`);
     try {
@@ -3885,7 +3902,7 @@ export default function MarketplacePage() {
         condition: ["new", "used", "not_specified"].includes(String(item.condition)) ? item.condition : "new",
         description: item.description || fallbackForm.description,
         videoUrl: item.videoUrl || "",
-        pictureUrl: Array.isArray(item.pictures) && item.pictures.length ? item.pictures.join("\n") : fallbackForm.pictureUrl,
+        pictureUrl: Array.isArray(item.pictures) ? item.pictures.join("\n") : "",
         warranty: item.warranty || "",
         warrantyTime: item.warrantyTime || "",
         shippingMode,
@@ -3902,6 +3919,7 @@ export default function MarketplacePage() {
       setEditInitialForm(loadedForm);
       setEditInitialAttributes(dynamicAttributes);
       setEditCapabilities((current) => ({ ...current, ...(item.capabilities ?? {}) }));
+      if (!getMercadoLivrePictureRequirement(loadedForm.pictureUrl).valid) setEditStep("media");
       setEditFamilyMembers(
         (Array.isArray(item.familyMembers) ? item.familyMembers : []).map((member: any) => ({
           id: String(member?.id ?? ""),
@@ -4152,6 +4170,11 @@ export default function MarketplacePage() {
 
   async function saveEditedListing() {
     if (!editForm.itemId) return;
+    if (!editPictureRequirement.valid) {
+      setEditStep("media");
+      toast.error("Complete as fotos do anúncio", { description: editPictureIssue });
+      return;
+    }
     if (!editForm[editTitleField].trim()) {
       toast.error("Informe o título do anúncio.");
       return;
@@ -4951,9 +4974,9 @@ export default function MarketplacePage() {
               <CarFront className="mr-2 h-4 w-4" />
               Veículos compatíveis
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "sync_stock_price")} disabled={Boolean(busy)}>
+            <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "sync_stock")} disabled={Boolean(busy)}>
               <RefreshCcw className="mr-2 h-4 w-4" />
-              Atualizar estoque e preço
+              Atualizar estoque
             </DropdownMenuItem>
             {listingStatus === "active" && (
               <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "pause")} disabled={Boolean(busy)}>
@@ -5555,7 +5578,7 @@ export default function MarketplacePage() {
                             </TableCell>
                             <TableCell><div className="space-y-1 text-xs"><p><span className="text-muted-foreground">Visualizações:</span> <strong>{link.visits_total == null ? "—" : Number(link.visits_total).toLocaleString("pt-BR")}</strong></p><p><span className="text-muted-foreground">Vendidos:</span> <strong>{link.sold_quantity == null ? "—" : Number(link.sold_quantity).toLocaleString("pt-BR")}</strong></p></div></TableCell>
                             <TableCell><div className="space-y-1.5 text-xs"><p><span className="text-muted-foreground">Mercado Livre:</span> <strong>{link.available_quantity == null ? "—" : Number(link.available_quantity).toLocaleString("pt-BR")}</strong></p><div className="flex items-center gap-2"><span><span className="text-muted-foreground">ERP:</span> <strong>{product.estoque ?? 0}</strong></span>{stockStatusBadge(product.status_estoque, product.estoque)}</div></div></TableCell>
-                            <TableCell className="font-medium">{formatCurrency(product.precovenda)}</TableCell>
+                            <TableCell><div className="space-y-1 text-xs"><p className="text-sm font-medium">{link.price_state?.standardPrice == null ? "—" : formatCurrency(link.price_state.standardPrice)}</p>{link.price_state?.salePrice != null && link.price_state.standardPrice != null && link.price_state.salePrice < link.price_state.standardPrice ? <p><span className="text-muted-foreground">Promoção:</span> <strong>{formatCurrency(link.price_state.salePrice)}</strong></p> : null}<p className="text-muted-foreground">ERP: {formatCurrency(product.precovenda)}</p></div></TableCell>
                             <TableCell className="text-right">{productActions(product)}</TableCell>
                           </TableRow>
                         );
@@ -6386,8 +6409,9 @@ export default function MarketplacePage() {
             steps={editListingSteps}
             step={editStep}
             onStepChange={setEditStep}
-            stepValidity={EDIT_STEP_VALIDITY}
-            footerNote={<p className="mr-auto text-left text-xs text-muted-foreground">As alterações são enviadas ao Mercado Livre apenas quando você salva.</p>}
+            stepValidity={editStepValidity}
+            issueCountByStep={editIssueCountByStep}
+            footerNote={<p className={`mr-auto text-left text-xs ${editPictureIssue ? "text-destructive" : "text-muted-foreground"}`}>{editPictureIssue || "As alterações são enviadas ao Mercado Livre apenas quando você salva."}</p>}
             footerActions={<>
               <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={editingListing}>
                 Cancelar
@@ -6402,7 +6426,7 @@ export default function MarketplacePage() {
                   Avançar<ChevronRight className="h-4 w-4" />
                 </Button>
               ) : null}
-              <Button onClick={saveEditedListing} disabled={editingListing || loadingEditListing || !editForm.itemId}>
+              <Button onClick={saveEditedListing} disabled={editingListing || loadingEditListing || !editForm.itemId || !editPictureRequirement.valid}>
                 {editingListing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 Salvar alterações
               </Button>
@@ -6505,15 +6529,14 @@ export default function MarketplacePage() {
             </TabsContent>
 
             <TabsContent value="media" className="m-0 space-y-5">
-              <StepHeading number="2" title="Mídia do anúncio" description="Envie, reordene e escolha a capa. A primeira imagem é a principal no Mercado Livre." />
+              <StepHeading number="2" title="Mídia do anúncio" description="Adicione pelo menos 3 fotos, organize a ordem e escolha a capa do anúncio." />
             <div className="space-y-2">
               <ListingMediaManager
                 value={editForm.pictureUrl}
                 onChange={(value) => updateEditForm("pictureUrl", value)}
-                produtoId={Number(editForm.produtoId) || null}
                 productImageUrls={editingProductImageUrls}
                 disabled={editingListing || loadingEditListing || !editCapabilities.pictures}
-                disabledReason={editCapabilities.pictures ? null : "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre."}
+                disabledReason={editingMediaDisabledReason}
               />
             </div>
             <div className="space-y-2">

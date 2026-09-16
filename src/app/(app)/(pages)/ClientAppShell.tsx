@@ -53,6 +53,7 @@ const routeTitles: Record<string, string> = {
   "/plano": "Seu Plano",
   "/meu-perfil": "Meu Perfil",
   "/preferencias": "Preferências",
+  "/tarefas": "Tarefas & Anotações",
 };
 
 function humanize(path: string) {
@@ -63,6 +64,7 @@ function humanize(path: string) {
   const dic: Record<string, string> = {
     execucao: "Execução de Ordens",
     ordens: "Ordens de Serviço",
+    tarefas: "Tarefas & Anotações",
     assistentepagamento: "Assistente de Pagamento",
     fluxodecaixa: "Fluxo de Caixa",
     bancos: "Bancos",
