@@ -1,6 +1,7 @@
+import { buildStockOnlyPayload } from "./mercadolivre-stock-payload";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
+import { assertMercadoLivreItemStockWritable } from "./mercadolivre-stock-policy";
 import { mercadoLivreApiGet, mercadoLivreApiPut } from "@/lib/integrations/mercadolivre";
-import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
 import { registerMercadoLivreOutboundTouch } from "@/lib/integrations/mercadolivre-outbound-touch";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -32,9 +33,7 @@ async function processStockSync(job: ReservedStockSync) {
     const { data: link, error: linkError } = await supabaseAdmin
       .from("mercadolivre_product_link")
       .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, status, raw_item")
-      .eq("id", job.product_link_id)
-      .eq("empresa_id", job.empresa_id)
-      .single();
+      .eq("id", job.product_link_id).eq("empresa_id", job.empresa_id).single();
     if (linkError) throw linkError;
 
     if (["closed", "deleted"].includes(String(link.status ?? "").toLowerCase())) {
@@ -48,12 +47,9 @@ async function processStockSync(job: ReservedStockSync) {
       account.access_token,
       `/items/${encodeURIComponent(String(link.ml_item_id))}`,
     );
+    assertMercadoLivreItemStockWritable(itemBefore);
     const quantityBefore = getConfirmedQuantity(itemBefore, link.ml_variation_id);
-    // Só o estoque segue o ERP. O preço do anúncio é independente de
-    // `produto.precovenda` e nunca vai neste PUT.
-    const payload = link.ml_variation_id
-      ? { variations: [{ id: Number(link.ml_variation_id), available_quantity: quantity }] }
-      : { available_quantity: quantity };
+    const payload = buildStockOnlyPayload(quantity, link.ml_variation_id);
 
     await mercadoLivreApiPut<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`, payload);
     // O Mercado Livre devolve um webhook `items` por causa deste PUT. Marcamos a
@@ -64,8 +60,15 @@ async function processStockSync(job: ReservedStockSync) {
       kinds: ["ESTOQUE"],
       origin: "syncPendingMercadoLivreStock",
     });
-    const item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`);
-    const confirmedQuantity = getConfirmedQuantity(item, link.ml_variation_id);
+    let item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`);
+    let confirmedQuantity = getConfirmedQuantity(item, link.ml_variation_id);
+    // Propagação assíncrona: repetir apenas a leitura, nunca o PUT nesta confirmação.
+    for (const delay of [500, 1000]) {
+      if (confirmedQuantity === quantity) break;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(String(link.ml_item_id))}`);
+      confirmedQuantity = getConfirmedQuantity(item, link.ml_variation_id);
+    }
     if (confirmedQuantity !== quantity) {
       throw new Error(
         `O Mercado Livre não confirmou o estoque solicitado. ERP: ${quantity}; Mercado Livre: ${confirmedQuantity}. ` +
@@ -73,7 +76,6 @@ async function processStockSync(job: ReservedStockSync) {
       );
     }
 
-    const priceState = await getMercadoLivrePriceState(account.access_token, String(link.ml_item_id), item);
     const { error: updateLinkError } = await supabaseAdmin
       .from("mercadolivre_product_link")
       .update({
@@ -81,7 +83,6 @@ async function processStockSync(job: ReservedStockSync) {
         available_quantity: quantity,
         raw_item: {
           ...(item ?? {}),
-          _erp_price_state: priceState,
           _erp_stock_sync: {
             previousQuantity: quantityBefore,
             currentQuantity: quantity,
@@ -94,7 +95,10 @@ async function processStockSync(job: ReservedStockSync) {
       .eq("id", link.id);
     if (updateLinkError) throw updateLinkError;
     await completeJob(job, "PROCESSADA", null);
-    return { produtoId: job.produto_id, itemId: link.ml_item_id, quantity, ok: true };
+    return {
+      produtoId: job.produto_id, itemId: link.ml_item_id, quantity,
+      priceSkipped: true, message: "Estoque atualizado. O preço do anúncio foi preservado.", ok: true,
+    };
   } catch (error: any) {
     const message = String(error?.message ?? "Falha ao sincronizar estoque com o Mercado Livre.");
     await failJob(job, message);

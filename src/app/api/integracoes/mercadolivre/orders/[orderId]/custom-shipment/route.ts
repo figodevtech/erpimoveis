@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
-import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreApiPut, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreApiPut } from "@/lib/integrations/mercadolivre";
 import { buildMercadoLivreMe1TrackingEvent } from "@/lib/integrations/mercadolivre-me1";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -324,26 +324,7 @@ function parseDeliverySpeedHours(value: string) {
 }
 
 async function ensureValidAccessToken(account: MercadoLivreAccount) {
-  const expiresAt = account.expires_at ? new Date(account.expires_at).getTime() : 0;
-  const shouldRefresh = Boolean(account.refresh_token && expiresAt && expiresAt - Date.now() < 5 * 60 * 1000);
-  if (!shouldRefresh) return account.access_token;
-
-  const token = await refreshMercadoLivreToken(account.refresh_token as string);
-  const { error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .update({
-      access_token: token.access_token,
-      refresh_token: token.refresh_token ?? account.refresh_token,
-      token_type: token.token_type ?? null,
-      scope: token.scope ?? null,
-      expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: mercadoLivreTokenMetadata(token),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", account.id);
-
-  if (error) throw error;
-  return token.access_token;
+  return ensureMercadoLivreToken(account);
 }
 
 async function sendBuyerMessage(accessToken: string, account: MercadoLivreAccount, order: MercadoLivreOrder, text: string) {
@@ -431,3 +412,4 @@ function friendlyMercadoLivreError(error: any, fallback: string) {
     return raw || fallback;
   }
 }
+import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";

@@ -1,4 +1,4 @@
-import { mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type MercadoLivreAccountCredentials = {
@@ -23,30 +23,6 @@ export async function getValidMercadoLivreAccount(empresaId: number) {
   if (error) throw error;
 
   const account = data as MercadoLivreAccountCredentials;
-  const expiresAt = account.expires_at ? new Date(account.expires_at).getTime() : 0;
-  const shouldRefresh = Boolean(account.refresh_token && (!expiresAt || expiresAt - Date.now() < 5 * 60 * 1000));
-  if (!shouldRefresh) return account;
-
-  const token = await refreshMercadoLivreToken(account.refresh_token as string);
-  const updated = {
-    ...account,
-    access_token: token.access_token,
-    refresh_token: token.refresh_token ?? account.refresh_token,
-    expires_at: tokenExpiresAt(token.expires_in),
-  };
-  const { error: updateError } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .update({
-      access_token: updated.access_token,
-      refresh_token: updated.refresh_token,
-      token_type: token.token_type ?? null,
-      scope: token.scope ?? null,
-      expires_at: updated.expires_at,
-      raw_token: mercadoLivreTokenMetadata(token),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", account.id);
-  if (updateError) throw updateError;
-
-  return updated;
+  const access_token = await ensureMercadoLivreToken(account);
+  return { ...account, access_token };
 }

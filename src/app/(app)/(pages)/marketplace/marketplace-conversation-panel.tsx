@@ -34,6 +34,8 @@ export function MarketplaceConversationPanel({
   onRefresh,
   onSelect,
   onSend,
+  onLoadMore,
+  loadingMore = false,
 }: {
   channelName: string;
   conversations: MarketplaceConversation[];
@@ -47,6 +49,8 @@ export function MarketplaceConversationPanel({
   onRefresh: () => void;
   onSelect: (id: string) => void;
   onSend: () => void;
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
 }) {
   return (
     <div className="grid min-h-0 flex-1 grid-cols-[minmax(130px,36%)_minmax(0,1fr)] overflow-hidden sm:grid-cols-[220px_minmax(0,1fr)]">
@@ -61,7 +65,9 @@ export function MarketplaceConversationPanel({
             <div className="flex items-center justify-between gap-2"><span className="truncate font-medium">{conversation.name}</span>{conversation.unreadCount ? <Badge className={selectedId === conversation.id ? "bg-background text-foreground" : ""}>{conversation.unreadCount}</Badge> : null}</div>
             <div className="mt-1 truncate text-xs opacity-75">{conversation.preview || "Abra para visualizar"}</div>
           </button>
-        ))}{!loading && !error && !conversations.length ? <div className="px-3 py-6 text-center text-xs text-muted-foreground">Nenhuma conversa encontrada.</div> : null}</div></ScrollArea>
+        ))}{!loading && !error && !conversations.length ? <div className="px-3 py-6 text-center text-xs text-muted-foreground">Nenhuma conversa encontrada.</div> : null}
+        {onLoadMore ? <Button type="button" variant="outline" size="sm" className="h-auto w-full whitespace-normal" disabled={loading || loadingMore} onClick={onLoadMore}>{loadingMore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}{loadingMore ? "Carregando..." : "Carregar mais conversas"}</Button> : null}
+        </div></ScrollArea>
       </aside>
       <section className="flex min-h-0 flex-col">
         <div className="border-b px-4 py-3"><div className="truncate text-sm font-semibold">{selectedId ? selectedName || `Comprador ${channelName}` : "Selecione uma conversa"}</div><div className="truncate text-xs text-muted-foreground">{selectedId ? `Atendimento pelo ${channelName}` : "As mensagens dos compradores aparecem aqui."}</div></div>

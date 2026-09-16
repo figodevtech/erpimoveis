@@ -104,11 +104,16 @@ export function A4PdfActions({
   backHref,
   selector = ".report-sheet",
   landscape = false,
+  pixelRatio = 2,
+  quality = 0.96,
 }: {
   filename: string;
   backHref: string;
   selector?: string;
   landscape?: boolean;
+  /** Resolução da imagem de cada folha: 2 dá ~190 dpi no A4; 3, ~290 dpi, para texto pequeno. */
+  pixelRatio?: number;
+  quality?: number;
 }) {
   const [generating, setGenerating] = useState(false);
 
@@ -124,8 +129,8 @@ export function A4PdfActions({
         const dataUrl = await toJpeg(sheet, {
           backgroundColor: "#ffffff",
           cacheBust: true,
-          pixelRatio: 2,
-          quality: 0.96,
+          pixelRatio,
+          quality,
         });
         images.push({ bytes: dataUrlToBytes(dataUrl), ...(await readImageSize(dataUrl)) });
       }

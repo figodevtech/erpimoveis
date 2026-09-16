@@ -1,8 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
-import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { mercadoLivreApiGet, mercadoLivreApiPost } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { contactOptions, contactPayload } from "@/lib/integrations/mercadolivre-contact-options";
+import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";
+import { parseMessagePage, messageOrderPage, MESSAGE_ORDER_PAGE_SIZE } from "@/lib/integrations/mercadolivre-message-page";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,13 +33,18 @@ type MessageOrder = {
 export async function GET(req: NextRequest) {
   try {
     await requireVendasAccess();
+    const { orderDbId, beforeId, limit } = parseMessagePage(req.nextUrl.searchParams);
 
     const account = await getActiveAccount(await requireEmpresaId());
     const accessToken = await ensureValidAccessToken(account);
-    const orderDbId = req.nextUrl.searchParams.get("orderDbId");
-    const limit = Math.min(Math.max(Number(req.nextUrl.searchParams.get("limit") ?? 20), 1), 50);
-
-    const orders = await getMessageOrders(account.empresa_id, account.id, orderDbId ? Number(orderDbId) : undefined);
+    const rows = await getMessageOrders(account.empresa_id, account.id, orderDbId, beforeId);
+    if (req.nextUrl.searchParams.get("actionGuide") === "true") {
+      if (!orderDbId) return NextResponse.json({ error: "Selecione um pedido." }, { status: 400 });
+      if (!rows[0]) return NextResponse.json({ error: "Pedido não encontrado." }, { status: 404 });
+      const guide = await mercadoLivreApiGet(accessToken, `/messages/action_guide/packs/${encodeURIComponent(String(getPackId(rows[0])))}?tag=post_sale`);
+      return NextResponse.json({ options: contactOptions(guide) }, { headers: { "Cache-Control": "private, no-store" } });
+    }
+    const { data: orders, nextCursor } = messageOrderPage(rows);
     const conversations = await Promise.all(
       orders.map(async (order) => {
         const packId = getPackId(order);
@@ -74,10 +82,10 @@ export async function GET(req: NextRequest) {
       }),
     );
 
-    return NextResponse.json({ data: conversations });
+    return NextResponse.json({ data: conversations, nextCursor }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e: any) {
     console.error("GET /api/integracoes/mercadolivre/messages", e);
-    return NextResponse.json({ error: friendlyMercadoLivreError(e, "Falha ao carregar mensagens Mercado Livre.") }, { status: 500 });
+    return NextResponse.json({ error: friendlyMercadoLivreError(e, "Falha ao carregar mensagens Mercado Livre.") }, { status: errorStatus(e) });
   }
 }
 
@@ -88,11 +96,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const orderDbId = Number(body?.orderDbId);
     const text = String(body?.text ?? "").trim();
+    const optionId = String(body?.optionId ?? "");
 
     if (!Number.isInteger(orderDbId) || orderDbId <= 0) {
       return NextResponse.json({ error: "Pedido inválido." }, { status: 400 });
     }
-    if (!text) {
+    if (!text && !optionId) {
       return NextResponse.json({ error: "Informe a mensagem." }, { status: 400 });
     }
     if (text.length > 350) {
@@ -108,6 +117,14 @@ export async function POST(req: NextRequest) {
     const buyerId = Number(order.buyer_id ?? order.raw_order?.buyer?.id ?? 0);
     if (!packId || !buyerId) {
       return NextResponse.json({ error: "Pedido sem dados suficientes para conversa." }, { status: 400 });
+    }
+
+    if (optionId) {
+      const path = `/messages/action_guide/packs/${encodeURIComponent(String(packId))}`;
+      const guide = await mercadoLivreApiGet(accessToken, `${path}?tag=post_sale`);
+      const payload = contactPayload(guide, optionId, text, body?.delivery);
+      const data = await mercadoLivreApiPost(accessToken, `${path}/option?tag=post_sale`, payload);
+      return NextResponse.json({ ok: true, data });
     }
 
     const data = await mercadoLivreApiPost<any>(
@@ -153,38 +170,20 @@ function getMessageAgentId(siteId: string | null) {
 }
 
 async function ensureValidAccessToken(account: MercadoLivreAccount) {
-  const expiresAt = account.expires_at ? new Date(account.expires_at).getTime() : 0;
-  const shouldRefresh = Boolean(account.refresh_token && expiresAt && expiresAt - Date.now() < 5 * 60 * 1000);
-  if (!shouldRefresh) return account.access_token;
-
-  const token = await refreshMercadoLivreToken(account.refresh_token as string);
-  const { error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .update({
-      access_token: token.access_token,
-      refresh_token: token.refresh_token ?? account.refresh_token,
-      token_type: token.token_type ?? null,
-      scope: token.scope ?? null,
-      expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: mercadoLivreTokenMetadata(token),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", account.id);
-
-  if (error) throw error;
-  return token.access_token;
+  return ensureMercadoLivreToken(account);
 }
 
-async function getMessageOrders(empresaId: number, accountId: number, orderDbId?: number) {
+async function getMessageOrders(empresaId: number, accountId: number, orderDbId?: number, beforeId?: number) {
   let query = supabaseAdmin
     .from("mercadolivre_order")
     .select("id, venda_id, ml_order_id, buyer_id, status, date_created, raw_order")
     .eq("empresa_id", empresaId)
     .eq("account_id", accountId)
-    .order("date_created", { ascending: false })
-    .limit(orderDbId ? 1 : 10);
+    .order("id", { ascending: false })
+    .limit(orderDbId ? 1 : MESSAGE_ORDER_PAGE_SIZE + 1);
 
   if (orderDbId) query = query.eq("id", orderDbId);
+  else if (beforeId) query = query.lt("id", beforeId);
 
   const { data, error } = await query;
   if (error) throw error;

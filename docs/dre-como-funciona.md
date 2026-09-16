@@ -361,3 +361,29 @@ antes dos tributos.
 > vez de subtraí-la, e o resultado líquido aparecia maior pelo dobro das
 > despesas financeiras. No Demir eram R$ 4.447,36 de lucro a mais. Se você
 > guardou algum relatório tirado antes dessa data, ele tem esse erro.
+
+## 12. Imprimir a DRE
+
+O botão **Imprimir DRE**, no topo da tela, abre a folha A4 do período escolhido
+numa aba nova. Ali estão **Baixar PDF** e **Imprimir**.
+
+A impressão mais nítida é pelo **Imprimir** — inclusive para gerar arquivo, com
+"Salvar como PDF" no destino: o texto sai vetorial, nítido em qualquer ampliação.
+O **Baixar PDF** gera a folha como imagem em alta resolução (cerca de 290 dpi),
+boa para enviar, mas não tão fina quanto o texto vetorial.
+
+A folha não refaz conta nenhuma: ela lê a mesma apuração da tela
+(`apurarDre`), então os valores, o período anterior e os percentuais são
+idênticos. O que muda é a apresentação:
+
+- sai a demonstração **inteira**, mesmo que algum grupo esteja recolhido na tela;
+- tudo cabe em **uma folha**. O modelo padrão (44 linhas) sobra com folga; se o
+  conteúdo crescer, a fonte e o espaçamento das linhas diminuem sozinhos até
+  caber, até cerca de três quartos do tamanho normal;
+- só um modelo grande demais para isso vai para uma segunda folha — e aí título
+  de grupo não fica sozinho no pé da folha, resultado não abre a folha seguinte
+  longe da linha de cima, e a segunda folha repete empresa e período;
+- a folha tem "Documento gerado pelo ERP em …" e "Página X de Y".
+
+As pendências da tarja amarela não saem no papel. Antes de entregar uma DRE,
+confira a tela.
