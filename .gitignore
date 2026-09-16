@@ -53,6 +53,11 @@ next-env.d.ts
 #certificado
 /certs
 
+# artefatos locais com dados fiscais/credenciais
+/token.txt
+/empresa_out.json
+/focus_request_log.json
+
 # Arquivos gerados pelo next-pwa
 /public/sw.js
 /public/workbox-*.js
