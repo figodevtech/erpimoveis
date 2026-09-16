@@ -97,6 +97,7 @@ const EDIT_STEP_VALIDITY: Record<EditListingStep, boolean> = {
 };
 import { MarketplaceAttentionCenter, MarketplaceChatLauncher, MarketplaceHeader, MarketplaceListToolbar, MarketplaceLoadingLine, MarketplacePagination, MarketplaceSectionNav, useMarketplaceQueryValue, useMarketplaceSection, type MarketplaceAttentionItem } from "./marketplace-layout";
 import { MarketplaceConversationPanel } from "./marketplace-conversation-panel";
+import { MercadoLivreContactDialog } from "./mercadolivre-contact-dialog";
 import { ListingMediaManager } from "./mercadolivre/listing-media/listing-media-manager";
 import { ListingStepper, type ListingStepDefinition } from "./mercadolivre/listing-stepper";
 import { AttributeCard, AttributeGroup, FormSection, StepHeading, listingFieldClass } from "./mercadolivre/listing-form-fields";
@@ -1967,6 +1968,9 @@ export default function MarketplacePage() {
   const [syncing, setSyncing] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [loadingChat, setLoadingChat] = useState(false);
+  const [loadingMoreChat, setLoadingMoreChat] = useState(false);
+  const [chatNextCursor, setChatNextCursor] = useState<number | null>(null);
+  const chatPageInFlight = useRef(false);
   const [sendingChatMessage, setSendingChatMessage] = useState(false);
   const [chatConversations, setChatConversations] = useState<MlChatConversation[]>([]);
   const [selectedChatOrderId, setSelectedChatOrderId] = useState<number | null>(null);
@@ -3393,17 +3397,22 @@ export default function MarketplacePage() {
     }
   }
 
-  async function loadChatConversations(orderDbId?: number, options: { silent?: boolean } = {}) {
+  async function loadChatConversations(orderDbId?: number, options: { silent?: boolean; beforeId?: number } = {}) {
+    if (!orderDbId && chatPageInFlight.current) return;
+    if (!orderDbId) chatPageInFlight.current = true;
+    const append = options.beforeId !== undefined;
+    if (append) setLoadingMoreChat(true);
     if (!options.silent) setLoadingChat(true);
     try {
       const params = new URLSearchParams({ limit: "30" });
       if (orderDbId) params.set("orderDbId", String(orderDbId));
+      if (append) params.set("beforeId", String(options.beforeId));
       const response = await fetch(`/api/integracoes/mercadolivre/messages?${params.toString()}`, { cache: "no-store" });
       const json = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(json?.error || "Falha ao carregar mensagens.");
       const data = (json.data ?? []) as MlChatConversation[];
       setChatConversations((current) => {
-        if (!orderDbId) return mergeChatConversations(current, data);
+        if (!orderDbId && !append) return mergeChatConversations(current, data);
         const byId = new Map(current.map((conversation) => [conversation.orderDbId, conversation]));
         for (const conversation of data) {
           const previous = byId.get(conversation.orderDbId);
@@ -3411,12 +3420,15 @@ export default function MarketplacePage() {
         }
         return Array.from(byId.values());
       });
-      if (data[0]?.orderDbId) setSelectedChatOrderId(data[0].orderDbId);
+      if (!orderDbId) setChatNextCursor(json.nextCursor ?? null);
+      if (!append && data[0]?.orderDbId) setSelectedChatOrderId(current => current ?? data[0].orderDbId);
     } catch (e: any) {
       if (!options.silent) {
         toast.error("Erro ao carregar chat Mercado Livre", { description: marketplaceErrorMessage(e) });
       }
     } finally {
+      if (!orderDbId) chatPageInFlight.current = false;
+      if (append) setLoadingMoreChat(false);
       if (!options.silent) setLoadingChat(false);
     }
   }
@@ -8041,6 +8053,7 @@ export default function MarketplacePage() {
             <SheetDescription>Conversas pós-venda vinculadas aos pedidos importados.</SheetDescription>
           </SheetHeader>
 
+          {selectedChatConversation ? <MercadoLivreContactDialog key={selectedChatConversation.orderDbId} orderDbId={selectedChatConversation.orderDbId} onSent={() => void loadChatConversations(selectedChatConversation.orderDbId)} /> : null}
           <MarketplaceConversationPanel
             channelName="Mercado Livre"
             conversations={normalizedChatConversations}
@@ -8052,6 +8065,8 @@ export default function MarketplacePage() {
             messageText={chatMessageText}
             onMessageTextChange={setChatMessageText}
             onRefresh={() => void loadChatConversations()}
+            loadingMore={loadingMoreChat}
+            onLoadMore={chatNextCursor !== null ? () => void loadChatConversations(undefined, { beforeId: chatNextCursor }) : undefined}
             onSelect={(id) => setSelectedChatOrderId(Number(id))}
             onSend={() => void sendChatMessage()}
           />

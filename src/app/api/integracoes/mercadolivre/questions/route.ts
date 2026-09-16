@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
 import { requireEmpresaId } from "@/lib/empresa-context";
-import { mercadoLivreApiGet, mercadoLivreApiPost, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { mercadoLivreApiGet, mercadoLivreApiPost } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -136,48 +136,11 @@ async function getActiveAccount(empresaId: number) {
 }
 
 async function ensureAccessToken(account: MercadoLivreAccount) {
-  const expiresAt = account.expires_at ? new Date(account.expires_at).getTime() : 0;
-  const shouldRefresh = Boolean(account.refresh_token && expiresAt && expiresAt - Date.now() < 5 * 60 * 1000);
-
-  if (!shouldRefresh) return account.access_token;
-
-  const token = await refreshMercadoLivreToken(account.refresh_token!);
-  const { error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .update({
-      access_token: token.access_token,
-      refresh_token: token.refresh_token ?? account.refresh_token,
-      token_type: token.token_type ?? null,
-      scope: token.scope ?? null,
-      expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: mercadoLivreTokenMetadata(token),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", account.id);
-
-  if (error) throw error;
-  return token.access_token;
+  return ensureMercadoLivreToken(account);
 }
 
 async function forceRefreshAccessToken(account: MercadoLivreAccount) {
-  if (!account.refresh_token) throw new Error("Token do Mercado Livre inválido. Reconecte a conta.");
-
-  const token = await refreshMercadoLivreToken(account.refresh_token);
-  const { error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .update({
-      access_token: token.access_token,
-      refresh_token: token.refresh_token ?? account.refresh_token,
-      token_type: token.token_type ?? null,
-      scope: token.scope ?? null,
-      expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: mercadoLivreTokenMetadata(token),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", account.id);
-
-  if (error) throw error;
-  return token.access_token;
+  return ensureMercadoLivreToken(account, account.access_token);
 }
 
 async function mercadoLivreApiGetWithRefresh<T>(account: MercadoLivreAccount, accessToken: string, path: string) {
@@ -251,3 +214,4 @@ function friendlyMercadoLivreError(error: any, fallback: string) {
 
   return message || fallback;
 }
+import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";

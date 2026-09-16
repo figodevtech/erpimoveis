@@ -171,6 +171,7 @@ export async function refreshMercadoLivreToken(refreshToken: string) {
 
 export async function getMercadoLivreMe(accessToken: string) {
   const response = await fetch(`${ML_API_BASE_URL}/users/me`, {
+    signal: AbortSignal.timeout(20_000),
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
   });
@@ -249,6 +250,7 @@ export function isMercadoLivreNotFound(error: unknown) {
 
 export async function mercadoLivreApiGet<T>(accessToken: string, path: string, extraHeaders?: HeadersInit) {
   const response = await fetch(`${ML_API_BASE_URL}${path}`, {
+    signal: AbortSignal.timeout(20_000),
     headers: { Authorization: `Bearer ${accessToken}`, ...extraHeaders },
     cache: "no-store",
   });
@@ -263,6 +265,7 @@ export async function mercadoLivreApiGet<T>(accessToken: string, path: string, e
 
 export async function mercadoLivreApiPut<T>(accessToken: string, path: string, body: unknown) {
   const response = await fetch(`${ML_API_BASE_URL}${path}`, {
+    signal: AbortSignal.timeout(20_000),
     method: "PUT",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -283,6 +286,7 @@ export async function mercadoLivreApiPut<T>(accessToken: string, path: string, b
 
 export async function mercadoLivreApiPost<T>(accessToken: string, path: string, body: unknown, extraHeaders?: HeadersInit) {
   const response = await fetch(`${ML_API_BASE_URL}${path}`, {
+    signal: AbortSignal.timeout(20_000),
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -304,6 +308,7 @@ export async function mercadoLivreApiPost<T>(accessToken: string, path: string, 
 
 export async function mercadoLivreApiDelete<T>(accessToken: string, path: string, body?: unknown) {
   const response = await fetch(`${ML_API_BASE_URL}${path}`, {
+    signal: AbortSignal.timeout(20_000),
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -331,6 +336,7 @@ export function tokenExpiresAt(expiresIn?: number) {
 
 async function requestMercadoLivreToken(body: URLSearchParams) {
   const response = await fetch(`${ML_API_BASE_URL}/oauth/token`, {
+    signal: AbortSignal.timeout(20_000),
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",

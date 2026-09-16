@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { requireVendasCreate } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
-import { getMercadoLivreOrder, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { getMercadoLivreOrder } from "@/lib/integrations/mercadolivre";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -96,26 +96,7 @@ async function getAccount(accountId: number | null, empresaId: number) {
 }
 
 async function ensureValidAccessToken(account: MercadoLivreAccount) {
-  const expiresAt = account.expires_at ? new Date(account.expires_at).getTime() : 0;
-  const shouldRefresh = Boolean(account.refresh_token && expiresAt && expiresAt - Date.now() < 5 * 60 * 1000);
-  if (!shouldRefresh) return account.access_token;
-
-  const token = await refreshMercadoLivreToken(account.refresh_token as string);
-  const { error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .update({
-      access_token: token.access_token,
-      refresh_token: token.refresh_token ?? account.refresh_token,
-      token_type: token.token_type ?? null,
-      scope: token.scope ?? null,
-      expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: mercadoLivreTokenMetadata(token),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", account.id);
-
-  if (error) throw error;
-  return token.access_token;
+  return ensureMercadoLivreToken(account);
 }
 
 function getRefundablePayment(order: any, requestedPaymentId: string | null) {
@@ -181,3 +162,4 @@ function translateRefundError(message: string) {
     .replaceAll("forbidden", "A conta conectada não tem permissão para reembolsar este pagamento.")
     .replaceAll("unauthorized", "Conta não autorizada. Reconecte a conta Mercado Livre.");
 }
+import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";

@@ -5,9 +5,9 @@ import {
   getMercadoLivreOrder,
   mercadoLivreApiGet,
   mercadoLivreApiPost,
-  mercadoLivreTokenMetadata,
-  refreshMercadoLivreToken,
-  tokenExpiresAt,
+  
+  
+  
 } from "@/lib/integrations/mercadolivre";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -136,22 +136,7 @@ async function getAccount(accountId: number | null, empresaId: number) {
 }
 
 async function ensureValidAccessToken(account: Account) {
-  const expiresAt = account.expires_at ? new Date(account.expires_at).getTime() : 0;
-  if (!account.refresh_token || !expiresAt || expiresAt - Date.now() >= 5 * 60 * 1000) return account.access_token;
-  const token = await refreshMercadoLivreToken(account.refresh_token);
-  const { error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .update({
-      access_token: token.access_token,
-      refresh_token: token.refresh_token ?? account.refresh_token,
-      expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: mercadoLivreTokenMetadata(token),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", account.id)
-    .eq("empresa_id", account.empresa_id);
-  if (error) throw error;
-  return token.access_token;
+  return ensureMercadoLivreToken(account);
 }
 
 function friendlyError(error: any, fallback: string) {
@@ -170,3 +155,4 @@ function friendlyError(error: any, fallback: string) {
     .replaceAll("Feedback already exists", "Esta venda já possui uma qualificação e não pode ser cancelada por este fluxo.")
     .replaceAll("invalid access token", "Token inválido. Reconecte a conta Mercado Livre.");
 }
+import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";

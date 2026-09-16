@@ -1,5 +1,6 @@
+import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";
 import { createHash } from "crypto";
-import { getMercadoLivreOrder, isMercadoLivreNotFound, mercadoLivreApiGet, mercadoLivreTokenMetadata, refreshMercadoLivreToken, tokenExpiresAt } from "@/lib/integrations/mercadolivre";
+import { getMercadoLivreOrder, isMercadoLivreNotFound, mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
 import { describeMercadoLivreListingStatus } from "@/lib/integrations/mercadolivre-listing-status";
 import { importMercadoLivreOrder } from "@/lib/integrations/mercadolivre-orders";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
@@ -648,24 +649,7 @@ async function getNotificationAccount(accountId: number | null, mlUserId: number
 }
 
 async function ensureValidAccessToken(account: Account) {
-  const expiresAt = account.expires_at ? new Date(account.expires_at).getTime() : 0;
-  if (!account.refresh_token || !expiresAt || expiresAt - Date.now() >= 5 * 60 * 1000) return account.access_token;
-
-  const token = await refreshMercadoLivreToken(account.refresh_token);
-  const { error } = await supabaseAdmin
-    .from("mercadolivre_account")
-    .update({
-      access_token: token.access_token,
-      refresh_token: token.refresh_token ?? account.refresh_token,
-      token_type: token.token_type ?? null,
-      scope: token.scope ?? null,
-      expires_at: tokenExpiresAt(token.expires_in),
-      raw_token: mercadoLivreTokenMetadata(token),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", account.id);
-  if (error) throw error;
-  return token.access_token;
+  return ensureMercadoLivreToken(account);
 }
 
 async function findRelatedOrder(empresaId: number, accountId: number, claim: any) {
