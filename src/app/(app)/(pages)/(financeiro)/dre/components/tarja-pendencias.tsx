@@ -120,7 +120,7 @@ function CartaoPendencia({
       type="button"
       onClick={() => onAbrir(pendencia)}
       aria-label={`${catalogo.titulo}: ${pendencia.quantidade} item(ns)`}
-      className="flex items-start gap-2.5 rounded-md border bg-card p-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      className="flex cursor-pointer items-start gap-2.5 rounded-md border bg-card p-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
       <span
         className={cn(

@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import type { LinhaDre, PendenciaDre, PeriodoDre, RespostaDre } from "./types";
 import { DetalheLinhaDialog } from "./components/detalhe-linha-dialog";
+import { OrigensLinhaDialog } from "./components/origens-linha-dialog";
 import { PendenciasDialog } from "./components/pendencias-dialog";
 import { TarjaPendencias } from "./components/tarja-pendencias";
 import { brl, direcaoDaVariacao, montarIndicadores, pct } from "./apresentacao";
@@ -59,16 +60,20 @@ function LinhaTabela({
   expandidas,
   alternar,
   onAbrirDetalhe,
+  onAbrirOrigens,
 }: {
   linha: LinhaDre;
   expandidas: ReadonlySet<number>;
   alternar: (id: number) => void;
   onAbrirDetalhe: (linha: LinhaDre) => void;
+  onAbrirOrigens: (linha: LinhaDre) => void;
 }) {
   const temFilhos = linha.filhos.length > 0;
   const aberta = expandidas.has(linha.id);
   const destaque = linha.tipo === "FORMULA" || linha.nivel === 1;
   const negativo = linha.valor < 0;
+  // Linha de fórmula não tem fonte própria: ela combina o resultado de outras.
+  const temOrigens = linha.tipo !== "FORMULA";
 
   return (
     <Fragment>
@@ -91,7 +96,23 @@ function LinhaTabela({
               <span className="size-5" aria-hidden />
             )}
             <span className="text-xs text-muted-foreground tabular-nums">{linha.codigo}</span>
-            <span className={cn("truncate", destaque && "uppercase")}>{linha.nome}</span>
+            {temOrigens ? (
+              <button
+                type="button"
+                onClick={() => onAbrirOrigens(linha)}
+                title={`Ver o que entra em ${linha.nome}`}
+                className={cn(
+                  "-mx-1 cursor-pointer truncate rounded-sm px-1 underline-offset-4 transition-colors",
+                  "hover:bg-accent hover:underline",
+                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  destaque && "uppercase",
+                )}
+              >
+                {linha.nome}
+              </button>
+            ) : (
+              <span className={cn("truncate", destaque && "uppercase")}>{linha.nome}</span>
+            )}
             {linha.semFonte && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -116,7 +137,8 @@ function LinhaTabela({
               onClick={() => onAbrirDetalhe(linha)}
               title={`Ver os ${linha.lancamentos} lançamentos de ${linha.nome}`}
               className={cn(
-                "w-full px-2 py-2 text-right tabular-nums underline-offset-4 hover:underline",
+                "w-full cursor-pointer px-2 py-2 text-right tabular-nums underline-offset-4 transition-colors",
+                "hover:bg-accent hover:underline",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                 negativo && "text-destructive",
               )}
@@ -138,7 +160,14 @@ function LinhaTabela({
 
       <AnimatePresence initial={false}>
         {temFilhos && aberta && linha.filhos.map((filho) => (
-          <LinhaTabela key={filho.id} linha={filho} expandidas={expandidas} alternar={alternar} onAbrirDetalhe={onAbrirDetalhe} />
+          <LinhaTabela
+            key={filho.id}
+            linha={filho}
+            expandidas={expandidas}
+            alternar={alternar}
+            onAbrirDetalhe={onAbrirDetalhe}
+            onAbrirOrigens={onAbrirOrigens}
+          />
         ))}
       </AnimatePresence>
     </Fragment>
@@ -152,11 +181,12 @@ export function DreClient() {
   const [erro, setErro] = useState<string | null>(null);
   const [expandidas, setExpandidas] = useState<ReadonlySet<number>>(new Set());
   /*
-   * Guarda o id, não a linha. Mover um plano de conta pelo detalhamento refaz a
-   * DRE; um objeto guardado continuaria com o valor de antes, e a conferência do
-   * detalhamento acusaria diferença que não existe.
+   * Guarda o id, não a linha. Mover um plano de conta refaz a DRE; um objeto
+   * guardado continuaria com o valor de antes, e a conferência do detalhamento
+   * acusaria diferença que não existe.
    */
   const [detalheId, setDetalheId] = useState<number | null>(null);
+  const [origensId, setOrigensId] = useState<number | null>(null);
   const [pendenciaAberta, setPendenciaAberta] = useState<PendenciaDre | null>(null);
   /*
    * Recarregamento silencioso. Depois de corrigir uma pendência o relatório
@@ -214,7 +244,9 @@ export function DreClient() {
   }, []);
 
   const detalhe = useMemo(() => (dados ? acharLinha(dados.linhas, detalheId) : null), [dados, detalheId]);
+  const origens = useMemo(() => (dados ? acharLinha(dados.linhas, origensId) : null), [dados, origensId]);
   const abrirDetalhe = useCallback((linha: LinhaDre) => setDetalheId(linha.id), []);
+  const abrirOrigens = useCallback((linha: LinhaDre) => setOrigensId(linha.id), []);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -330,6 +362,7 @@ export function DreClient() {
                     expandidas={expandidas}
                     alternar={alternar}
                     onAbrirDetalhe={abrirDetalhe}
+                    onAbrirOrigens={abrirOrigens}
                   />
                 ))
               )}
@@ -342,6 +375,14 @@ export function DreClient() {
             Atualizado em {new Date(dados.atualizadoEm).toLocaleString("pt-BR")}
           </p>
         )}
+
+        <OrigensLinhaDialog
+          linha={origens}
+          periodo={periodo}
+          versao={versao}
+          onFechar={() => setOrigensId(null)}
+          onAlterado={refazer}
+        />
 
         <DetalheLinhaDialog
           linha={detalhe}

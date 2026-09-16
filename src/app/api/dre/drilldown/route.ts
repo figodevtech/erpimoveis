@@ -5,7 +5,7 @@ export const revalidate = 0;
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
-import type { LinhaVisaoConta } from "@/app/api/tipos/planos-de-conta/_mapa";
+import { planosDasTransacoes, type PlanoDoLancamento } from "../_planos";
 
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -22,20 +22,6 @@ type Documento = {
   tipo: "OS" | "VENDA" | "ENTRADA" | "USO_CONSUMO" | "TRANSACAO";
   id: number;
 } | null;
-
-/**
- * Plano de conta de um lançamento avulso. Só existe para `source_type =
- * TRANSACAO`: é o único caso em que a conta decide a linha. Receita de OS ou de
- * venda tem significado próprio, e mover a conta do recebimento não a moveria.
- */
-type PlanoDoLancamento = {
-  id: number;
-  codigo: string | null;
-  nome: string;
-  grupo: string;
-  /** A conta tem linha própria; `false` é seguir o grupo (ou o mapeamento antigo). */
-  linhaPropria: boolean;
-};
 
 function documentoDoEvento(row: Registro): Documento {
   const tipo = texto(row.source_type);
@@ -76,46 +62,6 @@ async function descendentes(templateId: number, linhaId: number): Promise<number
     pilha.push(...(filhosDe.get(atual) ?? []));
   }
 
-  return resultado;
-}
-
-/**
- * Conta de cada transação avulsa, com o destino como a tela de planos de conta
- * o explica. A visão é a mesma que `sincronizar_eventos_financeiros_transacao`
- * usa para decidir a linha: o que aparece aqui é o que moveu o lançamento.
- */
-async function planosDasTransacoes(ids: number[]) {
-  const contaDaTransacao = new Map<number, number>();
-  // Em lotes: centenas de ids numa query string só estouram o limite da URL.
-  for (let inicio = 0; inicio < ids.length; inicio += 200) {
-    const { data, error } = await supabaseAdmin
-      .from("transacao")
-      .select("id, plano_de_conta_id")
-      .in("id", ids.slice(inicio, inicio + 200));
-    if (error) throw error;
-    for (const row of (data ?? []) as Registro[]) {
-      if (row.plano_de_conta_id != null) contaDaTransacao.set(Number(row.id), Number(row.plano_de_conta_id));
-    }
-  }
-
-  const resultado = new Map<number, PlanoDoLancamento>();
-  if (!contaDaTransacao.size) return resultado;
-
-  const { data, error } = await supabaseAdmin.rpc("plano_contas_visao", { p_competencia: null });
-  if (error) throw error;
-  const contas = new Map(((data ?? []) as LinhaVisaoConta[]).map((l) => [Number(l.conta_id), l]));
-
-  for (const [transacaoId, contaId] of contaDaTransacao) {
-    const conta = contas.get(contaId);
-    if (!conta) continue;
-    resultado.set(transacaoId, {
-      id: contaId,
-      codigo: conta.conta_codigo ?? null,
-      nome: conta.conta_nome,
-      grupo: conta.grupo_nome,
-      linhaPropria: Boolean(conta.classificacao_especifica),
-    });
-  }
   return resultado;
 }
 
