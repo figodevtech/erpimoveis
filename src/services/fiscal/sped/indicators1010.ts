@@ -1,4 +1,5 @@
 import type { SpedDiagnostic, SpedGateStatus } from "@/lib/sped/efd-icms-ipi";
+import { SpedServiceError } from "./errors";
 
 export type Sped1010IndicatorValue = "S" | "N";
 export type Sped1010IndicatorOrigin =
@@ -16,6 +17,66 @@ export interface Sped1010IndicatorDetail {
   motivo: string;
 }
 
+export interface Sped1010ManualDecision {
+  valor: Sped1010IndicatorValue;
+  status: SpedGateStatus;
+  descricao?: string;
+  confirmadoEm?: string;
+  confirmadoPor?: string;
+}
+
+export interface Sped1010ManualFieldDefinition {
+  campo: string;
+  titulo: string;
+  subtitulo: string;
+  registroEfd: string;
+}
+
+export const SPED_1010_MANUAL_FIELDS: readonly Sped1010ManualFieldDefinition[] = [
+  {
+    campo: "IND_EXP",
+    titulo: "Operações de exportação",
+    subtitulo: "Registro 1100 — Ocorrência de exportação direta ou indireta no período",
+    registroEfd: "1100",
+  },
+  {
+    campo: "IND_CCRF",
+    titulo: "Controle de créditos fiscais de ICMS",
+    subtitulo: "Registro 1200 — Controle de créditos acumulados ou saldo credor de ICMS transferido",
+    registroEfd: "1200",
+  },
+  {
+    campo: "IND_COMB",
+    titulo: "Operações com combustíveis",
+    subtitulo: "Registro 1300 — Comercialização, produção ou transporte de combustíveis e derivados",
+    registroEfd: "1300",
+  },
+  {
+    campo: "IND_USINA",
+    titulo: "Usinas de açúcar e álcool",
+    subtitulo: "Registro 1390 — Controle de produção e entrada de cana-de-açúcar em usinas",
+    registroEfd: "1390",
+  },
+  {
+    campo: "IND_EE",
+    titulo: "Operações com energia elétrica",
+    subtitulo: "Registro 1500 — Atividades de geração, transmissão ou distribuição de energia elétrica",
+    registroEfd: "1500",
+  },
+  {
+    campo: "IND_FORM",
+    titulo: "Formulário de segurança",
+    subtitulo: "Registro 1700 — Emissão de documentos fiscais em formulário de segurança (FS-DA)",
+    registroEfd: "1700",
+  },
+  {
+    campo: "IND_AER",
+    titulo: "Transporte aéreo",
+    subtitulo: "Registro 1800 — Prestação de serviços de transporte aéreo de passageiros ou cargas",
+    registroEfd: "1800",
+  },
+] as const;
+
 export interface Sped1010ContextInput {
   uf: string;
   config: Record<string, unknown> | null;
@@ -31,6 +92,39 @@ export interface Sped1010Resolution {
 }
 
 const PE_ONLY_INDICATORS = new Set(["IND_GIAF1", "IND_GIAF3", "IND_GIAF4"]);
+
+function parseManualDecision(raw: unknown): {
+  isConfirmed: boolean;
+  value: Sped1010IndicatorValue;
+  descricao?: string;
+  confirmadoEm?: string;
+  confirmadoPor?: string;
+} {
+  if (raw == null) {
+    return { isConfirmed: false, value: "N" };
+  }
+  if (typeof raw === "object" && raw !== null) {
+    const obj = raw as Record<string, unknown>;
+    const status = String(obj.status || "").toUpperCase().trim();
+    const val = String(obj.valor || "").toUpperCase().trim();
+    if (status === "CONFIRMADO" && (val === "S" || val === "N")) {
+      return {
+        isConfirmed: true,
+        value: val as Sped1010IndicatorValue,
+        descricao: typeof obj.descricao === "string" ? obj.descricao.trim() : undefined,
+        confirmadoEm: typeof obj.confirmadoEm === "string" ? obj.confirmadoEm : undefined,
+        confirmadoPor: typeof obj.confirmadoPor === "string" ? obj.confirmadoPor : undefined,
+      };
+    }
+    return { isConfirmed: false, value: val === "S" ? "S" : "N" };
+  }
+  // Compatibilidade retroativa para string direta "S" ou "N"
+  const val = String(raw).toUpperCase().trim();
+  if (val === "S" || val === "N") {
+    return { isConfirmed: true, value: val as Sped1010IndicatorValue };
+  }
+  return { isConfirmed: false, value: "N" };
+}
 
 export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Resolution {
   const uf = String(input.uf || "").toUpperCase().trim();
@@ -48,6 +142,7 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
   }
 
   // 1. IND_EXP — Operações de Exportação (Bloco 1: 1100)
+  const decExp = parseManualDecision(config1010.IND_EXP);
   if (input.hasExportOperations) {
     register({
       campo: "IND_EXP",
@@ -57,15 +152,16 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
       origem: "FONTES_MOVIMENTO",
       motivo: "Identificadas operações de exportação (CFOP 7xxx) nas fontes fiscais do período.",
     });
-  } else if (config1010.IND_EXP != null) {
-    const val = String(config1010.IND_EXP).toUpperCase() === "S" ? "S" : "N";
+  } else if (decExp.isConfirmed) {
     register({
       campo: "IND_EXP",
       titulo: "Operações de Exportação",
-      valor: val,
+      valor: decExp.value,
       status: "CONFIRMADO",
       origem: "CONFIGURACAO",
-      motivo: `Decisão fiscal confirmada pelo contador: ${val}.`,
+      motivo: decExp.descricao
+        ? `Decisão fiscal confirmada pelo contador: ${decExp.value} (${decExp.descricao}).`
+        : `Decisão fiscal confirmada pelo contador: ${decExp.value}.`,
     });
   } else {
     register({
@@ -79,15 +175,17 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
   }
 
   // 2. IND_CCRF — Créditos Fiscais Acumulados de ICMS (Bloco 1: 1200)
-  if (config1010.IND_CCRF != null) {
-    const val = String(config1010.IND_CCRF).toUpperCase() === "S" ? "S" : "N";
+  const decCcrf = parseManualDecision(config1010.IND_CCRF);
+  if (decCcrf.isConfirmed) {
     register({
       campo: "IND_CCRF",
       titulo: "Controle de Créditos Fiscais de ICMS",
-      valor: val,
+      valor: decCcrf.value,
       status: "CONFIRMADO",
       origem: "CONFIGURACAO",
-      motivo: `Decisão fiscal confirmada pelo contador: ${val}.`,
+      motivo: decCcrf.descricao
+        ? `Decisão fiscal confirmada pelo contador: ${decCcrf.value} (${decCcrf.descricao}).`
+        : `Decisão fiscal confirmada pelo contador: ${decCcrf.value}.`,
     });
   } else {
     register({
@@ -101,15 +199,17 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
   }
 
   // 3. IND_COMB — Operações com Combustíveis (Bloco 1: 1300)
-  if (config1010.IND_COMB != null) {
-    const val = String(config1010.IND_COMB).toUpperCase() === "S" ? "S" : "N";
+  const decComb = parseManualDecision(config1010.IND_COMB);
+  if (decComb.isConfirmed) {
     register({
       campo: "IND_COMB",
       titulo: "Operações com Combustíveis",
-      valor: val,
+      valor: decComb.value,
       status: "CONFIRMADO",
       origem: "CONFIGURACAO",
-      motivo: `Decisão fiscal confirmada pelo contador: ${val}.`,
+      motivo: decComb.descricao
+        ? `Decisão fiscal confirmada pelo contador: ${decComb.value} (${decComb.descricao}).`
+        : `Decisão fiscal confirmada pelo contador: ${decComb.value}.`,
     });
   } else {
     register({
@@ -123,15 +223,17 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
   }
 
   // 4. IND_USINA — Usina de Açúcar e/ou Álcool (Bloco 1: 1390)
-  if (config1010.IND_USINA != null) {
-    const val = String(config1010.IND_USINA).toUpperCase() === "S" ? "S" : "N";
+  const decUsina = parseManualDecision(config1010.IND_USINA);
+  if (decUsina.isConfirmed) {
     register({
       campo: "IND_USINA",
       titulo: "Usinas de Açúcar e Álcool",
-      valor: val,
+      valor: decUsina.value,
       status: "CONFIRMADO",
       origem: "CONFIGURACAO",
-      motivo: `Decisão fiscal confirmada pelo contador: ${val}.`,
+      motivo: decUsina.descricao
+        ? `Decisão fiscal confirmada pelo contador: ${decUsina.value} (${decUsina.descricao}).`
+        : `Decisão fiscal confirmada pelo contador: ${decUsina.value}.`,
     });
   } else {
     register({
@@ -168,15 +270,17 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
   }
 
   // 6. IND_EE — Operações com Energia Elétrica (Bloco 1: 1500)
-  if (config1010.IND_EE != null) {
-    const val = String(config1010.IND_EE).toUpperCase() === "S" ? "S" : "N";
+  const decEe = parseManualDecision(config1010.IND_EE);
+  if (decEe.isConfirmed) {
     register({
       campo: "IND_EE",
       titulo: "Operações com Energia Elétrica",
-      valor: val,
+      valor: decEe.value,
       status: "CONFIRMADO",
       origem: "CONFIGURACAO",
-      motivo: `Decisão fiscal confirmada pelo contador: ${val}.`,
+      motivo: decEe.descricao
+        ? `Decisão fiscal confirmada pelo contador: ${decEe.value} (${decEe.descricao}).`
+        : `Decisão fiscal confirmada pelo contador: ${decEe.value}.`,
     });
   } else {
     register({
@@ -222,15 +326,17 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
   }
 
   // 8. IND_FORM — Emissão de Documentos em Formulário de Segurança (Bloco 1: 1700)
-  if (config1010.IND_FORM != null) {
-    const val = String(config1010.IND_FORM).toUpperCase() === "S" ? "S" : "N";
+  const decForm = parseManualDecision(config1010.IND_FORM);
+  if (decForm.isConfirmed) {
     register({
       campo: "IND_FORM",
       titulo: "Documentos em Formulário de Segurança",
-      valor: val,
+      valor: decForm.value,
       status: "CONFIRMADO",
       origem: "CONFIGURACAO",
-      motivo: `Decisão fiscal confirmada pelo contador: ${val}.`,
+      motivo: decForm.descricao
+        ? `Decisão fiscal confirmada pelo contador: ${decForm.value} (${decForm.descricao}).`
+        : `Decisão fiscal confirmada pelo contador: ${decForm.value}.`,
     });
   } else {
     register({
@@ -244,15 +350,17 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
   }
 
   // 9. IND_AER — Transporte Aéreo (Bloco 1: 1800)
-  if (config1010.IND_AER != null) {
-    const val = String(config1010.IND_AER).toUpperCase() === "S" ? "S" : "N";
+  const decAer = parseManualDecision(config1010.IND_AER);
+  if (decAer.isConfirmed) {
     register({
       campo: "IND_AER",
       titulo: "Transporte Aéreo",
-      valor: val,
+      valor: decAer.value,
       status: "CONFIRMADO",
       origem: "CONFIGURACAO",
-      motivo: `Decisão fiscal confirmada pelo contador: ${val}.`,
+      motivo: decAer.descricao
+        ? `Decisão fiscal confirmada pelo contador: ${decAer.value} (${decAer.descricao}).`
+        : `Decisão fiscal confirmada pelo contador: ${decAer.value}.`,
     });
   } else {
     register({
@@ -277,25 +385,29 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
         origem: "REGRA_UF",
         motivo: `Dispensado: obrigação exclusiva de contribuintes estabelecidos em Pernambuco (UF da empresa: ${uf || "desconhecida"}).`,
       });
-    } else if (config1010[giafField] != null) {
-      const val = String(config1010[giafField]).toUpperCase() === "S" ? "S" : "N";
-      register({
-        campo: giafField,
-        titulo: `GIAF ${num} (Guia de Informações Fiscais - PE)`,
-        valor: val,
-        status: "CONFIRMADO",
-        origem: "CONFIGURACAO",
-        motivo: `Decisão fiscal confirmada pelo contador: ${val}.`,
-      });
     } else {
-      register({
-        campo: giafField,
-        titulo: `GIAF ${num} (Guia de Informações Fiscais - PE)`,
-        valor: "N",
-        status: "PENDENTE",
-        origem: "PADRAO_PROVISORIO",
-        motivo: `Contribuinte em Pernambuco exige confirmação sobre obrigatoriedade da GIAF ${num}.`,
-      });
+      const decGiaf = parseManualDecision(config1010[giafField]);
+      if (decGiaf.isConfirmed) {
+        register({
+          campo: giafField,
+          titulo: `GIAF ${num} (Guia de Informações Fiscais - PE)`,
+          valor: decGiaf.value,
+          status: "CONFIRMADO",
+          origem: "CONFIGURACAO",
+          motivo: decGiaf.descricao
+            ? `Decisão fiscal confirmada pelo contador: ${decGiaf.value} (${decGiaf.descricao}).`
+            : `Decisão fiscal confirmada pelo contador: ${decGiaf.value}.`,
+        });
+      } else {
+        register({
+          campo: giafField,
+          titulo: `GIAF ${num} (Guia de Informações Fiscais - PE)`,
+          valor: "N",
+          status: "PENDENTE",
+          origem: "PADRAO_PROVISORIO",
+          motivo: `Contribuinte em Pernambuco exige confirmação sobre obrigatoriedade da GIAF ${num}.`,
+        });
+      }
     }
   }
 
@@ -341,3 +453,82 @@ export function resolve1010Indicators(input: Sped1010ContextInput): Sped1010Reso
 
   return { indicators, details, diagnostics };
 }
+
+/**
+ * Valida e realiza merge profundo das decisões auditáveis do Registro 1010
+ * preservando integralmente todas as outras evidências já cadastradas em fiscal_sped_config.evidencias.
+ */
+export function mergeSped1010Evidence(
+  currentEvidencias: Record<string, unknown> | null | undefined,
+  supplied1010: Record<string, unknown> | null | undefined,
+  actorId: string
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...(currentEvidencias ?? {}) };
+  if (!supplied1010 || typeof supplied1010 !== "object") {
+    return merged;
+  }
+  const existing1010 = (merged.indicadores_1010 && typeof merged.indicadores_1010 === "object"
+    ? merged.indicadores_1010 as Record<string, unknown>
+    : {});
+  const next1010: Record<string, unknown> = { ...existing1010 };
+
+  const VALID_1010_FIELDS = new Set([
+    "IND_EXP", "IND_CCRF", "IND_COMB", "IND_USINA", "IND_EE", "IND_FORM", "IND_AER",
+    "IND_GIAF1", "IND_GIAF3", "IND_GIAF4",
+  ]);
+
+  for (const [field, rawItem] of Object.entries(supplied1010)) {
+    if (!VALID_1010_FIELDS.has(field)) continue;
+    if (rawItem == null) {
+      delete next1010[field];
+      continue;
+    }
+    if (typeof rawItem === "object" && rawItem !== null) {
+      const itemObj = rawItem as Record<string, unknown>;
+      const rawStatus = String(itemObj.status || "PENDENTE").toUpperCase().trim();
+      if (!["PENDENTE", "CONFIRMADO", "NAO_APLICAVEL"].includes(rawStatus)) {
+        throw new SpedServiceError(`Status inválido para o indicador ${field}.`, 400, "INVALID_GATE_STATUS");
+      }
+      if (rawStatus === "CONFIRMADO") {
+        const rawVal = String(itemObj.valor || "").toUpperCase().trim();
+        if (rawVal !== "S" && rawVal !== "N") {
+          throw new SpedServiceError(`O valor do indicador ${field} deve ser estritamente "S" ou "N".`, 400, "INVALID_INDICATOR_VALUE");
+        }
+        const descricao = String(itemObj.descricao || "").trim();
+        if (!descricao) {
+          throw new SpedServiceError(`Informe a evidência fiscal para confirmar o indicador ${field}.`, 400, "INDICATOR_EVIDENCE_REQUIRED");
+        }
+        next1010[field] = {
+          valor: rawVal as Sped1010IndicatorValue,
+          status: "CONFIRMADO",
+          descricao,
+          confirmadoEm: (typeof itemObj.confirmadoEm === "string" && itemObj.confirmadoEm) || new Date().toISOString(),
+          confirmadoPor: (typeof itemObj.confirmadoPor === "string" && itemObj.confirmadoPor) || actorId,
+        };
+      } else {
+        const rawVal = String(itemObj.valor || "").toUpperCase().trim();
+        next1010[field] = {
+          valor: rawVal === "S" || rawVal === "N" ? (rawVal as Sped1010IndicatorValue) : "N",
+          status: "PENDENTE",
+          descricao: String(itemObj.descricao || "").trim(),
+        };
+      }
+    } else {
+      const rawVal = String(rawItem).toUpperCase().trim();
+      if (rawVal !== "S" && rawVal !== "N") {
+        throw new SpedServiceError(`O valor do indicador ${field} deve ser estritamente "S" ou "N".`, 400, "INVALID_INDICATOR_VALUE");
+      }
+      next1010[field] = {
+        valor: rawVal as Sped1010IndicatorValue,
+        status: "CONFIRMADO",
+        descricao: "Decisão fiscal confirmada pelo contador.",
+        confirmadoEm: new Date().toISOString(),
+        confirmadoPor: actorId,
+      };
+    }
+  }
+
+  merged.indicadores_1010 = next1010;
+  return merged;
+}
+

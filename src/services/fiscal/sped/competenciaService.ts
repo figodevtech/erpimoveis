@@ -32,6 +32,7 @@ import { projectSpedAssessment, type SpedAssessmentProjection } from "./assessme
 import { hashStableJson, sha256Hex } from "./hash";
 import { projectSpedInventory } from "./inventoryProjection";
 import { buildFoundationRecords, buildGateConfiguration, validateFoundation } from "./projection";
+import { mergeSped1010Evidence } from "./indicators1010";
 import {
   projectFiscalDocument,
   type ProjectedFiscalDocument,
@@ -1495,6 +1496,13 @@ export async function updateSpedConfiguration(input: {
       confirmadoPor: input.actorId,
     };
   }
+
+  // Processa e valida decisões auditáveis dos indicadores complementares do Registro 1010
+  const supplied1010 = (suppliedEvidence.indicadores_1010 ?? input.patch.indicadores_1010) as Record<string, unknown> | undefined;
+  if (supplied1010 && typeof supplied1010 === "object") {
+    mergedEvidence = mergeSped1010Evidence(mergedEvidence, supplied1010, input.actorId);
+  }
+
   payload.evidencias = mergedEvidence;
 
   if (payload.inventario_fechamento_id != null) {

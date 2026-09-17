@@ -16,9 +16,9 @@
 | 3 | Estruturas de configuração, competência, versão, snapshots, apuração, diagnósticos, arquivos, 1601, inventário e PVA | **IMPLEMENTADO**, **TESTADO NO BANCO** (285 migrations aplicadas em demo/demir/garage, RLS estrita nas 23 tabelas, bucket privado) |
 | 4 | Motor do leiaute 020 (Blocos 0, C, E, H, 1 e 9)<br>• Bloco 0: 0000, 0001, 0005, 0100, 0150, 0190, 0200, 0220, 0221, 0990 (**IMPLEMENTADO**, **TESTADO UNITARIAMENTE**); 0205 (**PARCIAL**: motor de projeção implementado e testado unitariamente; integração histórica real no piloto indisponível por ausência de rastreamento prévio no ERP — sem histórico confiável não gera 0205)<br>• Bloco C: C001, C100, C101, C170, C190, C191, C990 (**IMPLEMENTADO**, **TESTADO UNITARIAMENTE**)<br>• Bloco E: E001, E100, E110, E111, E112, E113, E115, E116, E300, E310, E311, E312, E313, E316, E990 (**IMPLEMENTADO**, **TESTADO UNITARIAMENTE**; hierarquia blindada para múltiplos ajustes E111/E311 sem duplicação ou orfandade de filhos)<br>• Bloco H: H001, H005, H010, H990 (**IMPLEMENTADO**, **TESTADO UNITARIAMENTE**)<br>• Bloco 1: 1001, 1601, 1990 (**IMPLEMENTADO**, **TESTADO UNITARIAMENTE**); 1010 (**IMPLEMENTADO**, **TESTADO UNITARIAMENTE**: obrigatoriamente gerado no leiaute 020 mesmo quando 1001.IND_MOV = 1, com determinação auditável dos 13 indicadores fiscais, sem assumir "N" para dados desconhecidos e com bloqueio de fechamento se houver pendências contábeis); 1400 (**PARCIAL**: definição de leiaute e gate implementados; gerador condicionado à aplicabilidade, sendo inaplicável para a Demir Diesel por decisão fiscal)<br>• Bloco 9: 9001, 9900, 9990, 9999 (**IMPLEMENTADO**, **TESTADO UNITARIAMENTE**)<br>• Situação PVA: **AGUARDANDO HOMOLOGAÇÃO MANUAL NO PVA** | **IMPLEMENTADO**, **TESTADO UNITARIAMENTE** (suíte de negócio com 1583 testes passando). **AGUARDANDO HOMOLOGAÇÃO MANUAL NO PVA** |
 | 5 | Gates de Perfil, Bloco K, 1400, C176/C179, IPI e Contribuições | **IMPLEMENTADO**, **TESTADO NO BANCO** (recusa de fechamento se PENDENTE comprovada em teste automatizado) |
-| 6 | Importações, validação, fechamento/reabertura, geração concorrente blindada, Storage real e PVA | **IMPLEMENTADO**, **TESTADO NO BANCO**, **TESTADO EM AMBIENTE REAL** (Storage `fiscal-sped` validado e2e com SHA-256; fluxo de concorrência com RPC PostgreSQL transacional `fiscal_sped_registrar_arquivo`, advisory lock por versão, classificação estrita de erro 23505 e compensação contra órfãos no Storage; Casos A a J 100% aprovados; proteção de PREVIA vs FINAL blindada no backend) |
+| 6 | Importações, validação, fechamento/reabertura, geração concorrente blindada, Storage real e PVA | **IMPLEMENTADO**, **TESTADO NO BANCO**, **TESTADO EM AMBIENTE REAL** (Storage `fiscal-sped` validado e2e com SHA-256; fluxo de concorrência com RPC PostgreSQL transacional `fiscal_sped_registrar_arquivo`, advisory lock por versão, classificação estrita de erro 23505 e compensação contra órfãos no Storage; concorrência protegida no desenho transacional e coberta por testes unitários/simulados; RPC e constraints verificadas em banco real; proteção de PREVIA vs FINAL blindada no backend) |
 | 7 | Área `/fiscal/sped`, permissões, rastreabilidade e histórico de PVA | **IMPLEMENTADO**, **TESTADO NO BUILD** (Next.js 15 compilando 210 páginas sem erros) |
-| 8 | Testes e regressão | **TESTADO UNITARIAMENTE** (`npm run test:negocio` com 1583 testes), **TESTADO NO BANCO** (`npm run db:test:sped-fiscal -- demo/demir/garage` com 0 pendências) e `npm run build` passando |
+| 8 | Testes e regressão | **TESTADO UNITARIAMENTE** (`npm run test:negocio` com 1597 testes), **TESTADO NO BANCO** (`npm run db:test:sped-fiscal -- demo/demir/garage` com 0 pendências) e `npm run build` passando |
 
 ### O que o teste de banco prova
 
@@ -71,10 +71,10 @@ Todas as migrations SPED foram aplicadas nos três ambientes (`demo`, `demir` e 
 - [x] Motor de projeção do 0205 preparado para histórico com testes unitários; documentado que sua geração no piloto depende de histórico cadastral auditável no ERP.
 - [x] Suporte a ajustes e documentos fiscais do Bloco E (E111, E112, E113, E115, E116, E311, E312, E313, E316) implementado com hierarquia estrita para múltiplos pais e testes unitários dedicados.
 - [x] Registro 1010 implementado no leiaute 020 e emitido obrigatoriamente em conformidade com o Guia Prático da EFD ICMS/IPI (mesmo com 1001.IND_MOV = 1, gerando |1001|1|, |1010|N...| e |1990|3|; e com IND_CART=S e 4 linhas quando houver 1601).
-- [x] Fonte de verdade fiscal auditável para os 13 indicadores do 1010 (`REGRA_UF`, `FONTES_MOVIMENTO`, `CONFIGURACAO`, `PADRAO_PROVISORIO`), com diagnóstico bloqueante (`INDICADORES_1010_PENDENTES`) impedindo fechamento até confirmação do contador.
+- [x] Fonte de verdade fiscal auditável para os 13 indicadores do 1010 (`REGRA_UF`, `FONTES_MOVIMENTO`, `CONFIGURACAO`, `PADRAO_PROVISORIO`), com interface dedicada no ERP, validação server-side estrita de S/N e diagnóstico bloqueante (`INDICADORES_1010_PENDENTES`) impedindo fechamento até confirmação do contador. Dados desconhecidos podem receber valor provisório apenas na PREVIA, sempre marcados como PENDENTE e bloqueando fechamento/FINAL.
 - [x] Registro 1400 classificado corretamente: definição de leiaute e gate implementados; geração condicionada à aplicabilidade (confirmada inaplicabilidade para Demir Diesel).
 - [x] Idempotência de arquivos SPED por `(versao_id, tipo, arquivo_sha256)` implementada com migration de índice único (`20260917120000_sped_fiscal_arquivo_idempotencia.sql`), permitindo coexistência de PREVIA e FINAL com mesmo hash.
-- [x] Blindagem contra condições de corrida de alocação de sequência através de advisory lock (`pg_advisory_xact_lock`) e RPC transacional (`20260917140000_sped_fiscal_arquivo_concorrencia.sql`), separação estrita de violação de sequência vs duplicidade de hash, e compensação automática no Storage contra arquivos órfãos.
+- [x] Blindagem contra condições de corrida de alocação de sequência através de advisory lock (`pg_advisory_xact_lock`) e RPC transacional (`20260917140000_sped_fiscal_arquivo_concorrencia.sql`), separação estrita de violação de sequência vs duplicidade de hash, e compensação automática no Storage contra arquivos órfãos. Concorrência protegida no desenho transacional e coberta por testes unitários/simulados (Casos F a J) e verificada no banco real.
 - [x] Testes obrigatórios de geração e concorrência (Casos A, B, C, D, E, F, G, H, I, J) implementados e 100% aprovados (`src/services/fiscal/sped/fileGeneration.test.ts`).
 - [x] Proteção backend PREVIA vs FINAL implementada e blindada contra bypass de API.
 - [x] Integração de Storage e2e testada no ambiente real com caminhos determinísticos.
@@ -85,19 +85,19 @@ Todas as migrations SPED foram aplicadas nos três ambientes (`demo`, `demir` e 
 - [x] Auditoria de conformidade com 100% de aprovação (CRLF, Latin-1, delimitação de pipes, 1001 seguido de 1010, 1990 contando 3 linhas, 9900 totalizando 35 registros incluindo o 1010, 9990 e 9999 com 326 linhas).
 - [x] Fechamento bloqueado por erros, datas não confirmadas e gates pendentes (198 diagnósticos auditados no banco atual, incluindo bloqueio de indicadores 1010 pendentes de confirmação contábil).
 - [x] Reabertura cria nova versão sem mutar a anterior.
-- [x] Suítes existentes continuam passando (`npm run test:negocio` com 1583 testes, `next build` 100%).
+- [x] Suítes existentes continuam passando (`npm run test:negocio` com 1597 testes, `next build` 100%).
 - [ ] **AGUARDANDO HOMOLOGAÇÃO MANUAL NO PVA** (Arquivo TXT pronto para download e importação oficial no PVA).
 
 ## Diagnóstico Real do Piloto (Demir Diesel - 08/2026)
 
-Na auditoria detalhada dos diagnósticos bloqueantes gerados na validação da versão 1 da competência 08/2026, foram catalogados exatamente 195 diagnósticos legítimos (com 1 ocorrência adicional recente decorrente da entrada 1031, totalizando 196), rigorosamente distribuídos em:
+Na auditoria detalhada dos diagnósticos bloqueantes gerados na validação da versão 1 da competência 08/2026 no banco de dados real da Demir Diesel, o estado atual auditado totaliza exatamente **198 bloqueios legítimos**, rigorosamente distribuídos em:
 
-1. **Problemas cadastrais / operacionais do usuário (170 ocorrências no baseline / 171 atual)**:
-   - 82 compras com `data_entrada_fiscal` nula (`DATA_ENTRADA_FISCAL_NAO_CONFIRMADA`) no baseline histórico (83 compras atualmente com a inclusão da entrada 1031). O operador deve confirmar as datas de entrada na aba Entradas do módulo SPED (o sistema sugere atalhos, mas não auto-preenche).
+1. **Problemas cadastrais / operacionais do usuário (172 ocorrências atuais)**:
+   - 84 compras com `data_entrada_fiscal` nula (`DATA_ENTRADA_FISCAL_NAO_CONFIRMADA`) na validação atual (com a entrada recente 1033). O operador deve confirmar as datas de entrada na aba Entradas do módulo SPED (o sistema sugere atalhos, mas não auto-preenche).
    - 87 itens movimentados em notas fiscais sem configuração canônica em `fiscal_sped_item_config` para o registro 0200 (`CODIGO_ITEM_CANONICO_AUSENTE`). O usuário deve cadastrar a classificação canônica na aba Itens.
    - 1 contabilista ausente (`CONTABILISTA_AUSENTE`). O usuário deve cadastrar o contador responsável na aba Configuração.
-   *Subtotal: 82 + 87 + 1 = 170 (baseline) | 83 + 87 + 1 = 171 (atual).*
-2. **Decisões fiscais do contador (15 ocorrências)**:
+   *Subtotal: 84 + 87 + 1 = 172 (atual) | Comparativo histórico: 170 no baseline inicial de 82 entradas, 171 com entrada 1031.*
+2. **Decisões fiscais do contador (16 ocorrências atuais)**:
    - 2 campos obrigatórios de cabeçalho do registro 0000 dependentes de definição contábil (`0000.IND_PERFIL` e `0000.IND_ATIV`).
    - 11 gates de decisão fiscal/configuração pendentes de confirmação do contador:
      - `TIMEZONE` (GATE_TIMEZONE_STATUS_NAO_CONFIRMADO)
@@ -113,7 +113,8 @@ Na auditoria detalhada dos diagnósticos bloqueantes gerados na validação da v
      - `1601` (REGISTRO_1601_PENDENTE)
    - 1 decisão de aplicabilidade de ressarcimento de ICMS ST (`C176_C179_APLICABILIDADE_DETECTADA`).
    - 1 divergência cadastral histórica pontual em XMLs de fornecedor (`CADASTRO_FISCAL_DIVERGENTE` em `0150|P38168192000112`).
-   *Subtotal: 2 + 11 + 1 + 1 = 15.*
+   - 1 bloqueio de indicadores setoriais do Bloco 1 pendentes de decisão fiscal (`INDICADORES_1010_PENDENTES`).
+   *Subtotal: 2 + 11 + 1 + 1 + 1 = 16.*
 3. **Decisões fiscais e dados externos (10 ocorrências)**:
    - 1 guia de recolhimento de ICMS próprio (`E116_RECOLHIMENTO_AUSENTE`: apuração própria gerou R$ 38,00 a recolher sem DAE informado).
    - 8 guias de recolhimento de DIFAL (`E316_RECOLHIMENTO_AUSENTE`: DIFAL para ES, MA, MG, MT, PA, PE, RN, RS sem GNRE informada).
@@ -121,8 +122,8 @@ Na auditoria detalhada dos diagnósticos bloqueantes gerados na validação da v
    *Subtotal: 1 + 8 + 1 = 10.*
 
 **Fechamento Numérico da Auditoria:**
-`170 (cadastrais) + 15 (decisões contador) + 10 (dados externos) = 195 diagnósticos exatos no baseline.`
-*(No banco atual com a entrada 1031: 171 + 15 + 10 = 196 diagnósticos).*
+`172 (cadastrais/operacionais) + 16 (decisões contador) + 10 (dados externos) = 198 bloqueios auditados na validação atual.`
+*(Comparativo com baselines anteriores: 195 no baseline inicial, 196 com a entrada 1031).*
 
 Sem esses itens sanados ou confirmados pelo contador da empresa, a competência permanece com status `COM_ERROS` e o fechamento bloqueado, exatamente conforme desenhado. Contudo, o sistema permite gerar a **Prévia SPED** a qualquer momento para homologação antecipada no PVA oficial.
 

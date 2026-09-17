@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { resolve1010Indicators } from "./indicators1010";
+import {
+  mergeSped1010Evidence,
+  resolve1010Indicators,
+  SPED_1010_MANUAL_FIELDS,
+} from "./indicators1010";
+import { SpedServiceError } from "./errors";
 
 describe("SPED Fiscal — Registro 1010: Fonte de Verdade Fiscal e Auditoria", () => {
   it("Demir Diesel (PB): GIAF 1, 3 e 4 são N por REGRA_UF com status CONFIRMADO", () => {
@@ -122,20 +127,35 @@ describe("SPED Fiscal — Registro 1010: Fonte de Verdade Fiscal e Auditoria", (
     assert.equal(res.details.IND_REST_RESSARC_COMPL_ICMS.status, "CONFIRMADO");
   });
 
-  it("Indicadores setoriais sem confirmação geram diagnóstico de bloqueio para fechamento", () => {
+  // --- CASOS OBRIGATÓRIOS DO 1010 ---
+
+  it("Caso 1 — nenhum indicador manual confirmado: lista todos os 7 indicadores faltantes", () => {
     const res = resolve1010Indicators({
       uf: "PB",
       config: {
-        evidencias: {}, // sem confirmações setoriais
+        registro_1400_status: "CONFIRMADO",
+        registro_1400_aplicavel: false,
+        registro_1601_status: "CONFIRMADO",
+        registro_1601_aplicavel: false,
+        c176_c179_status: "CONFIRMADO",
+        c176_c179_aplicavel: false,
+        evidencias: {}, // nenhum dos 7 manuais confirmado
       },
     });
 
-    assert.ok(res.diagnostics.length > 0);
+    assert.equal(res.diagnostics.length, 1);
     assert.equal(res.diagnostics[0].code, "INDICADORES_1010_PENDENTES");
     assert.equal(res.diagnostics[0].severity, "BLOQUEIO");
+    // Todos os 7 manuais devem constar na mensagem
+    for (const field of SPED_1010_MANUAL_FIELDS) {
+      assert.ok(
+        res.diagnostics[0].message.includes(field.campo),
+        `Esperava que ${field.campo} constasse na mensagem de pendências`
+      );
+    }
   });
 
-  it("Indicadores setoriais confirmados pelo contador não geram pendências", () => {
+  it("Caso 2 — todos os 7 indicadores manuais confirmados no formato auditável: nenhum diagnóstico pendente", () => {
     const res = resolve1010Indicators({
       uf: "PB",
       config: {
@@ -147,13 +167,13 @@ describe("SPED Fiscal — Registro 1010: Fonte de Verdade Fiscal e Auditoria", (
         c176_c179_aplicavel: false,
         evidencias: {
           indicadores_1010: {
-            IND_EXP: "N",
-            IND_CCRF: "N",
-            IND_COMB: "N",
-            IND_USINA: "N",
-            IND_EE: "N",
-            IND_FORM: "N",
-            IND_AER: "N",
+            IND_EXP: { valor: "N", status: "CONFIRMADO", descricao: "Sem exportação." },
+            IND_CCRF: { valor: "N", status: "CONFIRMADO", descricao: "Sem créditos acumulados." },
+            IND_COMB: { valor: "N", status: "CONFIRMADO", descricao: "Sem combustíveis." },
+            IND_USINA: { valor: "N", status: "CONFIRMADO", descricao: "Não é usina de açúcar/álcool." },
+            IND_EE: { valor: "N", status: "CONFIRMADO", descricao: "Sem operações de energia." },
+            IND_FORM: { valor: "N", status: "CONFIRMADO", descricao: "Sem formulário de segurança." },
+            IND_AER: { valor: "N", status: "CONFIRMADO", descricao: "Sem transporte aéreo." },
           },
         },
       },
@@ -161,7 +181,196 @@ describe("SPED Fiscal — Registro 1010: Fonte de Verdade Fiscal e Auditoria", (
 
     assert.equal(res.diagnostics.length, 0);
     assert.equal(res.indicators.IND_EXP, "N");
-    assert.equal(res.indicators.IND_COMB, "N");
     assert.equal(res.details.IND_EXP.status, "CONFIRMADO");
+    assert.equal(res.details.IND_EXP.origem, "CONFIGURACAO");
+    assert.equal(res.indicators.IND_COMB, "N");
+    assert.equal(res.details.IND_COMB.status, "CONFIRMADO");
+  });
+
+  it("Caso 3 — parte confirmada: diagnóstico lista estritamente os que ainda faltam", () => {
+    const res = resolve1010Indicators({
+      uf: "PB",
+      config: {
+        registro_1400_status: "CONFIRMADO",
+        registro_1400_aplicavel: false,
+        registro_1601_status: "CONFIRMADO",
+        registro_1601_aplicavel: false,
+        c176_c179_status: "CONFIRMADO",
+        c176_c179_aplicavel: false,
+        evidencias: {
+          indicadores_1010: {
+            IND_EXP: { valor: "N", status: "CONFIRMADO", descricao: "Confirmado." },
+            IND_COMB: { valor: "N", status: "CONFIRMADO", descricao: "Confirmado." },
+          },
+        },
+      },
+    });
+
+    assert.equal(res.diagnostics.length, 1);
+    const msg = res.diagnostics[0].message;
+    // Confirmados não devem constar
+    assert.ok(!msg.includes("IND_EXP"), "IND_EXP não deveria estar na mensagem de pendentes");
+    assert.ok(!msg.includes("IND_COMB"), "IND_COMB não deveria estar na mensagem de pendentes");
+    // Faltantes devem constar
+    assert.ok(msg.includes("IND_CCRF"));
+    assert.ok(msg.includes("IND_USINA"));
+    assert.ok(msg.includes("IND_EE"));
+    assert.ok(msg.includes("IND_FORM"));
+    assert.ok(msg.includes("IND_AER"));
+  });
+
+  it("Caso 4 — salvar configuração 1010: persiste evidencias.indicadores_1010 com dados auditáveis", () => {
+    const actorId = "usuario-auditor-123";
+    const merged = mergeSped1010Evidence(
+      {},
+      {
+        IND_EXP: {
+          valor: "S",
+          status: "CONFIRMADO",
+          descricao: "Empresa iniciou exportação de peças.",
+        },
+      },
+      actorId
+    );
+
+    const ind = (merged.indicadores_1010 as Record<string, any>)?.IND_EXP;
+    assert.ok(ind);
+    assert.equal(ind.valor, "S");
+    assert.equal(ind.status, "CONFIRMADO");
+    assert.equal(ind.descricao, "Empresa iniciou exportação de peças.");
+    assert.equal(ind.confirmadoPor, actorId);
+    assert.ok(ind.confirmadoEm);
+  });
+
+  it("Caso 5 — preservar evidências antigas: não sobrescreve nem apaga outros gates", () => {
+    const existingEvidencias = {
+      timezone: {
+        descricao: "Fuso de Brasília confirmado.",
+        status: "CONFIRMADO",
+        confirmadoEm: "2026-09-01T10:00:00Z",
+      },
+      perfil: {
+        descricao: "Perfil B conforme regulamento da SEFAZ PB.",
+        status: "CONFIRMADO",
+        confirmadoEm: "2026-09-01T10:05:00Z",
+      },
+    };
+
+    const merged = mergeSped1010Evidence(
+      existingEvidencias,
+      {
+        IND_EXP: {
+          valor: "N",
+          status: "CONFIRMADO",
+          descricao: "Ausência de exportações.",
+        },
+      },
+      "actor-456"
+    );
+
+    // Evidências pré-existentes devem continuar 100% intactas
+    assert.deepEqual(merged.timezone, existingEvidencias.timezone);
+    assert.deepEqual(merged.perfil, existingEvidencias.perfil);
+
+    // Indicador 1010 adicionado
+    const ind1010 = (merged.indicadores_1010 as Record<string, any>)?.IND_EXP;
+    assert.equal(ind1010.valor, "N");
+    assert.equal(ind1010.status, "CONFIRMADO");
+  });
+
+  it("Caso 6 — voltar para pendente (Não decidido): volta a PENDENTE e diagnóstico ressurge", () => {
+    // 1. Configuração com indicador anteriormente CONFIRMADO
+    const initialConfig = {
+      evidencias: {
+        indicadores_1010: {
+          IND_EXP: {
+            valor: "N",
+            status: "CONFIRMADO",
+            descricao: "Confirmado anteriormente",
+          },
+        },
+      },
+    };
+
+    // 2. Contador altera para Não decidido (PENDENTE)
+    const updatedEvidencias = mergeSped1010Evidence(
+      initialConfig.evidencias,
+      {
+        IND_EXP: {
+          valor: "N",
+          status: "PENDENTE",
+          descricao: "",
+        },
+      },
+      "actor-789"
+    );
+
+    const indExp = (updatedEvidencias.indicadores_1010 as Record<string, any>)?.IND_EXP;
+    assert.equal(indExp.status, "PENDENTE");
+
+    // 3. Resolução gera diagnóstico de bloqueio
+    const res = resolve1010Indicators({
+      uf: "PB",
+      config: {
+        evidencias: updatedEvidencias,
+      },
+    });
+
+    assert.equal(res.details.IND_EXP.status, "PENDENTE");
+    assert.equal(res.details.IND_EXP.origem, "PADRAO_PROVISORIO");
+    assert.ok(res.diagnostics.length > 0);
+    assert.ok(res.diagnostics[0].message.includes("IND_EXP"));
+  });
+
+  it("Validação server-side: rejeita valores inválidos fora de S e N", () => {
+    assert.throws(
+      () =>
+        mergeSped1010Evidence(
+          {},
+          {
+            IND_EXP: {
+              valor: "SIM",
+              status: "CONFIRMADO",
+              descricao: "Teste",
+            },
+          },
+          "actor"
+        ),
+      (err: any) => err instanceof SpedServiceError && err.code === "INVALID_INDICATOR_VALUE"
+    );
+
+    assert.throws(
+      () =>
+        mergeSped1010Evidence(
+          {},
+          {
+            IND_EXP: {
+              valor: "TRUE",
+              status: "CONFIRMADO",
+              descricao: "Teste",
+            },
+          },
+          "actor"
+        ),
+      (err: any) => err instanceof SpedServiceError && err.code === "INVALID_INDICATOR_VALUE"
+    );
+  });
+
+  it("Validação server-side: rejeita confirmação sem evidência textual", () => {
+    assert.throws(
+      () =>
+        mergeSped1010Evidence(
+          {},
+          {
+            IND_EXP: {
+              valor: "N",
+              status: "CONFIRMADO",
+              descricao: "", // Vazia
+            },
+          },
+          "actor"
+        ),
+      (err: any) => err instanceof SpedServiceError && err.code === "INDICATOR_EVIDENCE_REQUIRED"
+    );
   });
 });
