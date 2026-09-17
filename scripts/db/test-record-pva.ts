@@ -29,14 +29,14 @@ async function main() {
   console.log(`\nHistórico de validações do arquivo 1 (${historico.length} registros):`, historico);
 
   const detail = await getSpedCompetenceDetail("1");
-  const arquivoAtualizado = detail.arquivos.find((a) => a.id === "1");
+  const arquivoAtualizado = detail.arquivos.find((a: any) => a.id === "1") as Record<string, any> | undefined;
   console.log("\nArquivo na competência após apontamento do PVA:");
   console.log({
     id: arquivoAtualizado?.id,
     sequencia: arquivoAtualizado?.sequencia,
     tipo: arquivoAtualizado?.tipo,
     pvaStatus: arquivoAtualizado?.pvaStatus,
-    validacoesCount: arquivoAtualizado?.pvaValidacoes?.length,
+    validacoesCount: (arquivoAtualizado?.pvaValidacoes as any[])?.length,
   });
 }
 

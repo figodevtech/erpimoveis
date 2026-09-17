@@ -118,11 +118,7 @@ function parseManualDecision(raw: unknown): {
     }
     return { isConfirmed: false, value: val === "S" ? "S" : "N" };
   }
-  // Compatibilidade retroativa para string direta "S" ou "N"
-  const val = String(raw).toUpperCase().trim();
-  if (val === "S" || val === "N") {
-    return { isConfirmed: true, value: val as Sped1010IndicatorValue };
-  }
+  // Formatos legados (ex: string direta "S" ou "N") não criam confirmação fiscal sem evidência
   return { isConfirmed: false, value: "N" };
 }
 
@@ -483,47 +479,63 @@ export function mergeSped1010Evidence(
       delete next1010[field];
       continue;
     }
-    if (typeof rawItem === "object" && rawItem !== null) {
-      const itemObj = rawItem as Record<string, unknown>;
-      const rawStatus = String(itemObj.status || "PENDENTE").toUpperCase().trim();
-      if (!["PENDENTE", "CONFIRMADO", "NAO_APLICAVEL"].includes(rawStatus)) {
-        throw new SpedServiceError(`Status inválido para o indicador ${field}.`, 400, "INVALID_GATE_STATUS");
-      }
-      if (rawStatus === "CONFIRMADO") {
-        const rawVal = String(itemObj.valor || "").toUpperCase().trim();
-        if (rawVal !== "S" && rawVal !== "N") {
-          throw new SpedServiceError(`O valor do indicador ${field} deve ser estritamente "S" ou "N".`, 400, "INVALID_INDICATOR_VALUE");
-        }
-        const descricao = String(itemObj.descricao || "").trim();
-        if (!descricao) {
-          throw new SpedServiceError(`Informe a evidência fiscal para confirmar o indicador ${field}.`, 400, "INDICATOR_EVIDENCE_REQUIRED");
-        }
-        next1010[field] = {
-          valor: rawVal as Sped1010IndicatorValue,
-          status: "CONFIRMADO",
-          descricao,
-          confirmadoEm: (typeof itemObj.confirmadoEm === "string" && itemObj.confirmadoEm) || new Date().toISOString(),
-          confirmadoPor: (typeof itemObj.confirmadoPor === "string" && itemObj.confirmadoPor) || actorId,
-        };
-      } else {
-        const rawVal = String(itemObj.valor || "").toUpperCase().trim();
-        next1010[field] = {
-          valor: rawVal === "S" || rawVal === "N" ? (rawVal as Sped1010IndicatorValue) : "N",
-          status: "PENDENTE",
-          descricao: String(itemObj.descricao || "").trim(),
-        };
-      }
-    } else {
-      const rawVal = String(rawItem).toUpperCase().trim();
+    if (typeof rawItem !== "object" || rawItem === null) {
+      throw new SpedServiceError(
+        `Formato inválido para o indicador ${field}. É obrigatório objeto estruturado com valor, status e descrição.`,
+        400,
+        "INVALID_1010_EVIDENCE_FORMAT"
+      );
+    }
+
+    const itemObj = rawItem as Record<string, unknown>;
+    const rawStatus = String(itemObj.status || "PENDENTE").toUpperCase().trim();
+    if (!["PENDENTE", "CONFIRMADO", "NAO_APLICAVEL"].includes(rawStatus)) {
+      throw new SpedServiceError(`Status inválido para o indicador ${field}.`, 400, "INVALID_GATE_STATUS");
+    }
+    if (rawStatus === "CONFIRMADO") {
+      const rawVal = String(itemObj.valor || "").toUpperCase().trim();
       if (rawVal !== "S" && rawVal !== "N") {
-        throw new SpedServiceError(`O valor do indicador ${field} deve ser estritamente "S" ou "N".`, 400, "INVALID_INDICATOR_VALUE");
+        throw new SpedServiceError(
+          `O valor do indicador ${field} deve ser estritamente "S" ou "N".`,
+          400,
+          "INVALID_INDICATOR_VALUE"
+        );
       }
+      const descricao = String(itemObj.descricao || "").trim();
+      if (!descricao) {
+        throw new SpedServiceError(
+          `Informe a evidência fiscal para confirmar o indicador ${field}.`,
+          400,
+          "INDICATOR_EVIDENCE_REQUIRED"
+        );
+      }
+
+      // Preservar auditoria quando não houver alteração real de valor ou evidência
+      const prevItem = existing1010[field] as Record<string, unknown> | undefined;
+      const isIdentical =
+        prevItem &&
+        prevItem.status === "CONFIRMADO" &&
+        prevItem.valor === rawVal &&
+        String(prevItem.descricao || "").trim() === descricao &&
+        typeof prevItem.confirmadoEm === "string" &&
+        typeof prevItem.confirmadoPor === "string";
+
+      const confirmadoEm = isIdentical ? (prevItem.confirmadoEm as string) : new Date().toISOString();
+      const confirmadoPor = isIdentical ? (prevItem.confirmadoPor as string) : actorId;
+
       next1010[field] = {
         valor: rawVal as Sped1010IndicatorValue,
         status: "CONFIRMADO",
-        descricao: "Decisão fiscal confirmada pelo contador.",
-        confirmadoEm: new Date().toISOString(),
-        confirmadoPor: actorId,
+        descricao,
+        confirmadoEm,
+        confirmadoPor,
+      };
+    } else {
+      const rawVal = String(itemObj.valor || "").toUpperCase().trim();
+      next1010[field] = {
+        valor: rawVal === "S" || rawVal === "N" ? (rawVal as Sped1010IndicatorValue) : "N",
+        status: "PENDENTE",
+        descricao: String(itemObj.descricao || "").trim(),
       };
     }
   }

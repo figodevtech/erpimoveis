@@ -1474,12 +1474,12 @@ export async function updateSpedConfiguration(input: {
     contribuinte_ipi_status: "ipi",
     entrega_efd_contribuicoes_status: "efd-contribuicoes",
   };
-  const mergedEvidence: Row = { ...(current?.evidencias ?? {}) };
+  const baseEvidence: Row = { ...(current?.evidencias ?? {}) };
   for (const [field, gateId] of Object.entries(evidenceByStatusField)) {
     if (!(field in payload)) continue;
     const nextStatus = text(payload[field]);
     if (nextStatus === "PENDENTE") {
-      delete mergedEvidence[gateId];
+      delete baseEvidence[gateId];
       continue;
     }
     const supplied = suppliedEvidence[gateId];
@@ -1489,7 +1489,7 @@ export async function updateSpedConfiguration(input: {
     if (!descricao) {
       throw new SpedServiceError(`Informe a evidência fiscal do gate ${gateId}.`, 400, "GATE_EVIDENCE_REQUIRED");
     }
-    mergedEvidence[gateId] = {
+    baseEvidence[gateId] = {
       descricao,
       status: nextStatus,
       confirmadoEm: new Date().toISOString(),
@@ -1499,9 +1499,9 @@ export async function updateSpedConfiguration(input: {
 
   // Processa e valida decisões auditáveis dos indicadores complementares do Registro 1010
   const supplied1010 = (suppliedEvidence.indicadores_1010 ?? input.patch.indicadores_1010) as Record<string, unknown> | undefined;
-  if (supplied1010 && typeof supplied1010 === "object") {
-    mergedEvidence = mergeSped1010Evidence(mergedEvidence, supplied1010, input.actorId);
-  }
+  const mergedEvidence = supplied1010 && typeof supplied1010 === "object"
+    ? mergeSped1010Evidence(baseEvidence, supplied1010, input.actorId)
+    : baseEvidence;
 
   payload.evidencias = mergedEvidence;
 

@@ -219,15 +219,17 @@ describe("SPED Fiscal — Registro 1010: Fonte de Verdade Fiscal e Auditoria", (
     assert.ok(msg.includes("IND_AER"));
   });
 
-  it("Caso 4 — salvar configuração 1010: persiste evidencias.indicadores_1010 com dados auditáveis", () => {
-    const actorId = "usuario-auditor-123";
+  // --- CASOS OBRIGATÓRIOS DO 1010 (AUDITORIA E VALIDAÇÃO) ---
+
+  it("Caso A — confirmado corretamente: valor=N, status=CONFIRMADO, confirmadoPor=actorId, confirmadoEm pelo servidor", () => {
+    const actorId = "usuario-auditor-real";
     const merged = mergeSped1010Evidence(
       {},
       {
         IND_EXP: {
-          valor: "S",
+          valor: "N",
           status: "CONFIRMADO",
-          descricao: "Empresa iniciou exportação de peças.",
+          descricao: "Sem exportações.",
         },
       },
       actorId
@@ -235,94 +237,107 @@ describe("SPED Fiscal — Registro 1010: Fonte de Verdade Fiscal e Auditoria", (
 
     const ind = (merged.indicadores_1010 as Record<string, any>)?.IND_EXP;
     assert.ok(ind);
-    assert.equal(ind.valor, "S");
+    assert.equal(ind.valor, "N");
     assert.equal(ind.status, "CONFIRMADO");
-    assert.equal(ind.descricao, "Empresa iniciou exportação de peças.");
+    assert.equal(ind.descricao, "Sem exportações.");
     assert.equal(ind.confirmadoPor, actorId);
     assert.ok(ind.confirmadoEm);
+    assert.ok(Date.now() - new Date(ind.confirmadoEm).getTime() < 60000);
   });
 
-  it("Caso 5 — preservar evidências antigas: não sobrescreve nem apaga outros gates", () => {
-    const existingEvidencias = {
-      timezone: {
-        descricao: "Fuso de Brasília confirmado.",
-        status: "CONFIRMADO",
-        confirmadoEm: "2026-09-01T10:00:00Z",
-      },
-      perfil: {
-        descricao: "Perfil B conforme regulamento da SEFAZ PB.",
-        status: "CONFIRMADO",
-        confirmadoEm: "2026-09-01T10:05:00Z",
-      },
-    };
-
+  it("Caso B — frontend tenta falsificar usuário: confirmadoPor deve ser sempre o actorId real", () => {
+    const realActorId = "usuario-autenticado-real";
     const merged = mergeSped1010Evidence(
-      existingEvidencias,
+      {},
       {
         IND_EXP: {
           valor: "N",
           status: "CONFIRMADO",
-          descricao: "Ausência de exportações.",
+          descricao: "Sem exportações.",
+          confirmadoPor: "usuario-falso",
         },
       },
-      "actor-456"
+      realActorId
     );
 
-    // Evidências pré-existentes devem continuar 100% intactas
-    assert.deepEqual(merged.timezone, existingEvidencias.timezone);
-    assert.deepEqual(merged.perfil, existingEvidencias.perfil);
-
-    // Indicador 1010 adicionado
-    const ind1010 = (merged.indicadores_1010 as Record<string, any>)?.IND_EXP;
-    assert.equal(ind1010.valor, "N");
-    assert.equal(ind1010.status, "CONFIRMADO");
+    const ind = (merged.indicadores_1010 as Record<string, any>)?.IND_EXP;
+    assert.equal(ind.confirmadoPor, realActorId);
+    assert.notEqual(ind.confirmadoPor, "usuario-falso");
   });
 
-  it("Caso 6 — voltar para pendente (Não decidido): volta a PENDENTE e diagnóstico ressurge", () => {
-    // 1. Configuração com indicador anteriormente CONFIRMADO
-    const initialConfig = {
-      evidencias: {
-        indicadores_1010: {
-          IND_EXP: {
-            valor: "N",
-            status: "CONFIRMADO",
-            descricao: "Confirmado anteriormente",
-          },
-        },
-      },
-    };
-
-    // 2. Contador altera para Não decidido (PENDENTE)
-    const updatedEvidencias = mergeSped1010Evidence(
-      initialConfig.evidencias,
+  it("Caso C — frontend tenta falsificar data: confirmadoEm enviado pelo cliente não é aceito", () => {
+    const fakeTimestamp = "2000-01-01T00:00:00Z";
+    const merged = mergeSped1010Evidence(
+      {},
       {
         IND_EXP: {
           valor: "N",
-          status: "PENDENTE",
-          descricao: "",
+          status: "CONFIRMADO",
+          descricao: "Sem exportações.",
+          confirmadoEm: fakeTimestamp,
         },
       },
-      "actor-789"
+      "actor-1"
     );
 
-    const indExp = (updatedEvidencias.indicadores_1010 as Record<string, any>)?.IND_EXP;
-    assert.equal(indExp.status, "PENDENTE");
-
-    // 3. Resolução gera diagnóstico de bloqueio
-    const res = resolve1010Indicators({
-      uf: "PB",
-      config: {
-        evidencias: updatedEvidencias,
-      },
-    });
-
-    assert.equal(res.details.IND_EXP.status, "PENDENTE");
-    assert.equal(res.details.IND_EXP.origem, "PADRAO_PROVISORIO");
-    assert.ok(res.diagnostics.length > 0);
-    assert.ok(res.diagnostics[0].message.includes("IND_EXP"));
+    const ind = (merged.indicadores_1010 as Record<string, any>)?.IND_EXP;
+    assert.notEqual(ind.confirmadoEm, fakeTimestamp);
+    assert.ok(Date.now() - new Date(ind.confirmadoEm).getTime() < 60000);
   });
 
-  it("Validação server-side: rejeita valores inválidos fora de S e N", () => {
+  it("Caso D — string direta é rejeitada com erro 400 (INVALID_1010_EVIDENCE_FORMAT)", () => {
+    assert.throws(
+      () =>
+        mergeSped1010Evidence(
+          {},
+          {
+            IND_EXP: "N",
+          } as any,
+          "actor-1"
+        ),
+      (err: any) =>
+        err instanceof SpedServiceError &&
+        err.statusCode === 400 &&
+        err.code === "INVALID_1010_EVIDENCE_FORMAT"
+    );
+
+    assert.throws(
+      () =>
+        mergeSped1010Evidence(
+          {},
+          {
+            IND_EXP: "S",
+          } as any,
+          "actor-1"
+        ),
+      (err: any) =>
+        err instanceof SpedServiceError &&
+        err.statusCode === 400 &&
+        err.code === "INVALID_1010_EVIDENCE_FORMAT"
+    );
+  });
+
+  it("Caso E — confirmação sem descrição: rejeita com INDICATOR_EVIDENCE_REQUIRED", () => {
+    assert.throws(
+      () =>
+        mergeSped1010Evidence(
+          {},
+          {
+            IND_EXP: {
+              valor: "N",
+              status: "CONFIRMADO",
+              descricao: "",
+            },
+          },
+          "actor-1"
+        ),
+      (err: any) =>
+        err instanceof SpedServiceError &&
+        err.code === "INDICATOR_EVIDENCE_REQUIRED"
+    );
+  });
+
+  it("Caso F — valor inválido: rejeita com INVALID_INDICATOR_VALUE", () => {
     assert.throws(
       () =>
         mergeSped1010Evidence(
@@ -334,9 +349,11 @@ describe("SPED Fiscal — Registro 1010: Fonte de Verdade Fiscal e Auditoria", (
               descricao: "Teste",
             },
           },
-          "actor"
+          "actor-1"
         ),
-      (err: any) => err instanceof SpedServiceError && err.code === "INVALID_INDICATOR_VALUE"
+      (err: any) =>
+        err instanceof SpedServiceError &&
+        err.code === "INVALID_INDICATOR_VALUE"
     );
 
     assert.throws(
@@ -350,27 +367,141 @@ describe("SPED Fiscal — Registro 1010: Fonte de Verdade Fiscal e Auditoria", (
               descricao: "Teste",
             },
           },
-          "actor"
+          "actor-1"
         ),
-      (err: any) => err instanceof SpedServiceError && err.code === "INVALID_INDICATOR_VALUE"
+      (err: any) =>
+        err instanceof SpedServiceError &&
+        err.code === "INVALID_INDICATOR_VALUE"
     );
   });
 
-  it("Validação server-side: rejeita confirmação sem evidência textual", () => {
-    assert.throws(
-      () =>
-        mergeSped1010Evidence(
-          {},
-          {
-            IND_EXP: {
-              valor: "N",
-              status: "CONFIRMADO",
-              descricao: "", // Vazia
-            },
+  it("Caso G — volta para pendente: status PENDENTE e resolvedor gera INDICADORES_1010_PENDENTES", () => {
+    const updated = mergeSped1010Evidence(
+      {
+        indicadores_1010: {
+          IND_EXP: {
+            valor: "N",
+            status: "CONFIRMADO",
+            descricao: "Confirmado antes",
+            confirmadoEm: "2026-09-01T10:00:00Z",
+            confirmadoPor: "user-1",
           },
-          "actor"
-        ),
-      (err: any) => err instanceof SpedServiceError && err.code === "INDICATOR_EVIDENCE_REQUIRED"
+        },
+      },
+      {
+        IND_EXP: {
+          valor: "N",
+          status: "PENDENTE",
+          descricao: "",
+        },
+      },
+      "actor-novo"
     );
+
+    const indExp = (updated.indicadores_1010 as Record<string, any>)?.IND_EXP;
+    assert.equal(indExp.status, "PENDENTE");
+
+    const res = resolve1010Indicators({
+      uf: "PB",
+      config: {
+        evidencias: updated,
+      },
+    });
+
+    assert.equal(res.details.IND_EXP.status, "PENDENTE");
+    assert.equal(res.details.IND_EXP.origem, "PADRAO_PROVISORIO");
+    assert.ok(res.diagnostics.length > 0);
+    assert.ok(res.diagnostics.some((d) => d.code === "INDICADORES_1010_PENDENTES" && d.message.includes("IND_EXP")));
+  });
+
+  it("Caso H — merge não apaga outros gates (timezone, perfil, 1601)", () => {
+    const existing = {
+      timezone: { status: "CONFIRMADO", descricao: "Fuso de Brasília confirmado." },
+      perfil: { status: "CONFIRMADO", descricao: "Perfil B da SEFAZ PB." },
+      "1601": { status: "CONFIRMADO", aplicavel: false },
+    };
+
+    const merged = mergeSped1010Evidence(
+      existing,
+      {
+        IND_EXP: {
+          valor: "N",
+          status: "CONFIRMADO",
+          descricao: "Sem exportações no período.",
+        },
+      },
+      "actor-h"
+    );
+
+    assert.deepEqual(merged.timezone, existing.timezone);
+    assert.deepEqual(merged.perfil, existing.perfil);
+    assert.deepEqual(merged["1601"], existing["1601"]);
+    assert.ok(merged.indicadores_1010);
+    assert.equal((merged.indicadores_1010 as Record<string, any>).IND_EXP.valor, "N");
+  });
+
+  it("Caso I — mesma decisão não perde auditoria; alteração gera nova confirmação", () => {
+    const originalTimestamp = "2026-09-17T15:00:00Z";
+    const originalActor = "usuario-X";
+    const initialEvidencias = {
+      indicadores_1010: {
+        IND_EXP: {
+          valor: "N",
+          status: "CONFIRMADO",
+          descricao: "Sem exportação no período.",
+          confirmadoEm: originalTimestamp,
+          confirmadoPor: originalActor,
+        },
+      },
+    };
+
+    // 1. Chamada posterior idêntica: preserva timestamp e autor originais
+    const sameMerged = mergeSped1010Evidence(
+      initialEvidencias,
+      {
+        IND_EXP: {
+          valor: "N",
+          status: "CONFIRMADO",
+          descricao: "Sem exportação no período.",
+        },
+      },
+      "usuario-Y"
+    );
+
+    const sameInd = (sameMerged.indicadores_1010 as Record<string, any>)?.IND_EXP;
+    assert.equal(sameInd.confirmadoEm, originalTimestamp, "Deveria ter preservado confirmadoEm original");
+    assert.equal(sameInd.confirmadoPor, originalActor, "Deveria ter preservado confirmadoPor original");
+
+    // 2. Mudança no valor (N -> S): gera nova auditoria
+    const changedValMerged = mergeSped1010Evidence(
+      initialEvidencias,
+      {
+        IND_EXP: {
+          valor: "S",
+          status: "CONFIRMADO",
+          descricao: "Sem exportação no período.",
+        },
+      },
+      "usuario-Y"
+    );
+    const changedValInd = (changedValMerged.indicadores_1010 as Record<string, any>)?.IND_EXP;
+    assert.equal(changedValInd.confirmadoPor, "usuario-Y");
+    assert.notEqual(changedValInd.confirmadoEm, originalTimestamp);
+
+    // 3. Mudança na descrição: gera nova auditoria
+    const changedDescMerged = mergeSped1010Evidence(
+      initialEvidencias,
+      {
+        IND_EXP: {
+          valor: "N",
+          status: "CONFIRMADO",
+          descricao: "Exportação confirmada pela NF-e X",
+        },
+      },
+      "usuario-Z"
+    );
+    const changedDescInd = (changedDescMerged.indicadores_1010 as Record<string, any>)?.IND_EXP;
+    assert.equal(changedDescInd.confirmadoPor, "usuario-Z");
+    assert.notEqual(changedDescInd.confirmadoEm, originalTimestamp);
   });
 });

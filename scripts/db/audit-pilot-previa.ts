@@ -30,6 +30,10 @@ async function audit() {
     .from(dbFile.storage_bucket)
     .download(dbFile.storage_path);
 
+  if (!downloadData) {
+    throw new Error("Falha ao baixar arquivo do Storage.");
+  }
+
   const downloadedBytes = Buffer.from(await downloadData.arrayBuffer());
   const downloadedSha256 = crypto.createHash("sha256").update(downloadedBytes).digest("hex");
   console.log(`3. SHA-256 no banco: ${dbFile.arquivo_sha256}`);

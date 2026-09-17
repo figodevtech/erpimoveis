@@ -37,6 +37,7 @@ import { ConfigurationEditor } from "./configuration-editor";
 import { ItemDecisionEditor } from "./item-decision-editor";
 import { DiagnosticBadge, GateStatusBadge, PvaStatusBadge } from "./status-badges";
 import { PvaValidationDialog } from "./pva-validation-dialog";
+import { SourceTrace } from "./source-trace";
 
 export function CompetenciaTabs({
   competencia,
