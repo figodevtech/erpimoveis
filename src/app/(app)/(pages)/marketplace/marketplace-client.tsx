@@ -78,6 +78,7 @@ import {
 } from "@/lib/integrations/mercadolivre-listing-validation";
 import { preferencesAllowShippingMode } from "@/lib/integrations/mercadolivre-mercado-envios";
 import { parseModerationText } from "@/lib/integrations/mercadolivre-listing-status";
+import type { MercadoLivreListingQuality as MercadoLivreListingQualityData } from "@/lib/integrations/mercadolivre-quality";
 import {
   getMercadoLivrePictureRequirement,
   mercadoLivrePictureRequirementMessage,
@@ -99,6 +100,7 @@ import { ListingMediaManager } from "./mercadolivre/listing-media/listing-media-
 import { ListingStepper, type ListingStepDefinition } from "./mercadolivre/listing-stepper";
 import { AttributeCard, AttributeGroup, FormSection, StepHeading, listingFieldClass } from "./mercadolivre/listing-form-fields";
 import { ListingDialogContent } from "./mercadolivre/listing-dialog-content";
+import { MercadoLivreListingQuality } from "./mercadolivre/listing-quality";
 import {
   MercadoLivreCreateListingDialog,
   type CreateListingIssue,
@@ -510,6 +512,8 @@ export type ProductRow = {
     stop_time?: string | null;
     /** Preço lido do anúncio no Mercado Livre; independe de `precovenda`. */
     price_state?: { standardPrice: number | null; salePrice: number | null } | null;
+    /** Nota e objetivos pendentes, como o Mercado Livre mostra ao vendedor. */
+    quality?: MercadoLivreListingQualityData | null;
     metrics_updated_at?: string | null;
     updated_at?: string | null;
   } | null;
@@ -5565,7 +5569,7 @@ export default function MarketplacePage() {
                                     {link.listing_type_id ? <span>{rawStatusLabel(link.listing_type_id)}</span> : null}
                                     {link.item_condition ? <span>{rawStatusLabel(link.item_condition)}</span> : null}
                                     {link.catalog_listing ? <span>Catálogo</span> : null}
-                                    {link.health != null && Number.isFinite(Number(link.health)) ? <span>Qualidade {Math.round(Number(link.health) * 100)}%</span> : null}
+                                    <MercadoLivreListingQuality health={link.health} quality={link.quality} />
                                   </div>
                                   {link.permalink ? <a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" href={link.permalink} target="_blank" rel="noreferrer"><ExternalLink className="h-3 w-3" />Abrir no Mercado Livre</a> : null}
                                 </div>

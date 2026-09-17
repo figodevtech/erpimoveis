@@ -3,7 +3,7 @@ import { isMercadoLivreNotFound, mercadoLivreApiGet } from "@/lib/integrations/m
 import { describeMercadoLivreListingStatus } from "@/lib/integrations/mercadolivre-listing-status";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
 import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
-import { mercadoLivreListingHealth } from "@/lib/integrations/mercadolivre-quality";
+import { mercadoLivreListingHealth, mercadoLivreListingQuality } from "@/lib/integrations/mercadolivre-quality";
 import { loadMercadoLivreItemVisits } from "@/lib/integrations/mercadolivre-visits";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -78,6 +78,7 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
           catalog_listing: typeof item?.catalog_listing === "boolean" ? item.catalog_listing : link.catalog_listing ?? null,
           stop_time: item?.stop_time ?? link.stop_time ?? null,
           price_state: priceState,
+          quality: mercadoLivreListingQuality(performance) ?? link.quality ?? null,
           metrics_updated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
@@ -103,7 +104,12 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
             catalog_listing: synchronized.catalog_listing,
             stop_time: synchronized.stop_time,
             metrics_updated_at: synchronized.metrics_updated_at,
-            raw_item: { ...(item ?? {}), ...(userProduct ? { _erp_user_product: userProduct } : {}), _erp_price_state: priceState },
+            raw_item: {
+              ...(item ?? {}),
+              ...(userProduct ? { _erp_user_product: userProduct } : {}),
+              _erp_price_state: priceState,
+              _erp_quality: mercadoLivreListingQuality(performance),
+            },
             updated_at: synchronized.updated_at,
           })
           .eq("id", link.id);
