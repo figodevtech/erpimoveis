@@ -22,6 +22,7 @@ import {
   type MercadoLivreOutboundTouchKind,
 } from "@/lib/integrations/mercadolivre-outbound-touch";
 import { mercadoLivreVideoInput, normalizeMercadoLivreVideoId } from "@/lib/integrations/mercadolivre-video";
+import { buildMercadoLivreEditConfirmations } from "@/lib/integrations/mercadolivre-listing-change";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -267,7 +268,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         : null;
     const confirmations =
       action === "update_listing"
-        ? buildEditConfirmations(effectiveBody, item, confirmedDescription, confirmedPriceState)
+        ? buildMercadoLivreEditConfirmations(effectiveBody, item, confirmedDescription, confirmedPriceState)
         : [];
     const userProduct = item?.user_product_id
       ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
@@ -663,37 +664,6 @@ function fieldRestriction(field: string, message: string) {
   (error as any).status = 422;
   (error as any).fieldErrors = { [field]: message };
   return error;
-}
-
-function buildEditConfirmations(changes: any, item: any, description: any, priceState: any) {
-  const results: Array<{ field: string; status: "CONFIRMADO" | "DIVERGENTE"; requested: unknown; actual: unknown }> = [];
-  const compare = (field: string, actual: unknown, requested = changes[field]) => {
-    const same =
-      typeof requested === "number"
-        ? Math.abs(Number(actual) - requested) < 0.01
-        : String(actual ?? "").trim() === String(requested ?? "").trim();
-    results.push({ field, status: same ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
-  };
-  if (changes.title !== undefined) compare("title", item?.title);
-  if (changes.price !== undefined) compare("price", priceState?.standardPrice);
-  if (changes.availableQuantity !== undefined) compare("availableQuantity", item?.available_quantity);
-  if (changes.description !== undefined) compare("description", description?.plain_text ?? description?.text ?? "");
-  if (changes.familyName !== undefined) compare("familyName", item?.family_name);
-  if (changes.freeShipping !== undefined) {
-    const requested = Boolean(changes.freeShipping);
-    const actual = Boolean(item?.shipping?.free_shipping);
-    results.push({ field: "freeShipping", status: requested === actual ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
-  }
-  if (changes.pictureUrl !== undefined) {
-    const requested = parseMercadoLivrePictureUrls(String(changes.pictureUrl)).length;
-    const actual = Array.isArray(item?.pictures) ? item.pictures.length : 0;
-    results.push({ field: "images", status: requested === actual ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
-  }
-  if (changes.videoUrl !== undefined) {
-    const requested = normalizeMercadoLivreVideoId(changes.videoUrl);
-    compare("videoUrl", item?.video_id, requested);
-  }
-  return results;
 }
 
 function imageFieldError(message: string) {

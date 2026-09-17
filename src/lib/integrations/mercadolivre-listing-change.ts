@@ -3,6 +3,10 @@
  * acabou de informar. Módulo puro, sem acesso a banco, para poder ser testado.
  */
 
+import { parseMercadoLivrePictureUrls } from "@/lib/integrations/mercadolivre-listing-pictures";
+import { extractMercadoLivrePackageSnapshot } from "@/lib/integrations/mercadolivre-package";
+import { normalizeMercadoLivreVideoId } from "@/lib/integrations/mercadolivre-video";
+
 /**
  * O tópico `items` dispara a qualquer mudança de campo do anúncio — garantia,
  * atributo, foto, frete. Avisar em todas transforma a central num ruído que
@@ -113,4 +117,90 @@ export function getUserProductAvailableQuantity(stock: any) {
     const quantity = Number(location?.available_quantity ?? location?.quantity ?? 0);
     return total + (Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 0);
   }, 0);
+}
+
+export type MercadoLivreEditConfirmation = {
+  field: string;
+  status: "CONFIRMADO" | "DIVERGENTE";
+  requested: unknown;
+  actual: unknown;
+};
+
+/**
+ * Confere, depois de uma edição, se o anúncio ficou com o que o ERP pediu.
+ *
+ * O Mercado Livre reformata o texto ao gravar: junta espaços repetidos, põe o
+ * nome com iniciais maiúsculas e tira símbolos como o travessão. Comparar o texto
+ * cru marcava edições aplicadas como divergentes, e a tela dizia que só parte das
+ * alterações tinha entrado. Divergente precisa significar outro conteúdo.
+ */
+export function buildMercadoLivreEditConfirmations(
+  changes: any,
+  item: any,
+  description: any,
+  priceState: { standardPrice?: number | null } | null,
+) {
+  const results: MercadoLivreEditConfirmation[] = [];
+  const compare = (field: string, actual: unknown, requested: unknown, normalize: (value: unknown) => string) => {
+    const same =
+      typeof requested === "number"
+        ? Math.abs(Number(actual) - requested) < 0.01
+        : normalize(actual) === normalize(requested);
+    results.push({ field, status: same ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
+  };
+  if (changes.title !== undefined) compare("title", item?.title, changes.title, textWords);
+  if (changes.price !== undefined) compare("price", priceState?.standardPrice, changes.price, trimmedText);
+  if (changes.availableQuantity !== undefined) {
+    compare("availableQuantity", item?.available_quantity, changes.availableQuantity, trimmedText);
+  }
+  if (changes.description !== undefined) {
+    compare("description", description?.plain_text ?? description?.text ?? "", changes.description, collapsedText);
+  }
+  if (changes.familyName !== undefined) compare("familyName", item?.family_name, changes.familyName, textWords);
+  if (changes.freeShipping !== undefined) {
+    const requested = Boolean(changes.freeShipping);
+    const actual = Boolean(item?.shipping?.free_shipping);
+    results.push({ field: "freeShipping", status: requested === actual ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
+  }
+  if (changes.pictureUrl !== undefined) {
+    const requested = parseMercadoLivrePictureUrls(String(changes.pictureUrl)).length;
+    const actual = Array.isArray(item?.pictures) ? item.pictures.length : 0;
+    results.push({ field: "images", status: requested === actual ? "CONFIRMADO" : "DIVERGENTE", requested, actual });
+  }
+  if (changes.videoUrl !== undefined) {
+    compare("videoUrl", item?.video_id, normalizeMercadoLivreVideoId(changes.videoUrl), trimmedText);
+  }
+  if (["lengthCm", "widthCm", "heightCm", "weightGrams"].some((field) => changes[field] !== undefined)) {
+    // As medidas definem o frete que o vendedor paga e vão como SELLER_PACKAGE_*.
+    // Só esses atributos contam: `shipping.dimensions` não é o que o ERP grava.
+    const declared = extractMercadoLivrePackageSnapshot({ attributes: item?.attributes });
+    const packageFields = [
+      ["lengthCm", declared.package_length_cm],
+      ["widthCm", declared.package_width_cm],
+      ["heightCm", declared.package_height_cm],
+      ["weightGrams", declared.package_weight_grams],
+    ] as const;
+    for (const [field, actual] of packageFields) {
+      if (changes[field] !== undefined) compare(field, actual, Number(changes[field]), trimmedText);
+    }
+  }
+  return results;
+}
+
+function trimmedText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+// A descrição preserva maiúsculas e pontuação; só os espaços repetidos somem.
+function collapsedText(value: unknown) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+// Título e nome do produto: vale o que o comprador lê, letras e números em ordem.
+function textWords(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFC")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }

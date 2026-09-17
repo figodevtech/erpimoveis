@@ -457,37 +457,64 @@ export async function runMercadoLivreItemValidation(
   }
 
   const shipping = payload.shipping as Record<string, unknown> | undefined;
-  const onlyWarnings = hasOnlyMercadoLivreValidationWarnings(validation);
-  const legacyMe1 = String(shipping?.mode ?? "").toLowerCase() === "me2" && isLegacyMe1ValidationError(validation);
-  const messages = collectValidationMessages(validation, context);
+  // Conta sem o modo legado ME1 recebe "User has not mode me1" em toda validação,
+  // às vezes até como erro. Num anúncio ME2 essa causa não diz nada sobre o
+  // anúncio, então sai antes de decidir se a validação passou. Quando ela vinha
+  // junto de outro aviso, a tela mandava revisar a logística de um anúncio válido.
+  const listingIsMe2 = String(shipping?.mode ?? "").toLowerCase() === "me2";
+  const causes = validationCauses(validation);
+  const relevantCauses = listingIsMe2 ? causes.filter((cause) => !isLegacyMe1Cause(cause)) : causes;
+  const droppedLegacyMe1 = relevantCauses.length < causes.length;
+  const legacyMe1Warnings = droppedLegacyMe1 ? [LEGACY_ME1_WARNING] : [];
 
-  if (legacyMe1) {
-    // A validação passou: o Mercado Livre só reportou a ausência do modo legado
-    // ME1, que não se aplica a um anúncio ME2. Dizer isso, e não repetir a
-    // recusa crua, evita parecer que a publicação foi negada.
+  if (listingIsMe2 && !relevantCauses.length && (droppedLegacyMe1 || isLegacyMe1ValidationError(validation))) {
+    return { valid: true, status: response.status, warnings: [LEGACY_ME1_WARNING], errors: [], fieldErrors: {}, validation };
+  }
+
+  const relevantValidation = droppedLegacyMe1 ? { ...validation, cause: relevantCauses, cause_list: [] } : validation;
+  if (hasOnlyMercadoLivreValidationWarnings(relevantValidation)) {
     return {
       valid: true,
       status: response.status,
-      warnings: [
-        "O Mercado Livre mencionou o modo legado ME1, que esta conta não possui. Isso não impede a publicação com Mercado Envios (ME2) e o anúncio segue válido.",
-      ],
+      warnings: [...legacyMe1Warnings, ...relevantCauses.map((cause) => translateMercadoLivreValidationWarning(cause, context))],
       errors: [],
       fieldErrors: {},
       validation,
     };
-  }
-  if (onlyWarnings) {
-    return { valid: true, status: response.status, warnings: messages, errors: [], fieldErrors: {}, validation };
   }
 
   return {
     valid: false,
     status: response.status,
     warnings: [],
-    errors: messages,
-    fieldErrors: buildValidationFieldErrors(validation),
+    errors: collectValidationMessages(relevantValidation, context),
+    fieldErrors: buildValidationFieldErrors(relevantValidation),
     validation,
   };
+}
+
+// A validação passou: o Mercado Livre só reportou a ausência do modo legado ME1,
+// que não se aplica a um anúncio ME2. Dizer isso, e não repetir a recusa crua,
+// evita parecer que a publicação foi negada.
+const LEGACY_ME1_WARNING =
+  "O Mercado Livre mencionou o modo legado ME1, que esta conta não possui. Isso não impede a publicação com Mercado Envios (ME2) e o anúncio segue válido.";
+
+/**
+ * Aviso não é recusa. A tradução de erro fala em "recusou" e, para qualquer causa
+ * que cite envio, pede para revisar dimensões e peso — foi assim que "frete grátis
+ * obrigatório adicionado" apareceu como recusa num anúncio válido. Avisos
+ * conhecidos ganham texto próprio; os demais saem como o Mercado Livre escreveu.
+ */
+function translateMercadoLivreValidationWarning(cause: unknown, context: MercadoLivreErrorContext) {
+  const detail = cause && typeof cause === "object" ? (cause as Record<string, unknown>) : {};
+  const message = String(detail.message ?? detail.msg ?? detail.code ?? (typeof cause === "string" ? cause : ""));
+  // Fora do ME2 a falta do ME1 atinge a modalidade escolhida; a tradução de erro
+  // já explica isso conforme o envio pedido.
+  if (isLegacyMe1Cause(cause)) return translateMercadoLivreError(message, context);
+  if (detail.code === "item.shipping.mandatory_free_shipping" || /mandatory free shipping/i.test(message)) {
+    return "Frete grátis: o Mercado Livre ativou o frete grátis, que é obrigatório para este anúncio. O custo do frete fica com o vendedor.";
+  }
+  return `Aviso do Mercado Livre: ${translateMercadoLivrePhrases(message)}`;
 }
 
 /** Mantém o comportamento de `POST /items`: lança quando a validação recusa o anúncio. */
@@ -533,6 +560,12 @@ function validationCauses(validation: unknown): unknown[] {
     ...(Array.isArray(value.cause) ? value.cause : []),
     ...(Array.isArray(value.cause_list) ? value.cause_list : []),
   ];
+}
+
+function isLegacyMe1Cause(cause: unknown) {
+  if (!cause || typeof cause !== "object") return /user has not mode me1/i.test(String(cause ?? ""));
+  const detail = cause as Record<string, unknown>;
+  return detail.code === "shipping.lost_me1_by_user" || /user has not mode me1/i.test(String(detail.message ?? detail.msg ?? ""));
 }
 
 export function isLegacyMe1ValidationError(validation: unknown) {
@@ -649,6 +682,10 @@ export function translateMercadoLivreError(message: string, context: MercadoLivr
     return "O Mercado Livre recusou um ou mais campos do anúncio. Revise família do produto, envio, dimensões, garantia e atributos obrigatórios da categoria.";
   }
 
+  return translateMercadoLivrePhrases(message);
+}
+
+function translateMercadoLivrePhrases(message: string) {
   return message
     .replaceAll("Validation error", "Erro de validação")
     .replaceAll("Attribute", "Atributo")

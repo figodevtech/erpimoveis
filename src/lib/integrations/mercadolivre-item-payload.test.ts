@@ -221,3 +221,73 @@ test("aviso legado de ME1 nao bloqueia um anuncio ME2", async () => {
   );
   assert.equal(result.valid, true);
 });
+
+const validationStub = (response: unknown) =>
+  (async () =>
+    ({ ok: false, status: 400, async text() { return JSON.stringify(response); } }) as unknown as Response) as unknown as typeof fetch;
+
+test("aviso de ME1 junto de outro aviso nao vira recusa num anuncio ME2", async () => {
+  // Resposta real de uma publicação válida que a tela descrevia como recusada.
+  const stub = validationStub({
+    cause: [
+      {
+        code: "shipping.lost_me1_by_user",
+        type: "warning",
+        message: "User has not mode me1",
+        cause_id: 4053,
+        department: "shipping",
+        references: ["user.shipping_preferences.modes"],
+      },
+      {
+        code: "item.shipping.mandatory_free_shipping",
+        type: "warning",
+        message: "Mandatory free shipping added",
+        cause_id: 350,
+        department: "items",
+        references: [],
+      },
+    ],
+    error: "validation_error",
+    status: 400,
+    message: "Validation error",
+  });
+
+  const result = await withFetch(stub, () =>
+    runMercadoLivreItemValidation("token", { shipping: { mode: "me2" } }, { shippingMode: "me2" }),
+  );
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.errors, []);
+  assert.equal(result.warnings.length, 2);
+  assert.match(result.warnings[0], /não impede a publicação/);
+  assert.match(result.warnings[1], /^Frete grátis:/);
+  assert.equal(result.warnings.some((warning) => /recus|revise/i.test(warning)), false);
+});
+
+test("erro real num anuncio ME2 nao culpa a falta do ME1", async () => {
+  const stub = validationStub({
+    message: "body.invalid_fields",
+    cause: [
+      { type: "error", code: "shipping.lost_me1_by_user", message: "User has not mode me1" },
+      { type: "error", code: "item.price.invalid", message: "invalid price", references: ["price"] },
+    ],
+  });
+
+  const result = await withFetch(stub, () =>
+    runMercadoLivreItemValidation("token", { shipping: { mode: "me2" } }, { shippingMode: "me2" }),
+  );
+  assert.equal(result.valid, false);
+  assert.deepEqual(result.errors, ["Campo Preço: o Mercado Livre recusou o preço informado."]);
+  assert.deepEqual(Object.keys(result.fieldErrors), ["price"]);
+});
+
+test("aviso desconhecido sobre envio nao usa texto de recusa", async () => {
+  const stub = validationStub({
+    cause: [{ type: "warning", code: "shipping.free_shipping.cost_exceeded", message: "Free shipping cost exceeded" }],
+  });
+
+  const result = await withFetch(stub, () =>
+    runMercadoLivreItemValidation("token", { shipping: { mode: "me2" } }, { shippingMode: "me2" }),
+  );
+  assert.equal(result.valid, true);
+  assert.deepEqual(result.warnings, ["Aviso do Mercado Livre: Free shipping cost exceeded"]);
+});
