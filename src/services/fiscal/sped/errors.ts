@@ -17,6 +17,7 @@ export function throwIfSupabaseError(error: { message?: string; code?: string } 
     "23505": 409,
     "55000": 409,
     "23514": 422,
+    "23503": 422,
     "22023": 400,
   }[error.code ?? ""] ?? 500;
   throw new SpedServiceError(error.message || "Falha de persistência do SPED.", status, error.code || "DATABASE_ERROR");

@@ -20,6 +20,7 @@ import {
 } from "@/lib/sped/efd-icms-ipi";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+import { toSpedContabilista } from "./accountantService";
 import { SpedServiceError, throwIfSupabaseError } from "./errors";
 import { singleCompanyId } from "./guards";
 import { projectSpedAssessment, type SpedAssessmentProjection } from "./assessmentProjection";
@@ -1073,7 +1074,7 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
   const summary = await summaryFor(competence);
   const config = await getConfig(number(competence.empresa_id));
   const selectedInventoryId = number(config?.inventario_fechamento_id);
-  const [companyResult, previousEfdResult, documentsResult, cadastrosResult, apuracaoResult, importsResult, adjustmentsResult, inventoryResult, execution, filesResult] = await Promise.all([
+  const [companyResult, previousEfdResult, documentsResult, cadastrosResult, apuracaoResult, importsResult, adjustmentsResult, inventoryResult, execution, filesResult, accountantsResult] = await Promise.all([
     supabaseAdmin.from("empresa").select("id, cnpj, razaosocial, nomefantasia, inscricaoestadual").eq("id", competence.empresa_id).maybeSingle(),
     supabaseAdmin.from("fiscal_sped_efd_anterior_importacao").select("id, competencia_arquivo, nome_arquivo, arquivo_sha256, status, imported_at").eq("competencia_id", competence.id).order("imported_at", { ascending: false }).limit(1).maybeSingle(),
     version ? supabaseAdmin.from("fiscal_sped_documento_snapshot").select("*, itens:fiscal_sped_item_snapshot(*)").eq("versao_id", version.id).order("data_emissao_civil").order("id") : Promise.resolve({ data: [], error: null }),
@@ -1086,8 +1087,9 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
       : Promise.resolve({ data: null, error: null }),
     latestExecution(number(competence.id)),
     version ? supabaseAdmin.from("fiscal_sped_arquivo").select("*").eq("versao_id", version.id).order("sequencia", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    supabaseAdmin.from("fiscal_sped_contabilista").select("*").eq("empresa_id", competence.empresa_id).order("vigencia_inicio", { ascending: false }),
   ]);
-  for (const result of [companyResult, previousEfdResult, documentsResult, cadastrosResult, apuracaoResult, importsResult, adjustmentsResult, inventoryResult, filesResult]) throwIfSupabaseError(result.error);
+  for (const result of [companyResult, previousEfdResult, documentsResult, cadastrosResult, apuracaoResult, importsResult, adjustmentsResult, inventoryResult, filesResult, accountantsResult]) throwIfSupabaseError(result.error);
   const importIds = (importsResult.data ?? []).map((row: Row) => row.id);
   const payments = importIds.length ? await supabaseAdmin.from("fiscal_sped_1601_linha").select("*").in("importacao_id", importIds).order("id") : { data: [], error: null };
   throwIfSupabaseError(payments.error);
@@ -1199,6 +1201,7 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
     },
     inconsistencias: ((inconsistencies.data ?? []) as Row[]).map((row) => ({ id: String(row.id), severidade: row.severidade, codigo: row.codigo, titulo: row.codigo.replaceAll("_", " "), mensagem: row.mensagem, registro: row.registro_efd, campo: row.campo_efd, resolvida: row.status === "RESOLVIDA", reconhecida: row.status === "RECONHECIDA", criadoEm: row.created_at, fontes: row.referencia_origem ? [row.referencia_origem] : [] })),
     arquivos: ((filesResult.data ?? []) as Row[]).map((row) => ({ id: String(row.id), nome: text(row.storage_path).split("/").pop() || `sped-${row.id}.txt`, tipo: row.tipo, finalidade: row.finalidade, versao: number(version?.numero), layout: text(version?.leiaute), quantidadeRegistros: number(row.quantidade_registros), tamanhoBytes: number(row.tamanho_bytes), sha256: row.arquivo_sha256, geradoEm: row.generated_at, geradoPor: row.generated_by, pvaStatus: null })),
+    contabilistas: ((accountantsResult.data ?? []) as Row[]).map(toSpedContabilista),
     auditoria: [], sourceCutoffAt: version?.source_cutoff_at ?? null, contextHash: version?.context_hash ?? null,
   };
 }

@@ -247,6 +247,6 @@ export function validateFoundation(input: {
       });
     }
   }
-  if (!input.accountant) diagnostics.push({ code: "CONTABILISTA_AUSENTE", severity: "BLOQUEIO", message: "Não há contabilista vigente para a competência." });
+  if (!input.accountant) diagnostics.push({ code: "CONTABILISTA_AUSENTE", severity: "BLOQUEIO", message: "Não há contabilista vigente para a competência. Cadastre o contador na aba Configuração." });
   return diagnostics;
 }

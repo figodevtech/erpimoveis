@@ -269,6 +269,7 @@ export type SpedCompetenciaDetail = SpedCompetenciaSummary & {
   inventario: SpedInventario;
   inconsistencias: SpedInconsistencia[];
   arquivos: SpedArquivo[];
+  contabilistas: SpedContabilista[];
   auditoria: SpedAuditoriaEvento[];
   sourceCutoffAt?: string | null;
   contextHash?: string | null;
@@ -300,3 +301,25 @@ export type SpedEntradaDataFiscalPendente = {
   dataLancamentoCivil: string | null;
   dataSugerida: string | null;
 };
+
+/** Contador responsável pela escrituração (registro 0100), com vigência por competência. */
+export type SpedContabilista = {
+  id: string;
+  vigenciaInicio: string;
+  vigenciaFim: string | null;
+  nome: string;
+  cpf: string;
+  crc: string;
+  cnpjEscritorio: string | null;
+  cep: string;
+  endereco: string;
+  numero: string;
+  complemento: string | null;
+  bairro: string;
+  telefone: string | null;
+  fax: string | null;
+  email: string;
+  codigoMunicipio: string;
+};
+
+export type SpedContabilistaForm = Omit<SpedContabilista, "id" | "vigenciaInicio" | "vigenciaFim">;

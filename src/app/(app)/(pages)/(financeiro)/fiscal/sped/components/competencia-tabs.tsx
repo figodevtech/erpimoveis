@@ -29,6 +29,7 @@ import {
   formatTimestamp,
 } from "../formatters";
 import type { SpedArquivo, SpedCompetenciaDetail } from "../types";
+import { AccountantEditor } from "./accountant-editor";
 import { AdjustmentPanel } from "./adjustment-panel";
 import { EmptyState } from "./empty-state";
 import { ImportPanel, type SpedImportKind } from "./import-panel";
@@ -77,7 +78,10 @@ export function CompetenciaTabs({
       </div>
 
       <TabsContent value="geral"><OverviewTab competencia={competencia} /></TabsContent>
-      <TabsContent value="configuracao"><ConfigurationEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} /></TabsContent>
+      <TabsContent value="configuracao" className="space-y-4">
+        <AccountantEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
+        <ConfigurationEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
+      </TabsContent>
       <TabsContent value="importacoes"><ImportPanel competencia={competencia} canManage={canManage} busy={busy} onImport={onImport} /></TabsContent>
       <TabsContent value="documentos"><DocumentsTab competencia={competencia} /></TabsContent>
       <TabsContent value="decisoes-itens"><ItemDecisionEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} /></TabsContent>

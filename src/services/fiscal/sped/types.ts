@@ -87,6 +87,7 @@ export type SpedCompetenciaDetail = SpedCompetenciaSummary & {
     fontes: Array<Record<string, unknown>>;
   }>;
   arquivos: Array<Record<string, unknown>>;
+  contabilistas: SpedContabilista[];
   auditoria: Array<Record<string, unknown>>;
   sourceCutoffAt: string | null;
   contextHash: string | null;
@@ -105,4 +106,23 @@ export type SpedEntradaDataFiscalPendente = {
   /** Data civil do lançamento no fuso da configuração SPED; null sem fuso configurado. */
   dataLancamentoCivil: string | null;
   dataSugerida: string | null;
+};
+
+export type SpedContabilista = {
+  id: string;
+  vigenciaInicio: string;
+  vigenciaFim: string | null;
+  nome: string;
+  cpf: string;
+  crc: string;
+  cnpjEscritorio: string | null;
+  cep: string;
+  endereco: string;
+  numero: string;
+  complemento: string | null;
+  bairro: string;
+  telefone: string | null;
+  fax: string | null;
+  email: string;
+  codigoMunicipio: string;
 };

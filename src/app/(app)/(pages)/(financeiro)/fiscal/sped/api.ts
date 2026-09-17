@@ -4,6 +4,8 @@ import type {
   SpedCompetenciaDetail,
   SpedCompetenciaResponse,
   SpedCompetenciasResponse,
+  SpedContabilista,
+  SpedContabilistaForm,
   SpedEntradaDataFiscalPendente,
 } from "./types";
 
@@ -224,4 +226,18 @@ export async function downloadSpedFile(file: SpedArquivo) {
   }
 
   downloadBlob(await response.blob(), file.nome || `sped-${file.id}.txt`);
+}
+
+export function createSpedContabilista(companyId: number, aPartirDe: string, data: SpedContabilistaForm) {
+  return requestJson<{ data: SpedContabilista }>(`${API_ROOT}/contabilista`, {
+    method: "POST",
+    body: JSON.stringify({ ...data, companyId, aPartirDe }),
+  });
+}
+
+export function updateSpedContabilista(companyId: number, id: string, data: SpedContabilistaForm) {
+  return requestJson<{ data: SpedContabilista }>(`${API_ROOT}/contabilista`, {
+    method: "PUT",
+    body: JSON.stringify({ ...data, companyId, id }),
+  });
 }
