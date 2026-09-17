@@ -4,6 +4,7 @@ import type {
   SpedCompetenciaDetail,
   SpedCompetenciaResponse,
   SpedCompetenciasResponse,
+  SpedEntradaDataFiscalPendente,
 } from "./types";
 
 const API_ROOT = "/api/fiscal/sped";
@@ -111,6 +112,25 @@ export function deactivateSpedAssessmentAdjustment(competenciaId: string, adjust
     `${API_ROOT}/competencias/${encodeURIComponent(competenciaId)}/ajustes`,
     { method: "DELETE", body: JSON.stringify({ adjustmentId }) },
   );
+}
+
+export function createSpedCompetencia(competencia: string) {
+  return requestJson<SpedCompetenciaResponse>(`${API_ROOT}/competencias`, {
+    method: "POST",
+    body: JSON.stringify({ competence: competencia }),
+  });
+}
+
+export async function listEntradasSemDataFiscal(signal?: AbortSignal) {
+  const response = await requestJson<{ data: SpedEntradaDataFiscalPendente[] }>(`${API_ROOT}/entradas/data-fiscal`, { signal });
+  return Array.isArray(response?.data) ? response.data : [];
+}
+
+export function confirmarDatasFiscaisDeEntrada(entradas: Array<{ id: string; dataEntradaFiscal: string }>) {
+  return requestJson<{ data: { atualizadas: number } }>(`${API_ROOT}/entradas/data-fiscal`, {
+    method: "PUT",
+    body: JSON.stringify({ entradas }),
+  });
 }
 
 export async function listSpedCompetencias(signal?: AbortSignal) {

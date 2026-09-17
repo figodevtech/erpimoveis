@@ -11,6 +11,7 @@ import { toast } from "@/lib/toast";
 
 import {
   closeSpedCompetencia,
+  createSpedCompetencia,
   downloadSpedFile,
   generateSpedFile,
   getSpedCompetencia,
@@ -24,6 +25,7 @@ import type { SpedCompetenciaDetail, SpedCompetenciaSummary } from "./types";
 import { SpedActionDialog, type SpedPendingAction } from "./components/action-dialog";
 import { CompetenciaDetail } from "./components/competencia-detail";
 import { CompetenciaList } from "./components/competencia-list";
+import { EntryDatesPanel } from "./components/entry-dates-panel";
 import type { SpedImportKind } from "./components/import-panel";
 
 export function SpedWorkspace() {
@@ -113,6 +115,22 @@ export function SpedWorkspace() {
     setListRevision((value) => value + 1);
     if (selectedId) setDetailRevision((value) => value + 1);
   }, [selectedId]);
+
+  const createCompetencia = useCallback(async (competencia: string) => {
+    try {
+      const response = await createSpedCompetencia(competencia);
+      toast.success("Competência aberta.", { description: "Valide para ver o diagnóstico do período." });
+      if (response?.data?.id) setSelectedId(response.data.id);
+      setListRevision((value) => value + 1);
+      setDetailRevision((value) => value + 1);
+      return true;
+    } catch (error: unknown) {
+      toast.error("Não foi possível abrir a competência", {
+        description: error instanceof Error ? error.message : "Falha inesperada.",
+      });
+      return false;
+    }
+  }, []);
 
   const executeAction = useCallback(async (reason?: string) => {
     if (!pendingAction || !detail) return;
@@ -210,6 +228,8 @@ export function SpedWorkspace() {
         </Alert>
       ) : null}
 
+      {canView ? <EntryDatesPanel canManage={canManage} revision={listRevision} onConfirmed={refreshAll} /> : null}
+
       <CompetenciaList
         competencias={competencias}
         selectedId={selectedId}
@@ -217,6 +237,7 @@ export function SpedWorkspace() {
         refreshing={listRefreshing}
         onSelect={setSelectedId}
         onRefresh={refreshAll}
+        onCreate={canManage ? createCompetencia : undefined}
       />
 
       {detailError ? (

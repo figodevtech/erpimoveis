@@ -286,3 +286,17 @@ export type SpedActionResponse = {
   data?: SpedCompetenciaDetail;
   message?: string;
 };
+
+export type SpedEntradaDataFiscalPendente = {
+  id: string;
+  numeroNota: string | null;
+  serieNota: string | null;
+  chave: string | null;
+  fornecedor: string | null;
+  documentoFornecedor: string | null;
+  valorTotal: number;
+  dataEmissao: string | null;
+  dataLancamento: string | null;
+  dataLancamentoCivil: string | null;
+  dataSugerida: string | null;
+};

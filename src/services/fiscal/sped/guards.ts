@@ -20,3 +20,17 @@ export function closedMonthsAffectedByDateChange(
   const months = new Set([current.slice(0, 7), nextDate.slice(0, 7)].filter(Boolean));
   return Array.from(months).filter((month) => closedMonths.has(month)).sort();
 }
+
+/** Data civil (AAAA-MM-DD) de um instante no fuso do estabelecimento; null se algum dos dois for inválido. */
+export function civilDateInTimezone(instant: string | null | undefined, timeZone: string | null | undefined): string | null {
+  if (!instant || !timeZone) return null;
+  const date = new Date(instant);
+  if (Number.isNaN(date.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+    const part = (type: string) => parts.find((item) => item.type === type)?.value;
+    return `${part("year")}-${part("month")}-${part("day")}`;
+  } catch {
+    return null;
+  }
+}

@@ -102,5 +102,7 @@ export type SpedEntradaDataFiscalPendente = {
   valorTotal: number;
   dataEmissao: string | null;
   dataLancamento: string | null;
+  /** Data civil do lançamento no fuso da configuração SPED; null sem fuso configurado. */
+  dataLancamentoCivil: string | null;
   dataSugerida: string | null;
 };

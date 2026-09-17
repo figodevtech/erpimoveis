@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 
 import { formatCompetencia, formatInteger } from "../formatters";
 import type { SpedCompetenciaSummary } from "../types";
+import { NewCompetenciaDialog } from "./new-competencia-dialog";
 import { CompetenciaStatusBadge } from "./status-badges";
 
 type CompetenciaListProps = {
@@ -20,6 +21,8 @@ type CompetenciaListProps = {
   refreshing: boolean;
   onSelect: (id: string) => void;
   onRefresh: () => void;
+  /** Presente só para quem gerencia o SPED. */
+  onCreate?: (competencia: string) => Promise<boolean>;
 };
 
 export function CompetenciaList({
@@ -29,6 +32,7 @@ export function CompetenciaList({
   refreshing,
   onSelect,
   onRefresh,
+  onCreate,
 }: CompetenciaListProps) {
   return (
     <Card>
@@ -40,16 +44,19 @@ export function CompetenciaList({
           </CardTitle>
           <CardDescription>Selecione o período fiscal que será conferido.</CardDescription>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={loading || refreshing}
-          onClick={onRefresh}
-        >
-          <RefreshCw className={cn(refreshing && "animate-spin")} aria-hidden="true" />
-          Atualizar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={loading || refreshing}
+            onClick={onRefresh}
+          >
+            <RefreshCw className={cn(refreshing && "animate-spin")} aria-hidden="true" />
+            Atualizar
+          </Button>
+          {onCreate ? <NewCompetenciaDialog disabled={loading} onCreate={onCreate} /> : null}
+        </div>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -57,9 +64,11 @@ export function CompetenciaList({
         ) : competencias.length === 0 ? (
           <div className="flex min-h-36 flex-col items-center justify-center rounded-lg border border-dashed p-6 text-center">
             <FileText className="mb-2 size-6 text-muted-foreground" aria-hidden="true" />
-            <p className="text-sm font-medium">Nenhuma competência preparada</p>
+            <p className="text-sm font-medium">Nenhuma competência aberta</p>
             <p className="mt-1 max-w-md text-xs text-muted-foreground">
-              A lista ficará disponível quando uma competência SPED for aberta pelo serviço fiscal.
+              {onCreate
+                ? "Use “Nova competência” para abrir o mês que será escriturado."
+                : "Quem gerencia o SPED Fiscal abre as competências."}
             </p>
           </div>
         ) : (

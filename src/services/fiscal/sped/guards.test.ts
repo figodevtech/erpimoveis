@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { closedMonthsAffectedByDateChange, singleCompanyId } from "./guards";
+import { civilDateInTimezone, closedMonthsAffectedByDateChange, singleCompanyId } from "./guards";
 
 describe("empresa da competência SPED", () => {
   it("usa a única empresa do banco", () => {
@@ -36,5 +36,17 @@ describe("data fiscal de entrada e competência fechada", () => {
 
   it("repetir a mesma data não é mudança", () => {
     assert.deepEqual(closedMonthsAffectedByDateChange("2026-07-10", "2026-07-10", closed), []);
+  });
+});
+
+describe("data civil do lançamento no fuso do estabelecimento", () => {
+  it("lançamento à noite em Fortaleza não vira o dia seguinte", () => {
+    assert.equal(civilDateInTimezone("2026-08-01T01:30:00Z", "America/Fortaleza"), "2026-07-31");
+  });
+
+  it("sem fuso ou instante válido não sugere data", () => {
+    assert.equal(civilDateInTimezone("2026-08-01T01:30:00Z", null), null);
+    assert.equal(civilDateInTimezone("ontem", "America/Fortaleza"), null);
+    assert.equal(civilDateInTimezone("2026-08-01T01:30:00Z", "Lua/Base"), null);
   });
 });

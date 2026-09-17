@@ -4,7 +4,7 @@ import { isValidCivilDate } from "@/lib/fiscal-date";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 import { SpedServiceError, throwIfSupabaseError } from "./errors";
-import { closedMonthsAffectedByDateChange } from "./guards";
+import { civilDateInTimezone, closedMonthsAffectedByDateChange } from "./guards";
 import type { SpedEntradaDataFiscalPendente } from "./types";
 
 type Row = Record<string, any>;
@@ -17,6 +17,9 @@ function text(value: unknown): string {
 
 /** Entradas fiscais confirmadas no estoque que ainda não têm data de escrituração confirmada. */
 export async function listPendingEntryFiscalDates(): Promise<SpedEntradaDataFiscalPendente[]> {
+  const configResult = await supabaseAdmin.from("fiscal_sped_config").select("timezone_iana").order("empresa_id").limit(1).maybeSingle();
+  throwIfSupabaseError(configResult.error);
+  const timeZone = text(configResult.data?.timezone_iana) || null;
   const result = await supabaseAdmin
     .from("entrada")
     .select(`
@@ -46,6 +49,7 @@ export async function listPendingEntryFiscalDates(): Promise<SpedEntradaDataFisc
       // Datas civis: o texto do documento, sem conversão de fuso.
       dataEmissao: text(dfe?.data_emissao || row.data_emissao).slice(0, 10) || null,
       dataLancamento: text(row.created_at) || null,
+      dataLancamentoCivil: civilDateInTimezone(row.created_at, timeZone),
       dataSugerida: text(row.data_entrada_fiscal_sugerida).slice(0, 10) || null,
     };
   });
