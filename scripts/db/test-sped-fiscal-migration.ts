@@ -29,6 +29,7 @@ import {
   readLocalMigrations,
   type DatabaseKey,
 } from "./lib";
+import { splitLikeSupabaseCli } from "./supabase-splitter";
 
 const BANCOS: DatabaseKey[] = ["demo", "demir", "garage"];
 
@@ -66,23 +67,36 @@ function desembrulhar(sql: string, fim: "commit" | "rollback") {
   return encontrado[1];
 }
 
-const ENVELOPE = /^(begin|commit)[ \t]*;[ \t]*\r?$/gim;
-const TAG = "$sped_teste_migration$";
+const CONTROLE_DE_TRANSACAO = /^(begin|start\s+transaction|commit|end|rollback|abort)\b/i;
+
+function semComentariosIniciais(comando: string) {
+  return comando.replace(/^(\s*--[^\n]*(\n|$))+/, "").trim();
+}
 
 /**
- * Uma migration que carregue COMMIT efetiva a transacao do teste inteira: o
- * envelope nem sempre abre o arquivo (ha migrations que comecam por
- * comentario). Duas defesas, sem depender de analisar o SQL:
+ * O teste precisa quebrar onde o deploy quebra. O `db push` separa o arquivo
+ * com o parser da CLI e manda cada pedaço como prepared statement, então o
+ * teste faz o mesmo (ver supabase-splitter.ts). Em 17/09/2026 uma coluna com
+ * "atomico" no nome passou aqui, que rodava o arquivo inteiro, e quebrou no
+ * deploy do Demir.
  *
- * 1. As linhas `BEGIN;`/`COMMIT;` do envelope, na coluna zero, saem.
- * 2. O restante roda dentro de `DO ... EXECUTE`. Controle de transacao ali
- *    dentro vira erro ("invalid transaction termination") em vez de commit.
+ * COMMIT nunca pode efetivar o teste: o envelope BEGIN/COMMIT sai, qualquer
+ * outro controle de transacao no nivel de comando e recusado antes de executar,
+ * e um COMMIT escondido num pedaco mal separado nao roda, porque prepared
+ * statement recusa mais de um comando.
  */
 function lerMigration(arquivo: string) {
   const sql = fs.readFileSync(path.join(projectRoot, "supabase", "migrations", arquivo), "utf8");
-  if (sql.includes(TAG)) throw new Error(`${arquivo}: contem a tag ${TAG}; ajuste o runner.`);
-  const semEnvelope = sql.replace(/^﻿/, "").replace(ENVELOPE, "");
-  return `DO $sped_teste$ BEGIN EXECUTE ${TAG}${semEnvelope}${TAG}; END $sped_teste$`;
+  const comandos: string[] = [];
+  for (const comando of splitLikeSupabaseCli(sql.replace(/^﻿/, ""))) {
+    const nucleo = semComentariosIniciais(comando);
+    if (/^(begin|commit)$/i.test(nucleo)) continue;
+    if (CONTROLE_DE_TRANSACAO.test(nucleo)) {
+      throw new Error(`${arquivo}: controle de transacao fora do envelope (${nucleo.slice(0, 40)}); recusado.`);
+    }
+    comandos.push(comando);
+  }
+  return comandos;
 }
 
 async function exigirTransacaoAberta(client: { query: (sql: string) => Promise<{ rows: Record<string, unknown>[] }> }, depois: string) {
@@ -120,21 +134,26 @@ async function main() {
     }
 
     // Le e recusa tudo antes de abrir a transacao: nada executa se algum arquivo for suspeito.
-    const scripts = pendentes.map((migration) => ({ migration, sql: lerMigration(migration.file) }));
+    const scripts = pendentes.map((migration) => ({ migration, comandos: lerMigration(migration.file) }));
+    let preparados = 0;
 
     await client.query("BEGIN");
     await client.query("SET LOCAL sped_teste.guarda = 'ativa'");
     const anonAntes = new Set((await client.query(ROTINAS_ANON)).rows.map((row) => String(row.signature)));
 
-    for (const { migration, sql } of scripts) {
-      try {
-        await client.query(sql);
-      } catch (error) {
-        const detalhe = error instanceof Error ? error.message : String(error);
-        throw new Error(`${migration.file}: ${detalhe}`);
+    for (const { migration, comandos } of scripts) {
+      for (const [indice, comando] of comandos.entries()) {
+        try {
+          // Nome unico forca o protocolo estendido, como o pgx da CLI.
+          await client.query({ name: `sped_teste_${preparados++}`, text: comando });
+        } catch (error) {
+          const detalhe = error instanceof Error ? error.message : String(error);
+          const inicio = semComentariosIniciais(comando).slice(0, 80).replace(/\s+/g, " ");
+          throw new Error(`${migration.file}, comando ${indice}: ${detalhe}\n  ${inicio}...`);
+        }
       }
       await exigirTransacaoAberta(client, migration.file);
-      console.log(`  ${migration.file}: aplicada`);
+      console.log(`  ${migration.file}: aplicada (${comandos.length} comandos)`);
     }
 
     await client.query(check);

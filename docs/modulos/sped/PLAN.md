@@ -37,21 +37,22 @@
 - cancelamento de NF-e sobre uma nota real: evento preservado, idempotente, divergência recusada, evento imutável;
 - RLS ligada nas 23 tabelas, sem acesso para `anon`/`authenticated`, nenhuma função nova executável por `anon` e bucket `fiscal-sped` privado.
 
-Cada migration roda dentro de `DO ... EXECUTE`. Ali dentro, um `COMMIT` embutido gera erro em vez de efetivar o teste.
+O teste separa cada migration com um port fiel do parser da CLI do Supabase (`scripts/db/supabase-splitter.ts`) e executa cada comando como prepared statement, como o `db push` faz. Assim ele quebra onde o deploy quebraria. Um `COMMIT` fora do envelope é recusado antes de executar.
+
+Um nome não reservado com as letras de `ATOMIC` fora de aspas faz a CLI juntar o resto do arquivo num comando só. Foi o que derrubou o primeiro deploy no Demir em 17/09/2026, por causa da coluna do item componente em `fiscal_sped_item_correlacao`. A correção pôs o identificador entre aspas, o que não muda nada no banco.
 
 ## Publicação
 
 A ordem importa: o cancelamento de NF-e da branch usa `fiscal_registrar_cancelamento_nfe`, que só existe depois das migrations.
 
-1. **Demonstração, uma única vez:** `npx tsx scripts/db/registrar-historico-sped-demo.ts --aplicar`.
-   - Uma versão anterior do teste aplicou de fato as 9 migrations pendentes nesse banco, sem gravar o histórico.
-   - O script confere o efeito de cada uma e só então registra as versões.
-   - Rode antes sem `--aplicar` para simular.
-2. `npm run db:deploy`: aplica as 9 migrations em Demir e Garage. Na Demonstração, depois do passo 1, não há nada pendente.
+1. ~~Demonstração: registrar o histórico das 9 migrations aplicadas por engano pelo teste~~ (feito em 17/09/2026 com `scripts/db/registrar-historico-sped-demo.ts`).
+2. `npm run db:deploy`.
+   - A primeira tentativa, em 17/09/2026, aplicou `054031`, `054033` e `054035` no Demir e parou na `054038` (caso ATOMIC acima). A `054038` foi revertida inteira.
+   - Com a correção, faltam 6 migrations no Demir e 9 no Garage. As duas listas passaram no `db:test:sped-fiscal`.
 3. Merge da `feature/sped` na `main` e push.
 4. Smoke na Demonstração: abrir a competência 08/2026, confirmar as datas das entradas, validar e conferir os diagnósticos.
 
-**As migrations de `20260916054031` a `20260917100000` não podem mais ser editadas**, porque a Demonstração já as executou. Qualquer correção de SQL vai numa migration nova.
+**As migrations de `20260916054031` a `20260917100000` não podem mudar de efeito**, porque a Demonstração já as executou. Só cabe ajuste de texto que gere o mesmo objeto, como pôr um identificador entre aspas. Qualquer correção de comportamento vai numa migration nova.
 
 ## Fronteiras e segurança
 
