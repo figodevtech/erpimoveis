@@ -3,6 +3,7 @@ import { isMercadoLivreNotFound, mercadoLivreApiGet } from "@/lib/integrations/m
 import { describeMercadoLivreListingStatus } from "@/lib/integrations/mercadolivre-listing-status";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
 import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
+import { mercadoLivreListingHealth } from "@/lib/integrations/mercadolivre-quality";
 import { loadMercadoLivreItemVisits } from "@/lib/integrations/mercadolivre-visits";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -41,7 +42,11 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
       if (!accessToken || !link.ml_item_id) return { ...link, sync_error: "Conta Mercado Livre não encontrada." };
 
       try {
-        const item = await mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(String(link.ml_item_id))}`);
+        const [item, performance] = await Promise.all([
+          mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(String(link.ml_item_id))}`),
+          // Nota de qualidade exibida no Mercado Livre; responde 404 enquanto não foi calculada.
+          mercadoLivreApiGet<any>(accessToken, `/item/${encodeURIComponent(String(link.ml_item_id))}/performance`).catch(() => null),
+        ]);
         // Anúncio excluído não tem preço para conciliar nem métrica para guardar:
         // o vínculo sai e o produto volta a ficar livre para ser anunciado.
         const removal = await removeLinkWhenGone(link, item);
@@ -69,7 +74,7 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
           available_quantity: numberOrNull(item?.available_quantity) ?? link.available_quantity ?? null,
           listing_type_id: item?.listing_type_id ?? link.listing_type_id ?? null,
           item_condition: item?.condition ?? link.item_condition ?? null,
-          health: numberOrNull(item?.health) ?? link.health ?? null,
+          health: mercadoLivreListingHealth(performance, item?.health) ?? link.health ?? null,
           catalog_listing: typeof item?.catalog_listing === "boolean" ? item.catalog_listing : link.catalog_listing ?? null,
           stop_time: item?.stop_time ?? link.stop_time ?? null,
           price_state: priceState,
