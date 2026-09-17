@@ -3,10 +3,16 @@ import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
+  MercadoLivreApiError,
   mercadoLivreApiGet,
   mercadoLivreApiPost,
   mercadoLivreApiPut,
 } from "@/lib/integrations/mercadolivre";
+import {
+  getMercadoLivreItemFlex,
+  mercadoLivreFlexErrorMessage,
+  setMercadoLivreItemFlex,
+} from "@/lib/integrations/mercadolivre-flex";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
 import { buildMercadoLivrePackageAttributes } from "@/lib/integrations/mercadolivre-listing-validation";
 import {
@@ -117,6 +123,30 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         .select("id")
         .maybeSingle();
       editLogId = editLog?.id ? Number(editLog.id) : null;
+    }
+
+    if (action === "enable_flex" || action === "disable_flex") {
+      const enabled = action === "enable_flex";
+      const siteId = String(account.site_id || "MLB");
+      try {
+        await setMercadoLivreItemFlex(accessToken, siteId, itemId, enabled);
+      } catch (flexError) {
+        const error = new Error(mercadoLivreFlexErrorMessage(flexError, enabled));
+        (error as any).status = flexError instanceof MercadoLivreApiError ? flexError.status : 502;
+        (error as any).fieldErrors = { shipping: error.message };
+        throw error;
+      }
+      await registerMercadoLivreOutboundTouch({
+        empresaId: link.empresa_id,
+        itemId,
+        kinds: "ANUNCIO",
+        origin: `PATCH /items/[itemId] ${action}`,
+      });
+      // A situação confirmada vem do próprio recurso de Flex: as tags de envio do
+      // anúncio demoram a acompanhar a mudança. O vínculo não é reescrito aqui: a
+      // sincronização seguinte traz as tags novas sem perder preço e qualidade.
+      const active = await getMercadoLivreItemFlex(accessToken, siteId, itemId).catch(() => enabled);
+      return NextResponse.json({ flex: { active, available: true } });
     }
 
     if (action === "delete") {

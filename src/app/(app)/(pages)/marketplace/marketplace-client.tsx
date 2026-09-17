@@ -68,8 +68,10 @@ import {
   Tags,
   Trash2,
   TrendingUp,
+  Truck,
   Unlink,
   XCircle,
+  Zap,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import {
@@ -514,6 +516,8 @@ export type ProductRow = {
     price_state?: { standardPrice: number | null; salePrice: number | null } | null;
     /** Nota e objetivos pendentes, como o Mercado Livre mostra ao vendedor. */
     quality?: MercadoLivreListingQualityData | null;
+    /** Envios Flex do anúncio: se está ativo e se o Mercado Livre aceita ativar. */
+    flex?: { active: boolean; available: boolean } | null;
     metrics_updated_at?: string | null;
     updated_at?: string | null;
   } | null;
@@ -3676,7 +3680,7 @@ export default function MarketplacePage() {
 
   async function itemAction(
     itemId: string,
-    action: "pause" | "activate" | "close" | "sync_stock" | "delete" | "relist",
+    action: "pause" | "activate" | "close" | "sync_stock" | "delete" | "relist" | "enable_flex" | "disable_flex",
   ) {
     setActionKey(`${action}:${itemId}`);
     try {
@@ -3728,7 +3732,11 @@ export default function MarketplacePage() {
             ? "Anúncio ativado."
             : action === "close"
               ? "Anúncio finalizado."
-              : "Anúncio atualizado.",
+              : action === "enable_flex"
+                ? "Envios Flex ativado no anúncio."
+                : action === "disable_flex"
+                  ? "Envios Flex desativado no anúncio."
+                  : "Anúncio atualizado.",
       );
       await Promise.all([loadProducts(), loadLinkedListingProducts()]);
     } catch (e: any) {
@@ -4994,6 +5002,18 @@ export default function MarketplacePage() {
                 Ativar anúncio
               </DropdownMenuItem>
             )}
+            {link.flex?.available && !link.flex.active && (
+              <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "enable_flex")} disabled={Boolean(busy)}>
+                <Zap className="mr-2 h-4 w-4" />
+                Ativar Envios Flex
+              </DropdownMenuItem>
+            )}
+            {link.flex?.active && (
+              <DropdownMenuItem onClick={() => itemAction(link.ml_item_id, "disable_flex")} disabled={Boolean(busy)}>
+                <Truck className="mr-2 h-4 w-4" />
+                Desativar Envios Flex
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => unlinkProduct(product.id)} disabled={Boolean(busy)}>
               <Unlink className="mr-2 h-4 w-4" />
               Remover vínculo
@@ -5570,6 +5590,7 @@ export default function MarketplacePage() {
                                     {link.item_condition ? <span>{rawStatusLabel(link.item_condition)}</span> : null}
                                     {link.catalog_listing ? <span>Catálogo</span> : null}
                                     <MercadoLivreListingQuality health={link.health} quality={link.quality} />
+                                    {link.flex?.active ? <span>Envios Flex</span> : null}
                                   </div>
                                   {link.permalink ? <a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" href={link.permalink} target="_blank" rel="noreferrer"><ExternalLink className="h-3 w-3" />Abrir no Mercado Livre</a> : null}
                                 </div>

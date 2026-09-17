@@ -3,6 +3,7 @@ import { isMercadoLivreNotFound, mercadoLivreApiGet } from "@/lib/integrations/m
 import { describeMercadoLivreListingStatus } from "@/lib/integrations/mercadolivre-listing-status";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
 import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
+import { resolveMercadoLivreItemFlex } from "@/lib/integrations/mercadolivre-flex";
 import { mercadoLivreListingHealth, mercadoLivreListingQuality } from "@/lib/integrations/mercadolivre-quality";
 import { loadMercadoLivreItemVisits } from "@/lib/integrations/mercadolivre-visits";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -79,6 +80,7 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
           stop_time: item?.stop_time ?? link.stop_time ?? null,
           price_state: priceState,
           quality: mercadoLivreListingQuality(performance) ?? link.quality ?? null,
+          flex: resolveMercadoLivreItemFlex(item?.shipping?.tags),
           metrics_updated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
