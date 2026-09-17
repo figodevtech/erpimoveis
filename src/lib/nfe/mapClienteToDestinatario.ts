@@ -1,6 +1,7 @@
 // src/lib/nfe/mapClienteToDestinatario.ts
 import { IND_IE_DEST_CONTRIBUINTE, normalizarIndIEDest } from "./indIEDest";
 import type { ClienteRow, EmpresaRow, NFeDestinatario } from "./types";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 
 function soNumeros(value: string | null | undefined): string {
   return value ? value.replace(/\D/g, "") : "";
@@ -14,8 +15,8 @@ export function mapClienteToDestinatario(
   cliente: ClienteRow,
   empresa?: EmpresaRow
 ): NFeDestinatario {
-  const documento = soNumeros(cliente.cpfcnpj);
-  const isCnpj = documento.length > 11;
+  const documento = normalizeCpfOrCnpj(cliente.cpfcnpj);
+  const isCnpj = documento.length > 11 || /[A-Z]/.test(documento);
 
   const codigoMunicipio =
     cliente.codigomunicipio ||

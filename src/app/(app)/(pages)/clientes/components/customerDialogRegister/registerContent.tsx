@@ -70,6 +70,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { isValidCnpj, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 
 interface RegisterContentProps {
   newCustomer: NewCustomer;
@@ -172,15 +173,20 @@ export default function RegisterContent({
   };
 
   const handleGetCNPJ = async () => {
-    if (newCustomer.cpfcnpj.length < 14) {
-      toast.warning("CPF inválido para consulta de CNPJ");
+    const cnpj = normalizeCnpj(newCustomer.cpfcnpj);
+    if (!isValidCnpj(cnpj)) {
+      toast.warning("CNPJ inválido para consulta");
+      return;
+    }
+    if (/[A-Z]/.test(cnpj)) {
+      toast.info("A consulta automática ainda não declara suporte ao CNPJ alfanumérico. Preencha os dados manualmente.");
 
       return;
     }
     setIsLoadingCNPJ(true);
     try {
       const response = await axios.get(
-        `https://publica.cnpj.ws/cnpj/${newCustomer.cpfcnpj}`
+        `https://publica.cnpj.ws/cnpj/${cnpj}`
       );
       if (response.status === 200) {
         console.log(response.data);
@@ -381,7 +387,8 @@ export default function RegisterContent({
   }, [newCustomer.tipopessoa]);
 
   useEffect(() => {
-    if (newCustomer.tipopessoa === "JURIDICA" && newCustomer.cpfcnpj.length === 14) {
+    const cnpj = normalizeCnpj(newCustomer.cpfcnpj);
+    if (newCustomer.tipopessoa === "JURIDICA" && cnpj.length === 14 && !/[A-Z]/.test(cnpj)) {
       handleGetCNPJ();
     }
   }, [newCustomer.cpfcnpj, newCustomer.tipopessoa]);
@@ -574,7 +581,7 @@ export default function RegisterContent({
                     </Tooltip>
                   ) : null}
                   <Input
-                    inputMode="numeric"
+                    inputMode={newCustomer.tipopessoa === "FISICA" ? "numeric" : "text"}
                     id="cpfcnpj"
                     className=""
                     value={
@@ -584,9 +591,11 @@ export default function RegisterContent({
                       ) || ""
                     }
                     onChange={(e) => {
-                      const onlyNumbers = e.target.value.replace(/\D/g, "");
+                      const documento = newCustomer.tipopessoa === "FISICA"
+                        ? normalizeCpf(e.target.value).slice(0, 11)
+                        : normalizeCnpj(e.target.value).slice(0, 14);
 
-                      handleInputChange("cpfcnpj", onlyNumbers);
+                      handleInputChange("cpfcnpj", documento);
                     }}
                     placeholder={
                       newCustomer.tipopessoa === "FISICA"

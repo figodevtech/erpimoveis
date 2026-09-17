@@ -7,6 +7,12 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireClientesAccess, requireClientesDelete, requireClientesEdit } from "@/app/api/_authz/perms";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 import { mapearItemHistorico } from "@/lib/ordens/itens-historicos";
+import {
+  isValidCnpj,
+  isValidCpf,
+  normalizeCnpj,
+  normalizeCpf,
+} from "@/lib/fiscal-identifiers";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -107,6 +113,25 @@ function sanitizePayload(body: any, { strict }: { strict: boolean }) {
     out.status = up;
   }
 
+  if ("tipopessoa" in out && out.tipopessoa != null) {
+    const tipo = String(out.tipopessoa).toUpperCase();
+    if (tipo !== "FISICA" && tipo !== "JURIDICA") {
+      throw new Error("Tipo de pessoa inválido. Use FISICA ou JURIDICA.");
+    }
+    out.tipopessoa = tipo;
+  }
+
+  if ("cpfcnpj" in out && out.cpfcnpj != null) {
+    const tipo = out.tipopessoa ?? (/^[0-9.\-/\s]{1,14}$/.test(String(out.cpfcnpj))
+      && normalizeCpf(out.cpfcnpj).length === 11 ? "FISICA" : "JURIDICA");
+    const documento = tipo === "FISICA"
+      ? normalizeCpf(out.cpfcnpj)
+      : normalizeCnpj(out.cpfcnpj);
+    const valido = tipo === "FISICA" ? isValidCpf(documento) : isValidCnpj(documento);
+    if (!valido) throw new Error("CPF/CNPJ inválido.");
+    out.cpfcnpj = documento;
+  }
+
   if (strict) {
     const required = [
       "tipopessoa",
@@ -182,7 +207,7 @@ export async function GET(_: Request, ctx: Params) {
     return NextResponse.json({ data: resposta });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao buscar cliente.";
-    const status = msg.includes("ID inválido") ? 400 : 500;
+    const status = msg.includes("inválido") ? 400 : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }
@@ -270,7 +295,7 @@ export async function PUT(req: Request, ctx: Params) {
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao atualizar cliente.";
     const status =
-      msg.includes("ID inválido") || msg.includes("Campos obrigatórios")
+      msg.includes("inválido") || msg.includes("Campos obrigatórios")
         ? 400
         : 500;
     return NextResponse.json({ error: msg }, { status });

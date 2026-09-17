@@ -185,9 +185,9 @@ export default function VendaAprovacaoPage() {
                     id="documento"
                     value={documento}
                     onChange={(event) => setDocumento(event.target.value)}
-                    inputMode="numeric"
+                    inputMode="text"
                     autoComplete="off"
-                    placeholder="Digite somente os números"
+                    placeholder="Digite seu CPF ou CNPJ"
                     required
                   />
                 </div>

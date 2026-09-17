@@ -25,6 +25,7 @@
 
 import { createHash } from "crypto";
 
+import { normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 import { assinarPayloadQrCode } from "./assinaturaQrCode";
 
 export const QRCODE_VERSAO_2 = 2;
@@ -174,18 +175,23 @@ function identificarDestinatario(params: QrCodeNfceParams): {
     return { tipo: TP_ID_DEST.ESTRANGEIRO, identificacao: "" };
   }
 
-  const documento = onlyDigits(params.documentoDestinatario);
-  if (!documento) return { tipo: "", identificacao: "" };
+  const documentoBruto = String(params.documentoDestinatario ?? "").trim();
+  if (!documentoBruto) return { tipo: "", identificacao: "" };
 
-  if (documento.length === 14) {
-    return { tipo: TP_ID_DEST.CNPJ, identificacao: documento };
+  // O documento entra no payload assinado. Remover `\D` aqui corromperia um
+  // CNPJ alfanumérico sem deixar qualquer vestígio para validação posterior.
+  const cnpj = normalizeCnpj(documentoBruto);
+  if ((/[A-Z]/.test(cnpj) || cnpj.length === 14) && cnpj.length === 14) {
+    return { tipo: TP_ID_DEST.CNPJ, identificacao: cnpj };
   }
-  if (documento.length === 11) {
-    return { tipo: TP_ID_DEST.CPF, identificacao: documento };
+
+  const cpf = normalizeCpf(documentoBruto);
+  if (cpf.length === 11) {
+    return { tipo: TP_ID_DEST.CPF, identificacao: cpf };
   }
 
   throw new Error(
-    `Documento do consumidor inválido para o QR Code da NFC-e: "${documento}" ` +
+    `Documento do consumidor inválido para o QR Code da NFC-e: "${documentoBruto}" ` +
       "(esperado CPF com 11 ou CNPJ com 14 dígitos).",
   );
 }

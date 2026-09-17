@@ -11,6 +11,7 @@ import { resolveSefazEndpoint } from "@/lib/nfe/webservices";
 import { escapeXml } from "@/lib/nfe/xmlUtils";
 import type { EmpresaRow, ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isValidCnpj, normalizeCnpj } from "@/lib/fiscal-identifiers";
 import { exigirFiscalConfig } from "@/services/fiscal/nfeConfigService";
 
 /**
@@ -178,7 +179,8 @@ export async function inutilizarFaixa(
   const ambiente = empresa.ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO";
   const tpAmb = ambiente === "PRODUCAO" ? "1" : "2";
   const cUF = getCodigoUF(empresa.uf || undefined);
-  const cnpj = String(empresa.cnpj ?? "").replace(/\D/g, "");
+  const cnpj = normalizeCnpj(empresa.cnpj);
+  if (!isValidCnpj(cnpj)) throw new Error("CNPJ da empresa inválido para inutilização.");
   const ano2 = String(ano).slice(-2);
   const modeloCodigo = modeloParaCodigo(input.modelo);
   const justificativa = String(input.justificativa).trim();

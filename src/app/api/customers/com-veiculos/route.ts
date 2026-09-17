@@ -6,6 +6,12 @@ import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { idDeBusca } from "@/lib/busca-numerica";
 import { requireClientesAccess, requireClientesCreate } from "@/app/api/_authz/perms";
+import {
+  isValidCnpj,
+  isValidCpf,
+  normalizeCnpj,
+  normalizeCpf,
+} from "@/lib/fiscal-identifiers";
 
 type Status = "ATIVO" | "INATIVO" | "PENDENTE";
 const STATUS_SET = new Set<Status>(["ATIVO", "INATIVO", "PENDENTE"]);
@@ -179,7 +185,7 @@ export async function GET(req: Request) {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    let items = data ?? [];
+    const items = data ?? [];
 
     // Prioriza ID exato no topo se for busca por ID/número
     if (cleanQ && /^\d+$/.test(cleanQ)) {
@@ -265,9 +271,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const cpfcnpj = onlyDigits(String(json.cpfcnpj));
-    if (!cpfcnpj) {
-      return NextResponse.json({ error: "cpfcnpj inválido." }, { status: 400 });
+    const cpfcnpj = tipopessoa === "JURIDICA"
+      ? normalizeCnpj(json.cpfcnpj)
+      : normalizeCpf(json.cpfcnpj);
+    const documentoValido = tipopessoa === "JURIDICA"
+      ? isValidCnpj(cpfcnpj)
+      : isValidCpf(cpfcnpj);
+    if (!documentoValido) {
+      return NextResponse.json({ error: "CPF/CNPJ inválido." }, { status: 400 });
     }
 
     if (!isValidEmail(json.email ?? null)) {

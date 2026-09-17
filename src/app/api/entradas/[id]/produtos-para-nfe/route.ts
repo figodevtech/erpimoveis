@@ -5,6 +5,11 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import { resolverPadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
 import { buscarContextoPadraoFiscal } from "@/services/fiscal/nfeConfigService";
+import {
+  isValidCnpj,
+  isValidCpf,
+  normalizeCpfOrCnpj,
+} from "@/lib/fiscal-identifiers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,8 +32,10 @@ function somenteDigitos(value: unknown) {
 
 function validarFornecedor(fornecedor: any) {
   const erros: string[] = [];
-  const documento = somenteDigitos(fornecedor?.cpfcnpj);
-  if (![11, 14].includes(documento.length)) erros.push("CPF/CNPJ do fornecedor inválido ou ausente.");
+  const documento = normalizeCpfOrCnpj(fornecedor?.cpfcnpj);
+  if (!(isValidCpf(documento) || isValidCnpj(documento))) {
+    erros.push("CPF/CNPJ do fornecedor inválido ou ausente.");
+  }
   if (!String(fornecedor?.nomerazaosocial ?? "").trim()) erros.push("Razão social do fornecedor ausente.");
   if (!String(fornecedor?.endereco ?? "").trim()) erros.push("Endereço do fornecedor ausente.");
   if (!String(fornecedor?.bairro ?? "").trim()) erros.push("Bairro do fornecedor ausente.");
@@ -234,8 +241,8 @@ export async function GET(_request: Request, context: Context) {
       destinatario: {
         fornecedorId: fornecedor?.id ?? null,
         tipoPessoa:
-          somenteDigitos(fornecedor?.cpfcnpj).length === 11 ? "FISICA" : "JURIDICA",
-        cpfCnpj: somenteDigitos(fornecedor?.cpfcnpj),
+          normalizeCpfOrCnpj(fornecedor?.cpfcnpj).length === 11 ? "FISICA" : "JURIDICA",
+        cpfCnpj: normalizeCpfOrCnpj(fornecedor?.cpfcnpj),
         nomeRazaoSocial: fornecedor?.nomerazaosocial ?? "",
         indicadorIe: "9",
         inscricaoEstadual: "",

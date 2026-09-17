@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 
 import { CabecalhoOS } from "./cabecalho-os";
 import { TabelaProdutos } from "./tabela-produtos";
@@ -106,7 +107,7 @@ export default function AprovacaoCliente({ token }: { token: string }) {
     if (!dados) return;
     setValidandoDoc(true);
     try {
-      const doc = (cpfcnpj || "").replace(/\D+/g, "");
+      const doc = normalizeCpfOrCnpj(cpfcnpj);
       const r = await fetch(`/api/ordens/aprovacao/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

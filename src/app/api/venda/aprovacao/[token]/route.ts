@@ -4,6 +4,7 @@ import {
   montarVendaParaAprovacaoPublica,
   obterEstadoTokenAprovacao,
 } from "@/lib/vendas/aprovacao-publica";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -12,7 +13,6 @@ type Context = { params: Promise<{ token: string }> };
 type Acao = "consultar" | "aprovar" | "reprovar";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const somenteDigitos = (value: unknown) => String(value ?? "").replace(/\D/g, "");
 
 async function carregarToken(token: string) {
   const resposta = await supabaseAdmin
@@ -66,7 +66,7 @@ export async function POST(request: Request, context: Context) {
       | { acao?: Acao; documento?: string }
       | null;
     const acao = String(body?.acao ?? "").toLowerCase() as Acao;
-    const documento = somenteDigitos(body?.documento);
+    const documento = normalizeCpfOrCnpj(body?.documento);
     if (!(["consultar", "aprovar", "reprovar"] as string[]).includes(acao) || !documento) {
       return NextResponse.json(
         { error: "Ação e CPF/CNPJ são obrigatórios." },
@@ -115,7 +115,7 @@ export async function POST(request: Request, context: Context) {
     }
 
     const cliente = Array.isArray(venda.cliente) ? venda.cliente[0] : venda.cliente;
-    if (!cliente || somenteDigitos(cliente.cpfcnpj) !== documento) {
+    if (!cliente || normalizeCpfOrCnpj(cliente.cpfcnpj) !== documento) {
       return NextResponse.json(
         { error: "CPF/CNPJ não confere para este orçamento." },
         { status: 400 },

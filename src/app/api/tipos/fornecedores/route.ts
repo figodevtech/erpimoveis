@@ -4,9 +4,10 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { requireAuthenticated } from "@/app/api/_authz/perms";
 import {
-  hasValidCpfCnpjLength,
-  onlyFiscalDigits,
-} from "@/lib/nfe/recipientNormalization";
+  isValidCnpj,
+  isValidCpf,
+  normalizeCpfOrCnpj,
+} from "@/lib/fiscal-identifiers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { idDeBusca } from "@/lib/busca-numerica";
 
@@ -66,6 +67,7 @@ export async function GET(req: Request) {
         `
         id,
         cpfcnpj,
+        inscricaoestadual,
         nomerazaosocial,
         nomefantasia,
         endereco,
@@ -127,6 +129,7 @@ export async function GET(req: Request) {
     const items = (data ?? []).map((f: any) => ({
       id: f.id as number,
       cpfcnpj: f.cpfcnpj as string,
+      inscricaoestadual: (f.inscricaoestadual as string | null) ?? null,
       nomerazaosocial: f.nomerazaosocial as string,
       nomefantasia: (f.nomefantasia as string | null) ?? null,
       endereco: (f.endereco as string | null) ?? null,
@@ -182,6 +185,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const {
       cpfcnpj,
+      inscricaoestadual,
       nomerazaosocial,
       nomefantasia,
       endereco,
@@ -194,6 +198,7 @@ export async function POST(req: Request) {
       contato,
     }: {
       cpfcnpj?: string;
+      inscricaoestadual?: string | null;
       nomerazaosocial?: string;
       nomefantasia?: string | null;
       endereco?: string | null;
@@ -206,9 +211,9 @@ export async function POST(req: Request) {
       contato?: string | null;
     } = body ?? {};
 
-    const documento = onlyFiscalDigits(cpfcnpj);
+    const documento = normalizeCpfOrCnpj(cpfcnpj);
 
-    if (!hasValidCpfCnpjLength(documento)) {
+    if (!(isValidCpf(documento) || isValidCnpj(documento))) {
       return NextResponse.json(
         { error: "Digite um CPF ou CNPJ válido." },
         { status: 400 }
@@ -226,6 +231,7 @@ export async function POST(req: Request) {
 
     const payload = {
       cpfcnpj: documento,
+      inscricaoestadual: inscricaoestadual?.trim() || null,
       nomerazaosocial: nomerazaosocial.trim(),
       nomefantasia: nomefantasia?.trim() || null,
       endereco: endereco?.trim() || null,
@@ -246,6 +252,7 @@ export async function POST(req: Request) {
       .select(`
         id,
         cpfcnpj,
+        inscricaoestadual,
         nomerazaosocial,
         nomefantasia,
         endereco,
@@ -265,6 +272,7 @@ export async function POST(req: Request) {
     const item = {
       id: data!.id as number,
       cpfcnpj: data!.cpfcnpj as string,
+      inscricaoestadual: (data!.inscricaoestadual as string | null) ?? null,
       nomerazaosocial: data!.nomerazaosocial as string,
       nomefantasia: (data!.nomefantasia as string | null) ?? null,
       endereco: (data!.endereco as string | null) ?? null,

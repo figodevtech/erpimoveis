@@ -78,10 +78,10 @@ export async function GET(req: Request) {
       // e que o financeiro lança no a pagar. São várias linhas por OS — uma por
       // item —, e o card mostra o total.
       //
-      // O filtro por `usuarioid` não é redundante com o recorte das OS: o
-      // criador é carimbado na primeira apuração e não acompanha troca de
-      // titularidade, então uma OS pode ser do usuário hoje e ter a comissão
-      // apurada em nome de quem a abriu.
+      // O filtro por `usuarioid` é cinto de segurança: o snapshot carimba o
+      // criador na primeira apuração, e só `trocar_criador_os` o transfere.
+      // Um UPDATE direto em `usuariocriadorid` deixaria a OS com um dono e a
+      // comissão com outro — e o card não pode somar a comissão alheia.
       supabaseAdmin
         .from("os_comissao_criacao")
         .select("ordemservicoid, valor_comissao")

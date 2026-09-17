@@ -26,6 +26,7 @@ import {
   type FiscalRecipientInput,
 } from "@/lib/nfe/recipientNormalization";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import {
   salvarNFeAvulsaDraft,
   type NFeAvulsaDraftInput,
@@ -97,7 +98,7 @@ function numberValue(value: unknown) {
 function validarDestinatarioFiscalSaida(value: FiscalRecipientInput) {
   const destinatario = normalizeFiscalRecipient(value);
   const exterior = destinatario.tipoPessoa === "ESTRANGEIRO";
-  const documento = onlyDigits(destinatario.cpfCnpj);
+  const documento = normalizeCpfOrCnpj(destinatario.cpfCnpj);
 
   if (!cleanText(destinatario.nomeRazaoSocial)) {
     throw new Error("Informe o fornecedor ou destinatário da NF-e de saída.");
@@ -179,7 +180,7 @@ export async function buscarOperacaoFiscalSaida(codigo: unknown) {
 }
 
 function fornecedorToDestinatario(fornecedor: any): DestinatarioFiscalSaida {
-  const documento = onlyDigits(fornecedor?.cpfcnpj);
+  const documento = normalizeCpfOrCnpj(fornecedor?.cpfcnpj);
   return {
     fornecedorId: Number(fornecedor?.id ?? 0) || null,
     clienteId: null,
@@ -596,7 +597,7 @@ export async function salvarContextoFiscalSaida(
       entradaOrigemId = Number(entrada.id);
       chave = chaveEntrada;
       const fornecedorOrigem = relationOne<any>(entrada?.fornecedor);
-      const documentoOrigem = onlyDigits(fornecedorOrigem?.cpfcnpj);
+      const documentoOrigem = normalizeCpfOrCnpj(fornecedorOrigem?.cpfcnpj);
       if (documentoOrigem) documentoFornecedorOrigem = documentoOrigem;
       numeroItemReferenciado = normalizarNumeroItemReferenciado(
         entradaItem.numero_item_fiscal,
@@ -634,7 +635,7 @@ export async function salvarContextoFiscalSaida(
   if (
     finalidade === "DEVOLUCAO" &&
     documentoFornecedorOrigem &&
-    onlyDigits(destinatario.cpfCnpj) !== documentoFornecedorOrigem
+    normalizeCpfOrCnpj(destinatario.cpfCnpj) !== documentoFornecedorOrigem
   ) {
     throw new Error("Na devolução, o destinatário deve ser o fornecedor da entrada fiscal selecionada.");
   }

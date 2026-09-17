@@ -43,6 +43,7 @@ import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import { formatCpfCnpj } from "../../utils";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import {
   CalendarIcon,
   CircleDollarSign,
@@ -2235,13 +2236,13 @@ export default function RegisterContent({
                   <Input
                     disabled={Boolean(selectedCustomer) || Boolean(selectedFornecedor)}
                     id="cpfcnpjpagador"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={18}
                     value={
                       formatCpfCnpj(newTransaction.cpfcnpjpagador || "") || ""
                     }
                     onChange={(e) => {
-                      const documento = e.target.value.replace(/\D/g, "").slice(0, 14);
+                      const documento = normalizeCpfOrCnpj(e.target.value).slice(0, 14);
                       handleChange("cpfcnpjpagador", documento);
                     }}
                     placeholder="CPF/CNPJ"

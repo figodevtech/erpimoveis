@@ -30,7 +30,7 @@ export const regraPB: RegraEstadual = {
 
     const identificado =
       onlyDigits(contexto.destinatario?.cpf).length === 11 ||
-      onlyDigits(contexto.destinatario?.cnpj).length === 14;
+      normalizeCnpj(contexto.destinatario?.cnpj).length === 14;
 
     if (contexto.totalDocumento >= PB_NFCE_PISO_IDENTIFICACAO && !identificado) {
       violacoes.push({
@@ -46,3 +46,4 @@ export const regraPB: RegraEstadual = {
     return violacoes;
   },
 };
+import { normalizeCnpj } from "@/lib/fiscal-identifiers";

@@ -9,6 +9,7 @@
 // o bloco também precisa ler bem em linha única.
 
 import { formatCpfCnpj, formatFiscalCep } from "@/lib/nfe/recipientNormalization";
+import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 
 export type AlvoTipoFiscal = "VEICULO" | "PECA" | "EQUIPAMENTO";
 
@@ -170,7 +171,7 @@ export function blocoDoAlvo(alvo: AlvoFiscal | null | undefined): string {
 
 export function blocoDoCliente(cliente: ClienteFiscalObservacao | null | undefined): string {
   if (!cliente) return "";
-  const documento = texto(cliente.cpfcnpj).replace(/\D/g, "");
+  const documento = normalizeCpfOrCnpj(cliente.cpfcnpj);
   const endereco = [
     [texto(cliente.endereco), texto(cliente.endereconumero)].filter(Boolean).join(", "),
     texto(cliente.enderecocomplemento),

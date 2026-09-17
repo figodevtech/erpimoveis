@@ -4,6 +4,7 @@ import { encodeCode128C } from "@/lib/nfe/code128";
 import { DANFE_DEFAULT_FONT_SCALE, type DanfeFontScale } from "@/lib/nfe/danfeFontScale";
 import type { DanfeViewData } from "@/components/danfe/danfe-view";
 import type { DanfeItem } from "@/lib/nfe/danfeParser";
+import { formatCnpj, formatCpf, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 
 /**
  * DANFE vetorial montado com pdf-lib, a partir dos mesmos dados que alimentam o
@@ -86,10 +87,11 @@ function fmtDateOnly(value?: string | null) {
 }
 
 function fmtDoc(value: unknown) {
-  const digits = String(value ?? "").replace(/\D/g, "");
-  if (digits.length === 11) return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  if (digits.length === 14) return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-  return digits || "-";
+  const cnpj = normalizeCnpj(value);
+  if (cnpj.length === 14 || /[A-Z]/.test(cnpj)) return formatCnpj(cnpj);
+  const cpf = normalizeCpf(value);
+  if (cpf.length === 11) return formatCpf(cpf);
+  return String(value ?? "").trim() || "-";
 }
 
 type Ctx = {

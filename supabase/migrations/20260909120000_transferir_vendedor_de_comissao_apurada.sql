@@ -1,0 +1,12 @@
+-- Marcador de reconciliação do histórico remoto.
+--
+-- A versão 20260909120000 foi registrada no Supabase com o nome
+-- `transferir_vendedor_de_comissao_apurada`. O mesmo efeito de schema está
+-- integralmente na migration 20260909125000, que também consta como aplicada
+-- no remoto. Por isso este arquivo é deliberadamente um no-op: bancos novos
+-- executam a regra canônica em 125000 e bancos existentes não têm seu
+-- histórico reescrito.
+--
+-- O conteúdo local que antes ocupava este timestamp (o índice de exclusão
+-- mútua do Mercado Livre) foi transferido para a migration aditiva
+-- 20260916054031_reconcile_migration_history_and_alphanumeric_cnpj.sql.

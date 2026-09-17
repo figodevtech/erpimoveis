@@ -47,6 +47,7 @@ import {
 import { SelectSearchInput } from "./select-search-input";
 import { Fornecedor, Pagination } from "../(pages)/estoque/types";
 import FornecedorDialog from "../(pages)/configuracoes/tipos/components/fornecedorDialog";
+import { formatCnpj, formatCpf, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 
 interface FornecedorSelectProps {
   children?: ReactNode;
@@ -57,13 +58,10 @@ interface FornecedorSelectProps {
 
 function formatarCpfCnpj(val?: string | null) {
   if (!val) return "—";
-  const clean = val.replace(/\D+/g, "");
-  if (clean.length === 11) {
-    return clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  }
-  if (clean.length === 14) {
-    return clean.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
-  }
+  const cnpj = normalizeCnpj(val);
+  if (cnpj.length === 14 || /[A-Z]/.test(cnpj)) return formatCnpj(cnpj);
+  const cpf = normalizeCpf(val);
+  if (cpf.length === 11) return formatCpf(cpf);
   return val;
 }
 

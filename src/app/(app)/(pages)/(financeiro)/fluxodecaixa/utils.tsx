@@ -1,5 +1,6 @@
 import { TransactionCategoryIcon } from "@/lib/transaction-category-icons";
 import { Tipo_transacao } from "./types";
+import { formatCnpj, formatCpf, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 
 export const getTypeColor = (tipo: Tipo_transacao) => {
   switch (tipo) {
@@ -41,14 +42,8 @@ export const getCategoryIcon = (categoria: string, icone?: string | null) => (
 );
 
 export const formatCpfCnpj = (value: string) => {
-  const numbers = value.replace(/\D/g, "");
-
-  if (numbers.length <= 11) {
-    return numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  }
-
-  return numbers.replace(
-    /(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,
-    "$1.$2.$3/$4-$5",
-  );
+  const cnpj = normalizeCnpj(value);
+  return cnpj.length === 14 || /[A-Z]/.test(cnpj)
+    ? formatCnpj(cnpj)
+    : formatCpf(normalizeCpf(value));
 };

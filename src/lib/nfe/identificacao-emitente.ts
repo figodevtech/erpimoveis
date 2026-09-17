@@ -5,10 +5,6 @@ export type IdentificacaoEmitente = {
   tipoDocumento: "CNPJ" | "CPF" | null;
 };
 
-function somenteDigitos(valor: unknown) {
-  return String(valor ?? "").replace(/\D/g, "");
-}
-
 /**
  * Lê a identificação do emitente da NF-e, que pode ser pessoa jurídica ou
  * física. Embora CNPJ seja o caso comum, a XSD também permite CPF em `emit`.
@@ -16,8 +12,8 @@ function somenteDigitos(valor: unknown) {
 export function identificarEmitente(
   emitente: Record<string, unknown> | null | undefined,
 ): IdentificacaoEmitente {
-  const cnpj = somenteDigitos(emitente?.CNPJ) || null;
-  const cpf = somenteDigitos(emitente?.CPF) || null;
+  const cnpj = normalizeCnpj(emitente?.CNPJ) || null;
+  const cpf = normalizeCpf(emitente?.CPF) || null;
 
   if (cnpj) {
     return { cnpj, cpf, documento: cnpj, tipoDocumento: "CNPJ" };
@@ -29,3 +25,4 @@ export function identificarEmitente(
 
   return { cnpj, cpf, documento: null, tipoDocumento: null };
 }
+import { normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";

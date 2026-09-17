@@ -45,6 +45,7 @@ const ACTION_LABELS: Record<string, string> = {
   cancelar_movimento: "Cancelar movimento",
   notas_fiscais: "Notas fiscais",
   finalizar_sem_cobranca: "Finalizar sem cobrança",
+  alterar_criador: "Alterar criador da OS",
   "ver-perfis": "Ver perfis de outros usuários",
 };
 

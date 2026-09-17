@@ -1,6 +1,8 @@
 /**
  * Serviço para gerenciamento de Gatilhos (Webhooks) na Focus NFe.
  */
+import { assertValidCnpj } from "@/lib/fiscal-identifiers";
+
 export class FocusWebhookService {
   private apiUrl: string;
   private token: string;
@@ -56,7 +58,7 @@ export class FocusWebhookService {
     };
 
     if (cnpj) {
-      payload.cnpj = cnpj.replace(/\D/g, "");
+      payload.cnpj = assertValidCnpj(cnpj);
     }
 
     const res = await fetch(`${this.apiUrl}/v2/hooks`, {

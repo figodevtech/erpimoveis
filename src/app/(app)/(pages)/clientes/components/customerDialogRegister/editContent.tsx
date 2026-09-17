@@ -75,6 +75,7 @@ import CustomerRelationshipTabs from "./customerRelationshipTabs";
 import CustomerCreditoTab from "./customerCreditoTab";
 import SecondaryPhonesCard from "./secondaryPhonesCard";
 import { ItemHistoricoResumo } from "@/components/ordens/item-historico-resumo";
+import { isValidCnpj, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 import {
   agruparItensHistoricos,
   type ItemHistoricoDetalhado,
@@ -219,13 +220,18 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
   };
 
   const handleGetCNPJ = async () => {
-    if (selectedCustomer?.cpfcnpj && selectedCustomer?.cpfcnpj?.length < 14) {
-      toast.warning("CPF inválido para consulta de CNPJ");
+    const cnpj = normalizeCnpj(selectedCustomer?.cpfcnpj);
+    if (!isValidCnpj(cnpj)) {
+      toast.warning("CNPJ inválido para consulta");
+      return;
+    }
+    if (/[A-Z]/.test(cnpj)) {
+      toast.info("A consulta automática ainda não declara suporte ao CNPJ alfanumérico. Preencha os dados manualmente.");
       return;
     }
     setIsLoadingCNPJ(true);
     try {
-      const response = await axios.get(`https://publica.cnpj.ws/cnpj/${selectedCustomer?.cpfcnpj}`);
+      const response = await axios.get(`https://publica.cnpj.ws/cnpj/${cnpj}`);
       if (response.status === 200) {
         console.log(response.data);
         const juridica = response.data;
@@ -739,13 +745,15 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                         </Tooltip>
                         <Input
                           id="cpfcnpj"
-                          inputMode="numeric"
+                          inputMode={selectedCustomer.tipopessoa === "FISICA" ? "numeric" : "text"}
                           className=""
                           value={formatCpfCnpj(selectedCustomer.cpfcnpj, selectedCustomer.tipopessoa) || ""}
                           onChange={(e) => {
-                            const onlyNumbers = e.target.value.replace(/\D/g, "");
+                            const documento = selectedCustomer.tipopessoa === "FISICA"
+                              ? normalizeCpf(e.target.value).slice(0, 11)
+                              : normalizeCnpj(e.target.value).slice(0, 14);
 
-                            handleInputChange("cpfcnpj", onlyNumbers);
+                            handleInputChange("cpfcnpj", documento);
                           }}
                           placeholder={
                             selectedCustomer.tipopessoa === "FISICA" ? "000.000.000-00" : "00.000.000/0000-00"

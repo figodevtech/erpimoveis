@@ -68,11 +68,11 @@ export function EmpresaForm({ register, setValue, watch }: Props) {
               <Label className="mb-2 block text-sm font-medium">CNPJ *</Label>
               <Input
                 {...register("empresa.cnpj", { required: true })}
-                placeholder="00.000.000/0000-00"
-                inputMode="numeric"
+                placeholder="00.000.000/E08G-12"
+                inputMode="text"
                 maxLength={18}
               />
-              <p className="text-xs text-muted-foreground mt-1">Formato: 00.000.000/0000-00</p>
+              <p className="text-xs text-muted-foreground mt-1">Aceita CNPJ numérico ou alfanumérico.</p>
             </div>
 
             <div className="sm:col-span-2">

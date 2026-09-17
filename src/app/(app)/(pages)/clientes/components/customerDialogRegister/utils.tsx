@@ -1,6 +1,7 @@
 import { Frown, Meh, Smile, SmilePlus } from "lucide-react";
 import { Cliente_rank, TelefoneCliente } from "../../types";
 import { TelefoneSecundario, TipoPessoa } from "./types";
+import { formatCnpj, formatCpf, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 
 /** Converte os telefones vindos da API nas linhas editáveis do formulário. */
 export const toTelefonesSecundarios = (
@@ -15,20 +16,8 @@ export const toTelefonesSecundarios = (
 
  
 
- export const formatCpfCnpj = (value: string, tipopessoa: TipoPessoa) => {
-    const numbers = value.replace(/\D/g, "");
-
-    if (tipopessoa === "FISICA") {
-      // CPF: 000.000.000-00
-      return numbers.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-    } else {
-      // CNPJ: 00.000.000/0000-00
-      return numbers.replace(
-        /(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,
-        "$1.$2.$3/$4-$5"
-      );
-    }
-  };
+ export const formatCpfCnpj = (value: string, tipopessoa: TipoPessoa) =>
+   tipopessoa === "FISICA" ? formatCpf(normalizeCpf(value)) : formatCnpj(normalizeCnpj(value));
 
  export  const formatCep = (value?: string | null) => {
     if(!value) return null;

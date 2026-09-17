@@ -4,9 +4,10 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticated } from "@/app/api/_authz/perms";
 import {
-  hasValidCpfCnpjLength,
-  onlyFiscalDigits,
-} from "@/lib/nfe/recipientNormalization";
+  isValidCnpj,
+  isValidCpf,
+  normalizeCpfOrCnpj,
+} from "@/lib/fiscal-identifiers";
 import { parsePostgresIntegerId } from "@/lib/postgres-id";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -36,6 +37,7 @@ export async function PUT(
     const body = await req.json().catch(() => ({}));
     const {
       cpfcnpj,
+      inscricaoestadual,
       nomerazaosocial,
       nomefantasia,
       endereco,
@@ -49,6 +51,7 @@ export async function PUT(
       ativo,
     }: {
       cpfcnpj?: string;
+      inscricaoestadual?: string | null;
       nomerazaosocial?: string;
       nomefantasia?: string | null;
       endereco?: string | null;
@@ -62,9 +65,9 @@ export async function PUT(
       ativo?: boolean;
     } = body ?? {};
 
-    const documento = onlyFiscalDigits(cpfcnpj);
+    const documento = normalizeCpfOrCnpj(cpfcnpj);
 
-    if (!hasValidCpfCnpjLength(documento)) {
+    if (!(isValidCpf(documento) || isValidCnpj(documento))) {
       return NextResponse.json(
         { error: "Digite um CPF ou CNPJ válido." },
         { status: 400 }
@@ -82,6 +85,7 @@ export async function PUT(
 
     const payload: Record<string, any> = {
       cpfcnpj: documento,
+      inscricaoestadual: inscricaoestadual?.trim() || null,
       nomerazaosocial: nomerazaosocial.trim(),
       nomefantasia: nomefantasia?.trim() || null,
       endereco: endereco?.trim() || null,
@@ -107,6 +111,7 @@ export async function PUT(
       .select(`
         id,
         cpfcnpj,
+        inscricaoestadual,
         nomerazaosocial,
         nomefantasia,
         endereco,
@@ -132,6 +137,7 @@ export async function PUT(
     const item = {
       id: data.id as number,
       cpfcnpj: data.cpfcnpj as string,
+      inscricaoestadual: (data.inscricaoestadual as string | null) ?? null,
       nomerazaosocial: data.nomerazaosocial as string,
       nomefantasia: (data.nomefantasia as string | null) ?? null,
       endereco: (data.endereco as string | null) ?? null,
@@ -275,14 +281,14 @@ export async function GET(
       `);
 
     if (by === "cpfcnpj") {
-      const cnpj = id.trim();
-      if (!cnpj) {
+      const documento = normalizeCpfOrCnpj(id);
+      if (!(isValidCpf(documento) || isValidCnpj(documento))) {
         return NextResponse.json(
-          { error: "CNPJ inválido." },
+          { error: "CPF/CNPJ inválido." },
           { status: 400 }
         );
       }
-      query = query.eq("cpfcnpj", cnpj);
+      query = query.eq("cpfcnpj", documento);
     } else {
       // modo padrão = busca por id numérico
       const fornecedorId = parseId(id);

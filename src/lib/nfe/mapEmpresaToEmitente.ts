@@ -1,6 +1,7 @@
 // src/lib/nfe/mapEmpresaToEmitente.ts
 import type { EmpresaRow, NFeEmitente } from './types';
 import { normalizarCRT } from './fiscal';
+import { normalizeCnpj } from '@/lib/fiscal-identifiers';
 
 function soNumeros(valor: string | number | null | undefined): string {
   if (!valor) return '';
@@ -16,7 +17,7 @@ export function mapEmpresaToEmitente(
   nomeMunicipio: string
 ): NFeEmitente {
   return {
-    cnpj: soNumeros(empresa.cnpj),
+    cnpj: normalizeCnpj(empresa.cnpj),
     razaoSocial: empresa.razaosocial,
     nomeFantasia: empresa.nomefantasia || undefined,
     inscricaoEstadual: soNumeros(empresa.inscricaoestadual),

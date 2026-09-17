@@ -6,9 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ShieldCheck, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import {
+  isValidCnpj,
+  isValidCpf,
+  normalizeCnpj,
+  normalizeCpf,
+  normalizeCpfOrCnpj,
+} from "@/lib/fiscal-identifiers";
 
 function limparDoc(v: string) {
-  return (v || "").replace(/\D+/g, "");
+  return normalizeCpfOrCnpj(v);
 }
 
 export function SolicitarDocumento({
@@ -23,7 +30,7 @@ export function SolicitarDocumento({
   const [doc, setDoc] = useState("");
 
   const docLimpo = useMemo(() => limparDoc(doc), [doc]);
-  const docValido = docLimpo.length === 11 || docLimpo.length === 14; // CPF 11 ou CNPJ 14
+  const docValido = isValidCpf(normalizeCpf(docLimpo)) || isValidCnpj(normalizeCnpj(docLimpo));
 
   return (
     <Card className="w-full max-w-md border-border bg-card shadow-lg">
@@ -43,13 +50,13 @@ export function SolicitarDocumento({
           <Label htmlFor="doc" className="text-xs">CPF/CNPJ</Label>
           <Input
             id="doc"
-            placeholder="Digite apenas números"
-            inputMode="numeric"
+            placeholder="Digite seu CPF ou CNPJ"
+            inputMode="text"
             value={doc}
             onChange={(e) => setDoc(e.target.value)}
             disabled={loading}
           />
-          <p className="text-[11px] text-muted-foreground">Aceita CPF (11 dígitos) ou CNPJ (14 dígitos).</p>
+          <p className="text-[11px] text-muted-foreground">Aceita CPF e CNPJ numérico ou alfanumérico.</p>
         </div>
 
         <Button
