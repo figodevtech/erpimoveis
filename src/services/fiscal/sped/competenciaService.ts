@@ -23,7 +23,11 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { toSpedContabilista } from "./accountantService";
 import { SpedServiceError, throwIfSupabaseError } from "./errors";
 import { singleCompanyId } from "./guards";
-import { validateSpedFileGenerationPreconditions } from "./fileGenerationGuards";
+import {
+  buildSpedStoragePath,
+  classifySpedDbInsertError,
+  validateSpedFileGenerationPreconditions,
+} from "./fileGenerationGuards";
 import { projectSpedAssessment, type SpedAssessmentProjection } from "./assessmentProjection";
 import { hashStableJson, sha256Hex } from "./hash";
 import { projectSpedInventory } from "./inventoryProjection";
@@ -1083,34 +1087,55 @@ export async function generateSpedFile(
     .maybeSingle();
   throwIfSupabaseError(existing.error);
   if (!existing.data) {
-    const last = await supabaseAdmin.from("fiscal_sped_arquivo").select("sequencia").eq("versao_id", version.id).order("sequencia", { ascending: false }).limit(1).maybeSingle();
-    throwIfSupabaseError(last.error);
-    const sequence = number(last.data?.sequencia) + 1;
-    const path = `${competence.empresa_id}/${month(competence.competencia)}/v${version.numero}/${sequence}-${hash}.txt`;
+    const path = buildSpedStoragePath(competence.empresa_id, month(competence.competencia), version.numero, tipo, hash);
     const upload = await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(path, serialized.bytes, { contentType: "text/plain", upsert: true });
-    throwIfSupabaseError(upload.error);
-    const inserted = await supabaseAdmin.from("fiscal_sped_arquivo").insert({
-      versao_id: version.id,
-      sequencia: sequence,
-      tipo,
-      finalidade: version.finalidade,
-      storage_bucket: STORAGE_BUCKET,
-      storage_path: path,
-      arquivo_sha256: hash,
-      tamanho_bytes: serialized.bytes.byteLength,
-      quantidade_registros: serialized.lineCount,
-      contadores_registro: serialized.recordCounts,
-      generated_by: actorId,
-    });
-    if (inserted.error) {
-      if (inserted.error.code === "23505") {
-        return getSpedCompetenceDetail(id);
+    if (upload.error) {
+      throw new SpedServiceError(`Falha no upload para o Storage: ${upload.error.message}`, 500, "STORAGE_UPLOAD_ERROR");
+    }
+
+    try {
+      const registerRpc = await supabaseAdmin.rpc("fiscal_sped_registrar_arquivo", {
+        p_versao_id: number(version.id),
+        p_tipo: tipo,
+        p_finalidade: version.finalidade,
+        p_storage_bucket: STORAGE_BUCKET,
+        p_storage_path: path,
+        p_arquivo_sha256: hash,
+        p_tamanho_bytes: serialized.bytes.byteLength,
+        p_quantidade_registros: serialized.lineCount,
+        p_contadores_registro: serialized.recordCounts,
+        p_generated_by: actorId,
+      });
+
+      if (registerRpc.error) {
+        const classification = classifySpedDbInsertError(registerRpc.error);
+        if (classification.isHashDuplicate) {
+          return getSpedCompetenceDetail(id);
+        }
+        await compensateStorage(path);
+        throwIfSupabaseError(registerRpc.error);
       }
-      await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([path]);
-      throwIfSupabaseError(inserted.error);
+    } catch (err) {
+      await compensateStorage(path);
+      throw err;
     }
   }
   return getSpedCompetenceDetail(id);
+}
+
+async function compensateStorage(path: string) {
+  try {
+    const checkExisting = await supabaseAdmin
+      .from("fiscal_sped_arquivo")
+      .select("id")
+      .eq("storage_path", path)
+      .maybeSingle();
+    if (!checkExisting.data) {
+      await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([path]);
+    }
+  } catch {
+    // Ignora erro de compensação de storage
+  }
 }
 
 function gateViews(config: Row | null): SpedGateView[] {

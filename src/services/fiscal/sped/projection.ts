@@ -1,5 +1,6 @@
 import { endOfCompetence, parseCompetence } from "@/lib/fiscal-date";
 import type { EfdRecord, SpedDiagnostic, SpedGateStatus } from "@/lib/sped/efd-icms-ipi";
+import { resolve1010Indicators } from "./indicators1010";
 
 type Company = Record<string, unknown>;
 type Config = Record<string, unknown> | null;
@@ -239,24 +240,19 @@ export function buildFoundationRecords(input: {
     ...movement("K001", "K990"),
   );
   const hasBlock1Movement = payments1601.length > 0;
+  const companyUf = text(input.company.estado || input.company.uf);
+  const resolved1010 = resolve1010Indicators({
+    uf: companyUf,
+    config,
+    hasElectronicPayments: hasBlock1Movement,
+    hasExportOperations: (input.blockCRecords ?? []).some((r) => String(r.values?.CFOP ?? "").startsWith("7")),
+    hasC176C179Operations: config?.c176_c179_aplicavel === true,
+  });
+
   records.push({ code: "1001", values: { IND_MOV: hasBlock1Movement ? "0" : "1" } });
   records.push({
     code: "1010",
-    values: {
-      IND_EXP: "N",
-      IND_CCRF: "N",
-      IND_COMB: "N",
-      IND_USINA: "N",
-      IND_VA: config?.registro_1400_aplicavel ? "S" : "N",
-      IND_EE: "N",
-      IND_CART: payments1601.length > 0 ? "S" : "N",
-      IND_FORM: "N",
-      IND_AER: "N",
-      IND_GIAF1: "N",
-      IND_GIAF3: "N",
-      IND_GIAF4: "N",
-      IND_REST_RESSARC_COMPL_ICMS: "N",
-    },
+    values: resolved1010.indicators,
     source: { source: "CONFIGURACAO", table: "fiscal_sped_config" },
   });
   if (hasBlock1Movement) {
@@ -311,6 +307,13 @@ export function validateFoundation(input: {
         message: `A confirmação de ${label} está pendente.`,
       });
     }
+
+    const uf = text(input.company?.estado || input.company?.uf);
+    const resolved1010 = resolve1010Indicators({
+      uf,
+      config: input.config,
+    });
+    diagnostics.push(...resolved1010.diagnostics);
   }
   if (!input.accountant) diagnostics.push({ code: "CONTABILISTA_AUSENTE", severity: "BLOQUEIO", message: "Não há contabilista vigente para a competência. Cadastre o contador na aba Configuração." });
   return diagnostics;
