@@ -83,20 +83,29 @@ Todas as migrations SPED foram aplicadas nos três ambientes (`demo`, `demir` e 
 - [x] Projeção fiscal real de 52 saídas (C100 regular e canceladas com COD_SIT 02), 13 partilhas DIFAL (C101 e E300/E310), 44 participantes (0150) e 87 itens (0200).
 - [x] Nova Prévia SPED oficial gerada e auditada com 326 linhas e 28.375 bytes (SHA-256: `621e90d4f3c74e7d7ba26f34f57a43b934f80d3d7edcf830f9017d7c844c5b7a`), armazenada no bucket `fiscal-sped` no Storage (path: `1/2026-08/v1/2-621e90d4f3c74e7d7ba26f34f57a43b934f80d3d7edcf830f9017d7c844c5b7a.txt`).
 - [x] Auditoria de conformidade com 100% de aprovação (CRLF, Latin-1, delimitação de pipes, 1001 seguido de 1010, 1990 contando 3 linhas, 9900 totalizando 35 registros incluindo o 1010, 9990 e 9999 com 326 linhas).
-- [x] Fechamento bloqueado por erros, datas não confirmadas e gates pendentes (198 diagnósticos auditados no banco atual, incluindo bloqueio de indicadores 1010 pendentes de confirmação contábil).
+- [x] Fechamento bloqueado por erros, datas não confirmadas e gates pendentes (163 diagnósticos auditados no banco atual após delimitação estrita do escopo das entradas fiscais, incluindo 49 entradas da competência pendentes de confirmação de data fiscal e bloqueio de indicadores 1010 pendentes de confirmação contábil).
 - [x] Reabertura cria nova versão sem mutar a anterior.
-- [x] Suítes existentes continuam passando (`npm run test:negocio` com 1603 testes, `npx tsc --noEmit` 100% verde sem erros, `next build` 100%).
+- [x] Suítes existentes continuam passando (`npm run test:negocio` com 1616 testes, `npx tsc --noEmit` 100% verde sem erros, `next build` 100%).
 - [ ] **AGUARDANDO HOMOLOGAÇÃO MANUAL NO PVA** (Arquivo TXT pronto para download e importação oficial no PVA).
 
 ## Diagnóstico Real do Piloto (Demir Diesel - 08/2026)
 
-Na auditoria detalhada dos diagnósticos bloqueantes gerados na validação da versão 1 da competência 08/2026 no banco de dados real da Demir Diesel, o estado atual auditado totaliza exatamente **198 bloqueios legítimos**, rigorosamente distribuídos em:
+### Regra de Delimitação das Entradas no SPED
+- **Entrada avulsa não participa da EFD**: registros com `fiscal = false` ou origens operacionais manuais sem documento fiscal (`AJUSTE_RAPIDO`, `INVENTARIO`, `SALDO_INICIAL`, `AVULSA`) não geram registros C100/C170 e não geram pendência de `DATA_ENTRADA_FISCAL_NAO_CONFIRMADA`. No banco piloto da Demir, 1031 entradas avulsas foram devidamente excluídas do escopo SPED.
+- **Entradas documentais com data fiscal confirmada são incluídas pela `data_entrada_fiscal`**: apenas entradas com documento fiscal e data fiscal confirmada dentro do período civil da competência (ex: 01/08/2026 a 31/08/2026) geram escriturações fiscais.
+- **Entradas documentais sem data geram pendência somente quando candidatas à competência em validação**:
+  - Exige: `status = CONFIRMADA`, `data_entrada_fiscal IS NULL`, documento não emitido após o fim da competência (`data_emissao <= competence.end`) e registro criado operacionalmente no mês civil da competência (`created_at` no fuso IANA da empresa pertencente à competência).
+  - Documentos emitidos ou registrados em meses posteriores (ex: 30 entradas de setembro/2026) e pendências de meses anteriores (ex: 6 entradas de julho/2026) não bloqueiam indevidamente a competência de agosto/2026.
+- **`created_at` nunca substitui `data_entrada_fiscal`**: o timestamp de criação no ERP serve apenas como evidência operacional de seleção para revisão do operador, jamais preenchendo automaticamente a data fiscal definitiva de escrituração.
 
-1. **Problemas cadastrais / operacionais do usuário (172 ocorrências atuais)**:
-   - 84 compras com `data_entrada_fiscal` nula (`DATA_ENTRADA_FISCAL_NAO_CONFIRMADA`) na validação atual (com a entrada recente 1033). O operador deve confirmar as datas de entrada na aba Entradas do módulo SPED (o sistema sugere atalhos, mas não auto-preenche).
+### Diagnósticos Recalculados da Competência 08/2026
+Na auditoria detalhada dos diagnósticos bloqueantes gerados na validação da versão 1 da competência 08/2026 no banco de dados real da Demir Diesel após a delimitação estrita do escopo das entradas, o total auditado foi reduzido de **198 para 163 bloqueios legítimos**:
+
+1. **Problemas cadastrais / operacionais do usuário (137 ocorrências)**:
+   - 49 compras da competência com `data_entrada_fiscal` nula (`DATA_ENTRADA_FISCAL_NAO_CONFIRMADA`) — reduzido de 84/85 globais para estritamente as 49 entradas registradas em agosto/2026 (2 emitidas em julho e 47 emitidas em agosto). O operador deve confirmar as datas de entrada na aba Entradas do módulo SPED (o sistema sugere atalhos, mas não auto-preenche).
    - 87 itens movimentados em notas fiscais sem configuração canônica em `fiscal_sped_item_config` para o registro 0200 (`CODIGO_ITEM_CANONICO_AUSENTE`). O usuário deve cadastrar a classificação canônica na aba Itens.
    - 1 contabilista ausente (`CONTABILISTA_AUSENTE`). O usuário deve cadastrar o contador responsável na aba Configuração.
-   *Subtotal: 84 + 87 + 1 = 172 (atual) | Comparativo histórico: 170 no baseline inicial de 82 entradas, 171 com entrada 1031.*
+   *Subtotal: 49 + 87 + 1 = 137.*
 2. **Decisões fiscais do contador (16 ocorrências atuais)**:
    - 2 campos obrigatórios de cabeçalho do registro 0000 dependentes de definição contábil (`0000.IND_PERFIL` e `0000.IND_ATIV`).
    - 11 gates de decisão fiscal/configuração pendentes de confirmação do contador:
@@ -122,8 +131,8 @@ Na auditoria detalhada dos diagnósticos bloqueantes gerados na validação da v
    *Subtotal: 1 + 8 + 1 = 10.*
 
 **Fechamento Numérico da Auditoria:**
-`172 (cadastrais/operacionais) + 16 (decisões contador) + 10 (dados externos) = 198 bloqueios auditados na validação atual.`
-*(Comparativo com baselines anteriores: 195 no baseline inicial, 196 com a entrada 1031).*
+`137 (cadastrais/operacionais) + 16 (decisões contador) + 10 (dados externos) = 163 bloqueios auditados na validação recalculada.`
+*(Comparativo: 198 antes da correção de escopo das entradas, com 35 bloqueios indevidos de meses posteriores/anteriores eliminados).*
 
 Sem esses itens sanados ou confirmados pelo contador da empresa, a competência permanece com status `COM_ERROS` e o fechamento bloqueado, exatamente conforme desenhado. Contudo, o sistema permite gerar a **Prévia SPED** a qualquer momento para homologação antecipada no PVA oficial.
 

@@ -4,6 +4,7 @@ export * from "./catalogProjection";
 export * from "./competenciaService";
 export * from "./documentProjection";
 export * from "./entryDatesService";
+export * from "./entryScope";
 export * from "./errors";
 export * from "./fileGenerationGuards";
 export * from "./importsService";

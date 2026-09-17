@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 import { SpedServiceError, throwIfSupabaseError } from "./errors";
 import { civilDateInTimezone, closedMonthsAffectedByDateChange } from "./guards";
+import { isSpedFiscalEntryCandidate } from "./entryScope";
 import type { SpedEntradaDataFiscalPendente } from "./types";
 
 type Row = Record<string, any>;
@@ -24,7 +25,7 @@ export async function listPendingEntryFiscalDates(): Promise<SpedEntradaDataFisc
     .from("entrada")
     .select(`
       id, created_at, data_emissao, numero_nota, serie_nota, notachave, valor_total,
-      data_entrada_fiscal_sugerida,
+      data_entrada_fiscal_sugerida, fiscal, origem, tipo, fiscal_dfe_documento_id,
       fornecedor:fornecedorid(nomerazaosocial, nomefantasia, cpfcnpj),
       dfe:fiscal_dfe_documento_id(data_emissao)
     `)
@@ -35,7 +36,8 @@ export async function listPendingEntryFiscalDates(): Promise<SpedEntradaDataFisc
     .order("id", { ascending: true })
     .limit(MAX_BATCH);
   throwIfSupabaseError(result.error);
-  return ((result.data ?? []) as Row[]).map((row) => {
+  const candidates = ((result.data ?? []) as Row[]).filter(isSpedFiscalEntryCandidate);
+  return candidates.map((row) => {
     const fornecedor = (Array.isArray(row.fornecedor) ? row.fornecedor[0] : row.fornecedor) as Row | null;
     const dfe = (Array.isArray(row.dfe) ? row.dfe[0] : row.dfe) as Row | null;
     return {
@@ -80,16 +82,21 @@ export async function confirmEntryFiscalDates(input: {
 
   const ids = Array.from(dateById.keys());
   const [entriesResult, closedResult] = await Promise.all([
-    supabaseAdmin.from("entrada").select("id, data_entrada_fiscal").in("id", ids).eq("fiscal", true).eq("status", "CONFIRMADA"),
+    supabaseAdmin
+      .from("entrada")
+      .select("id, data_entrada_fiscal, fiscal, origem, tipo, notachave, fiscal_dfe_documento_id")
+      .in("id", ids)
+      .eq("status", "CONFIRMADA"),
     supabaseAdmin.from("fiscal_sped_competencia").select("competencia").eq("status", "FECHADA"),
   ]);
   throwIfSupabaseError(entriesResult.error);
   throwIfSupabaseError(closedResult.error);
 
-  const currentById = new Map(((entriesResult.data ?? []) as Row[]).map((row) => [Number(row.id), row.data_entrada_fiscal as string | null]));
+  const candidateRows = ((entriesResult.data ?? []) as Row[]).filter(isSpedFiscalEntryCandidate);
+  const currentById = new Map(candidateRows.map((row) => [Number(row.id), row.data_entrada_fiscal as string | null]));
   const missing = ids.filter((id) => !currentById.has(id));
   if (missing.length) {
-    throw new SpedServiceError(`Entradas fiscais confirmadas não encontradas: ${missing.join(", ")}.`, 404, "ENTRY_NOT_FOUND");
+    throw new SpedServiceError(`Entradas fiscais documentais confirmadas não encontradas: ${missing.join(", ")}.`, 404, "ENTRY_NOT_FOUND");
   }
 
   const closedMonths = new Set(((closedResult.data ?? []) as Row[]).map((row) => text(row.competencia).slice(0, 7)));

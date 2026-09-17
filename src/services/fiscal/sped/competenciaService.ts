@@ -21,6 +21,11 @@ import {
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 import { toSpedContabilista } from "./accountantService";
+import {
+  isSpedFiscalEntryCandidate,
+  isPendingFiscalDateCandidateForCompetence,
+  isConfirmedFiscalDateInCompetence,
+} from "./entryScope";
 import { SpedServiceError, throwIfSupabaseError } from "./errors";
 import { singleCompanyId } from "./guards";
 import {
@@ -142,8 +147,12 @@ async function sourceContext(competence: Row) {
     getConfig(companyId),
     supabaseAdmin.from("fiscal_sped_contabilista").select("*").eq("empresa_id", companyId).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false }).limit(1).maybeSingle(),
     supabaseAdmin.from("nfe").select("id, chave_acesso, status, modelo, dataemissao, xml_autorizado, xml_assinado", { count: "exact" }).eq("empresaid", companyId).eq("is_deleted", false).eq("ambiente", "PRODUCAO").gte("dataemissao", `${noteQueryStart}T00:00:00`).lte("dataemissao", `${noteQueryEnd}T23:59:59.999`).in("status", [...SETTLED_NOTE_STATUSES, ...UNSETTLED_NOTE_STATUSES]),
-    supabaseAdmin.from("entrada").select("id, status, data_entrada_fiscal, fiscal_dfe_documento_id, notachave", { count: "exact" }).eq("fiscal", true).eq("status", "CONFIRMADA").gte("data_entrada_fiscal", start).lte("data_entrada_fiscal", end),
-    supabaseAdmin.from("entrada").select("id").eq("fiscal", true).eq("status", "CONFIRMADA").is("data_entrada_fiscal", null).limit(1000),
+    supabaseAdmin.from("entrada").select("id, status, data_entrada_fiscal, fiscal_dfe_documento_id, notachave, fiscal, origem, tipo", { count: "exact" }).eq("status", "CONFIRMADA").gte("data_entrada_fiscal", start).lte("data_entrada_fiscal", end),
+    supabaseAdmin.from("entrada").select(`
+      id, status, fiscal, origem, tipo, notachave, fiscal_dfe_documento_id,
+      created_at, data_emissao, data_entrada_fiscal,
+      dfe:fiscal_dfe_documento_id(data_emissao)
+    `).eq("status", "CONFIRMADA").is("data_entrada_fiscal", null).limit(2000),
     supabaseAdmin.from("fiscal_sped_efd_anterior_importacao").select("id, competencia_arquivo, arquivo_sha256, status, cabecalho, saldos_apuracao").eq("competencia_id", competence.id).eq("status", "VALIDADA").order("imported_at", { ascending: false }).limit(1).maybeSingle(),
     supabaseAdmin.from("fiscal_sped_1601_importacao").select("id, arquivo_sha256, imported_at").eq("competencia_id", competence.id).eq("status", "VALIDADA").order("imported_at", { ascending: false }),
     supabaseAdmin.from("fiscal_sped_ajuste_apuracao").select("*").eq("competencia_id", competence.id).eq("ativo", true).order("id"),
@@ -164,17 +173,46 @@ async function sourceContext(competence: Row) {
   const isSettled = (row: Row) => (SETTLED_NOTE_STATUSES as readonly string[]).includes(text(row.status));
   const noteRows = periodNoteRows.filter(isSettled);
   const unsettledNoteRows = periodNoteRows.filter((row) => !isSettled(row));
-  const entryRows = (entriesResult.data ?? []) as Row[];
-  const dfeIds = Array.from(new Set(entryRows.map((row) => number(row.fiscal_dfe_documento_id)).filter(Boolean)));
-  const dfeResult = dfeIds.length
-    ? await supabaseAdmin.from("fiscal_dfe_documento").select("id, empresa_id, chave_acesso, schema, xml, status, data_emissao").in("id", dfeIds)
-    : { data: [], error: null };
-  throwIfSupabaseError(dfeResult.error);
-  const dfeRows = (dfeResult.data ?? []) as Row[];
+  const rawEntryRows = (entriesResult.data ?? []) as Row[];
+  const entryRows = rawEntryRows.filter((row) =>
+    isSpedFiscalEntryCandidate(row) && isConfirmedFiscalDateInCompetence(row, { start, end })
+  );
+  const directDfeIds = Array.from(new Set(entryRows.map((row) => number(row.fiscal_dfe_documento_id)).filter(Boolean)));
+  const missingDfeKeyRows = entryRows.filter((row) => !row.fiscal_dfe_documento_id && text(row.notachave).length === 44);
+  const missingDfeKeys = Array.from(new Set(missingDfeKeyRows.map((row) => text(row.notachave))));
+
+  const [directDfeResult, recoveredDfeResult] = await Promise.all([
+    directDfeIds.length
+      ? supabaseAdmin.from("fiscal_dfe_documento").select("id, empresa_id, chave_acesso, schema, xml, status, data_emissao").in("id", directDfeIds)
+      : Promise.resolve({ data: [], error: null }),
+    missingDfeKeys.length
+      ? supabaseAdmin.from("fiscal_dfe_documento").select("id, empresa_id, chave_acesso, schema, xml, status, data_emissao").in("chave_acesso", missingDfeKeys)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  throwIfSupabaseError(directDfeResult.error);
+  throwIfSupabaseError(recoveredDfeResult.error);
+  const dfeRows = [
+    ...((directDfeResult.data ?? []) as Row[]),
+    ...((recoveredDfeResult.data ?? []) as Row[]),
+  ];
   const foreignDfeRows = dfeRows.filter((row) => number(row.empresa_id) !== companyId);
   const dfeById = new Map(dfeRows
     .filter((row) => number(row.empresa_id) === companyId)
     .map((row) => [number(row.id), row]));
+  const dfeByKey = new Map(dfeRows
+    .filter((row) => number(row.empresa_id) === companyId && text(row.chave_acesso))
+    .map((row) => [text(row.chave_acesso), row]));
+
+  for (const row of entryRows) {
+    if (!row.fiscal_dfe_documento_id && text(row.notachave)) {
+      const recovered = dfeByKey.get(text(row.notachave));
+      if (recovered) {
+        row.fiscal_dfe_documento_id = recovered.id;
+      }
+    }
+  }
+
+  const dfeIds = Array.from(new Set(entryRows.map((row) => number(row.fiscal_dfe_documento_id)).filter(Boolean)));
   const noteIds = noteRows.map((row) => number(row.id)).filter(Boolean);
   const entryIds = entryRows.map((row) => number(row.id)).filter(Boolean);
   const [noteItemsResult, entryItemsResult, itemConfigsResult, creditDecisionsResult, unitConversionsResult, itemCorrelationsResult] = await Promise.all([
@@ -207,6 +245,17 @@ async function sourceContext(competence: Row) {
     message: `O DFe ${row.id} vinculado à entrada pertence a outro estabelecimento.`,
     source: { source: "BANCO", table: "fiscal_dfe_documento", id: row.id, documentKey: text(row.chave_acesso) },
   });
+  for (const row of entryRows) {
+    const dfe = dfeById.get(number(row.fiscal_dfe_documento_id)) ?? (text(row.notachave) ? dfeByKey.get(text(row.notachave)) : null);
+    if (!dfe) {
+      mappingDiagnostics.push({
+        code: "DFE_ENTRADA_AUSENTE",
+        severity: "BLOQUEIO",
+        message: `A entrada ${row.id} (${documentKey(row)}) é documental mas não possui documento DFe/XML no sistema.`,
+        source: { source: "BANCO", table: "entrada", id: row.id, documentKey: documentKey(row) },
+      });
+    }
+  }
   for (const configRow of (itemConfigsResult.data ?? []) as Row[]) {
     const configId = number(configRow.id);
     if (configId) itemConfigById.set(configId, configRow);
@@ -293,7 +342,7 @@ async function sourceContext(competence: Row) {
     unsettledNoteRows,
     entryRows: entryRows.map((row) => ({
       ...row,
-      dfe: dfeById.get(number(row.fiscal_dfe_documento_id)) ?? null,
+      dfe: dfeById.get(number(row.fiscal_dfe_documento_id)) ?? (text(row.notachave) ? dfeByKey.get(text(row.notachave)) : null) ?? null,
     })) as Row[],
     noteItemsByDocument,
     entryItemsByDocument,
@@ -302,7 +351,9 @@ async function sourceContext(competence: Row) {
     unitConversions,
     itemCorrelations,
     mappingDiagnostics,
-    unconfirmedEntryIds: (undatedEntriesResult.data ?? []).map((row: Row) => number(row.id)),
+    unconfirmedEntryIds: ((undatedEntriesResult.data ?? []) as Row[])
+      .filter((row) => isPendingFiscalDateCandidateForCompetence(row, { start, end }, text(config?.timezone_iana) || null))
+      .map((row) => number(row.id)),
     priorEfd: priorEfdResult.data as Row | null,
     payments1601: (paymentLinesResult.data ?? []) as Row[],
     adjustments: ((adjustmentsResult.data ?? []) as Row[]).map((row) => ({
