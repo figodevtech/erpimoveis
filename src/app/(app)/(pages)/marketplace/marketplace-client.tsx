@@ -204,6 +204,7 @@ type PublishedListing = {
   availableQuantity: number;
   thumbnail?: string | null;
   permalink?: string | null;
+  dateCreated?: string | null;
   produtoId?: number | null;
 };
 
@@ -518,6 +519,11 @@ export type ProductRow = {
     quality?: MercadoLivreListingQualityData | null;
     /** Envios Flex do anúncio: se está ativo e se o Mercado Livre aceita ativar. */
     flex?: { active: boolean; available: boolean } | null;
+    /** Capa do anúncio no Mercado Livre; pode diferir da foto do produto no ERP. */
+    picture_url?: string | null;
+    /** Publicação do anúncio no Mercado Livre. */
+    date_created?: string | null;
+    created_at?: string | null;
     metrics_updated_at?: string | null;
     updated_at?: string | null;
   } | null;
@@ -1843,6 +1849,14 @@ function stockStatusBadge(status?: string | null, stock?: number | null) {
   return <Badge className={`text-xs ${className}`}>{label}</Badge>;
 }
 
+function listingCreatedTime(row: { kind: "linked" | "unlinked"; listing: any }) {
+  const value = row.kind === "linked"
+    ? row.listing?.date_created ?? row.listing?.created_at
+    : row.listing?.dateCreated;
+  const time = Date.parse(String(value ?? ""));
+  return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+}
+
 function ProductImage({ product, showControls = false }: { product: ProductRow; showControls?: boolean }) {
   const imageUrls = useMemo(
     () => Array.from(new Set([...(product.imageUrls ?? []), product.imgUrl].filter(Boolean) as string[])),
@@ -2176,10 +2190,12 @@ export default function MarketplacePage() {
     ? linkableProducts
     : products.filter((product) => !product.mercadolivre);
   const unlinkedPublishedListings = publishedListings.filter((listing) => !listing.produtoId);
+  // Anúncio mais novo em cima: a data é a da publicação no Mercado Livre, com o
+  // vínculo do ERP como reserva. Sem data conhecida, a linha vai para o fim.
   const listingRows = [
     ...unlinkedPublishedListings.map((listing) => ({ kind: "unlinked" as const, listing })),
     ...linkedProducts.map((product) => ({ kind: "linked" as const, product, listing: product.mercadolivre! })),
-  ];
+  ].sort((first, second) => listingCreatedTime(second) - listingCreatedTime(first));
   const normalizedListingSearch = search.trim().toLocaleLowerCase("pt-BR");
   const filteredListingRows = listingRows.filter((row) => {
     const status = String(row.listing.status ?? "").toLowerCase();
@@ -5581,7 +5597,14 @@ export default function MarketplacePage() {
                           <TableRow key={`linked:${link.id}`}>
                             <TableCell>
                               <div className="flex min-w-0 items-center gap-3">
-                                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md border bg-muted"><ProductImage product={product} /></div>
+                                <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md border bg-muted">
+                                  {link.picture_url ? (
+                                    <>
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img src={link.picture_url} alt={link.title || "Anúncio"} className="h-full w-full object-contain" />
+                                    </>
+                                  ) : <ProductImage product={product} />}
+                                </div>
                                 <div className="min-w-0 space-y-1">
                                   <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{link.ml_item_id}</span>{statusBadge(link.status)}</div>
                                   <p className="line-clamp-2 text-sm font-medium">{link.title || "Sem título"}</p>

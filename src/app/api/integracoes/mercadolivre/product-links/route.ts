@@ -51,8 +51,9 @@ export async function GET() {
           price: Number(item.price ?? 0),
           soldQuantity: Number(item.sold_quantity ?? 0),
           availableQuantity: Number(item.available_quantity ?? 0),
-          thumbnail: item.thumbnail ?? null,
+          thumbnail: item.pictures?.[0]?.secure_url ?? item.secure_thumbnail ?? item.thumbnail ?? null,
           permalink: item.permalink ?? null,
+          dateCreated: item.date_created ?? null,
           produtoId: linkedByItem.get(String(item.id)) ?? null,
         });
       }

@@ -7,7 +7,11 @@ import type { MercadoLivreListingQuality as ListingQuality } from "@/lib/integra
 
 // O Mercado Livre abre o detalhe dos objetivos ao passar o mouse. O clique
 // continua valendo, para quem usa toque ou teclado.
-const HOVER_DELAY_MS = 120;
+//
+// Fechar demora um pouco mais que abrir porque existe um vão entre o botão e o
+// cartão: sem essa folga, atravessar o vão fecha e reabre o cartão.
+const OPEN_DELAY_MS = 100;
+const CLOSE_DELAY_MS = 220;
 
 export function MercadoLivreListingQuality({
   health,
@@ -20,14 +24,41 @@ export function MercadoLivreListingQuality({
 }) {
   const [open, setOpen] = useState(false);
   const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Botão e cartão são acompanhados separadamente: o cartão fica num portal, então
+  // sair do botão em direção a ele dispara uma saída antes da entrada.
+  const hovered = useRef({ trigger: false, content: false });
 
   useEffect(() => () => {
     if (timeout.current) clearTimeout(timeout.current);
   }, []);
 
-  const scheduleOpen = (next: boolean) => {
+  const syncWithPointer = () => {
     if (timeout.current) clearTimeout(timeout.current);
-    timeout.current = setTimeout(() => setOpen(next), HOVER_DELAY_MS);
+    const next = hovered.current.trigger || hovered.current.content;
+    timeout.current = setTimeout(() => setOpen(next), next ? OPEN_DELAY_MS : CLOSE_DELAY_MS);
+  };
+
+  // Só o mouse abre por aproximação: no toque, o mesmo gesto viraria toque e
+  // passagem ao mesmo tempo, e o cartão abriria e fecharia sozinho.
+  const hoverProps = (part: "trigger" | "content") => ({
+    onPointerEnter: (event: { pointerType: string }) => {
+      if (event.pointerType !== "mouse") return;
+      hovered.current[part] = true;
+      syncWithPointer();
+    },
+    onPointerLeave: (event: { pointerType: string }) => {
+      if (event.pointerType !== "mouse") return;
+      hovered.current[part] = false;
+      syncWithPointer();
+    },
+  });
+
+  // O clique manda mais que a passagem do mouse: fechar no clique não pode ser
+  // desfeito pelo ponteiro que continua sobre o botão.
+  const handleOpenChange = (next: boolean) => {
+    if (timeout.current) clearTimeout(timeout.current);
+    if (!next) hovered.current = { trigger: false, content: false };
+    setOpen(next);
   };
 
   const score = quality?.score ?? (health != null && Number.isFinite(Number(health)) ? Number(health) * 100 : null);
@@ -38,15 +69,12 @@ export function MercadoLivreListingQuality({
   if (!goals.length) return <span className={className}>{label}</span>;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
           className={`underline decoration-dotted underline-offset-2 hover:text-foreground ${className ?? ""}`}
-          onMouseEnter={() => scheduleOpen(true)}
-          onMouseLeave={() => scheduleOpen(false)}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setOpen(false)}
+          {...hoverProps("trigger")}
         >
           {label} · {goals.length} {goals.length === 1 ? "objetivo" : "objetivos"}
         </button>
@@ -54,9 +82,9 @@ export function MercadoLivreListingQuality({
       <PopoverContent
         align="start"
         className="w-80 space-y-2 p-3"
+        // Abrir por aproximação não deve roubar o foco de onde a pessoa está.
         onOpenAutoFocus={(event) => event.preventDefault()}
-        onMouseEnter={() => scheduleOpen(true)}
-        onMouseLeave={() => scheduleOpen(false)}
+        {...hoverProps("content")}
       >
         <div>
           <p className="text-sm font-medium">Qualidade do anúncio</p>

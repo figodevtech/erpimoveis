@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
     const { data: links, error: linksError } = productIds.length
       ? await supabaseAdmin
           .from("mercadolivre_product_link")
-          .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, user_product_id, family_id, family_name, domain_id, catalog_product_id, user_product_enabled, item_tags, visits_total, sold_quantity, available_quantity, listing_type_id, item_condition, health, catalog_listing, stop_time, metrics_updated_at, updated_at, price_state:raw_item->_erp_price_state, quality:raw_item->_erp_quality")
+          .select("id, empresa_id, produto_id, ml_item_id, ml_variation_id, title, permalink, status, user_product_id, family_id, family_name, domain_id, catalog_product_id, user_product_enabled, item_tags, visits_total, sold_quantity, available_quantity, listing_type_id, item_condition, health, catalog_listing, stop_time, metrics_updated_at, created_at, updated_at, price_state:raw_item->_erp_price_state, quality:raw_item->_erp_quality")
           .eq("empresa_id", empresaId)
           .in("produto_id", productIds)
       : { data: [], error: null };

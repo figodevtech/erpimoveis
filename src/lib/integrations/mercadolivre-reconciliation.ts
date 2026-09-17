@@ -81,6 +81,9 @@ export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
           price_state: priceState,
           quality: mercadoLivreListingQuality(performance) ?? link.quality ?? null,
           flex: resolveMercadoLivreItemFlex(item?.shipping?.tags),
+          date_created: item?.date_created ?? link.date_created ?? null,
+          // Capa do anúncio no Mercado Livre, que nem sempre é a foto do produto no ERP.
+          picture_url: item?.pictures?.[0]?.secure_url ?? item?.secure_thumbnail ?? item?.thumbnail ?? link.picture_url ?? null,
           metrics_updated_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
