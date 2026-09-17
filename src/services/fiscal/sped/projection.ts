@@ -238,19 +238,41 @@ export function buildFoundationRecords(input: {
     { code: "H990", values: {} },
     ...movement("K001", "K990"),
   );
-  records.push({ code: "1001", values: { IND_MOV: payments1601.length ? "0" : "1" } });
-  for (const payment of payments1601) {
+  const hasBlock1Movement = payments1601.length > 0;
+  records.push({ code: "1001", values: { IND_MOV: hasBlock1Movement ? "0" : "1" } });
+  if (hasBlock1Movement) {
     records.push({
-      code: "1601",
+      code: "1010",
       values: {
-        COD_PART_IP: text(payment.instituicao_codigo_participante),
-        COD_PART_IT: text(payment.intermediario_codigo_participante),
-        TOT_VS: payment.total_operacoes as number,
-        TOT_ISS: payment.total_iss as number,
-        TOT_OUTROS: payment.total_outros as number,
+        IND_EXP: "N",
+        IND_CCRF: "N",
+        IND_COMB: "N",
+        IND_USINA: "N",
+        IND_VA: config?.registro_1400_aplicavel ? "S" : "N",
+        IND_EE: "N",
+        IND_CART: payments1601.length > 0 ? "S" : "N",
+        IND_FORM: "N",
+        IND_AER: "N",
+        IND_GIAF1: "N",
+        IND_GIAF3: "N",
+        IND_GIAF4: "N",
+        IND_REST_RESSARC_COMPL_ICMS: "N",
       },
-      source: { source: "IMPORTACAO", table: "fiscal_sped_1601_linha", id: text(payment.id) },
+      source: { source: "CONFIGURACAO", table: "fiscal_sped_config" },
     });
+    for (const payment of payments1601) {
+      records.push({
+        code: "1601",
+        values: {
+          COD_PART_IP: text(payment.instituicao_codigo_participante),
+          COD_PART_IT: text(payment.intermediario_codigo_participante),
+          TOT_VS: payment.total_operacoes as number,
+          TOT_ISS: payment.total_iss as number,
+          TOT_OUTROS: payment.total_outros as number,
+        },
+        source: { source: "IMPORTACAO", table: "fiscal_sped_1601_linha", id: text(payment.id) },
+      });
+    }
   }
   records.push({ code: "1990", values: {} });
   return records;

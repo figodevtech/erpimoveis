@@ -167,3 +167,126 @@ test("bloqueia ajuste referencial E112 órfão sem E111", () => {
   assert.ok(result.diagnostics.some((d) => d.code === "AJUSTE_REFERENCIA_SEM_PAI"));
 });
 
+test("múltiplos ajustes E111 aninham filhos apenas no pai correto e não duplicam", () => {
+  const result = projectSpedAssessment({
+    competence: "2026-08",
+    documents: [document("SAIDA", 100), document("ENTRADA", 100)],
+    priorEfd: { saldos_apuracao: { icmsProprio: { saldoCredorTransportar: 0 } } },
+    adjustments: [
+      {
+        id: 10,
+        destination: "E111",
+        nature: "DEBITO",
+        code: "PB000001",
+        value: 30,
+        description: "Ajuste Débito 1",
+      },
+      {
+        id: 20,
+        destination: "E111",
+        nature: "DEBITO",
+        code: "PB000002",
+        value: 20,
+        description: "Ajuste Débito 2",
+      },
+      {
+        id: 101,
+        destination: "E112",
+        nature: "REFERENCIA",
+        code: "DA-01",
+        value: 0,
+        description: "DA do ajuste 1",
+        reference: { ajustePaiId: 10, numeroDa: "DA-01" },
+      },
+      {
+        id: 102,
+        destination: "E113",
+        nature: "REFERENCIA",
+        code: "NF-01",
+        value: 0,
+        description: "NF do ajuste 1",
+        reference: { ajustePaiId: 10, modeloDocumento: "55", numeroDocumento: "501" },
+      },
+      {
+        id: 30,
+        destination: "E116",
+        nature: "RECOLHIMENTO",
+        code: "000",
+        value: 50,
+        description: "ICMS a recolher",
+        reference: { dataVencimento: "2026-09-15" },
+      },
+    ],
+  });
+
+  assert.equal(result.diagnostics.some((d) => d.code === "AJUSTE_REFERENCIA_SEM_PAI"), false);
+  assert.equal(result.diagnostics.some((d) => d.code === "AJUSTE_PAI_AMBIGUO"), false);
+
+  const codes = result.blockERecords.map((r) => r.code);
+  // Deve haver exatamente dois E111, um E112 e um E113
+  assert.equal(codes.filter((c) => c === "E111").length, 2);
+  assert.equal(codes.filter((c) => c === "E112").length, 1);
+  assert.equal(codes.filter((c) => c === "E113").length, 1);
+
+  // E112 e E113 devem estar imediatamente após o primeiro E111 (id 10)
+  const firstE111 = codes.indexOf("E111");
+  assert.equal(codes[firstE111 + 1], "E112");
+  assert.equal(codes[firstE111 + 2], "E113");
+  assert.equal(codes[firstE111 + 3], "E111"); // O segundo E111 não tem filhos
+});
+
+test("múltiplos ajustes E111 bloqueiam filho sem ajustePaiId com AJUSTE_PAI_AMBIGUO", () => {
+  const result = projectSpedAssessment({
+    competence: "2026-08",
+    documents: [document("SAIDA", 100), document("ENTRADA", 100)],
+    priorEfd: { saldos_apuracao: { icmsProprio: { saldoCredorTransportar: 0 } } },
+    adjustments: [
+      { id: 10, destination: "E111", nature: "DEBITO", code: "PB000001", value: 10, description: "A1" },
+      { id: 20, destination: "E111", nature: "DEBITO", code: "PB000002", value: 10, description: "A2" },
+      { id: 30, destination: "E112", nature: "REFERENCIA", code: "DA-X", value: 0, description: "DA sem pai", reference: { numeroDa: "DA-X" } },
+      { id: 40, destination: "E116", nature: "RECOLHIMENTO", code: "000", value: 20, description: "ICMS", reference: { dataVencimento: "2026-09-15" } },
+    ],
+  });
+
+  assert.ok(result.diagnostics.some((d) => d.code === "AJUSTE_PAI_AMBIGUO"));
+  // Garante que o filho ambíguo NÃO foi injetado em nenhum dos pais
+  assert.equal(result.blockERecords.filter((r) => r.code === "E112").length, 0);
+});
+
+test("múltiplos ajustes E311 DIFAL aninham filhos apenas no pai correto e barram ambiguidade", () => {
+  const difalDoc: ProjectedFiscalDocument = {
+    ...document("SAIDA", 0),
+    payload: { totais: { vICMS: 0 }, participanteUf: "SP" },
+    items: [{
+      number: 1,
+      code: "ITEM-1",
+      productId: 1,
+      itemConfigId: 1,
+      documentUnit: "UN",
+      inventoryUnit: "UN",
+      creditTreatment: "NAO_APLICAVEL",
+      payload: { valor_icms: 0, valor_icms_uf_dest: 50, valor_fcp_uf_dest: 10 },
+      sourceRefs: [],
+    }],
+  };
+  const result = projectSpedAssessment({
+    competence: "2026-08",
+    documents: [difalDoc],
+    priorEfd: { saldos_apuracao: { difalFcpByUf: [{ uf: "SP", saldoCredorDifalTransportar: 0, saldoCredorFcpTransportar: 0 }] } },
+    adjustments: [
+      { id: 1, destination: "E311", uf: "SP", nature: "DEBITO", code: "SP000001", value: 10, description: "Ajuste SP 1", reference: { tributo: "DIFAL" } },
+      { id: 2, destination: "E311", uf: "SP", nature: "DEBITO", code: "SP000002", value: 5, description: "Ajuste SP 2", reference: { tributo: "DIFAL" } },
+      { id: 101, destination: "E312", uf: "SP", nature: "REFERENCIA", code: "DA-SP", value: 0, description: "DA SP", reference: { ajustePaiId: 1, numeroDa: "DA-SP" } },
+      { id: 300, destination: "E316", uf: "SP", nature: "RECOLHIMENTO", code: "000", value: 75, description: "DIFAL+FCP SP", reference: { dataVencimento: "2026-09-15" } },
+    ],
+  });
+
+  assert.equal(result.diagnostics.some((d) => d.code === "AJUSTE_PAI_DIFAL_AMBIGUO"), false);
+  const codes = result.blockERecords.map((r) => r.code);
+  assert.equal(codes.filter((c) => c === "E311").length, 2);
+  assert.equal(codes.filter((c) => c === "E312").length, 1);
+  const firstE311 = codes.indexOf("E311");
+  assert.equal(codes[firstE311 + 1], "E312");
+  assert.equal(codes[firstE311 + 2], "E311");
+});
+

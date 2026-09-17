@@ -1061,6 +1061,9 @@ export async function generateSpedFile(
   const version = await getVersion(competence.versao_atual_id);
   assertExpectedVersion(version, expectedVersion);
   const tipo = options?.tipo ?? "FINAL";
+  if (tipo !== "PREVIA" && tipo !== "FINAL") {
+    throw new SpedServiceError("Tipo de arquivo inválido. Utilize PREVIA ou FINAL.", 400, "INVALID_FILE_KIND");
+  }
   if (tipo === "FINAL" && (!version || version.status !== "FECHADA" || competence.status !== "FECHADA")) {
     throw new SpedServiceError("O TXT final só pode ser gerado de uma versão fechada.", 422, "VERSION_NOT_CLOSED");
   }

@@ -215,22 +215,50 @@ export function projectSpedAssessment(input: {
     }
   }
 
+  const e111Ids = new Set(e111Adjustments.map((a) => String(a.id)));
+  for (const child of [...e112Adjustments, ...e113Adjustments]) {
+    const parentId = child.reference?.ajustePaiId ? String(child.reference.ajustePaiId) : null;
+    const recordType = child.destination;
+    if (e111Adjustments.length === 0) continue;
+    if (parentId && !e111Ids.has(parentId)) {
+      diagnostics.push({
+        code: "AJUSTE_REFERENCIA_SEM_PAI",
+        severity: "BLOQUEIO",
+        message: `O ajuste de detalhamento ${recordType} ${child.id} referencia um ajuste pai (ID ${parentId}) inexistente na apuração própria.`,
+        record: recordType,
+        source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao", id: child.id },
+      });
+    } else if (!parentId && e111Adjustments.length > 1) {
+      diagnostics.push({
+        code: "AJUSTE_PAI_AMBIGUO",
+        severity: "BLOQUEIO",
+        message: `Existem múltiplos ajustes E111. O ajuste de detalhamento ${recordType} ${child.id} deve informar o ajuste pai (ajustePaiId).`,
+        record: recordType,
+        source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao", id: child.id },
+      });
+    }
+  }
+
   const e111RecordsWithChildren: EfdRecord[] = [];
   for (const e111Adj of e111Adjustments) {
     const rec = adjustmentRecord(e111Adj);
     if (rec) e111RecordsWithChildren.push(rec);
 
-    const matchingE112 = e112Adjustments.filter((child) =>
-      !child.reference?.ajustePaiId || String(child.reference.ajustePaiId) === String(e111Adj.id) || e111Adjustments.length === 1,
-    );
+    const matchingE112 = e112Adjustments.filter((child) => {
+      const parentId = child.reference?.ajustePaiId ? String(child.reference.ajustePaiId) : null;
+      if (parentId) return parentId === String(e111Adj.id);
+      return e111Adjustments.length === 1;
+    });
     for (const child of matchingE112) {
       const childRec = adjustmentRecord(child);
       if (childRec) e111RecordsWithChildren.push(childRec);
     }
 
-    const matchingE113 = e113Adjustments.filter((child) =>
-      !child.reference?.ajustePaiId || String(child.reference.ajustePaiId) === String(e111Adj.id) || e111Adjustments.length === 1,
-    );
+    const matchingE113 = e113Adjustments.filter((child) => {
+      const parentId = child.reference?.ajustePaiId ? String(child.reference.ajustePaiId) : null;
+      if (parentId) return parentId === String(e111Adj.id);
+      return e111Adjustments.length === 1;
+    });
     for (const child of matchingE113) {
       const childRec = adjustmentRecord(child);
       if (childRec) e111RecordsWithChildren.push(childRec);
@@ -412,22 +440,50 @@ export function projectSpedAssessment(input: {
       source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao" },
     });
 
+    const e311Ids = new Set(e311Adjustments.map((a) => String(a.id)));
+    for (const child of [...e312Adjustments, ...e313Adjustments]) {
+      const parentId = child.reference?.ajustePaiId ? String(child.reference.ajustePaiId) : null;
+      const recordType = child.destination;
+      if (e311Adjustments.length === 0) continue;
+      if (parentId && !e311Ids.has(parentId)) {
+        diagnostics.push({
+          code: "AJUSTE_REFERENCIA_DIFAL_SEM_PAI",
+          severity: "BLOQUEIO",
+          message: `O ajuste de detalhamento ${recordType} ${child.id} para ${uf} referencia um ajuste pai (ID ${parentId}) inexistente no E311.`,
+          record: recordType,
+          source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao", id: child.id },
+        });
+      } else if (!parentId && e311Adjustments.length > 1) {
+        diagnostics.push({
+          code: "AJUSTE_PAI_DIFAL_AMBIGUO",
+          severity: "BLOQUEIO",
+          message: `Existem múltiplos ajustes E311 para ${uf}. O ajuste de detalhamento ${recordType} ${child.id} deve informar o ajuste pai (ajustePaiId).`,
+          record: recordType,
+          source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao", id: child.id },
+        });
+      }
+    }
+
     const e311RecordsWithChildren: EfdRecord[] = [];
     for (const e311Adj of e311Adjustments) {
       const rec = adjustmentRecord(e311Adj);
       if (rec) e311RecordsWithChildren.push(rec);
 
-      const matchingE312 = e312Adjustments.filter((child) =>
-        !child.reference?.ajustePaiId || String(child.reference.ajustePaiId) === String(e311Adj.id) || e311Adjustments.length === 1,
-      );
+      const matchingE312 = e312Adjustments.filter((child) => {
+        const parentId = child.reference?.ajustePaiId ? String(child.reference.ajustePaiId) : null;
+        if (parentId) return parentId === String(e311Adj.id);
+        return e311Adjustments.length === 1;
+      });
       for (const child of matchingE312) {
         const childRec = adjustmentRecord(child);
         if (childRec) e311RecordsWithChildren.push(childRec);
       }
 
-      const matchingE313 = e313Adjustments.filter((child) =>
-        !child.reference?.ajustePaiId || String(child.reference.ajustePaiId) === String(e311Adj.id) || e311Adjustments.length === 1,
-      );
+      const matchingE313 = e313Adjustments.filter((child) => {
+        const parentId = child.reference?.ajustePaiId ? String(child.reference.ajustePaiId) : null;
+        if (parentId) return parentId === String(e311Adj.id);
+        return e311Adjustments.length === 1;
+      });
       for (const child of matchingE313) {
         const childRec = adjustmentRecord(child);
         if (childRec) e311RecordsWithChildren.push(childRec);
