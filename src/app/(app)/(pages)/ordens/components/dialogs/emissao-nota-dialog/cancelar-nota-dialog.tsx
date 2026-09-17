@@ -55,7 +55,8 @@ export function CancelarNotaDialog({
         return;
       }
 
-      toast.success(`${label} enviada para cancelamento com sucesso!`);
+      if (data?.aviso) toast.warning(`${label} cancelada com pendência`, { description: data.aviso });
+      else toast.success(`${label} enviada para cancelamento com sucesso!`);
       onOpenChange(false);
       setJustificativa("");
       if (onSuccess) onSuccess();

@@ -91,3 +91,16 @@ export type SpedCompetenciaDetail = SpedCompetenciaSummary & {
   sourceCutoffAt: string | null;
   contextHash: string | null;
 };
+
+export type SpedEntradaDataFiscalPendente = {
+  id: string;
+  numeroNota: string | null;
+  serieNota: string | null;
+  chave: string | null;
+  fornecedor: string | null;
+  documentoFornecedor: string | null;
+  valorTotal: number;
+  dataEmissao: string | null;
+  dataLancamento: string | null;
+  dataSugerida: string | null;
+};

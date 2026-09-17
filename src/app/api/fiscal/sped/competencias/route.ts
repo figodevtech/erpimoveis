@@ -22,8 +22,8 @@ export async function POST(request: Request) {
     await requireSpedManage();
     const actorId = await requireSpedActor();
     const body = await jsonBody(request);
-    const companyId = Number(body.companyId);
-    if (!Number.isSafeInteger(companyId) || companyId <= 0) {
+    const companyId = body.companyId == null || body.companyId === "" ? null : Number(body.companyId);
+    if (companyId !== null && (!Number.isSafeInteger(companyId) || companyId <= 0)) {
       return NextResponse.json({ message: "Empresa inválida." }, { status: 400 });
     }
     const data = await createSpedCompetence({

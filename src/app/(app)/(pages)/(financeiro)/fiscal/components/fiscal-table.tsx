@@ -497,7 +497,11 @@ export default function FiscalTable({
       const description = detalhes ? `${motivo} (${detalhes})` : motivo;
 
       if (statusDb === "CANCELADA") {
-        toast.success("NF-e cancelada", { id: toastId, description });
+        if (response.data?.aviso) {
+          toast.warning("NF-e cancelada com pendência", { id: toastId, description: response.data.aviso });
+        } else {
+          toast.success("NF-e cancelada", { id: toastId, description });
+        }
         setNotaCancelamento(null);
         setMotivoCancelamento("");
         await handleGetNotas(pagination.page, pagination.limit);

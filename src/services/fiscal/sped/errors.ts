@@ -11,6 +11,13 @@ export class SpedServiceError extends Error {
 
 export function throwIfSupabaseError(error: { message?: string; code?: string } | null) {
   if (!error) return;
-  const status = error.code === "P0002" ? 404 : error.code === "40001" || error.code === "23505" ? 409 : 500;
+  const status = {
+    P0002: 404,
+    "40001": 409,
+    "23505": 409,
+    "55000": 409,
+    "23514": 422,
+    "22023": 400,
+  }[error.code ?? ""] ?? 500;
   throw new SpedServiceError(error.message || "Falha de persistência do SPED.", status, error.code || "DATABASE_ERROR");
 }

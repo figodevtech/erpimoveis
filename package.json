@@ -35,6 +35,7 @@
     "db:test:classificacao-resultado": "tsx scripts/db/test-classificacao-resultado-migration.ts",
     "db:test:resolvedor-dre": "tsx scripts/db/test-resolvedor-classificacao-migration.ts",
     "db:test:linha-dre-conta": "tsx scripts/db/test-linha-da-dre-por-conta-migration.ts",
+    "db:test:sped-fiscal": "tsx scripts/db/test-sped-fiscal-migration.ts",
     "db:migrar:plano-contas": "tsx scripts/db/migrar-classificacao-plano-contas.ts",
     "db:deploy": "tsx scripts/db/deploy.ts",
     "db:deploy:demo": "tsx scripts/db/deploy-demo.ts",
