@@ -240,26 +240,26 @@ export function buildFoundationRecords(input: {
   );
   const hasBlock1Movement = payments1601.length > 0;
   records.push({ code: "1001", values: { IND_MOV: hasBlock1Movement ? "0" : "1" } });
+  records.push({
+    code: "1010",
+    values: {
+      IND_EXP: "N",
+      IND_CCRF: "N",
+      IND_COMB: "N",
+      IND_USINA: "N",
+      IND_VA: config?.registro_1400_aplicavel ? "S" : "N",
+      IND_EE: "N",
+      IND_CART: payments1601.length > 0 ? "S" : "N",
+      IND_FORM: "N",
+      IND_AER: "N",
+      IND_GIAF1: "N",
+      IND_GIAF3: "N",
+      IND_GIAF4: "N",
+      IND_REST_RESSARC_COMPL_ICMS: "N",
+    },
+    source: { source: "CONFIGURACAO", table: "fiscal_sped_config" },
+  });
   if (hasBlock1Movement) {
-    records.push({
-      code: "1010",
-      values: {
-        IND_EXP: "N",
-        IND_CCRF: "N",
-        IND_COMB: "N",
-        IND_USINA: "N",
-        IND_VA: config?.registro_1400_aplicavel ? "S" : "N",
-        IND_EE: "N",
-        IND_CART: payments1601.length > 0 ? "S" : "N",
-        IND_FORM: "N",
-        IND_AER: "N",
-        IND_GIAF1: "N",
-        IND_GIAF3: "N",
-        IND_GIAF4: "N",
-        IND_REST_RESSARC_COMPL_ICMS: "N",
-      },
-      source: { source: "CONFIGURACAO", table: "fiscal_sped_config" },
-    });
     for (const payment of payments1601) {
       records.push({
         code: "1601",

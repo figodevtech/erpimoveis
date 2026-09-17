@@ -30,7 +30,7 @@ const mockConfig = {
 
 const layout = resolveSpedLayout("2026-08");
 
-test("Bloco 1 sem movimento: gera 1001 com IND_MOV=1 e não gera 1010", () => {
+test("Bloco 1 sem movimento: gera 1001 com IND_MOV=1, 1010 com indicadores N e 1990 com 3 linhas", () => {
   const records = buildFoundationRecords({
     competence: "2026-08",
     company: mockCompany as any,
@@ -44,17 +44,26 @@ test("Bloco 1 sem movimento: gera 1001 com IND_MOV=1 e não gera 1010", () => {
   });
 
   const codes = records.map((r) => r.code);
-  assert.ok(codes.includes("1001"));
-  assert.ok(codes.includes("1990"));
-  assert.equal(codes.includes("1010"), false);
+  const idx1001 = codes.indexOf("1001");
+  assert.ok(idx1001 >= 0);
+  assert.equal(codes[idx1001 + 1], "1010");
+  assert.equal(codes[idx1001 + 2], "1990");
   assert.equal(codes.includes("1601"), false);
 
   const reg1001 = records.find((r) => r.code === "1001");
   assert.equal(reg1001?.values.IND_MOV, "1");
 
+  const reg1010 = records.find((r) => r.code === "1010");
+  assert.ok(reg1010);
+  assert.equal(reg1010?.values.IND_CART, "N");
+  assert.equal(reg1010?.values.IND_VA, "N");
+  assert.equal(reg1010?.values.IND_EXP, "N");
+  assert.equal(reg1010?.values.IND_REST_RESSARC_COMPL_ICMS, "N");
+
   const serialized = serializeEfd(records, layout);
   assert.ok(serialized.text.includes("|1001|1|\r\n"));
-  assert.ok(serialized.text.includes("|1990|2|\r\n"));
+  assert.ok(serialized.text.includes("|1010|N|N|N|N|N|N|N|N|N|N|N|N|N|\r\n"));
+  assert.ok(serialized.text.includes("|1990|3|\r\n"));
 });
 
 test("Bloco 1 com movimento 1601: gera 1001 com IND_MOV=0, registro 1010 (IND_CART=S) e 1601", () => {

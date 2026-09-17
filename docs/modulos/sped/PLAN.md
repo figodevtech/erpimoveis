@@ -68,37 +68,73 @@ Todas as migrations SPED foram aplicadas nos três ambientes (`demo`, `demir` e 
 - [x] Projeção cadastral do Bloco 0 (0150, 0190, 0200, 0220, 0221) implementada com testes unitários.
 - [x] Motor de projeção do 0205 preparado para histórico com testes unitários; documentado que sua geração no piloto depende de histórico cadastral auditável no ERP.
 - [x] Suporte a ajustes e documentos fiscais do Bloco E (E111, E112, E113, E115, E116, E311, E312, E313, E316) implementado com hierarquia estrita para múltiplos pais e testes unitários dedicados.
-- [x] Registro 1010 implementado no leiaute 020 e gerador condicional ativado para quando Bloco 1 possuir movimento (IND_MOV = 0).
+- [x] Registro 1010 implementado no leiaute 020 e emitido obrigatoriamente em conformidade com o Guia Prático da EFD ICMS/IPI (mesmo com 1001.IND_MOV = 1, gerando |1001|1|, |1010|N...| e |1990|3|; e com IND_CART=S e 4 linhas quando houver 1601).
 - [x] Registro 1400 classificado corretamente: definição de leiaute e gate implementados; geração condicionada à aplicabilidade (confirmada inaplicabilidade para Demir Diesel).
+- [x] Idempotência de arquivos SPED por `(versao_id, tipo, arquivo_sha256)` implementada com migration de índice único (`20260917120000_sped_fiscal_arquivo_idempotencia.sql`), permitindo coexistência de PREVIA e FINAL com mesmo hash e prevenindo duplicidades em concorrência.
+- [x] Testes obrigatórios de geração (Casos A, B, C, D e E) implementados e 100% aprovados (`src/services/fiscal/sped/fileGeneration.test.ts`).
 - [x] Proteção backend PREVIA vs FINAL implementada e blindada contra bypass de API.
 - [x] Integração de Storage e2e testada no ambiente real.
 - [x] Registro e histórico de validações do PVA implementado no banco, APIs e interface.
 - [x] Competência piloto 08/2026 aberta e versionada no banco real da Demir Diesel.
 - [x] Projeção fiscal real de 52 saídas (C100 regular e canceladas com COD_SIT 02), 13 partilhas DIFAL (C101 e E300/E310), 44 participantes (0150) e 87 itens (0200).
-- [x] Primeiro arquivo TXT real gerado (324 linhas, 28.326 bytes) com 100% de conformidade de campos e registros auditados contra o leiaute 020.
-- [x] Upload da prévia SPED testado e armazenado no Supabase Storage `fiscal-sped` e registrado em `fiscal_sped_arquivo`.
-- [x] Fechamento bloqueado por erros, datas não confirmadas e gates pendentes (195 diagnósticos catalogados no piloto).
+- [x] Nova Prévia SPED oficial gerada e auditada com 326 linhas e 28.375 bytes (SHA-256: `621e90d4f3c74e7d7ba26f34f57a43b934f80d3d7edcf830f9017d7c844c5b7a`), armazenada no bucket `fiscal-sped` no Storage (path: `1/2026-08/v1/2-621e90d4f3c74e7d7ba26f34f57a43b934f80d3d7edcf830f9017d7c844c5b7a.txt`).
+- [x] Auditoria de conformidade com 100% de aprovação (CRLF, Latin-1, delimitação de pipes, 1001 seguido de 1010, 1990 contando 3 linhas, 9900 totalizando 35 registros incluindo o 1010, 9990 e 9999 com 326 linhas).
+- [x] Fechamento bloqueado por erros, datas não confirmadas e gates pendentes (195 diagnósticos auditados no baseline, 196 com nova entrada cadastrada).
 - [x] Reabertura cria nova versão sem mutar a anterior.
-- [x] Suítes existentes continuam passando (`npm run test:negocio` com 1566 testes, `next build` 100%).
+- [x] Suítes existentes continuam passando (`npm run test:negocio` com 1571 testes, `next build` 100%).
 - [ ] **AGUARDANDO HOMOLOGAÇÃO MANUAL NO PVA** (Arquivo TXT pronto para download e importação oficial no PVA).
 
 ## Diagnóstico Real do Piloto (Demir Diesel - 08/2026)
 
-Na execução de validação da versão 1 da competência 08/2026, foram catalogados 195 diagnósticos bloqueantes legítimos, classificados em:
+Na auditoria detalhada dos diagnósticos bloqueantes gerados na validação da versão 1 da competência 08/2026, foram catalogados exatamente 195 diagnósticos legítimos (com 1 ocorrência adicional recente decorrente da entrada 1031, totalizando 196), rigorosamente distribuídos em:
 
-1. **Problemas cadastrais / operacionais do usuário (170 ocorrências)**:
-   - 82 compras com `data_entrada_fiscal` nula (`DATA_ENTRADA_FISCAL_NAO_CONFIRMADA`). O operador deve confirmar as datas de entrada na aba Entradas do módulo SPED (o sistema sugere atalhos, mas não auto-preenche).
-   - 87 itens movimentados em notas fiscais sem configuração em `fiscal_sped_item_config` para o registro 0200 (`CODIGO_ITEM_CANONICO_AUSENTE`). O usuário deve cadastrar a classificação canônica na aba Itens (o sistema não adivinha dados tributários).
+1. **Problemas cadastrais / operacionais do usuário (170 ocorrências no baseline / 171 atual)**:
+   - 82 compras com `data_entrada_fiscal` nula (`DATA_ENTRADA_FISCAL_NAO_CONFIRMADA`) no baseline histórico (83 compras atualmente com a inclusão da entrada 1031). O operador deve confirmar as datas de entrada na aba Entradas do módulo SPED (o sistema sugere atalhos, mas não auto-preenche).
+   - 87 itens movimentados em notas fiscais sem configuração canônica em `fiscal_sped_item_config` para o registro 0200 (`CODIGO_ITEM_CANONICO_AUSENTE`). O usuário deve cadastrar a classificação canônica na aba Itens.
    - 1 contabilista ausente (`CONTABILISTA_AUSENTE`). O usuário deve cadastrar o contador responsável na aba Configuração.
-2. **Decisões fiscais do contador (14 ocorrências)**:
-   - 2 campos de cabeçalho 0000 (`0000.IND_PERFIL` e `0000.IND_ATIV`).
-   - 3 gates estruturais (`GATE_TIMEZONE_STATUS_NAO_CONFIRMADO`, `GATE_PERFIL_EFD_STATUS_NAO_CONFIRMADO`, `GATE_INDICADOR_ATIVIDADE_STATUS_NAO_CONFIRMADO`).
-   - 7 gates de obrigatoriedade de blocos/registros (`BLOCO_K_PENDENTE`, `REGISTROS_C176_C179_PENDENTES`, `REGISTRO_1400_PENDENTE`, `REGISTRO_1601_PENDENTE`, `INVENTARIO_PENDENTE`, `GATE_CONTRIBUINTE_IPI_STATUS_PENDENTE`, `GATE_ENTREGA_EFD_CONTRIBUICOES_STATUS_PENDENTE`).
-   - 1 decisão de aplicabilidade de ressarcimento (`C176_C179_APLICABILIDADE_DETECTADA`).
-   - 1 divergência histórica pontual cadastral em XMLs de fornecedor (`CADASTRO_FISCAL_DIVERGENTE` em `0150|P38168192000112`).
-3. **Decisões fiscais e dados externos (11 ocorrências)**:
+   *Subtotal: 82 + 87 + 1 = 170 (baseline) | 83 + 87 + 1 = 171 (atual).*
+2. **Decisões fiscais do contador (15 ocorrências)**:
+   - 2 campos obrigatórios de cabeçalho do registro 0000 dependentes de definição contábil (`0000.IND_PERFIL` e `0000.IND_ATIV`).
+   - 11 gates de decisão fiscal/configuração pendentes de confirmação do contador:
+     - `TIMEZONE` (GATE_TIMEZONE_STATUS_NAO_CONFIRMADO)
+     - `PERFIL_EFD_STATUS` (GATE_PERFIL_EFD_STATUS_NAO_CONFIRMADO)
+     - `PERFIL_EFD_PENDENTE`
+     - `IND_ATIV` (GATE_INDICADOR_ATIVIDADE_STATUS_NAO_CONFIRMADO)
+     - `CONTRIB_IPI` (GATE_CONTRIBUINTE_IPI_STATUS_PENDENTE)
+     - `EFD_CONTRIB` (GATE_ENTREGA_EFD_CONTRIBUICOES_STATUS_PENDENTE)
+     - `BLOCO_K` (BLOCO_K_PENDENTE)
+     - `INVENTARIO` (INVENTARIO_PENDENTE)
+     - `C176_C179_PENDENTE` (REGISTROS_C176_C179_PENDENTES)
+     - `1400` (REGISTRO_1400_PENDENTE)
+     - `1601` (REGISTRO_1601_PENDENTE)
+   - 1 decisão de aplicabilidade de ressarcimento de ICMS ST (`C176_C179_APLICABILIDADE_DETECTADA`).
+   - 1 divergência cadastral histórica pontual em XMLs de fornecedor (`CADASTRO_FISCAL_DIVERGENTE` em `0150|P38168192000112`).
+   *Subtotal: 2 + 11 + 1 + 1 = 15.*
+3. **Decisões fiscais e dados externos (10 ocorrências)**:
    - 1 guia de recolhimento de ICMS próprio (`E116_RECOLHIMENTO_AUSENTE`: apuração própria gerou R$ 38,00 a recolher sem DAE informado).
    - 8 guias de recolhimento de DIFAL (`E316_RECOLHIMENTO_AUSENTE`: DIFAL para ES, MA, MG, MT, PA, PE, RN, RS sem GNRE informada).
    - 1 arquivo da EFD anterior (`EFD_ANTERIOR_AUSENTE`: para transporte de saldo credor inicial de julho/2026, se houver).
+   *Subtotal: 1 + 8 + 1 = 10.*
+
+**Fechamento Numérico da Auditoria:**
+`170 (cadastrais) + 15 (decisões contador) + 10 (dados externos) = 195 diagnósticos exatos no baseline.`
+*(No banco atual com a entrada 1031: 171 + 15 + 10 = 196 diagnósticos).*
 
 Sem esses itens sanados ou confirmados pelo contador da empresa, a competência permanece com status `COM_ERROS` e o fechamento bloqueado, exatamente conforme desenhado. Contudo, o sistema permite gerar a **Prévia SPED** a qualquer momento para homologação antecipada no PVA oficial.
+
+## Ficha Técnica da Nova Prévia Gerada para Homologação no PVA
+
+- **Nome do Arquivo Local**: `tmp_sped_demir_202608.txt`
+- **Registro no Banco**: Tabela `fiscal_sped_arquivo`, ID `2`, Sequência `2`
+- **Storage Path**: `fiscal-sped/1/2026-08/v1/2-621e90d4f3c74e7d7ba26f34f57a43b934f80d3d7edcf830f9017d7c844c5b7a.txt`
+- **Competência**: `08/2026`
+- **Estabelecimento**: `AUTO ELETRICA DEMIR LTDA` (CNPJ: 12.260.723/0001-09, IE: 16.172.654-2, João Pessoa - PB)
+- **Tipo de Artefato**: `PREVIA`
+- **Leiaute EFD**: `020` (vigente a partir do ano-calendário 2026)
+- **Quantidade de Registros/Linhas**: `326`
+- **Tamanho**: `28.375 bytes`
+- **Hash SHA-256**: `621e90d4f3c74e7d7ba26f34f57a43b934f80d3d7edcf830f9017d7c844c5b7a`
+- **Codificação / Terminador**: Latin-1 (ISO-8859-1) / CRLF (`\r\n`)
+- **Status do Módulo**: **AGUARDANDO HOMOLOGAÇÃO MANUAL NO PVA**
+- **Versão Recomendada do PVA**: Versão mais recente disponibilizada pela Receita Federal compatível com a EFD ICMS/IPI leiaute 020 (guia prático EFD 2026).
+

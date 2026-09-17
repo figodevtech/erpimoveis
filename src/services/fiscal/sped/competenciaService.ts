@@ -23,6 +23,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { toSpedContabilista } from "./accountantService";
 import { SpedServiceError, throwIfSupabaseError } from "./errors";
 import { singleCompanyId } from "./guards";
+import { validateSpedFileGenerationPreconditions } from "./fileGenerationGuards";
 import { projectSpedAssessment, type SpedAssessmentProjection } from "./assessmentProjection";
 import { hashStableJson, sha256Hex } from "./hash";
 import { projectSpedInventory } from "./inventoryProjection";
@@ -1060,13 +1061,12 @@ export async function generateSpedFile(
   const competence = await getCompetence(id);
   const version = await getVersion(competence.versao_atual_id);
   assertExpectedVersion(version, expectedVersion);
-  const tipo = options?.tipo ?? "FINAL";
-  if (tipo !== "PREVIA" && tipo !== "FINAL") {
-    throw new SpedServiceError("Tipo de arquivo inválido. Utilize PREVIA ou FINAL.", 400, "INVALID_FILE_KIND");
-  }
-  if (tipo === "FINAL" && (!version || version.status !== "FECHADA" || competence.status !== "FECHADA")) {
-    throw new SpedServiceError("O TXT final só pode ser gerado de uma versão fechada.", 422, "VERSION_NOT_CLOSED");
-  }
+  const { tipo } = validateSpedFileGenerationPreconditions({
+    tipo: options?.tipo,
+    competenceStatus: competence.status,
+    versionStatus: version?.status,
+    hasVersion: Boolean(version),
+  });
   if (!version) {
     throw new SpedServiceError("Versão SPED não encontrada.", 404, "VERSION_NOT_FOUND");
   }
@@ -1074,14 +1074,20 @@ export async function generateSpedFile(
   if (records.length === 0) throw new SpedServiceError("Snapshots da versão não contêm registros EFD.", 422, "SNAPSHOT_EMPTY");
   const serialized = serializeEfd(records, resolveSpedLayout(month(competence.competencia)));
   const hash = sha256Hex(serialized.bytes);
-  const existing = await supabaseAdmin.from("fiscal_sped_arquivo").select("id").eq("versao_id", version.id).eq("arquivo_sha256", hash).maybeSingle();
+  const existing = await supabaseAdmin
+    .from("fiscal_sped_arquivo")
+    .select("id")
+    .eq("versao_id", version.id)
+    .eq("tipo", tipo)
+    .eq("arquivo_sha256", hash)
+    .maybeSingle();
   throwIfSupabaseError(existing.error);
   if (!existing.data) {
     const last = await supabaseAdmin.from("fiscal_sped_arquivo").select("sequencia").eq("versao_id", version.id).order("sequencia", { ascending: false }).limit(1).maybeSingle();
     throwIfSupabaseError(last.error);
     const sequence = number(last.data?.sequencia) + 1;
     const path = `${competence.empresa_id}/${month(competence.competencia)}/v${version.numero}/${sequence}-${hash}.txt`;
-    const upload = await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(path, serialized.bytes, { contentType: "text/plain", upsert: false });
+    const upload = await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(path, serialized.bytes, { contentType: "text/plain", upsert: true });
     throwIfSupabaseError(upload.error);
     const inserted = await supabaseAdmin.from("fiscal_sped_arquivo").insert({
       versao_id: version.id,
@@ -1097,6 +1103,9 @@ export async function generateSpedFile(
       generated_by: actorId,
     });
     if (inserted.error) {
+      if (inserted.error.code === "23505") {
+        return getSpedCompetenceDetail(id);
+      }
       await supabaseAdmin.storage.from(STORAGE_BUCKET).remove([path]);
       throwIfSupabaseError(inserted.error);
     }
