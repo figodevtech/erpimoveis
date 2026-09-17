@@ -3,6 +3,7 @@ import { isMercadoLivreNotFound, mercadoLivreApiGet } from "@/lib/integrations/m
 import { describeMercadoLivreListingStatus } from "@/lib/integrations/mercadolivre-listing-status";
 import { syncMercadoLivreShipmentForVenda } from "@/lib/integrations/mercadolivre-shipping";
 import { getMercadoLivrePriceState } from "@/lib/integrations/mercadolivre-price-sync";
+import { loadMercadoLivreItemVisits } from "@/lib/integrations/mercadolivre-visits";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function syncMercadoLivreProductLinks(providedLinks?: any[]) {
@@ -239,27 +240,15 @@ async function loadListingVisits(links: any[], tokenByEmpresa: Map<number, strin
       const accessToken = tokenByEmpresa.get(empresaId);
       if (!accessToken) return;
 
-      for (const batch of chunks(companyLinks.map((link) => String(link.ml_item_id ?? "").toUpperCase()).filter(Boolean), 20)) {
-        try {
-          const result = await mercadoLivreApiGet<Record<string, number>>(accessToken, `/visits/items?ids=${encodeURIComponent(batch.join(","))}`);
-          for (const [itemId, total] of Object.entries(result ?? {})) {
-            const value = Number(total);
-            if (Number.isFinite(value)) visits.set(itemId.toUpperCase(), value);
-          }
-        } catch (error) {
-          console.warn("Falha ao sincronizar visitas dos anúncios Mercado Livre", { empresaId, error });
-        }
-      }
+      const companyVisits = await loadMercadoLivreItemVisits(
+        accessToken,
+        companyLinks.map((link) => String(link.ml_item_id ?? "")),
+      );
+      for (const [itemId, total] of companyVisits) visits.set(itemId, total);
     }),
   );
 
   return visits;
-}
-
-function chunks<T>(items: T[], size: number) {
-  const result: T[][] = [];
-  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
-  return result;
 }
 
 function numberOrNull(value: unknown) {
