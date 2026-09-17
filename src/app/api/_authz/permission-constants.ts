@@ -44,6 +44,8 @@ export const PERMS = {
   FINANCEIRO_EDITAR: "financeiro:editar",
   FINANCEIRO_EXCLUIR: "financeiro:excluir",
   FINANCEIRO_NOTAS_FISCAIS: "financeiro:notas_fiscais",
+  FISCAL_SPED: "fiscal:sped",
+  FISCAL_SPED_GERENCIAR: "fiscal:sped_gerenciar",
 
   RELATORIOS: "relatorios:visualizar",
 
@@ -101,6 +103,7 @@ export function normalizePermission(perm: unknown) {
 }
 
 const IMPLIED_PERMISSIONS: Record<string, Permission[]> = {
+  [normalizePermission(PERMS.FISCAL_SPED_GERENCIAR)]: [PERMS.FISCAL_SPED],
   [normalizePermission(PERMS.FINANCEIRO_NOTAS_FISCAIS)]: [PERMS.FINANCEIRO],
   [normalizePermission(PERMS.ESTOQUE)]: [PERMS.USOCONSUMO],
   [normalizePermission(PERMS.ESTOQUE_CRIAR)]: [PERMS.USOCONSUMO_CRIAR, PERMS.USOCONSUMO_ENTRADA],

@@ -36,6 +36,8 @@ const routeTitles: Record<string, string> = {
   "/financeiro": "Financeiro",
   "/fluxodecaixa": "Fluxo de Caixa",
   "/bancos": "Bancos",
+  "/fiscal": "Notas Fiscais",
+  "/fiscal/sped": "SPED Fiscal",
   "/pagamentodeordens": "Assistente de Pagamento",
   "/pagamentodevendas": "Assistente de Pagamento",
   "/eventos-financeiros": "Eventos Financeiros das Ordens",

@@ -2,6 +2,7 @@
 
 import { NextResponse } from 'next/server';
 import https from 'https';
+import { createHash } from 'crypto';
 import { XMLParser } from 'fast-xml-parser';
 
 import { requireEmissaoFiscalAccess } from '@/app/api/_authz/perms';
@@ -12,6 +13,7 @@ import { buildEnvEventoCancelamento } from '@/lib/nfe/eventoCancelamento';
 import { assinarEventoNFeXml } from '@/lib/nfe/assinaturaEvento';
 import { exigirModelo } from '@/lib/nfe/modeloDocumento';
 import { resolveSefazEndpoint } from '@/lib/nfe/webservices';
+import { parseFiscalDate } from '@/lib/fiscal-date';
 
 export const runtime = 'nodejs';
 
@@ -373,38 +375,47 @@ async function cancelarHandler(req: Request, nfeIdParam: string) {
     //     cStat do evento 135 ou 155 = cancelamento homologado
     // -------------------------------------------------------------------
     let statusFinal: string = nfe.status;
-    let protocoloFinal: string | null = nfe.protocolo;
+    const protocoloAutorizacao: string | null = nfe.protocolo;
 
     if (ev_cStat === '135' || ev_cStat === '155') {
       statusFinal = 'CANCELADA';
-      if (nProtEvento) {
-        protocoloFinal = nProtEvento;
-      }
     }
 
-    try {
-      const updatePayload: any = {
-        updatedat: new Date().toISOString(),
-        justificativacancelamento: justificativaRaw,
-      };
-
-      if (statusFinal === 'CANCELADA') {
-        updatePayload.status = 'CANCELADA';
+    if (statusFinal === 'CANCELADA') {
+      if (!nProtEvento) {
+        throw new Error('A SEFAZ homologou o cancelamento sem informar o protocolo do evento.');
       }
-
-      if (protocoloFinal) {
-        updatePayload.protocolo = protocoloFinal;
-      }
-
-      await supabaseAdmin
-        .from('nfe')
-        .update(updatePayload)
-        .eq('id', nfeId);
-    } catch (updateErr) {
-      console.warn(
-        '[nfe/cancelar] falha ao atualizar NF-e no banco:',
-        updateErr,
+      const dataEvento = parseFiscalDate(dhRegEvento);
+      const sha256 = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
+      const { error: cancelamentoError } = await supabaseAdmin.rpc(
+        'fiscal_registrar_cancelamento_nfe',
+        {
+          p_nfe_id: nfeId,
+          p_empresa_id: nfe.empresaid,
+          p_chave_acesso: nfe.chave_acesso,
+          p_justificativa: justificativaRaw,
+          p_status_evento: ev_cStat,
+          p_protocolo_evento: nProtEvento,
+          p_data_evento_original: dataEvento?.originalText ?? dhRegEvento,
+          p_data_evento_civil: dataEvento?.civilDate ?? null,
+          p_data_evento_offset: dataEvento?.originalOffset ?? null,
+          p_data_evento_instante_utc: dataEvento?.instantUtc ?? null,
+          p_xml_evento: xmlEventoAssinado,
+          p_resposta_sefaz: respostaText,
+          p_xml_sha256: sha256(xmlEventoAssinado),
+          p_resposta_sha256: sha256(respostaText),
+        },
       );
+      if (cancelamentoError) throw cancelamentoError;
+    } else {
+      const { error: updateError } = await supabaseAdmin
+        .from('nfe')
+        .update({
+          updatedat: new Date().toISOString(),
+          justificativacancelamento: justificativaRaw,
+        })
+        .eq('id', nfeId);
+      if (updateError) throw updateError;
     }
 
     // -------------------------------------------------------------------
@@ -430,7 +441,7 @@ async function cancelarHandler(req: Request, nfeIdParam: string) {
       nfeDb: {
         id: nfeId,
         status: statusFinal,
-        protocolo: protocoloFinal,
+        protocolo: protocoloAutorizacao,
       },
       soap: {
         xmlEnviado: soapEnvelope,

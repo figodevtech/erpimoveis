@@ -300,6 +300,18 @@ export async function requireEmissaoFiscalAccess() {
   return requirePerm(PERMS.FINANCEIRO_NOTAS_FISCAIS);
 }
 
+export async function hasSpedAccess() {
+  return hasPerm(PERMS.FISCAL_SPED);
+}
+
+export async function requireSpedAccess() {
+  return requirePerm(PERMS.FISCAL_SPED);
+}
+
+export async function requireSpedManage() {
+  return requirePerm(PERMS.FISCAL_SPED_GERENCIAR);
+}
+
 export async function hasVeiculosAccess() {
   return hasPerm(PERMS.VEICULOS);
 }

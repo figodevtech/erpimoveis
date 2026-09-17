@@ -29,6 +29,7 @@ function pathActive(href: string, pathname: string) {
   if (!href || href === "#") return false;
   if (pathname === href) return true;
   if (href === "/estoque" || href === "/etiquetas") return false;
+  if (href === "/fiscal" && pathname.startsWith("/fiscal/sped")) return false;
   return pathname.startsWith(href.endsWith("/") ? href : href + "/");
 }
 

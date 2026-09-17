@@ -223,6 +223,12 @@ const data = {
           perm: PERMS.FINANCEIRO_NOTAS_FISCAIS,
         },
         {
+          title: "SPED Fiscal",
+          url: "/fiscal/sped",
+          icon: FileText,
+          perm: PERMS.FISCAL_SPED,
+        },
+        {
           title: "Eventos de Ordens",
           url: "/eventos-financeiros",
           icon: ListChecks,
