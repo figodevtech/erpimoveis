@@ -163,21 +163,64 @@ export function buildFoundationRecords(input: {
     });
   }
 
-  const catalogKey = (record: EfdRecord) => {
-    if (record.code === "0150") return `${record.code}|${text(record.values.COD_PART)}`;
-    if (record.code === "0190") return `${record.code}|${text(record.values.UNID)}`;
-    if (record.code === "0200") return `${record.code}|${text(record.values.COD_ITEM)}`;
-    return `${record.code}|${JSON.stringify(record.values)}`;
-  };
-  const uniqueCatalog = new Map<string, EfdRecord>();
+  const participants = new Map<string, EfdRecord>();
+  const units = new Map<string, EfdRecord>();
+  const items = new Map<string, { item: EfdRecord; children: EfdRecord[] }>();
+  const otherCatalog: EfdRecord[] = [];
+
+  let currentItemCode: string | null = null;
   for (const record of catalogRecords) {
-    const key = catalogKey(record);
-    if (!uniqueCatalog.has(key)) uniqueCatalog.set(key, record);
+    if (record.code === "0150") {
+      const code = text(record.values.COD_PART);
+      if (code && !participants.has(code)) participants.set(code, record);
+    } else if (record.code === "0190") {
+      const unit = text(record.values.UNID);
+      if (unit && !units.has(unit)) units.set(unit, record);
+    } else if (record.code === "0200") {
+      const code = text(record.values.COD_ITEM);
+      currentItemCode = code;
+      if (code && !items.has(code)) {
+        items.set(code, { item: record, children: [] });
+      }
+    } else if (["0205", "0220", "0221"].includes(record.code)) {
+      const parentCode = text(record.source?.documentKey) || currentItemCode;
+      if (parentCode && items.has(parentCode)) {
+        const itemEntry = items.get(parentCode)!;
+        const childKey = `${record.code}|${JSON.stringify(record.values)}`;
+        if (!itemEntry.children.some((c) => `${c.code}|${JSON.stringify(c.values)}` === childKey)) {
+          itemEntry.children.push(record);
+        }
+      }
+    } else {
+      const key = `${record.code}|${JSON.stringify(record.values)}`;
+      if (!otherCatalog.some((c) => `${c.code}|${JSON.stringify(c.values)}` === key)) {
+        otherCatalog.push(record);
+      }
+    }
   }
-  records.push(...Array.from(uniqueCatalog.values()).sort((left, right) => {
-    const byCode = left.code.localeCompare(right.code, "en");
-    return byCode || catalogKey(left).localeCompare(catalogKey(right), "en");
-  }));
+
+  // 1. 0150 ordenados por COD_PART
+  records.push(...Array.from(participants.values()).sort((a, b) =>
+    text(a.values.COD_PART).localeCompare(text(b.values.COD_PART), "en"),
+  ));
+
+  // 2. 0190 ordenados por UNID
+  records.push(...Array.from(units.values()).sort((a, b) =>
+    text(a.values.UNID).localeCompare(text(b.values.UNID), "en"),
+  ));
+
+  // 3. 0200 ordenados por COD_ITEM com filhos imediatamente aninhados
+  const sortedItems = Array.from(items.values()).sort((a, b) =>
+    text(a.item.values.COD_ITEM).localeCompare(text(b.item.values.COD_ITEM), "en"),
+  );
+  for (const { item, children } of sortedItems) {
+    records.push(item);
+    children.sort((a, b) => a.code.localeCompare(b.code, "en"));
+    records.push(...children);
+  }
+
+  // 4. Outros registros cadastrais
+  records.push(...otherCatalog);
 
   records.push(
     { code: "0990", values: {} },

@@ -24,6 +24,7 @@ export type SpedPendingAction =
   | { type: "FECHAR" }
   | { type: "REABRIR" }
   | { type: "GERAR" }
+  | { type: "GERAR_PREVIA" }
   | { type: "BAIXAR"; file: SpedArquivo };
 
 const ACTION_CONFIG = {
@@ -49,6 +50,12 @@ const ACTION_CONFIG = {
     title: "Gerar arquivo EFD",
     description: "O TXT será produzido somente a partir do snapshot fechado. Uma nova geração não sobrescreve arquivos anteriores.",
     confirm: "Gerar TXT",
+    icon: FileOutput,
+  },
+  GERAR_PREVIA: {
+    title: "Gerar prévia do SPED",
+    description: "Será gerado um arquivo TXT preliminar (leiaute 020) para importação e homologação no PVA oficial da Receita Federal. O arquivo será armazenado como PRÉVIA no histórico.",
+    confirm: "Gerar Prévia TXT",
     icon: FileOutput,
   },
   BAIXAR: {

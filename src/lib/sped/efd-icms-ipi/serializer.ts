@@ -111,12 +111,14 @@ function closingFieldForBlock(block: string): string {
 /** Recalcula encerramentos dos blocos já presentes, sem inventar blocos ausentes. */
 export function recalculateBlockClosures(records: readonly EfdRecord[]): EfdRecord[] {
   const withoutNine = records.filter((record) => record.code[0] !== "9");
-  return withoutNine.map((record) => {
+  const blockNine = records.filter((record) => record.code[0] === "9");
+  const recalculated = withoutNine.map((record) => {
     const block = record.code[0];
     if (record.code !== closingCodeForBlock(block)) return record;
     const quantity = withoutNine.filter((candidate) => candidate.code[0] === block).length;
     return { ...record, values: { ...record.values, [closingFieldForBlock(block)]: quantity } };
   });
+  return [...recalculated, ...blockNine];
 }
 
 /**
@@ -124,7 +126,8 @@ export function recalculateBlockClosures(records: readonly EfdRecord[]): EfdReco
  * contadores e na quantidade total de linhas.
  */
 export function appendBlockNine(records: readonly EfdRecord[]): EfdRecord[] {
-  const body = recalculateBlockClosures(records);
+  const withoutNine = records.filter((record) => record.code[0] !== "9");
+  const body = recalculateBlockClosures(withoutNine);
   const codes = new Set(body.map((record) => record.code));
   codes.add("9001");
   codes.add("9900");

@@ -159,7 +159,9 @@ export function SpedWorkspace() {
             ? await closeSpedCompetencia(detail)
             : pendingAction.type === "REABRIR"
               ? await reopenSpedCompetencia(detail, reason ?? "")
-              : await generateSpedFile(detail);
+              : pendingAction.type === "GERAR_PREVIA"
+                ? await generateSpedFile(detail, { tipo: "PREVIA" })
+                : await generateSpedFile(detail, { tipo: "FINAL" });
 
         toast.success(actionSuccessMessage(pendingAction.type), {
           description: response.message,
@@ -283,5 +285,6 @@ function actionSuccessMessage(action: Exclude<SpedPendingAction["type"], "BAIXAR
     FECHAR: "Competência fechada.",
     REABRIR: "Nova versão criada.",
     GERAR: "Arquivo SPED gerado.",
+    GERAR_PREVIA: "Prévia do arquivo SPED gerada.",
   }[action];
 }

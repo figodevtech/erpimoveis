@@ -1,6 +1,11 @@
 export * from "./accountantService";
+export * from "./assessmentProjection";
+export * from "./catalogProjection";
 export * from "./competenciaService";
+export * from "./documentProjection";
 export * from "./entryDatesService";
 export * from "./errors";
 export * from "./importsService";
+export * from "./inventoryProjection";
+export * from "./projection";
 export type * from "./types";

@@ -77,15 +77,26 @@ export function CompetenciaDetail({
 
         <div className="flex flex-wrap gap-2 md:justify-end">
           {!isClosed ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={!canManage || busy || competencia.status === "EM_VALIDACAO"}
-              onClick={() => onAction({ type: "VALIDAR" })}
-            >
-              <FileCheck2 aria-hidden="true" /> Validar
-            </Button>
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!canManage || busy || competencia.status === "EM_VALIDACAO"}
+                onClick={() => onAction({ type: "VALIDAR" })}
+              >
+                <FileCheck2 aria-hidden="true" /> Validar
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!canManage || busy || !competencia.versao}
+                onClick={() => onAction({ type: "GERAR_PREVIA" })}
+              >
+                <FileOutput aria-hidden="true" /> Gerar Prévia
+              </Button>
+            </>
           ) : null}
           {!isClosed ? (
             <Button

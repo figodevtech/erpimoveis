@@ -7,7 +7,7 @@ type Row = Record<string, any>;
 
 export type SpedAssessmentAdjustment = {
   id: string | number;
-  destination: "E111" | "E115" | "E116" | "E311" | "E312" | "E313" | "E316";
+  destination: "E111" | "E112" | "E113" | "E115" | "E116" | "E311" | "E312" | "E313" | "E316";
   nature: "DEBITO" | "CREDITO" | "ESTORNO_CREDITO" | "ESTORNO_DEBITO" | "DEDUCAO" | "DEBITO_ESPECIAL" | "INFORMATIVO" | "RECOLHIMENTO" | "REFERENCIA";
   code: string;
   uf?: string | null;
@@ -48,6 +48,32 @@ function adjustmentRecord(adjustment: SpedAssessmentAdjustment): EfdRecord | nul
       COD_AJ_APUR: adjustment.code,
       DESCR_COMPL_AJ: adjustment.description,
       VL_AJ_APUR: cents(adjustment.value),
+    },
+    source,
+  };
+  if (adjustment.destination === "E112" || adjustment.destination === "E312") return {
+    code: adjustment.destination,
+    values: {
+      NUM_DA: text(adjustment.reference?.numeroDa || adjustment.code),
+      NUM_PROC: text(adjustment.reference?.numeroProcesso),
+      IND_PROC: text(adjustment.reference?.indicadorProcesso),
+      PROC: text(adjustment.reference?.processo),
+      TXT_COMPL: adjustment.description,
+    },
+    source,
+  };
+  if (adjustment.destination === "E113" || adjustment.destination === "E313") return {
+    code: adjustment.destination,
+    values: {
+      COD_PART: text(adjustment.reference?.codigoParticipante),
+      COD_MOD: text(adjustment.reference?.modeloDocumento || "55"),
+      SER: text(adjustment.reference?.serie),
+      SUB: text(adjustment.reference?.subserie),
+      NUM_DOC: text(adjustment.reference?.numeroDocumento || adjustment.documentNumber),
+      CHV_DOC_ELE: text(adjustment.reference?.chaveEletronica),
+      DT_DOC: text(adjustment.reference?.dataDocumento),
+      COD_ITEM: text(adjustment.reference?.codigoItem),
+      VL_AJ_ITEM: cents(adjustment.value),
     },
     source,
   };
@@ -145,10 +171,72 @@ export function projectSpedAssessment(input: {
     source: { source: "CALCULO" },
   };
 
-  const e111 = ownAdjustments.filter((item) => item.destination === "E111").map(adjustmentRecord).filter(Boolean) as EfdRecord[];
+  const e111Adjustments = ownAdjustments.filter((item) => item.destination === "E111");
+  const e112Adjustments = ownAdjustments.filter((item) => item.destination === "E112");
+  const e113Adjustments = ownAdjustments.filter((item) => item.destination === "E113");
   const e115 = ownAdjustments.filter((item) => item.destination === "E115").map(adjustmentRecord).filter(Boolean) as EfdRecord[];
   const e116Adjustments = ownAdjustments.filter((item) => item.destination === "E116");
   const e116 = e116Adjustments.map(adjustmentRecord).filter(Boolean) as EfdRecord[];
+
+  if ((e112Adjustments.length > 0 || e113Adjustments.length > 0) && e111Adjustments.length === 0) {
+    diagnostics.push({
+      code: "AJUSTE_REFERENCIA_SEM_PAI",
+      severity: "BLOQUEIO",
+      message: "Existem registros de informações adicionais (E112/E113) sem nenhum ajuste E111 correspondente na apuração própria.",
+      record: e112Adjustments.length > 0 ? "E112" : "E113",
+      source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao" },
+    });
+  }
+
+  for (const adj of e112Adjustments) {
+    if (!text(adj.reference?.numeroDa || adj.code)) {
+      diagnostics.push({
+        code: "E112_NUM_DA_AUSENTE",
+        severity: "BLOQUEIO",
+        message: `O documento de arrecadação do ajuste ${adj.id} não possui número do DA (NUM_DA).`,
+        record: "E112",
+        field: "NUM_DA",
+        source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao", id: adj.id },
+      });
+    }
+  }
+
+  for (const adj of e113Adjustments) {
+    const numDoc = text(adj.reference?.numeroDocumento || adj.documentNumber);
+    const codMod = text(adj.reference?.modeloDocumento || "55");
+    if (!numDoc || !codMod) {
+      diagnostics.push({
+        code: "E113_DADOS_AUSENTES",
+        severity: "BLOQUEIO",
+        message: `O documento fiscal referenciado no ajuste ${adj.id} exige modelo (COD_MOD) e número do documento (NUM_DOC).`,
+        record: "E113",
+        source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao", id: adj.id },
+      });
+    }
+  }
+
+  const e111RecordsWithChildren: EfdRecord[] = [];
+  for (const e111Adj of e111Adjustments) {
+    const rec = adjustmentRecord(e111Adj);
+    if (rec) e111RecordsWithChildren.push(rec);
+
+    const matchingE112 = e112Adjustments.filter((child) =>
+      !child.reference?.ajustePaiId || String(child.reference.ajustePaiId) === String(e111Adj.id) || e111Adjustments.length === 1,
+    );
+    for (const child of matchingE112) {
+      const childRec = adjustmentRecord(child);
+      if (childRec) e111RecordsWithChildren.push(childRec);
+    }
+
+    const matchingE113 = e113Adjustments.filter((child) =>
+      !child.reference?.ajustePaiId || String(child.reference.ajustePaiId) === String(e111Adj.id) || e111Adjustments.length === 1,
+    );
+    for (const child of matchingE113) {
+      const childRec = adjustmentRecord(child);
+      if (childRec) e111RecordsWithChildren.push(childRec);
+    }
+  }
+
   if (taxDue > 0 && e116.length === 0) diagnostics.push({
     code: "E116_RECOLHIMENTO_AUSENTE",
     severity: "BLOQUEIO",
@@ -178,7 +266,7 @@ export function projectSpedAssessment(input: {
   const blockERecords: EfdRecord[] = [
     { code: "E100", values: { DT_INI: start, DT_FIN: end }, source: { source: "CALCULO" } },
     e110,
-    ...e111,
+    ...e111RecordsWithChildren,
     ...e115,
     ...e116,
   ];
@@ -229,6 +317,46 @@ export function projectSpedAssessment(input: {
     const previousFcp = previousDifalBalance(input.priorEfd, uf, "saldoCredorFcpTransportar");
     const ufAdjustments = adjustments.filter((item) => text(item.uf).toUpperCase() === uf);
     const e311Adjustments = ufAdjustments.filter((item) => item.destination === "E311");
+    const e312Adjustments = ufAdjustments.filter((item) => item.destination === "E312");
+    const e313Adjustments = ufAdjustments.filter((item) => item.destination === "E313");
+
+    if ((e312Adjustments.length > 0 || e313Adjustments.length > 0) && e311Adjustments.length === 0) {
+      diagnostics.push({
+        code: "AJUSTE_REFERENCIA_DIFAL_SEM_PAI",
+        severity: "BLOQUEIO",
+        message: `Existem registros de informações adicionais (E312/E313) para ${uf} sem nenhum ajuste E311 correspondente.`,
+        record: e312Adjustments.length > 0 ? "E312" : "E313",
+        source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao" },
+      });
+    }
+
+    for (const adj of e312Adjustments) {
+      if (!text(adj.reference?.numeroDa || adj.code)) {
+        diagnostics.push({
+          code: "E312_NUM_DA_AUSENTE",
+          severity: "BLOQUEIO",
+          message: `O documento de arrecadação do ajuste DIFAL ${adj.id} para ${uf} não possui número do DA (NUM_DA).`,
+          record: "E312",
+          field: "NUM_DA",
+          source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao", id: adj.id },
+        });
+      }
+    }
+
+    for (const adj of e313Adjustments) {
+      const numDoc = text(adj.reference?.numeroDocumento || adj.documentNumber);
+      const codMod = text(adj.reference?.modeloDocumento || "55");
+      if (!numDoc || !codMod) {
+        diagnostics.push({
+          code: "E313_DADOS_AUSENTES",
+          severity: "BLOQUEIO",
+          message: `O documento fiscal referenciado no ajuste DIFAL ${adj.id} para ${uf} exige modelo (COD_MOD) e número do documento (NUM_DOC).`,
+          record: "E313",
+          source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao", id: adj.id },
+        });
+      }
+    }
+
     const taxAdjustments = (tax: "DIFAL" | "FCP") => e311Adjustments.filter(
       (item) => text(item.reference?.tributo).toUpperCase() === tax,
     );
@@ -283,6 +411,29 @@ export function projectSpedAssessment(input: {
       record: "E316",
       source: { source: "LANCAMENTO_MANUAL", table: "fiscal_sped_ajuste_apuracao" },
     });
+
+    const e311RecordsWithChildren: EfdRecord[] = [];
+    for (const e311Adj of e311Adjustments) {
+      const rec = adjustmentRecord(e311Adj);
+      if (rec) e311RecordsWithChildren.push(rec);
+
+      const matchingE312 = e312Adjustments.filter((child) =>
+        !child.reference?.ajustePaiId || String(child.reference.ajustePaiId) === String(e311Adj.id) || e311Adjustments.length === 1,
+      );
+      for (const child of matchingE312) {
+        const childRec = adjustmentRecord(child);
+        if (childRec) e311RecordsWithChildren.push(childRec);
+      }
+
+      const matchingE313 = e313Adjustments.filter((child) =>
+        !child.reference?.ajustePaiId || String(child.reference.ajustePaiId) === String(e311Adj.id) || e311Adjustments.length === 1,
+      );
+      for (const child of matchingE313) {
+        const childRec = adjustmentRecord(child);
+        if (childRec) e311RecordsWithChildren.push(childRec);
+      }
+    }
+
     blockERecords.push(
       { code: "E300", values: { UF: uf }, source: { source: "CALCULO" } },
       {
@@ -312,7 +463,7 @@ export function projectSpedAssessment(input: {
         },
         source: { source: "CALCULO" },
       },
-      ...(e311Adjustments.map(adjustmentRecord).filter(Boolean) as EfdRecord[]),
+      ...e311RecordsWithChildren,
       ...e316,
     );
     snapshots.push({

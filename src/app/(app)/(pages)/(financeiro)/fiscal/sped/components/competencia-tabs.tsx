@@ -35,8 +35,8 @@ import { EmptyState } from "./empty-state";
 import { ImportPanel, type SpedImportKind } from "./import-panel";
 import { ConfigurationEditor } from "./configuration-editor";
 import { ItemDecisionEditor } from "./item-decision-editor";
-import { SourceTrace } from "./source-trace";
-import { DiagnosticBadge, GateStatusBadge } from "./status-badges";
+import { DiagnosticBadge, GateStatusBadge, PvaStatusBadge } from "./status-badges";
+import { PvaValidationDialog } from "./pva-validation-dialog";
 
 export function CompetenciaTabs({
   competencia,
@@ -92,7 +92,13 @@ export function CompetenciaTabs({
       <TabsContent value="inventario"><InventoryTab competencia={competencia} /></TabsContent>
       <TabsContent value="inconsistencias"><DiagnosticsTab competencia={competencia} /></TabsContent>
       <TabsContent value="arquivos">
-        <FilesTab competencia={competencia} canDownload={canDownload} onDownload={onDownload} />
+        <FilesTab
+          competencia={competencia}
+          canManage={canManage}
+          canDownload={canDownload}
+          onDownload={onDownload}
+          onReload={onConfigSaved}
+        />
       </TabsContent>
       <TabsContent value="auditoria"><AuditTab competencia={competencia} timezone={timezone} /></TabsContent>
     </Tabs>
@@ -282,11 +288,65 @@ function DiagnosticsTab({ competencia }: { competencia: SpedCompetenciaDetail })
   );
 }
 
-function FilesTab({ competencia, canDownload, onDownload }: { competencia: SpedCompetenciaDetail; canDownload: boolean; onDownload: (file: SpedArquivo) => void }) {
+function FilesTab({
+  competencia,
+  canManage,
+  canDownload,
+  onDownload,
+  onReload,
+}: {
+  competencia: SpedCompetenciaDetail;
+  canManage: boolean;
+  canDownload: boolean;
+  onDownload: (file: SpedArquivo) => void;
+  onReload: () => void;
+}) {
   if (!competencia.arquivos.length) return <EmptyState icon={Archive} title="Nenhum arquivo gerado" description="O TXT final só pode ser produzido a partir de uma versão fechada e imutável." />;
   return (
     <DataCard title="Arquivos gerados" description="Cada artefato possui versão, contagem de registros e hash SHA-256 próprios.">
-      <Table><TableHeader><TableRow><TableHead>Arquivo</TableHead><TableHead>Versão</TableHead><TableHead>Gerado em</TableHead><TableHead className="text-right">Registros</TableHead><TableHead className="text-right">Tamanho</TableHead><TableHead>PVA</TableHead><TableHead className="text-right">Ação</TableHead></TableRow></TableHeader><TableBody>{competencia.arquivos.map((file) => <TableRow key={file.id}><TableCell className="max-w-72 whitespace-normal"><p className="font-medium">{file.nome}</p><p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">SHA-256 {file.sha256}</p></TableCell><TableCell>v{file.versao} · {formatEnum(file.tipo)}</TableCell><TableCell>{formatTimestamp(file.geradoEm, competencia.configuracao.timezoneIana)}</TableCell><TableCell className="text-right tabular-nums">{formatInteger(file.quantidadeRegistros)}</TableCell><TableCell className="text-right">{formatFileSize(file.tamanhoBytes)}</TableCell><TableCell>{formatEnum(file.pvaStatus)}</TableCell><TableCell className="text-right"><Button type="button" size="sm" variant="outline" disabled={!canDownload} onClick={() => onDownload(file)}><Download aria-hidden="true" /> Baixar</Button></TableCell></TableRow>)}</TableBody></Table>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Arquivo</TableHead>
+            <TableHead>Versão</TableHead>
+            <TableHead>Gerado em</TableHead>
+            <TableHead className="text-right">Registros</TableHead>
+            <TableHead className="text-right">Tamanho</TableHead>
+            <TableHead>PVA</TableHead>
+            <TableHead className="text-right">Ações</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {competencia.arquivos.map((file) => (
+            <TableRow key={file.id}>
+              <TableCell className="max-w-72 whitespace-normal">
+                <p className="font-medium">{file.nome}</p>
+                <p className="mt-1 break-all font-mono text-[10px] text-muted-foreground">SHA-256 {file.sha256}</p>
+              </TableCell>
+              <TableCell>v{file.versao} · {formatEnum(file.tipo)}</TableCell>
+              <TableCell>{formatTimestamp(file.geradoEm, competencia.configuracao.timezoneIana)}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatInteger(file.quantidadeRegistros)}</TableCell>
+              <TableCell className="text-right">{formatFileSize(file.tamanhoBytes)}</TableCell>
+              <TableCell>
+                <PvaStatusBadge status={file.pvaStatus} />
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="flex items-center justify-end gap-1">
+                  <PvaValidationDialog
+                    file={file}
+                    canManage={canManage}
+                    timezone={competencia.configuracao.timezoneIana}
+                    onSuccess={onReload}
+                  />
+                  <Button type="button" size="sm" variant="outline" disabled={!canDownload} onClick={() => onDownload(file)}>
+                    <Download className="size-3.5 mr-1" aria-hidden="true" /> Baixar
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </DataCard>
   );
 }

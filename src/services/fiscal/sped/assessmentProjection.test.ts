@@ -85,3 +85,85 @@ test("entrada sem direito a crédito não reduz o imposto", () => {
   assert.equal(e110?.values.VL_TOT_CREDITOS, 0);
   assert.equal(e110?.values.VL_ICMS_RECOLHER, 100);
 });
+
+test("ajustes E111 com filhos E112 e E113 são projetados ordenados", () => {
+  const result = projectSpedAssessment({
+    competence: "2026-08",
+    documents: [document("SAIDA", 100), document("ENTRADA", 100)],
+    priorEfd: { saldos_apuracao: { icmsProprio: { saldoCredorTransportar: 0 } } },
+    adjustments: [
+      {
+        id: 10,
+        destination: "E111",
+        nature: "DEBITO",
+        code: "PB000001",
+        value: 20,
+        description: "Ajuste a débito",
+      },
+      {
+        id: 11,
+        destination: "E112",
+        nature: "REFERENCIA",
+        code: "DA-12345",
+        value: 0,
+        description: "DA referente ao ajuste",
+        reference: { numeroDa: "DA-12345", numeroProcesso: "PROC-999" },
+      },
+      {
+        id: 12,
+        destination: "E113",
+        nature: "REFERENCIA",
+        code: "DOC-REF",
+        value: 20,
+        description: "Nota fiscal referenciada",
+        reference: {
+          modeloDocumento: "55",
+          numeroDocumento: "1001",
+          serie: "1",
+          dataDocumento: "2026-08-05",
+          chaveEletronica: "2".repeat(44),
+        },
+      },
+      {
+        id: 13,
+        destination: "E116",
+        nature: "RECOLHIMENTO",
+        code: "000",
+        value: 20,
+        description: "ICMS devido ajuste",
+        reference: { dataVencimento: "2026-09-15" },
+      },
+    ],
+  });
+
+  const codes = result.blockERecords.map((r) => r.code);
+  const e111Index = codes.indexOf("E111");
+  assert.ok(e111Index >= 0);
+  assert.equal(codes[e111Index + 1], "E112");
+  assert.equal(codes[e111Index + 2], "E113");
+  assert.equal(result.blockERecords[e111Index + 1].values.NUM_DA, "DA-12345");
+  assert.equal(result.blockERecords[e111Index + 2].values.NUM_DOC, "1001");
+  assert.equal(result.diagnostics.some((d) => d.code === "AJUSTE_REFERENCIA_SEM_PAI"), false);
+});
+
+test("bloqueia ajuste referencial E112 órfão sem E111", () => {
+  const result = projectSpedAssessment({
+    competence: "2026-08",
+    documents: [document("SAIDA", 100), document("ENTRADA", 100)],
+    priorEfd: { saldos_apuracao: { icmsProprio: { saldoCredorTransportar: 0 } } },
+    adjustments: [
+      {
+        id: 15,
+        destination: "E112",
+        nature: "REFERENCIA",
+        code: "DA-9999",
+        value: 0,
+        description: "DA órfão",
+        reference: { numeroDa: "DA-9999" },
+      },
+    ],
+  });
+
+  assert.ok(result.diagnostics.some((d) => d.code === "AJUSTE_REFERENCIA_SEM_PAI"));
+});
+

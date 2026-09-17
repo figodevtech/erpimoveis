@@ -188,9 +188,13 @@ export function reopenSpedCompetencia(competencia: SpedCompetenciaDetail, motivo
   });
 }
 
-export function generateSpedFile(competencia: SpedCompetenciaDetail) {
+export function generateSpedFile(
+  competencia: SpedCompetenciaDetail,
+  options?: { tipo?: "PREVIA" | "FINAL" },
+) {
   return competenciaAction(competencia.id, "gerar", {
     expectedVersion: competencia.versao,
+    tipo: options?.tipo,
   });
 }
 
@@ -241,3 +245,21 @@ export function updateSpedContabilista(companyId: number, id: string, data: Sped
     body: JSON.stringify({ ...data, companyId, id }),
   });
 }
+
+export function recordSpedPvaValidation(
+  fileId: string,
+  input: {
+    pvaVersao: string;
+    status: "APROVADO" | "REJEITADO" | "COM_AVISOS";
+    observacao?: string;
+  },
+) {
+  return requestJson<{ data: import("./types").SpedPvaValidacao }>(
+    `${API_ROOT}/arquivos/${encodeURIComponent(fileId)}/pva`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+

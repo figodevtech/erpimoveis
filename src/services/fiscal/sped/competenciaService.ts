@@ -32,7 +32,18 @@ import {
   type ProjectedFiscalDocument,
   type SpedItemAssignment,
 } from "./documentProjection";
-import type { SpedCompetenciaDetail, SpedCompetenciaSummary, SpedGateView } from "./types";
+import {
+  projectSpedCatalog,
+  type SpedItemCorrelation,
+  type SpedUnitConversion,
+} from "./catalogProjection";
+import type {
+  SpedCompetenciaDetail,
+  SpedCompetenciaSummary,
+  SpedGateView,
+  SpedPvaStatus,
+  SpedPvaValidacao,
+} from "./types";
 
 const ENGINE_VERSION = "0.1.0";
 const PRACTICAL_GUIDE = "3.2.4";
@@ -121,7 +132,7 @@ async function sourceContext(competence: Row) {
   const noteQueryEnd = shiftCivilDate(end, 2);
   const companyId = number(competence.empresa_id);
   const [companyResult, config, accountantResult, notesResult, entriesResult, undatedEntriesResult, priorEfdResult, paymentImportsResult, adjustmentsResult] = await Promise.all([
-    supabaseAdmin.from("empresa").select("id, cnpj, razaosocial, nomefantasia, inscricaoestadual, inscricaomunicipal, endereco, codigomunicipio, bairro, numero, complemento, cep, uf, telefone, email").eq("id", companyId).maybeSingle(),
+    supabaseAdmin.from("empresa").select("id, cnpj, razaosocial, nomefantasia, inscricaoestadual, inscricaomunicipal, endereco, codigomunicipio, bairro, numero, complemento, cep, uf, telefone").eq("id", companyId).maybeSingle(),
     getConfig(companyId),
     supabaseAdmin.from("fiscal_sped_contabilista").select("*").eq("empresa_id", companyId).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false }).limit(1).maybeSingle(),
     supabaseAdmin.from("nfe").select("id, chave_acesso, status, modelo, dataemissao, xml_autorizado, xml_assinado", { count: "exact" }).eq("empresaid", companyId).eq("is_deleted", false).eq("ambiente", "PRODUCAO").gte("dataemissao", `${noteQueryStart}T00:00:00`).lte("dataemissao", `${noteQueryEnd}T23:59:59.999`).in("status", [...SETTLED_NOTE_STATUSES, ...UNSETTLED_NOTE_STATUSES]),
@@ -160,7 +171,7 @@ async function sourceContext(competence: Row) {
     .map((row) => [number(row.id), row]));
   const noteIds = noteRows.map((row) => number(row.id)).filter(Boolean);
   const entryIds = entryRows.map((row) => number(row.id)).filter(Boolean);
-  const [noteItemsResult, entryItemsResult, itemConfigsResult, creditDecisionsResult] = await Promise.all([
+  const [noteItemsResult, entryItemsResult, itemConfigsResult, creditDecisionsResult, unitConversionsResult, itemCorrelationsResult] = await Promise.all([
     noteIds.length
       ? supabaseAdmin.from("nfe_item").select("nfe_id, n_item, produtoid").in("nfe_id", noteIds).order("n_item")
       : Promise.resolve({ data: [], error: null }),
@@ -171,12 +182,17 @@ async function sourceContext(competence: Row) {
     dfeIds.length
       ? supabaseAdmin.from("fiscal_sped_item_credito_decisao").select("*").eq("empresa_id", companyId).in("documento_id", dfeIds).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false })
       : Promise.resolve({ data: [], error: null }),
+    supabaseAdmin.from("fiscal_sped_unidade_conversao").select("*").eq("empresa_id", companyId).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false }),
+    supabaseAdmin.from("fiscal_sped_item_correlacao").select("*").eq("empresa_id", companyId).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false }),
   ]);
   throwIfSupabaseError(noteItemsResult.error);
   throwIfSupabaseError(entryItemsResult.error);
   throwIfSupabaseError(itemConfigsResult.error);
   throwIfSupabaseError(creditDecisionsResult.error);
+  throwIfSupabaseError(unitConversionsResult.error);
+  throwIfSupabaseError(itemCorrelationsResult.error);
 
+  const itemConfigById = new Map<number, Row>();
   const itemConfigsByProduct = new Map<number, Row[]>();
   const mappingDiagnostics: SpedDiagnostic[] = [];
   for (const row of foreignDfeRows) mappingDiagnostics.push({
@@ -186,10 +202,49 @@ async function sourceContext(competence: Row) {
     source: { source: "BANCO", table: "fiscal_dfe_documento", id: row.id, documentKey: text(row.chave_acesso) },
   });
   for (const configRow of (itemConfigsResult.data ?? []) as Row[]) {
+    const configId = number(configRow.id);
+    if (configId) itemConfigById.set(configId, configRow);
     const productId = number(configRow.produto_id);
     if (!productId) continue;
     itemConfigsByProduct.set(productId, [...(itemConfigsByProduct.get(productId) ?? []), configRow]);
   }
+
+  const missingConfigIds = Array.from(new Set(
+    ((itemCorrelationsResult.data ?? []) as Row[])
+      .flatMap((row) => [number(row.item_principal_id), number(row.item_atomico_id)])
+      .filter((id) => id && !itemConfigById.has(id)),
+  ));
+  if (missingConfigIds.length > 0) {
+    const extraConfigs = await supabaseAdmin.from("fiscal_sped_item_config").select("*").in("id", missingConfigIds);
+    throwIfSupabaseError(extraConfigs.error);
+    for (const configRow of (extraConfigs.data ?? []) as Row[]) {
+      const configId = number(configRow.id);
+      if (configId) itemConfigById.set(configId, configRow);
+    }
+  }
+
+  const unitConversions: SpedUnitConversion[] = ((unitConversionsResult.data ?? []) as Row[]).map((row) => ({
+    id: row.id,
+    codigoItem: row.codigo_item ? text(row.codigo_item) : null,
+    unidadeOrigem: text(row.unidade_origem),
+    unidadeDestino: text(row.unidade_destino),
+    fatorConversao: number(row.fator_conversao),
+    vigenciaInicio: text(row.vigencia_inicio),
+    vigenciaFim: row.vigencia_fim ? text(row.vigencia_fim) : null,
+  }));
+
+  const itemCorrelations: SpedItemCorrelation[] = ((itemCorrelationsResult.data ?? []) as Row[]).map((row) => {
+    const principal = itemConfigById.get(number(row.item_principal_id));
+    const atomico = itemConfigById.get(number(row.item_atomico_id));
+    return {
+      id: row.id,
+      codigoItemPrincipal: text(principal?.codigo_item),
+      codigoItemAtomico: text(atomico?.codigo_item),
+      quantidade: number(row.quantidade),
+      vigenciaInicio: text(row.vigencia_inicio),
+      vigenciaFim: row.vigencia_fim ? text(row.vigencia_fim) : null,
+    };
+  });
 
   const noteItemsByDocument = new Map<number, Row[]>();
   for (const item of (noteItemsResult.data ?? []) as Row[]) {
@@ -238,6 +293,8 @@ async function sourceContext(competence: Row) {
     entryItemsByDocument,
     itemConfigsByProduct,
     creditDecisionsByItem,
+    unitConversions,
+    itemCorrelations,
     mappingDiagnostics,
     unconfirmedEntryIds: (undatedEntriesResult.data ?? []).map((row: Row) => number(row.id)),
     priorEfd: priorEfdResult.data as Row | null,
@@ -572,6 +629,8 @@ function contextHash(
     priorEfd: context.priorEfd,
     payments1601: context.payments1601,
     adjustments: context.adjustments,
+    unitConversions: context.unitConversions,
+    itemCorrelations: context.itemCorrelations,
     inventory: context.inventory,
     inventoryItems: context.inventoryItems,
     projectedDocuments: documents.map((document) => ({
@@ -638,6 +697,7 @@ async function storeRecords(version: Row, records: EfdRecord[]) {
 function catalogSnapshotRows(
   records: EfdRecord[],
   documents: ProjectedFiscalDocument[],
+  catalogMeta?: { itemsWith0220?: Set<string>; itemsWith0221?: Set<string> },
 ): Row[] {
   const documentCounts = new Map<string, number>();
   for (const document of documents) {
@@ -689,8 +749,8 @@ function catalogSnapshotRows(
         cest: text(record.values.CEST) || null,
         unidade: text(record.values.UNID_INV) || null,
         documentosReferenciados: documentCounts.get(identity) ?? 0,
-        possui0220: false,
-        possui0221: false,
+        possui0220: catalogMeta?.itemsWith0220?.has(code) ?? false,
+        possui0221: catalogMeta?.itemsWith0221?.has(code) ?? false,
         registro: record.values,
       };
     } else {
@@ -720,6 +780,7 @@ async function storeDocumentSnapshots(
   documents: ProjectedFiscalDocument[],
   records: EfdRecord[],
   assessment: SpedAssessmentProjection,
+  catalogMeta?: { itemsWith0220?: Set<string>; itemsWith0221?: Set<string> },
 ) {
   if (version.status !== "RASCUNHO") return;
   const documentPayload = documents.map((document) => ({
@@ -762,7 +823,7 @@ async function storeDocumentSnapshots(
   const result = await supabaseAdmin.rpc("fiscal_sped_substituir_snapshots_documentais", {
     p_versao_id: number(version.id),
     p_documentos: documentPayload,
-    p_cadastros: catalogSnapshotRows(records, documents),
+    p_cadastros: catalogSnapshotRows(records, documents, catalogMeta),
     p_apuracoes: assessment.snapshots.map((snapshot) => ({
       tipo: snapshot.type,
       uf: snapshot.uf,
@@ -840,13 +901,20 @@ export async function validateSpedCompetence(id: string, expectedVersion: unknow
     priorEfd: context.priorEfd,
     adjustments: context.adjustments,
   });
+  const catalog = projectSpedCatalog({
+    baseCatalogRecords: [...projection.catalogRecords, ...inventory.catalogRecords],
+    unitConversions: context.unitConversions,
+    itemCorrelations: context.itemCorrelations,
+    competenceStart: context.start,
+    competenceEnd: context.end,
+  });
   const records = context.company ? buildFoundationRecords({
     competence: context.competence,
     company: context.company,
     config: context.config,
     accountant: context.accountant,
     payments1601: context.payments1601,
-    catalogRecords: [...projection.catalogRecords, ...inventory.catalogRecords],
+    catalogRecords: catalog.catalogRecords,
     blockCRecords: projection.blockCRecords,
     blockERecords: assessment.blockERecords,
     blockHRecords: inventory.records,
@@ -868,7 +936,10 @@ export async function validateSpedCompetence(id: string, expectedVersion: unknow
     version = reverted.data as Row;
   }
   if (version.status === "RASCUNHO") {
-    await storeDocumentSnapshots(version, projection.documents, records, assessment);
+    await storeDocumentSnapshots(version, projection.documents, records, assessment, {
+      itemsWith0220: catalog.itemsWith0220,
+      itemsWith0221: catalog.itemsWith0221,
+    });
     await storeRecords(version, records);
     const updated = await supabaseAdmin.from("fiscal_sped_versao").update({ context_hash: hash, source_cutoff_at: new Date().toISOString() }).eq("id", version.id).eq("status", "RASCUNHO");
     throwIfSupabaseError(updated.error);
@@ -884,7 +955,12 @@ export async function validateSpedCompetence(id: string, expectedVersion: unknow
     unconfirmedEntryIds: context.unconfirmedEntryIds,
   };
   const diagnostics = [
-    ...sourceDiagnostics(context, [...projection.diagnostics, ...assessment.diagnostics, ...inventory.diagnostics]),
+    ...sourceDiagnostics(context, [
+      ...projection.diagnostics,
+      ...catalog.diagnostics,
+      ...assessment.diagnostics,
+      ...inventory.diagnostics,
+    ]),
     ...validateSpedCandidate(candidate, resolveSpedLayout(context.competence)),
   ];
   const begin = await supabaseAdmin.rpc("fiscal_sped_iniciar_validacao", { p_versao_id: version.id, p_context_hash: hash, p_usuario_id: actorId });
@@ -932,13 +1008,20 @@ export async function reopenSpedCompetence(id: string, expectedVersion: unknown,
     priorEfd: context.priorEfd,
     adjustments: context.adjustments,
   });
+  const catalog = projectSpedCatalog({
+    baseCatalogRecords: [...projection.catalogRecords, ...inventory.catalogRecords],
+    unitConversions: context.unitConversions,
+    itemCorrelations: context.itemCorrelations,
+    competenceStart: context.start,
+    competenceEnd: context.end,
+  });
   const records = context.company ? buildFoundationRecords({
     competence: context.competence,
     company: context.company,
     config: context.config,
     accountant: context.accountant,
     payments1601: context.payments1601,
-    catalogRecords: [...projection.catalogRecords, ...inventory.catalogRecords],
+    catalogRecords: catalog.catalogRecords,
     blockCRecords: projection.blockCRecords,
     blockERecords: assessment.blockERecords,
     blockHRecords: inventory.records,
@@ -959,18 +1042,30 @@ export async function reopenSpedCompetence(id: string, expectedVersion: unknown,
   throwIfSupabaseError(result.error);
   const newVersion = await getVersion(result.data);
   if (newVersion) {
-    await storeDocumentSnapshots(newVersion, projection.documents, records, assessment);
+    await storeDocumentSnapshots(newVersion, projection.documents, records, assessment, {
+      itemsWith0220: catalog.itemsWith0220,
+      itemsWith0221: catalog.itemsWith0221,
+    });
     await storeRecords(newVersion, records);
   }
   return getSpedCompetenceDetail(id);
 }
 
-export async function generateSpedFile(id: string, expectedVersion: unknown, actorId: string) {
+export async function generateSpedFile(
+  id: string,
+  expectedVersion: unknown,
+  actorId: string,
+  options?: { tipo?: "PREVIA" | "FINAL" }
+) {
   const competence = await getCompetence(id);
   const version = await getVersion(competence.versao_atual_id);
   assertExpectedVersion(version, expectedVersion);
-  if (!version || version.status !== "FECHADA" || competence.status !== "FECHADA") {
+  const tipo = options?.tipo ?? "FINAL";
+  if (tipo === "FINAL" && (!version || version.status !== "FECHADA" || competence.status !== "FECHADA")) {
     throw new SpedServiceError("O TXT final só pode ser gerado de uma versão fechada.", 422, "VERSION_NOT_CLOSED");
+  }
+  if (!version) {
+    throw new SpedServiceError("Versão SPED não encontrada.", 404, "VERSION_NOT_FOUND");
   }
   const records = await readStoredRecords(number(version.id));
   if (records.length === 0) throw new SpedServiceError("Snapshots da versão não contêm registros EFD.", 422, "SNAPSHOT_EMPTY");
@@ -988,7 +1083,7 @@ export async function generateSpedFile(id: string, expectedVersion: unknown, act
     const inserted = await supabaseAdmin.from("fiscal_sped_arquivo").insert({
       versao_id: version.id,
       sequencia: sequence,
-      tipo: "FINAL",
+      tipo,
       finalidade: version.finalidade,
       storage_bucket: STORAGE_BUCKET,
       storage_path: path,
@@ -1093,6 +1188,21 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
   const importIds = (importsResult.data ?? []).map((row: Row) => row.id);
   const payments = importIds.length ? await supabaseAdmin.from("fiscal_sped_1601_linha").select("*").in("importacao_id", importIds).order("id") : { data: [], error: null };
   throwIfSupabaseError(payments.error);
+  const fileRows = (filesResult.data ?? []) as Row[];
+  const fileIds = fileRows.map((row) => row.id).filter(Boolean);
+  const pvaValidationsResult = fileIds.length
+    ? await supabaseAdmin
+        .from("fiscal_sped_arquivo_validacao_pva")
+        .select("*")
+        .in("arquivo_id", fileIds)
+        .order("validated_at", { ascending: false })
+    : { data: [], error: null };
+  throwIfSupabaseError(pvaValidationsResult.error);
+  const pvaValidationsByFile = new Map<number, Row[]>();
+  for (const val of (pvaValidationsResult.data ?? []) as Row[]) {
+    const fileId = number(val.arquivo_id);
+    pvaValidationsByFile.set(fileId, [...(pvaValidationsByFile.get(fileId) ?? []), val]);
+  }
   const inventoryItems = inventoryResult.data
     ? await supabaseAdmin.from("fiscal_inventario_item").select("id, valor_total").eq("inventario_id", inventoryResult.data.id)
     : { data: [], error: null };
@@ -1200,7 +1310,36 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
       atualizadoEm: inventoryResult.data?.updated_at ?? null,
     },
     inconsistencias: ((inconsistencies.data ?? []) as Row[]).map((row) => ({ id: String(row.id), severidade: row.severidade, codigo: row.codigo, titulo: row.codigo.replaceAll("_", " "), mensagem: row.mensagem, registro: row.registro_efd, campo: row.campo_efd, resolvida: row.status === "RESOLVIDA", reconhecida: row.status === "RECONHECIDA", criadoEm: row.created_at, fontes: row.referencia_origem ? [row.referencia_origem] : [] })),
-    arquivos: ((filesResult.data ?? []) as Row[]).map((row) => ({ id: String(row.id), nome: text(row.storage_path).split("/").pop() || `sped-${row.id}.txt`, tipo: row.tipo, finalidade: row.finalidade, versao: number(version?.numero), layout: text(version?.leiaute), quantidadeRegistros: number(row.quantidade_registros), tamanhoBytes: number(row.tamanho_bytes), sha256: row.arquivo_sha256, geradoEm: row.generated_at, geradoPor: row.generated_by, pvaStatus: null })),
+    arquivos: fileRows.map((row) => {
+      const fileValidations = pvaValidationsByFile.get(number(row.id)) ?? [];
+      const latestValidation = fileValidations[0];
+      return {
+        id: String(row.id),
+        nome: text(row.storage_path).split("/").pop() || `sped-${row.id}.txt`,
+        sequencia: number(row.sequencia),
+        tipo: row.tipo,
+        finalidade: row.finalidade,
+        versao: number(version?.numero),
+        layout: text(version?.leiaute),
+        quantidadeRegistros: number(row.quantidade_registros),
+        tamanhoBytes: number(row.tamanho_bytes),
+        sha256: row.arquivo_sha256,
+        geradoEm: row.generated_at,
+        geradoPor: row.generated_by,
+        pvaStatus: (latestValidation?.status as SpedPvaStatus) ?? null,
+        pvaValidacoes: fileValidations.map((v) => ({
+          id: String(v.id),
+          arquivoId: String(v.arquivo_id),
+          pvaVersao: text(v.pva_versao),
+          status: v.status as SpedPvaStatus,
+          relatorioStoragePath: v.relatorio_storage_path ?? null,
+          relatorioSha256: v.relatorio_sha256 ?? null,
+          observacao: v.observacao ?? null,
+          validatedBy: v.validated_by,
+          validatedAt: v.validated_at,
+        })),
+      };
+    }),
     contabilistas: ((accountantsResult.data ?? []) as Row[]).map(toSpedContabilista),
     auditoria: [], sourceCutoffAt: version?.source_cutoff_at ?? null, contextHash: version?.context_hash ?? null,
   };
@@ -1409,6 +1548,8 @@ export async function configureSpedFiscalItem(input: {
 
 const ADJUSTMENT_NATURES: Record<string, Set<string>> = {
   E111: new Set(["DEBITO", "CREDITO", "ESTORNO_CREDITO", "ESTORNO_DEBITO", "DEDUCAO", "DEBITO_ESPECIAL"]),
+  E112: new Set(["REFERENCIA"]),
+  E113: new Set(["REFERENCIA"]),
   E115: new Set(["INFORMATIVO"]),
   E116: new Set(["RECOLHIMENTO"]),
   E311: new Set(["DEBITO", "CREDITO", "ESTORNO_CREDITO", "ESTORNO_DEBITO", "DEDUCAO", "DEBITO_ESPECIAL"]),
@@ -1498,3 +1639,86 @@ export async function deactivateSpedAssessmentAdjustment(input: {
   if (!result.data) throw new SpedServiceError("Ajuste não encontrado.", 404, "ADJUSTMENT_NOT_FOUND");
   return { id: String(result.data.id) };
 }
+
+export async function recordPvaValidation(input: {
+  arquivoId: string | number;
+  pvaVersao: string;
+  status: SpedPvaStatus;
+  observacao?: string | null;
+  relatorioStoragePath?: string | null;
+  relatorioSha256?: string | null;
+  actorId: string;
+}): Promise<SpedPvaValidacao> {
+  const fileId = number(input.arquivoId);
+  if (!fileId) throw new SpedServiceError("ID de arquivo inválido.", 400, "INVALID_FILE_ID");
+  const pvaVersao = text(input.pvaVersao);
+  if (!pvaVersao) throw new SpedServiceError("Versão do PVA é obrigatória.", 400, "PVA_VERSION_REQUIRED");
+  if (!["APROVADO", "REJEITADO", "COM_AVISOS"].includes(input.status)) {
+    throw new SpedServiceError("Status de validação PVA inválido.", 400, "INVALID_PVA_STATUS");
+  }
+  const actorId = text(input.actorId);
+  if (!actorId) throw new SpedServiceError("Usuário validador é obrigatório.", 401, "UNAUTHENTICATED");
+
+  const fileResult = await supabaseAdmin
+    .from("fiscal_sped_arquivo")
+    .select("id, versao_id, versao:fiscal_sped_versao(competencia_id)")
+    .eq("id", fileId)
+    .maybeSingle();
+  throwIfSupabaseError(fileResult.error);
+  if (!fileResult.data) throw new SpedServiceError("Arquivo SPED não encontrado.", 404, "NOT_FOUND");
+
+  if (input.relatorioSha256 && !/^[a-f0-9]{64}$/i.test(input.relatorioSha256)) {
+    throw new SpedServiceError("Hash SHA-256 do relatório inválido.", 400, "INVALID_REPORT_HASH");
+  }
+
+  const inserted = await supabaseAdmin
+    .from("fiscal_sped_arquivo_validacao_pva")
+    .insert({
+      arquivo_id: fileId,
+      pva_versao: pvaVersao,
+      status: input.status,
+      relatorio_storage_path: input.relatorioStoragePath ? text(input.relatorioStoragePath) : null,
+      relatorio_sha256: input.relatorioSha256 ? text(input.relatorioSha256).toLowerCase() : null,
+      observacao: input.observacao ? text(input.observacao) : null,
+      validated_by: actorId,
+    })
+    .select("*")
+    .single();
+  throwIfSupabaseError(inserted.error);
+
+  const row = inserted.data as Row;
+  return {
+    id: String(row.id),
+    arquivoId: String(row.arquivo_id),
+    pvaVersao: row.pva_versao,
+    status: row.status as SpedPvaStatus,
+    relatorioStoragePath: row.relatorio_storage_path ?? null,
+    relatorioSha256: row.relatorio_sha256 ?? null,
+    observacao: row.observacao ?? null,
+    validatedBy: row.validated_by,
+    validatedAt: row.validated_at,
+  };
+}
+
+export async function getSpedPvaValidations(arquivoId: string | number): Promise<SpedPvaValidacao[]> {
+  const fileId = number(arquivoId);
+  if (!fileId) throw new SpedServiceError("ID de arquivo inválido.", 400, "INVALID_FILE_ID");
+  const result = await supabaseAdmin
+    .from("fiscal_sped_arquivo_validacao_pva")
+    .select("*")
+    .eq("arquivo_id", fileId)
+    .order("validated_at", { ascending: false });
+  throwIfSupabaseError(result.error);
+  return ((result.data ?? []) as Row[]).map((row) => ({
+    id: String(row.id),
+    arquivoId: String(row.arquivo_id),
+    pvaVersao: row.pva_versao,
+    status: row.status as SpedPvaStatus,
+    relatorioStoragePath: row.relatorio_storage_path ?? null,
+    relatorioSha256: row.relatorio_sha256 ?? null,
+    observacao: row.observacao ?? null,
+    validatedBy: row.validated_by,
+    validatedAt: row.validated_at,
+  }));
+}
+

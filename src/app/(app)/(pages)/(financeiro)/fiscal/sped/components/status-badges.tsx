@@ -58,3 +58,29 @@ export function DiagnosticBadge({ severity }: { severity: SpedDiagnosticSeverity
     </Badge>
   );
 }
+
+export function PvaStatusBadge({ status }: { status: import("../types").SpedPvaStatus | null | undefined }) {
+  if (!status) {
+    return (
+      <Badge variant="outline" className={cn(BASE, "border-muted-foreground/30 bg-muted text-muted-foreground")}>
+        <Clock3 className="size-3" aria-hidden="true" />
+        Pendente
+      </Badge>
+    );
+  }
+
+  const config = {
+    APROVADO: { icon: CheckCircle2, label: "Aprovado", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+    COM_AVISOS: { icon: AlertTriangle, label: "Com avisos", className: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300" },
+    REJEITADO: { icon: XCircle, label: "Rejeitado", className: "border-destructive/40 bg-destructive/10 text-destructive" },
+  }[status];
+  const Icon = config.icon;
+
+  return (
+    <Badge variant="outline" className={cn(BASE, config.className)}>
+      <Icon className="size-3" aria-hidden="true" />
+      {config.label}
+    </Badge>
+  );
+}
+

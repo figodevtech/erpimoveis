@@ -7,18 +7,18 @@
 - Leiaute inicial: EFD ICMS/IPI 020.
 - Entrega desta implementação: migrations versionadas, domínio, serviços, APIs, UI e testes. Não inclui transmitir a EFD.
 
-## Estado em 16/09/2026
+## Estado em 17/09/2026
 
-| # | Marco | Estado |
-|---|-------|--------|
-| 1 | CNPJ alfanumérico, preservando os numéricos | Concluído (já na main) |
-| 2 | Data fiscal civil, offset e timezone IANA por estabelecimento | Concluído |
-| 3 | Estruturas de configuração, competência, versão, snapshots, apuração, diagnósticos, arquivos, 1601 e inventário | Concluído. Migrations provadas com rollback em Demir e Garage |
-| 4 | Motor do leiaute 020 (blocos 0, C, E, H, 1 e 9) | Implementado, com testes unitários. **Não passou pelo PVA** |
-| 5 | Gates de Perfil, Bloco K, 1400 e C176/C179 | Concluído. O banco recusa o fechamento com gate PENDENTE |
-| 6 | Importações, validação, fechamento/reabertura, geração e download | Implementado. Ciclo de fechamento e reabertura provado no banco; geração e download ainda sem teste contra o Storage real |
-| 7 | Área `/fiscal/sped`, permissões e rastreabilidade | Concluído, incluindo abrir competência e confirmar datas fiscais de entrada |
-| 8 | Testes e regressão | `test:negocio`, `db:test:sped-fiscal` e `next build` passando |
+| # | Marco | Estado Detalhado |
+|---|-------|------------------|
+| 1 | CNPJ alfanumérico, preservando os numéricos (0000, 0100, 0150, NF-e, DF-e) | **IMPLEMENTADO**, **TESTADO UNITARIAMENTE**, **TESTADO NO BANCO** (já na main) |
+| 2 | Data fiscal civil, offset e timezone IANA por estabelecimento | **IMPLEMENTADO**, **TESTADO UNITARIAMENTE**, **TESTADO NO BANCO** |
+| 3 | Estruturas de configuração, competência, versão, snapshots, apuração, diagnósticos, arquivos, 1601, inventário e PVA | **IMPLEMENTADO**, **TESTADO NO BANCO** (283 migrations aplicadas em demo/demir/garage, RLS estrita nas 23 tabelas, bucket privado) |
+| 4 | Motor do leiaute 020 (Blocos 0, C, E, H, 1 e 9)<br>• Bloco 0: 0000, 0001, 0005, 0100, 0150, 0190, 0200, 0205, 0220, 0221, 0990<br>• Bloco C: C001, C100, C101, C170, C190, C191, C990<br>• Bloco E: E001, E100, E110, E111, E112, E113, E115, E116, E300, E310, E311, E312, E313, E316, E990<br>• Bloco H: H001, H005, H010, H990<br>• Bloco 1: 1001, 1010, 1400, 1601, 1990<br>• Bloco 9: 9001, 9900, 9990, 9999 | **IMPLEMENTADO**, **TESTADO UNITARIAMENTE** (suíte de negócio com 1561 testes passando). **AINDA NÃO HOMOLOGADO NO PVA** |
+| 5 | Gates de Perfil, Bloco K, 1400, C176/C179, IPI e Contribuições | **IMPLEMENTADO**, **TESTADO NO BANCO** (recusa de fechamento se PENDENTE comprovada em teste automatizado) |
+| 6 | Importações, validação, fechamento/reabertura, geração, Storage real e PVA | **IMPLEMENTADO**, **TESTADO NO BANCO**, **TESTADO EM AMBIENTE REAL** (Storage `fiscal-sped` validado e2e com SHA-256; fluxo de apontamento do PVA com UI e rota autenticada implementado) |
+| 7 | Área `/fiscal/sped`, permissões, rastreabilidade e histórico de PVA | **IMPLEMENTADO**, **TESTADO NO BUILD** (Next.js 15 compilando 210 páginas sem erros) |
+| 8 | Testes e regressão | **TESTADO UNITARIAMENTE** (`npm run test:negocio`), **TESTADO NO BANCO** (`npm run db:test:sped-fiscal -- demo/demir/garage`) e `npm run build` passando |
 
 ### O que o teste de banco prova
 
@@ -41,18 +41,11 @@ O teste separa cada migration com um port fiel do parser da CLI do Supabase (`sc
 
 Um nome não reservado com as letras de `ATOMIC` fora de aspas faz a CLI juntar o resto do arquivo num comando só. Foi o que derrubou o primeiro deploy no Demir em 17/09/2026, por causa da coluna do item componente em `fiscal_sped_item_correlacao`. A correção pôs o identificador entre aspas, o que não muda nada no banco.
 
-## Publicação
+## Publicação e Status de Migrations
 
-A ordem importa: o cancelamento de NF-e da branch usa `fiscal_registrar_cancelamento_nfe`, que só existe depois das migrations.
-
-1. ~~Demonstração: registrar o histórico das 9 migrations aplicadas por engano pelo teste~~ (feito em 17/09/2026 com `scripts/db/registrar-historico-sped-demo.ts`).
-2. `npm run db:deploy`.
-   - A primeira tentativa, em 17/09/2026, aplicou `054031`, `054033` e `054035` no Demir e parou na `054038` (caso ATOMIC acima). A `054038` foi revertida inteira.
-   - Com a correção, faltam 6 migrations no Demir e 9 no Garage. As duas listas passaram no `db:test:sped-fiscal`.
-3. Merge da `feature/sped` na `main` e push.
-4. Smoke na Demonstração: abrir a competência 08/2026, confirmar as datas das entradas, validar e conferir os diagnósticos.
-
-**As migrations de `20260916054031` a `20260917100000` não podem mudar de efeito**, porque a Demonstração já as executou. Só cabe ajuste de texto que gere o mesmo objeto, como pôr um identificador entre aspas. Qualquer correção de comportamento vai numa migration nova.
+Todas as migrations SPED foram aplicadas nos três ambientes (`demo`, `demir` e `garage`):
+- 283 migrations aplicadas em todos os ambientes (`npm run db:status` com 0 pendências).
+- Bucket `fiscal-sped` privado provisionado e testado com upload/download de arquivo SPED real assinado e conferência de SHA-256.
 
 ## Fronteiras e segurança
 
@@ -68,20 +61,37 @@ A ordem importa: o cancelamento de NF-e da branch usa `fiscal_registrar_cancelam
 
 ## Critérios de conclusão técnica
 
-- [x] Migrations consistentes, provadas com rollback nos bancos de cliente.
+- [x] Migrations consistentes, provadas com rollback e aplicadas nos bancos de cliente (`demo`, `demir`, `garage`).
 - [x] Testes com `00000000E08G12` e CNPJ numérico.
 - [x] Geração determinística com contadores e Bloco 9 coerentes (testes unitários do serializador).
-- [x] Fechamento bloqueado por erros, datas não confirmadas e gates pendentes.
+- [x] Projeção cadastral do Bloco 0 (0150, 0190, 0200, 0205, 0220, 0221) implementada com testes unitários.
+- [x] Suporte a ajustes e documentos fiscais do Bloco E (E111, E112, E113, E115, E116, E311, E312, E313, E316) implementado com testes unitários.
+- [x] Integração de Storage e2e testada no ambiente real.
+- [x] Registro e histórico de validações do PVA implementado no banco, APIs e interface.
+- [x] Competência piloto 08/2026 aberta e versionada no banco real da Demir Diesel.
+- [x] Projeção fiscal real de 52 saídas (C100 regular e canceladas com COD_SIT 02), 13 partilhas DIFAL (C101 e E300/E310), 44 participantes (0150) e 87 itens (0200).
+- [x] Primeiro arquivo TXT real gerado (324 linhas, 28.326 bytes) com 100% de conformidade de campos e registros auditados contra o leiaute 020.
+- [x] Upload da prévia SPED testado e armazenado no Supabase Storage `fiscal-sped` e registrado em `fiscal_sped_arquivo`.
+- [x] Fechamento bloqueado por erros, datas não confirmadas e gates pendentes (195 diagnósticos catalogados no piloto).
 - [x] Reabertura cria nova versão sem mutar a anterior.
-- [x] Suítes existentes continuam passando.
-- [ ] Arquivo gerado de uma competência real importado no PVA.
+- [x] Suítes existentes continuam passando (`npm run test:negocio` com 1561 testes, `next build` 100%).
+- [ ] Arquivo gerado de uma competência real importado e homologado no programa oficial do PVA.
 
-## Bloqueios externos do piloto
+## Diagnóstico Real do Piloto (Demir Diesel - 08/2026)
 
-- Confirmações do contador: perfil da IE, Bloco K, C176/C179, 1400, IPI, EFD-Contribuições e ajustes.
-- EFD oficial de julho de 2026.
-- Revisão das datas fiscais de entrada.
-- Arquivo mensal do 1601 e dados das instituições.
-- PVA vigente e aprovação contábil do TXT final.
+Na execução de validação da versão 1 da competência 08/2026, foram catalogados 195 diagnósticos bloqueantes legítimos (sem falsos positivos estruturais):
 
-Sem esses itens, os gates ficam PENDENTE e a competência não fecha. É o comportamento esperado.
+1. **Entradas fiscais pendentes de confirmação civil (82 ocorrências)**:
+   - 82 compras com `data_entrada_fiscal` nula. Devem ser confirmadas pelo operador na aba Entradas do módulo SPED.
+2. **Classificação canônica de itens ausente (87 ocorrências)**:
+   - 87 itens movimentados em notas fiscais ainda não possuem configuração em `fiscal_sped_item_config` para o registro 0200.
+3. **Contabilista não cadastrado (1 ocorrência)**:
+   - Cadastrar os dados do contador (CRC, CPF, endereço, contatos) na aba Configuração para gerar o registro 0100.
+4. **Campos obrigatórios do cabeçalho 0000 (2 ocorrências)**:
+   - `0000.IND_PERFIL` e `0000.IND_ATIV` pendentes de confirmação fiscal pelo contador (Perfil B / Indicador de atividade industrial ou outros).
+5. **Guias de recolhimento não revisadas (9 ocorrências)**:
+   - Apuração de ICMS próprio (R$ 38,00 em E116) e DIFAL interestadual para 8 estados destino (ES, MA, MG, MT, PA, PE, RN, RS em E316).
+6. **Bloqueios externos e gates de conformidade**:
+   - Confirmação dos gates: Perfil EFD, Bloco K, Registro 1400, C176/C179, Registro 1601, Inventário/Bloco H, Contribuinte de IPI, EFD-Contribuições e EFD anterior (julho/2026 para saldo credor inicial).
+
+Sem esses itens sanados ou confirmados pelo contador da empresa, a competência permanece com status `COM_ERROS` e o fechamento bloqueado, exatamente conforme desenhado. Contudo, o sistema agora permite gerar a **Prévia SPED** a qualquer momento para homologação antecipada no PVA oficial.

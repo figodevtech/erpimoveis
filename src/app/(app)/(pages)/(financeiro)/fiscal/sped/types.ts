@@ -174,9 +174,24 @@ export type SpedInconsistencia = {
   fontes: SpedSourceReference[];
 };
 
+export type SpedPvaStatus = "APROVADO" | "REJEITADO" | "COM_AVISOS";
+
+export type SpedPvaValidacao = {
+  id: string;
+  arquivoId: string;
+  pvaVersao: string;
+  status: SpedPvaStatus;
+  relatorioStoragePath?: string | null;
+  relatorioSha256?: string | null;
+  observacao?: string | null;
+  validatedBy: string;
+  validatedAt: string;
+};
+
 export type SpedArquivo = {
   id: string;
   nome: string;
+  sequencia: number;
   tipo: "PREVIA" | "FINAL";
   finalidade: "ORIGINAL" | "RETIFICADORA";
   versao: number;
@@ -186,7 +201,8 @@ export type SpedArquivo = {
   sha256: string;
   geradoEm: string;
   geradoPor?: string | null;
-  pvaStatus?: "PENDENTE" | "APROVADO" | "REJEITADO" | null;
+  pvaStatus?: SpedPvaStatus | null;
+  pvaValidacoes?: SpedPvaValidacao[];
 };
 
 export type SpedAuditoriaEvento = {

@@ -57,6 +57,8 @@ next-env.d.ts
 /token.txt
 /empresa_out.json
 /focus_request_log.json
+/tmp_sped_*.txt
+/tmp_*.txt
 
 # Arquivos gerados pelo next-pwa
 /public/sw.js

@@ -13,7 +13,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const actorId = await requireSpedActor();
     const body = await jsonBody(request);
     const { id } = await context.params;
-    return NextResponse.json({ data: await generateSpedFile(id, body.expectedVersion, actorId) });
+    return NextResponse.json({
+      data: await generateSpedFile(id, body.expectedVersion, actorId, { tipo: body.tipo }),
+    });
   } catch (error) {
     return spedErrorResponse(error);
   }

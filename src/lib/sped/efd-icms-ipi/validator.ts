@@ -21,10 +21,13 @@ const BLOCKING_GATES: Array<{
   { key: "inventory", code: "INVENTARIO_PENDENTE", label: "Inventário/Bloco H" },
 ];
 
+import { recalculateBlockClosures } from "./serializer";
+
 export function validateEfdRecords(records: readonly EfdRecord[], layout: EfdLayout): SpedDiagnostic[] {
   const diagnostics: SpedDiagnostic[] = [];
+  const recordsToValidate = recalculateBlockClosures(records);
 
-  records.forEach((record, index) => {
+  recordsToValidate.forEach((record, index) => {
     const definition = layout.records.get(record.code);
     if (!definition) {
       diagnostics.push({

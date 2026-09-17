@@ -126,3 +126,34 @@ export type SpedContabilista = {
   email: string;
   codigoMunicipio: string;
 };
+
+export type SpedPvaStatus = "APROVADO" | "REJEITADO" | "COM_AVISOS";
+
+export type SpedPvaValidacao = {
+  id: string;
+  arquivoId: string;
+  pvaVersao: string;
+  status: SpedPvaStatus;
+  relatorioStoragePath?: string | null;
+  relatorioSha256?: string | null;
+  observacao?: string | null;
+  validatedBy: string;
+  validatedAt: string;
+};
+
+export type SpedArquivoInfo = {
+  id: string;
+  nome: string;
+  sequencia: number;
+  tipo: "PREVIA" | "FINAL";
+  finalidade: "ORIGINAL" | "RETIFICADORA";
+  versao: number;
+  layout: string;
+  quantidadeRegistros: number;
+  tamanhoBytes: number;
+  sha256: string;
+  geradoEm: string;
+  geradoPor?: string | null;
+  pvaStatus?: SpedPvaStatus | null;
+  pvaValidacoes?: SpedPvaValidacao[];
+};
