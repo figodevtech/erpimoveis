@@ -13,11 +13,13 @@ export type ChartCardProps = {
   badgeIcon?: React.ReactNode;
   /** Explicação de como o gráfico é calculado. Vira um tooltip no título. */
   hint?: React.ReactNode;
+  /** Controles do card (Select, alternador). Ocupa o lugar do badge. */
+  acoes?: React.ReactNode;
   className?: string;
   children: React.ReactNode;
 };
 
-export default function ChartCard({ title, description, badge, badgeIcon, hint, className, children }: ChartCardProps) {
+export default function ChartCard({ title, description, badge, badgeIcon, hint, acoes, className, children }: ChartCardProps) {
   const titulo = <p className="dashboard-card-title line-clamp-2">{title}</p>;
 
   return (
@@ -38,6 +40,8 @@ export default function ChartCard({ title, description, badge, badgeIcon, hint, 
             {badgeIcon}
             {badge}
           </Badge>
+        ) : acoes ? (
+          <div className="shrink-0">{acoes}</div>
         ) : null}
       </div>
       {children}

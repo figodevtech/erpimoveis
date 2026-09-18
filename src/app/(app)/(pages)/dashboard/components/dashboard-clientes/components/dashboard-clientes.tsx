@@ -18,7 +18,7 @@ import {
 import { RefreshCcw, Users, TrendingUp, Activity, MapPin, Repeat2, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-import ChartCard from "../../dashboard-ordemservico/components/chart-card";
+import ChartCard from "../../shared/chart-card";
 
 import type { DashboardClientesProps } from "../lib/types";
 import { INSIGHTS_INICIAIS, BARRAS_UF_PADRAO } from "../lib/constants";

@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 
 import { requireDashboardAccess } from "@/app/api/_authz/perms";
 import { saldoEmAberto, valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
+import {
+  IDENTIDADE_SEM_CONTA,
+  acumularMovimento,
+  type ChavePlano,
+  type IdentidadeDoPlano,
+  type MovimentoPorPlanoDeConta,
+} from "@/lib/financeiro/plano-contas/movimento-por-conta";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 
@@ -28,7 +35,33 @@ type TransactionRow = {
   valor_baixado: number | string | null;
   adiantamento_id: number | null;
   baixa_de_transacao_id: number | null;
+  plano_de_conta_id: number | null;
+  plano_de_conta: string | null;
 };
+
+type GrupoEmbutido = { id: number; codigo: string | null; nome: string | null };
+
+type PlanoContaRow = {
+  id: number;
+  codigo: string | null;
+  nome: string | null;
+  grupo_id: number | null;
+  // O PostgREST devolve objeto no embed many-to-one, mas o supabase-js tipa
+  // alguns embeds como lista. Normalizado em `identidadeDaConta`.
+  grupo: GrupoEmbutido | GrupoEmbutido[] | null;
+};
+
+function identidadeDaConta(conta: PlanoContaRow): IdentidadeDoPlano {
+  const grupo = Array.isArray(conta.grupo) ? conta.grupo[0] : conta.grupo;
+  return {
+    contaId: conta.id,
+    contaCodigo: conta.codigo,
+    contaNome: conta.nome ?? `Conta #${conta.id}`,
+    grupoId: grupo?.id ?? conta.grupo_id ?? null,
+    grupoCodigo: grupo?.codigo ?? null,
+    grupoNome: grupo?.nome ?? "Sem grupo",
+  };
+}
 
 function localDayStartToUtcIso(date: string) {
   return new Date(`${date}T00:00:00${FORTALEZA_OFFSET}`).toISOString();
@@ -71,8 +104,8 @@ export async function GET(request: Request) {
     }
 
     const selectTransacao =
-      'id, valor, "valorLiquido", valor_descontos, valor_baixado, data, created_at, metodopagamento, categoria, tipo, pendente, banco_id, adiantamento_id, baixa_de_transacao_id';
-    const [rows, titulosPendentes] = await Promise.all([
+      'id, valor, "valorLiquido", valor_descontos, valor_baixado, data, created_at, metodopagamento, categoria, tipo, pendente, banco_id, adiantamento_id, baixa_de_transacao_id, plano_de_conta_id, plano_de_conta';
+    const [rows, titulosPendentes, planosDeConta] = await Promise.all([
       fetchAllSupabaseRows<TransactionRow>(() =>
         supabaseAdmin
           .from("transacao")
@@ -93,7 +126,19 @@ export async function GET(request: Request) {
           .order("data", { ascending: true })
           .order("id", { ascending: true }),
       ),
+      // O catálogo inteiro sai mais barato que filtrar pelos ids das transações
+      // em lotes, e roda aqui em paralelo: não custa latência.
+      fetchAllSupabaseRows<PlanoContaRow>(() =>
+        supabaseAdmin
+          .from("planosdeconta")
+          .select("id, codigo, nome, grupo_id, grupo:planosdecontagrupos(id, codigo, nome)")
+          .order("id", { ascending: true }),
+      ),
     ]);
+
+    const catalogoPorConta = new Map<number, IdentidadeDoPlano>(
+      planosDeConta.map((conta) => [conta.id, identidadeDaConta(conta)]),
+    );
 
     let receita = 0;
     let despesa = 0;
@@ -101,15 +146,12 @@ export async function GET(request: Request) {
     const perDay = new Map<string, { receita: number; despesa: number }>();
     const perCategory = new Map<string, { receita: number; despesa: number }>();
     const perMethod = new Map<string, number>();
+    const perPlanoConta = new Map<ChavePlano, MovimentoPorPlanoDeConta>();
     const normalizedTransactions: Array<TransactionRow & { valor: number; valorLiquido: number }> = [];
     const hoje = localDayStartToUtcIso(localDateKey(new Date().toISOString()));
-    const em30DiasDate = new Date(hoje);
-    em30DiasDate.setUTCDate(em30DiasDate.getUTCDate() + 30);
-    const em30Dias = em30DiasDate.toISOString();
     const pendencias = {
       aPagar: 0,
       aPagarVencido: 0,
-      aPagar30Dias: 0,
       aReceber: 0,
       aReceberVencido: 0,
     };
@@ -123,7 +165,6 @@ export async function GET(request: Request) {
       if (tipo === "DESPESA") {
         pendencias.aPagar += valor;
         if (vencimento < hoje) pendencias.aPagarVencido += valor;
-        if (vencimento >= hoje && vencimento < em30Dias) pendencias.aPagar30Dias += valor;
       } else if (tipo === "RECEITA") {
         pendencias.aReceber += valor;
         if (vencimento < hoje) pendencias.aReceberVencido += valor;
@@ -171,6 +212,18 @@ export async function GET(request: Request) {
       if (isExit) categoryBucket.despesa += effectiveValue;
       perCategory.set(category, categoryBucket);
 
+      // Conta apagada depois do lançamento ainda tem nome na coluna-texto.
+      const identidade =
+        row.plano_de_conta_id == null
+          ? IDENTIDADE_SEM_CONTA
+          : catalogoPorConta.get(row.plano_de_conta_id) ?? {
+              ...IDENTIDADE_SEM_CONTA,
+              contaId: row.plano_de_conta_id,
+              contaNome: row.plano_de_conta ?? `Conta #${row.plano_de_conta_id}`,
+              grupoNome: "Sem grupo",
+            };
+      acumularMovimento(perPlanoConta, identidade, isEntry ? effectiveValue : 0, isExit ? effectiveValue : 0);
+
       if (isEntry) {
         const method = String(row.metodopagamento ?? "Não informado");
         perMethod.set(method, (perMethod.get(method) ?? 0) + effectiveValue);
@@ -192,6 +245,7 @@ export async function GET(request: Request) {
         fluxoDiario,
         porCategoria: Array.from(perCategory, ([categoria, values]) => ({ categoria, ...values })),
         porMetodoPagamento: Array.from(perMethod, ([metodo, valor]) => ({ metodo, valor })),
+        porPlanoDeConta: Array.from(perPlanoConta.values()),
         transacoes: normalizedTransactions,
       },
       { headers: { "Cache-Control": "no-store" } },

@@ -27,8 +27,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-import ChartCard from "../dashboard-ordemservico/components/chart-card";
-import Kpi from "../dashboard-ordemservico/components/kpi-ordemservico";
+import ChartCard from "../shared/chart-card";
+import Kpi from "../shared/kpi";
 import { formatCurrencyBRL, formatNumber } from "../dashboard-ordemservico/lib/format";
 import { OSDetalhesDialog } from "../../../ordens/components/dialogs/detalhes-os-dialog";
 import { VendaDetailsDialog } from "../../../(vendas)/historicovendas/components/venda-detail-dialog";

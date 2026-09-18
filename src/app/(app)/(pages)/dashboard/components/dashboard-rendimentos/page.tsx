@@ -14,8 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { toast } from "@/lib/toast";
-import Kpi from "../dashboard-ordemservico/components/kpi-ordemservico";
-import ChartCard from "../dashboard-ordemservico/components/chart-card";
+import Kpi from "../shared/kpi";
+import ChartCard from "../shared/chart-card";
 import { ptBR } from "date-fns/locale";
 
 const money = (value: number) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

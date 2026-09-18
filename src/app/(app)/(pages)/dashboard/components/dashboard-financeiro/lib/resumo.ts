@@ -1,3 +1,11 @@
+import {
+  IDENTIDADE_SEM_CONTA,
+  acumularMovimento,
+  chaveDoPlano,
+  type ChavePlano,
+  type MovimentoPorPlanoDeConta,
+} from "@/lib/financeiro/plano-contas/movimento-por-conta";
+
 import { ResumoFinanceiro } from "./types";
 
 function chaveDataLocal(value: Date | string) {
@@ -34,7 +42,6 @@ export function normalizarResumoBruto(json: any, inicio: Date, fim: Date): Resum
     pendencias: {
       aPagar: Number(json?.pendencias?.aPagar ?? 0),
       aPagarVencido: Number(json?.pendencias?.aPagarVencido ?? 0),
-      aPagar30Dias: Number(json?.pendencias?.aPagar30Dias ?? 0),
       aReceber: Number(json?.pendencias?.aReceber ?? 0),
       aReceberVencido: Number(json?.pendencias?.aReceberVencido ?? 0),
     },
@@ -59,6 +66,18 @@ export function normalizarResumoBruto(json: any, inicio: Date, fim: Date): Resum
           valor: Number(m.valor ?? 0),
         }))
       : [],
+    porPlanoDeConta: Array.isArray(json?.porPlanoDeConta)
+      ? json.porPlanoDeConta.map((p: any) => ({
+          contaId: p.contaId != null ? Number(p.contaId) : null,
+          contaCodigo: p.contaCodigo != null ? String(p.contaCodigo) : null,
+          contaNome: String(p.contaNome ?? IDENTIDADE_SEM_CONTA.contaNome),
+          grupoId: p.grupoId != null ? Number(p.grupoId) : null,
+          grupoCodigo: p.grupoCodigo != null ? String(p.grupoCodigo) : null,
+          grupoNome: String(p.grupoNome ?? IDENTIDADE_SEM_CONTA.grupoNome),
+          receita: Number(p.receita ?? 0),
+          despesa: Number(p.despesa ?? 0),
+        }))
+      : [],
   };
 }
 
@@ -66,8 +85,18 @@ export function normalizarResumoBruto(json: any, inicio: Date, fim: Date): Resum
  * REGRA:
  * - pendente=true NÃO entra em gráficos/resumo
  * - mas soma em receitaPendente (quando for entrada)
+ *
+ * `catalogoPlanos` são as linhas do resumo do servidor: filtrar a lista só
+ * remove contas, nunca inventa uma nova, então elas bastam para nomear as
+ * contas aqui. Sem ele o gráfico de plano de conta fica vazio — que é o certo
+ * para as respostas em array cru, que não carregam plano de conta.
  */
-export function montarResumoDeLista(lista: any[], inicio: Date, fim: Date): ResumoFinanceiro {
+export function montarResumoDeLista(
+  lista: any[],
+  inicio: Date,
+  fim: Date,
+  catalogoPlanos: MovimentoPorPlanoDeConta[] = [],
+): ResumoFinanceiro {
   let receita = 0;
   let despesa = 0;
   let receitaPendente = 0;
@@ -75,6 +104,10 @@ export function montarResumoDeLista(lista: any[], inicio: Date, fim: Date): Resu
   const porDia = new Map<string, { receita: number; despesa: number }>();
   const porCategoria = new Map<string, { receita: number; despesa: number }>();
   const porMetodo = new Map<string, number>();
+  const porPlanoDeConta = new Map<ChavePlano, MovimentoPorPlanoDeConta>();
+  const identidadePorChave = new Map<ChavePlano, MovimentoPorPlanoDeConta>(
+    catalogoPlanos.map((linha) => [chaveDoPlano(linha.contaId), linha]),
+  );
   const inicioKey = chaveDataDoFiltro(inicio);
   const fimKey = chaveDataDoFiltro(fim);
 
@@ -114,6 +147,14 @@ export function montarResumoDeLista(lista: any[], inicio: Date, fim: Date): Resu
     if (ehEntrada) catAgg.receita += valor;
     if (ehSaida) catAgg.despesa += valor;
 
+    const chavePlano = chaveDoPlano(item?.plano_de_conta_id);
+    const identidadePlano = identidadePorChave.get(chavePlano) ?? {
+      ...IDENTIDADE_SEM_CONTA,
+      contaId: item?.plano_de_conta_id ?? null,
+      contaNome: item?.plano_de_conta ? String(item.plano_de_conta) : IDENTIDADE_SEM_CONTA.contaNome,
+    };
+    acumularMovimento(porPlanoDeConta, identidadePlano, ehEntrada ? valor : 0, ehSaida ? valor : 0);
+
     const metodoRaw = item?.metodopagamento ?? item?.metodo_pagamento ?? item?.metodoPagamento;
     const metodo = metodoRaw ? String(metodoRaw) : "Não informado";
     if (ehEntrada) porMetodo.set(metodo, (porMetodo.get(metodo) ?? 0) + valor);
@@ -138,9 +179,10 @@ export function montarResumoDeLista(lista: any[], inicio: Date, fim: Date): Resu
   return {
     periodo: { inicio: inicio.toISOString(), fim: fim.toISOString() },
     totais: { receita, despesa, saldo, receitaPendente },
-    pendencias: { aPagar: 0, aPagarVencido: 0, aPagar30Dias: 0, aReceber: receitaPendente, aReceberVencido: 0 },
+    pendencias: { aPagar: 0, aPagarVencido: 0, aReceber: receitaPendente, aReceberVencido: 0 },
     fluxoDiario,
     porCategoria: Array.from(porCategoria.entries()).map(([categoria, v]) => ({ categoria, ...v })),
     porMetodoPagamento: Array.from(porMetodo.entries()).map(([metodo, valor]) => ({ metodo, valor })),
+    porPlanoDeConta: Array.from(porPlanoDeConta.values()),
   };
 }

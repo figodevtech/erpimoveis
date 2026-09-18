@@ -48,8 +48,9 @@ import { pickColorForKey } from "../lib/palette";
 import { STATIC_ZERO_MONTHS, makeZeroedMonthlyFrom, formatMonthLabel } from "../lib/monthly";
 import { useInsights } from "../hooks/use-insights";
 
-import ChartCard from "./chart-card";
-import Kpi from "./kpi-ordemservico";
+import ChartCard from "../../shared/chart-card";
+import Kpi from "../../shared/kpi";
+import FaixaKpis from "../../shared/faixa-kpis";
 import EmptyState from "./emply-state";
 import SheetOsFiltros from "./sheet-os-filtros";
 
@@ -97,38 +98,6 @@ const PRESETS_PERIODO: { chave: string; rotulo: string; calcular: () => PeriodoD
   { chave: "mes-atual", rotulo: "Mês atual", calcular: obterMesAtual },
   { chave: "mes-anterior", rotulo: "Mês anterior", calcular: obterMesAnterior },
 ];
-
-/** Agrupa os KPIs por recorte de tempo — no mobile vira uma coluna, na mesma ordem. */
-function FaixaKpis({
-  titulo,
-  nota,
-  carregando,
-  className,
-  children,
-}: {
-  titulo: string;
-  nota?: string;
-  carregando?: boolean;
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center gap-2">
-        <p className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{titulo}</p>
-        {nota ? <span className="min-w-0 truncate text-[11px] text-muted-foreground/70">· {nota}</span> : null}
-        <span className="h-px flex-1 bg-border" aria-hidden="true" />
-      </div>
-      <div
-        className={cn("dashboard-kpi-strip grid grid-cols-1 gap-2", className)}
-        data-loading={carregando}
-        aria-busy={carregando}
-      >
-        {children}
-      </div>
-    </section>
-  );
-}
 
 function formatarStatusOS(raw: string) {
   const chave = String(raw ?? "").trim().toUpperCase();

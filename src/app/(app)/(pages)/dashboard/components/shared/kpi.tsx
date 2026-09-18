@@ -11,10 +11,12 @@ export type KpiProps = {
   icon?: React.ComponentType<{ className?: string }>;
   /** Explicação de como o número é calculado. Vira um tooltip no rótulo. */
   hint?: React.ReactNode;
+  /** Tinge o valor. Sinal de saúde do número, não decoração. */
+  destaque?: "positivo" | "negativo";
   className?: string;
 };
 
-export default function Kpi({ label, value, icon: Icon, hint, className }: KpiProps) {
+export default function Kpi({ label, value, icon: Icon, hint, destaque, className }: KpiProps) {
   const rotulo = <p className="line-clamp-2 text-xs leading-tight text-muted-foreground sm:text-sm">{label}</p>;
 
   return (
@@ -29,7 +31,15 @@ export default function Kpi({ label, value, icon: Icon, hint, className }: KpiPr
         )}
         {Icon ? <span className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary sm:size-8"><Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" /></span> : null}
       </div>
-      <div className="relative z-10 mt-2 break-words text-lg font-semibold tracking-tight sm:text-xl xl:text-2xl">{value}</div>
+      <div
+        className={cn(
+          "relative z-10 mt-2 break-words text-lg font-semibold tracking-tight sm:text-xl xl:text-2xl",
+          destaque === "positivo" && "text-emerald-600 dark:text-emerald-400",
+          destaque === "negativo" && "text-red-600 dark:text-red-400",
+        )}
+      >
+        {value}
+      </div>
     </div>
   );
 }

@@ -9,14 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 
-import { AreaChart, Area, CartesianGrid, XAxis, YAxis, BarChart, Bar, PieChart, Pie, Cell, LabelList } from "recharts";
-import { RefreshCcw, ArrowUpCircle, ArrowDownCircle, Wallet, AlertCircle, CreditCard, AlarmClock, CalendarClock, HandCoins, ReceiptText } from "lucide-react";
+import { AreaChart, Area, CartesianGrid, XAxis, YAxis, BarChart, Bar, LabelList } from "recharts";
+import { RefreshCcw, ArrowUpCircle, ArrowDownCircle, Wallet, AlertCircle, CreditCard, AlarmClock, HandCoins, ReceiptText } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 import { PropriedadesDashboardFinanceiro, TipoSerieFluxo, ResumoFinanceiro } from "../lib/types";
 import {
-  CORES_METODOS,
   COR_DESPESA,
   COR_RECEITA,
   COR_SALDO_NEGATIVO,
@@ -26,8 +25,12 @@ import {
 import { obterPeriodoInicial, formatarDataCompleta, formatarDataCurta } from "../lib/datas";
 import { montarResumoDeLista } from "../lib/resumo";
 import { useResumoFinanceiro } from "../hooks/use-resumo-financeiro";
+import CabecalhoSecao from "../../shared/cabecalho-secao";
+import ChartCard from "../../shared/chart-card";
+import FaixaKpis from "../../shared/faixa-kpis";
+import Kpi from "../../shared/kpi";
 import { SheetFinanceiroFiltros } from "./sheet-financeiro-filtros";
-import { KpiFinanceiro } from "./kpi-financeiro";
+import GraficoPlanoDeConta from "./grafico-plano-de-conta";
 
 function CategoriaTick(props: any) {
   const { x, y, payload } = props;
@@ -44,6 +47,42 @@ function CategoriaTick(props: any) {
     </g>
   );
 }
+
+/**
+ * Cada número diz de quando é. As duas faixas têm recortes de tempo
+ * diferentes: a primeira segue o filtro de período, a segunda é o saldo em
+ * aberto de agora e ignora o filtro.
+ */
+const DICAS_PERIODO = {
+  receitas:
+    "Entradas que passaram por uma conta bancária dentro do período, somadas pela data do movimento (fuso de Fortaleza). Conta lançamento de Receita e de Depósito, pelo valor líquido — bruto menos descontos. Título ainda pendente não entra: ele só vira receita quando é baixado. Título quitado por adiantamento fica sem banco e não é somado de novo, porque o dinheiro já entrou no lançamento do adiantamento.",
+  despesas:
+    "Saídas que passaram por uma conta bancária dentro do período, somadas pela data do movimento. Conta lançamento de Despesa e de Saque, pelo valor líquido — bruto menos descontos. Conta a pagar ainda pendente não entra: só quando é paga.",
+  saldo:
+    "Receitas menos Despesas do período. É caixa, não lucro: mede o que entrou menos o que saiu das contas no recorte escolhido. Não considera competência, não desconta o que ainda está a pagar, nem soma o que ainda está a receber.",
+  receitasPendentes:
+    "Títulos a receber com vencimento dentro do período que ainda não foram baixados, pelo saldo em aberto — valor do título menos o que já foi recebido em baixas parciais. Não entra no Saldo do período nem no gráfico de fluxo: ainda não é dinheiro em caixa. Adiantamento de cliente não conta aqui.",
+} as const;
+
+const DICAS_SITUACAO = {
+  aPagar:
+    "Tudo que está em aberto para pagar neste momento: contas a pagar ainda não baixadas, pelo saldo em aberto — valor menos o que já foi pago em baixas parciais. Soma todos os vencimentos, passados e futuros. Não segue o filtro de período.",
+  aPagarVencido:
+    "A parte do Total a pagar cujo vencimento já passou de hoje (fuso de Fortaleza). É o atraso com fornecedores neste momento. Não segue o filtro de período.",
+  aReceber:
+    "Tudo que está em aberto para receber neste momento: títulos a receber ainda não baixados, pelo saldo em aberto — valor menos o que já foi recebido. Soma todos os vencimentos, passados e futuros. Adiantamento de cliente não entra. Não segue o filtro de período.",
+  aReceberVencido:
+    "A parte do Total a receber cujo vencimento já passou de hoje. É a inadimplência de agora. Não segue o filtro de período.",
+} as const;
+
+const DICAS_GRAFICOS = {
+  fluxo:
+    "Entradas e saídas por dia do período, pela data do movimento, e o saldo acumulado. Só dinheiro que passou por uma conta bancária; título pendente não aparece. O saldo acumulado começa em zero no primeiro dia do período — é o resultado do recorte, não o saldo das contas.",
+  categoria:
+    "Soma das entradas e saídas do período pela categoria escolhida no lançamento. Lançamento sem categoria cai em “Outros”. Categoria é a etiqueta operacional; para a visão contábil, use o gráfico Por plano de conta.",
+  metodos:
+    "Distribuição só das entradas do período pelo método de pagamento, do maior para o menor. A barra compara com o maior método e a porcentagem é a fatia do total de entradas. Clique numa linha para filtrar o resto do painel por esse método; clique de novo para limpar.",
+} as const;
 
 export default function DashboardFinanceiro({
   className,
@@ -73,7 +112,10 @@ export default function DashboardFinanceiro({
   const resumoFiltrado: ResumoFinanceiro = React.useMemo(() => {
     if (!metodoSelecionado || !dataInicio || !dataFim) return resumoBase;
     const filtradas = transacoes.filter((t) => obterMetodoTransacao(t) === metodoSelecionado);
-    return { ...montarResumoDeLista(filtradas, dataInicio, dataFim), pendencias: resumoBase.pendencias };
+    return {
+      ...montarResumoDeLista(filtradas, dataInicio, dataFim, resumoBase.porPlanoDeConta),
+      pendencias: resumoBase.pendencias,
+    };
   }, [metodoSelecionado, transacoes, dataInicio, dataFim, resumoBase]);
 
   const { receita, despesa, saldo, receitaPendente } = resumoFiltrado.totais;
@@ -88,8 +130,14 @@ export default function DashboardFinanceiro({
   );
 
   const categorias = resumoFiltrado.porCategoria ?? [];
-  const metodos = resumoBase.porMetodoPagamento ?? [];
-  const muitasCategorias = (resumoBase.porCategoria ?? []).length > 8;
+  // Ranking: a barra mede contra o maior método, e a porcentagem contra o total.
+  const metodosOrdenados = React.useMemo(
+    () => [...(resumoBase.porMetodoPagamento ?? [])].sort((a, b) => b.valor - a.valor),
+    [resumoBase.porMetodoPagamento],
+  );
+  const maiorMetodo = metodosOrdenados[0]?.valor ?? 0;
+  const totalMetodos = metodosOrdenados.reduce((soma, m) => soma + m.valor, 0);
+  const linhasPlano = resumoFiltrado.porPlanoDeConta ?? [];
   const larguraMinimaGraficoCategorias = Math.max(640, categorias.length * 120);
 
   const saldoPositivo = saldo >= 0;
@@ -99,6 +147,10 @@ export default function DashboardFinanceiro({
     dataInicio && dataFim
       ? `${formatarDataCompleta(dataInicio)} — ${formatarDataCompleta(dataFim)}`
       : "Período não definido";
+
+  // O filtro de método muda os números da faixa do período; sem dizer isso, o
+  // gestor lê um recorte parcial como se fosse o período inteiro.
+  const notaPeriodo = metodoSelecionado ? `${textoPeriodo} · só ${metodoSelecionado}` : textoPeriodo;
 
   function tratarDataInicio(date?: Date) {
     if (!date) return setDataInicio(null);
@@ -196,347 +248,307 @@ export default function DashboardFinanceiro({
           </div>
         )}
 
-        <div className="dashboard-kpi-strip grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4" data-loading={carregando} aria-busy={carregando}>
-          <KpiFinanceiro
-            rotulo="Receitas"
-            valor={formatarMoeda.format(receita)}
-            valorNumero={receita}
-            Icone={ArrowUpCircle}
-            destaque="positivo"
-          />
-          <KpiFinanceiro
-            rotulo="Despesas"
-            valor={formatarMoeda.format(despesa)}
-            valorNumero={despesa}
-            Icone={ArrowDownCircle}
-            destaque="negativo"
-          />
-          <KpiFinanceiro
-            rotulo="Saldo do período"
-            valor={formatarMoeda.format(saldo)}
-            valorNumero={saldo}
-            Icone={Wallet}
-            destaque={saldoPositivo ? "positivo" : "negativo"}
-          />
-          <KpiFinanceiro
-            rotulo="Receitas pendentes"
-            valor={formatarMoeda.format(receitaPendente)}
-            valorNumero={receitaPendente}
-            Icone={CreditCard}
-          />
-        </div>
-
-        <div className="dashboard-kpi-strip grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5" data-loading={carregando} aria-busy={carregando}>
-          <KpiFinanceiro
-            rotulo="Total a pagar"
-            valor={formatarMoeda.format(resumoBase.pendencias.aPagar)}
-            valorNumero={resumoBase.pendencias.aPagar}
-            Icone={ReceiptText}
-            destaque="negativo"
-          />
-          <KpiFinanceiro
-            rotulo="A pagar vencido"
-            valor={formatarMoeda.format(resumoBase.pendencias.aPagarVencido)}
-            valorNumero={resumoBase.pendencias.aPagarVencido}
-            Icone={AlarmClock}
-            destaque="negativo"
-          />
-          <KpiFinanceiro
-            rotulo="A pagar em 30 dias"
-            valor={formatarMoeda.format(resumoBase.pendencias.aPagar30Dias)}
-            valorNumero={resumoBase.pendencias.aPagar30Dias}
-            Icone={CalendarClock}
-          />
-          <KpiFinanceiro
-            rotulo="Total a receber"
-            valor={formatarMoeda.format(resumoBase.pendencias.aReceber)}
-            valorNumero={resumoBase.pendencias.aReceber}
-            Icone={HandCoins}
-            destaque="positivo"
-          />
-          <KpiFinanceiro
-            rotulo="A receber vencido"
-            valor={formatarMoeda.format(resumoBase.pendencias.aReceberVencido)}
-            valorNumero={resumoBase.pendencias.aReceberVencido}
-            Icone={CreditCard}
-            destaque={resumoBase.pendencias.aReceberVencido > 0 ? "negativo" : undefined}
-          />
-        </div>
-
-        <div className={clsx("grid grid-cols-1 gap-3 lg:grid-cols-3", carregando && "opacity-80")}>
-          {/* Fluxo */}
-          <div className="dashboard-surface p-3 sm:p-4 lg:col-span-3">
-            <div className="mb-2 flex flex-col items-start justify-between gap-2 sm:mb-3 sm:flex-row sm:items-center">
-              <div>
-                <p className="dashboard-card-title">Fluxo de caixa</p>
-                <p className="dashboard-card-description">
-                  Entradas, saídas e saldo acumulado por dia
-                </p>
-              </div>
-
-              <Select value={tipoFluxo} onValueChange={(v) => setTipoFluxo(v as TipoSerieFluxo)}>
-                <SelectTrigger className="h-8 w-[180px] text-xs sm:h-9">
-                  <SelectValue placeholder="Tipo de fluxo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="TODOS">Entradas e saídas</SelectItem>
-                  <SelectItem value="ENTRADAS">Somente entradas</SelectItem>
-                  <SelectItem value="SAIDAS">Somente saídas</SelectItem>
-                  <SelectItem value="SALDO">Somente saldo acumulado</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <ChartContainer
-              config={{
-                receita: { label: "Receitas (entradas)", color: COR_RECEITA },
-                despesa: { label: "Despesas (saídas)", color: COR_DESPESA },
-                saldoAcumulado: {
-                  label: `Saldo acumulado (${saldoPositivo ? "positivo" : "negativo"})`,
-                  color: corSaldoLinha,
-                },
-              }}
-              className="h-56 w-full sm:h-64 md:h-72 lg:h-80"
-            >
-              <AreaChart key={`fluxo-${animKey}`} data={fluxo} margin={{ top: 12, right: 16, left: 20, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="var(--border)" opacity={0.7} />
-                <XAxis
-                  dataKey="dataRotulo"
-                  axisLine={false}
-                  tickLine={false}
-                  tickMargin={8}
-                  fontSize={11}
-                  stroke="var(--muted-foreground)"
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tickMargin={12}
-                  fontSize={11}
-                  stroke="var(--muted-foreground)"
-                  tickFormatter={(v) => formatarMoeda.format(v).replace("R$", "").trim()}
-                />
-                <ChartTooltip content={<ChartTooltipContent labelFormatter={(label) => `Dia ${label}`} />} />
-
-                {(tipoFluxo === "TODOS" || tipoFluxo === "ENTRADAS") && (
-                  <Area
-                    type="monotone"
-                    dataKey="receita"
-                    stroke={COR_RECEITA}
-                    fill="hsl(142 76% 36% / 0.12)"
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive
-                  />
-                )}
-                {(tipoFluxo === "TODOS" || tipoFluxo === "SAIDAS") && (
-                  <Area
-                    type="monotone"
-                    dataKey="despesa"
-                    stroke={COR_DESPESA}
-                    fill="hsl(0 72% 51% / 0.10)"
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive
-                  />
-                )}
-                {(tipoFluxo === "TODOS" || tipoFluxo === "SALDO") && (
-                  <Area
-                    type="monotone"
-                    dataKey="saldoAcumulado"
-                    stroke={corSaldoLinha}
-                    fill="transparent"
-                    strokeWidth={2}
-                    dot={false}
-                    isAnimationActive
-                  />
-                )}
-                <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-3 gap-y-1 text-[10px] sm:text-xs" />} />
-              </AreaChart>
-            </ChartContainer>
-          </div>
-
-          {/* Categorias */}
-          <div
-            className={clsx(
-              "dashboard-surface p-3 sm:p-4",
-              muitasCategorias ? "lg:col-span-3" : "lg:col-span-2"
-            )}
+        {/* KPIs, agrupados pelo recorte de tempo de cada número */}
+        <div className="space-y-4">
+          <FaixaKpis
+            titulo="No período"
+            nota={notaPeriodo}
+            carregando={carregando}
+            className="sm:grid-cols-2 lg:grid-cols-4"
           >
-            <div className="mb-2 flex items-center justify-between gap-2 sm:mb-3">
-              <div>
-                <p className="dashboard-card-title">Por categoria</p>
-                <p className="dashboard-card-description">
-                  Comparativo de receitas e despesas por categoria
-                </p>
-              </div>
-            </div>
+            <Kpi
+              label="Receitas"
+              value={formatarMoeda.format(receita)}
+              icon={ArrowUpCircle}
+              destaque="positivo"
+              hint={DICAS_PERIODO.receitas}
+            />
+            <Kpi
+              label="Despesas"
+              value={formatarMoeda.format(despesa)}
+              icon={ArrowDownCircle}
+              destaque="negativo"
+              hint={DICAS_PERIODO.despesas}
+            />
+            <Kpi
+              label="Saldo do período"
+              value={formatarMoeda.format(saldo)}
+              icon={Wallet}
+              destaque={saldoPositivo ? "positivo" : "negativo"}
+              hint={DICAS_PERIODO.saldo}
+            />
+            <Kpi
+              label="Receitas pendentes"
+              value={formatarMoeda.format(receitaPendente)}
+              icon={CreditCard}
+              hint={DICAS_PERIODO.receitasPendentes}
+            />
+          </FaixaKpis>
 
-            <div
-              className="mt-1 w-full touch-pan-x overflow-x-auto overscroll-x-contain pb-2 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
-              role="region"
-              aria-label="Gráfico de receitas e despesas por categoria"
-              tabIndex={0}
+          <FaixaKpis
+            titulo="Situação atual"
+            nota="não segue o filtro de período — é o saldo em aberto de agora"
+            carregando={carregando}
+            className="sm:grid-cols-2 lg:grid-cols-4"
+          >
+            <Kpi
+              label="Total a pagar"
+              value={formatarMoeda.format(resumoBase.pendencias.aPagar)}
+              icon={ReceiptText}
+              destaque="negativo"
+              hint={DICAS_SITUACAO.aPagar}
+            />
+            <Kpi
+              label="A pagar vencido"
+              value={formatarMoeda.format(resumoBase.pendencias.aPagarVencido)}
+              icon={AlarmClock}
+              destaque="negativo"
+              hint={DICAS_SITUACAO.aPagarVencido}
+            />
+            <Kpi
+              label="Total a receber"
+              value={formatarMoeda.format(resumoBase.pendencias.aReceber)}
+              icon={HandCoins}
+              destaque="positivo"
+              hint={DICAS_SITUACAO.aReceber}
+            />
+            <Kpi
+              label="A receber vencido"
+              value={formatarMoeda.format(resumoBase.pendencias.aReceberVencido)}
+              icon={CreditCard}
+              destaque={resumoBase.pendencias.aReceberVencido > 0 ? "negativo" : undefined}
+              hint={DICAS_SITUACAO.aReceberVencido}
+            />
+          </FaixaKpis>
+        </div>
+
+        {/* Os quatro gráficos saem da mesma consulta recortada pelo filtro. */}
+        <section className="space-y-2">
+          <CabecalhoSecao titulo="Gráficos" nota={notaPeriodo} />
+
+          <div className={clsx("grid grid-cols-1 gap-3 lg:grid-cols-3", carregando && "opacity-80")}>
+            {/* Fluxo */}
+            <ChartCard
+              title="Fluxo de caixa"
+              description="Entradas, saídas e saldo acumulado por dia"
+              hint={DICAS_GRAFICOS.fluxo}
+              className="lg:col-span-3"
+              acoes={
+                <Select value={tipoFluxo} onValueChange={(v) => setTipoFluxo(v as TipoSerieFluxo)}>
+                  <SelectTrigger className="h-8 w-[180px] text-xs sm:h-9">
+                    <SelectValue placeholder="Tipo de fluxo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODOS">Entradas e saídas</SelectItem>
+                    <SelectItem value="ENTRADAS">Somente entradas</SelectItem>
+                    <SelectItem value="SAIDAS">Somente saídas</SelectItem>
+                    <SelectItem value="SALDO">Somente saldo acumulado</SelectItem>
+                  </SelectContent>
+                </Select>
+              }
+            >
+              <ChartContainer
+                config={{
+                  receita: { label: "Receitas (entradas)", color: COR_RECEITA },
+                  despesa: { label: "Despesas (saídas)", color: COR_DESPESA },
+                  saldoAcumulado: {
+                    label: `Saldo acumulado (${saldoPositivo ? "positivo" : "negativo"})`,
+                    color: corSaldoLinha,
+                  },
+                }}
+                className="h-56 w-full sm:h-64 md:h-72 lg:h-80"
+              >
+                <AreaChart key={`fluxo-${animKey}`} data={fluxo} margin={{ top: 12, right: 16, left: 20, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="var(--border)" opacity={0.7} />
+                  <XAxis
+                    dataKey="dataRotulo"
+                    axisLine={false}
+                    tickLine={false}
+                    tickMargin={8}
+                    fontSize={11}
+                    stroke="var(--muted-foreground)"
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tickMargin={12}
+                    fontSize={11}
+                    stroke="var(--muted-foreground)"
+                    tickFormatter={(v) => formatarMoeda.format(v).replace("R$", "").trim()}
+                  />
+                  <ChartTooltip content={<ChartTooltipContent labelFormatter={(label) => `Dia ${label}`} />} />
+
+                  {(tipoFluxo === "TODOS" || tipoFluxo === "ENTRADAS") && (
+                    <Area
+                      type="monotone"
+                      dataKey="receita"
+                      stroke={COR_RECEITA}
+                      fill="hsl(142 76% 36% / 0.12)"
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive
+                    />
+                  )}
+                  {(tipoFluxo === "TODOS" || tipoFluxo === "SAIDAS") && (
+                    <Area
+                      type="monotone"
+                      dataKey="despesa"
+                      stroke={COR_DESPESA}
+                      fill="hsl(0 72% 51% / 0.10)"
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive
+                    />
+                  )}
+                  {(tipoFluxo === "TODOS" || tipoFluxo === "SALDO") && (
+                    <Area
+                      type="monotone"
+                      dataKey="saldoAcumulado"
+                      stroke={corSaldoLinha}
+                      fill="transparent"
+                      strokeWidth={2}
+                      dot={false}
+                      isAnimationActive
+                    />
+                  )}
+                  <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-3 gap-y-1 text-[10px] sm:text-xs" />} />
+                </AreaChart>
+              </ChartContainer>
+            </ChartCard>
+
+            {/* Plano de contas */}
+            <GraficoPlanoDeConta linhas={linhasPlano} animKey={animKey} className="lg:col-span-3" />
+
+            {/* Categorias */}
+            <ChartCard
+              title="Por categoria"
+              description="Comparativo de receitas e despesas por categoria"
+              hint={DICAS_GRAFICOS.categoria}
+              className="lg:col-span-2"
             >
               <div
-                className="h-64 w-full sm:h-72 md:h-80"
-                style={{ minWidth: `${larguraMinimaGraficoCategorias}px` }}
+                className="mt-1 w-full touch-pan-x overflow-x-auto overscroll-x-contain pb-2 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
+                role="region"
+                aria-label="Gráfico de receitas e despesas por categoria"
+                tabIndex={0}
               >
-                <ChartContainer
-                  config={{
-                    receita: { label: "Receitas", color: COR_RECEITA },
-                    despesa: { label: "Despesas", color: COR_DESPESA },
-                  }}
-                  className="h-full w-full"
+                <div
+                  className="h-64 w-full sm:h-72 md:h-80"
+                  style={{ minWidth: `${larguraMinimaGraficoCategorias}px` }}
                 >
-                  <BarChart
-                    key={`cat-${animKey}`}
-                    data={categorias}
-                    margin={{ top: 20, right: 10, left: 10, bottom: 0 }}
-                    barSize={40}
-                    barCategoryGap={32}
-                    barGap={12}
+                  <ChartContainer
+                    config={{
+                      receita: { label: "Receitas", color: COR_RECEITA },
+                      despesa: { label: "Despesas", color: COR_DESPESA },
+                    }}
+                    className="h-full w-full"
                   >
-                    <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="var(--border)" opacity={0.7} />
-                    <XAxis
-                      dataKey="categoria"
-                      axisLine={false}
-                      tickLine={false}
-                      tickMargin={12}
-                      interval={0}
-                      height={40}
-                      tick={<CategoriaTick />}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tickMargin={12}
-                      fontSize={11}
-                      stroke="var(--muted-foreground)"
-                      tickFormatter={(v) => formatarMoeda.format(v).replace("R$", "").trim()}
-                    />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-
-                    <Bar dataKey="receita" stroke={COR_RECEITA} fill={COR_RECEITA} radius={[4, 4, 0, 0]}>
-                      <LabelList
-                        dataKey="receita"
-                        position="top"
-                        fontSize={12}
-                        formatter={(v: number) => (v > 0 ? formatarMoeda.format(v).replace("R$", "").trim() : "")}
+                    <BarChart
+                      key={`cat-${animKey}`}
+                      data={categorias}
+                      margin={{ top: 20, right: 10, left: 10, bottom: 0 }}
+                      barSize={40}
+                      barCategoryGap={32}
+                      barGap={12}
+                    >
+                      <CartesianGrid strokeDasharray="4 8" vertical={false} stroke="var(--border)" opacity={0.7} />
+                      <XAxis
+                        dataKey="categoria"
+                        axisLine={false}
+                        tickLine={false}
+                        tickMargin={12}
+                        interval={0}
+                        height={40}
+                        tick={<CategoriaTick />}
                       />
-                    </Bar>
-                    <Bar dataKey="despesa" stroke={COR_DESPESA} fill={COR_DESPESA} radius={[4, 4, 0, 0]}>
-                      <LabelList
-                        dataKey="despesa"
-                        position="top"
-                        fontSize={12}
-                        formatter={(v: number) => (v > 0 ? formatarMoeda.format(v).replace("R$", "").trim() : "")}
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tickMargin={12}
+                        fontSize={11}
+                        stroke="var(--muted-foreground)"
+                        tickFormatter={(v) => formatarMoeda.format(v).replace("R$", "").trim()}
                       />
-                    </Bar>
-                    <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-3 gap-y-1 text-[10px] sm:text-xs" />} />
-                  </BarChart>
-                </ChartContainer>
-              </div>
-            </div>
-          </div>
+                      <ChartTooltip content={<ChartTooltipContent />} />
 
-          {/* Métodos */}
-          <div
-            className={clsx(
-              "dashboard-surface p-3 sm:p-4",
-              muitasCategorias ? "lg:col-span-3" : "lg:col-span-1"
-            )}
-          >
-            <div className="mb-2 flex items-center justify-between gap-2 sm:mb-3">
-              <div>
-                <p className="dashboard-card-title">Métodos de pagamento</p>
-                <p className="dashboard-card-description">Distribuição de receitas por método</p>
+                      <Bar dataKey="receita" stroke={COR_RECEITA} fill={COR_RECEITA} radius={[4, 4, 0, 0]}>
+                        <LabelList
+                          dataKey="receita"
+                          position="top"
+                          fontSize={12}
+                          formatter={(v: number) => (v > 0 ? formatarMoeda.format(v).replace("R$", "").trim() : "")}
+                        />
+                      </Bar>
+                      <Bar dataKey="despesa" stroke={COR_DESPESA} fill={COR_DESPESA} radius={[4, 4, 0, 0]}>
+                        <LabelList
+                          dataKey="despesa"
+                          position="top"
+                          fontSize={12}
+                          formatter={(v: number) => (v > 0 ? formatarMoeda.format(v).replace("R$", "").trim() : "")}
+                        />
+                      </Bar>
+                      <ChartLegend content={<ChartLegendContent className="flex-wrap gap-x-3 gap-y-1 text-[10px] sm:text-xs" />} />
+                    </BarChart>
+                  </ChartContainer>
+                </div>
               </div>
-            </div>
+            </ChartCard>
 
-            <ChartContainer
-              config={{ valor: { label: "Valor", color: "hsl(221 83% 53%)" } }}
-              className={clsx("w-full", muitasCategorias ? "h-56 sm:h-60 md:h-64" : "h-52 sm:h-60 md:h-64")}
+            {/* Métodos */}
+            <ChartCard
+              title="Métodos de pagamento"
+              description="Distribuição de receitas por método"
+              hint={DICAS_GRAFICOS.metodos}
+              className="lg:col-span-1"
             >
-              <PieChart key={`metodos-${animKey}`}>
-                <ChartTooltip
-                  content={
-                    <ChartTooltipContent
-                      labelFormatter={(label) => String(label)}
-                      formatter={(valor) => formatarMoeda.format(Number(valor ?? 0))}
-                    />
-                  }
-                />
-                <Pie
-                  data={metodos}
-                  dataKey="valor"
-                  nameKey="metodo"
-                  innerRadius={40}
-                  outerRadius={70}
-                  paddingAngle={3}
-                  strokeWidth={2}
-                  isAnimationActive
-                  onClick={(_, index: number) => {
-                    const metodo = metodos[index]?.metodo;
-                    if (!metodo) return;
-                    setMetodoSelecionado((prev) => (prev === metodo ? null : metodo));
-                  }}
-                >
-                  {metodos.map((entrada, indice) => {
-                    const metodo = entrada.metodo;
-                    const selecionado = metodoSelecionado === metodo;
+              {metodosOrdenados.length === 0 ? (
+                <p className="py-12 text-center text-[11px] text-muted-foreground">
+                  Ainda não há lançamentos no período.
+                </p>
+              ) : (
+                <ul className="space-y-2.5">
+                  {metodosOrdenados.map((m) => {
+                    const selecionado = metodoSelecionado === m.metodo;
                     const filtroAtivo = !!metodoSelecionado;
+                    const fatia = maiorMetodo > 0 ? (m.valor / maiorMetodo) * 100 : 0;
+                    const participacao = totalMetodos > 0 ? (m.valor / totalMetodos) * 100 : 0;
 
                     return (
-                      <Cell
-                        key={metodo ?? indice}
-                        fill={CORES_METODOS[indice % CORES_METODOS.length]}
-                        stroke={selecionado ? "var(--primary)" : "var(--border)"}
-                        strokeWidth={selecionado ? 2 : 1}
-                        opacity={!filtroAtivo || selecionado ? 1 : 0.4}
-                        className="cursor-pointer transition-all"
-                      />
+                      <li key={m.metodo}>
+                        <button
+                          type="button"
+                          aria-pressed={selecionado}
+                          onClick={() => setMetodoSelecionado((prev) => (prev === m.metodo ? null : m.metodo))}
+                          title={`${m.metodo} · ${formatarMoeda.format(m.valor)} · ${participacao.toFixed(1)}% das entradas`}
+                          className={cn(
+                            "w-full rounded-md px-1.5 py-1 text-left transition-colors hover:cursor-pointer hover:bg-muted/60",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            filtroAtivo && !selecionado && "opacity-45",
+                            selecionado && "bg-primary/10",
+                          )}
+                        >
+                          <div className="flex items-baseline justify-between gap-2 text-xs">
+                            <span className="truncate text-muted-foreground">{m.metodo}</span>
+                            <span className="shrink-0 font-medium tabular-nums">
+                              {formatarMoeda.format(m.valor)}
+                              <span className="ml-1 font-normal text-muted-foreground">{participacao.toFixed(0)}%</span>
+                            </span>
+                          </div>
+                          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted/60">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${fatia}%`, backgroundColor: COR_RECEITA }}
+                            />
+                          </div>
+                        </button>
+                      </li>
                     );
                   })}
-                  <LabelList
-                    dataKey="valor"
-                    position="outside"
-                    fontSize={12}
-                    formatter={(v: number) => (v > 0 ? formatarMoeda.format(v).replace("R$", "").trim() : "")}
-                    className="fill-foreground"
-                  />
-                </Pie>
-              </PieChart>
-            </ChartContainer>
-
-            <div className="mt-2 space-y-1.5">
-              {metodos.slice(0, 4).map((m) => {
-                const selecionado = metodoSelecionado === m.metodo;
-                const filtroAtivo = !!metodoSelecionado;
-
-                return (
-                  <button
-                    key={m.metodo}
-                    type="button"
-                    onClick={() => setMetodoSelecionado((prev) => (prev === m.metodo ? null : m.metodo))}
-                    className={cn(
-                      "flex w-full items-center justify-between rounded px-1 py-0.5 text-left text-xs transition-colors",
-                      "hover:bg-muted/60",
-                      filtroAtivo && !selecionado && "opacity-60",
-                      selecionado && "bg-primary/10 text-primary"
-                    )}
-                  >
-                    <span className="truncate text-muted-foreground">{m.metodo}</span>
-                    <span className="font-medium">{formatarMoeda.format(m.valor)}</span>
-                  </button>
-                );
-              })}
-              {metodos.length === 0 && (
-                <p className="text-center text-[11px] text-muted-foreground">Ainda não há lançamentos no período.</p>
+                </ul>
               )}
-            </div>
+            </ChartCard>
           </div>
-        </div>
+        </section>
       </CardContent>
     </Card>
   );
