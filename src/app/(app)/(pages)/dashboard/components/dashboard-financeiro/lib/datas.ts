@@ -1,8 +1,8 @@
-export function obterPeriodoInicial(): { inicio: Date; fim: Date } {
-  const hoje = new Date();
-  const fim = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate(), 23, 59, 59);
-  const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1, 0, 0, 0);
-  return { inicio, fim };
+import { obterMesAtual, type PeriodoDashboard } from "../../shared/periodo";
+
+// intervalo padrão do dashboard: o mês atual
+export function obterPeriodoInicial(): PeriodoDashboard {
+  return obterMesAtual();
 }
 
 export function formatarDataCurta(d: Date) {

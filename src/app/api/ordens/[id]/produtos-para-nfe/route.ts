@@ -389,7 +389,9 @@ export async function GET(req: Request) {
       tipo_operacao: "SAIDA",
       natureza_operacao: "VENDA DE MERCADORIA",
       configuracao_fiscal: {
-        consumidorFinal: true,
+        // Sem destino sugerido: a OS não diz se o cliente revende ou consome a
+        // peça, e ter CNPJ ou IE também não diz. A tela cobra a escolha.
+        destinoMercadoria: null,
         indicadorPresenca: "1",
         modFrete: toNumber(os.valor_frete) > 0 ? "0" : "9",
         valorFrete: Math.max(0, toNumber(os.valor_frete)),

@@ -303,7 +303,9 @@ export async function GET(
       tipo_operacao: "SAIDA",
       natureza_operacao: "VENDA DE MERCADORIA",
       configuracao_fiscal: {
-        consumidorFinal: true,
+        // Sem destino sugerido: a venda não diz se o cliente revende ou
+        // consome a mercadoria. A tela cobra a escolha.
+        destinoMercadoria: null,
         indicadorPresenca: mapSalesChannelToPresence(venda.canal),
         // O frete cobrado na venda entra na nota (vFrete) e continua editável na
         // tela. Com frete, "sem ocorrência de transporte" (9) não descreve mais

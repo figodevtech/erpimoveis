@@ -207,11 +207,18 @@ export type ItemFiscalNfeOrigem = {
     cst_cofins: string | null;
     aliquota_cofins: number | null;
   };
-  /** Retenções de ST da entrada, necessárias para devolver mercadoria de ST. */
+  /**
+   * ST cobrada anteriormente, como o fornecedor informou no grupo ICMS60 ou
+   * ICMSSN500 da nota de compra. Valores da linha inteira da compra.
+   */
   substituicaoTributaria: {
     vBCSTRet: number | null;
     vICMSSTRet: number | null;
     pST: number | null;
+    vICMSSubstituto: number | null;
+    vBCFCPSTRet: number | null;
+    pFCPSTRet: number | null;
+    vFCPSTRet: number | null;
   };
 };
 
@@ -302,6 +309,10 @@ export function extrairItensFiscaisNfe(xml: string): ItemFiscalNfeOrigem[] {
         vBCSTRet: numeroOuNulo(icms.vBCSTRet),
         vICMSSTRet: numeroOuNulo(icms.vICMSSTRet),
         pST: numeroOuNulo(icms.pST),
+        vICMSSubstituto: numeroOuNulo(icms.vICMSSubstituto),
+        vBCFCPSTRet: numeroOuNulo(icms.vBCFCPSTRet),
+        pFCPSTRet: numeroOuNulo(icms.pFCPSTRet),
+        vFCPSTRet: numeroOuNulo(icms.vFCPSTRet),
       },
     }];
   });

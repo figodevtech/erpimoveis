@@ -43,19 +43,17 @@ import {
   getRequiredPisCofinsMode,
   PIS_COFINS_CST_OPTIONS,
 } from "@/lib/nfe/taxRules";
-import {
-  CSOSN_DESCRICOES,
-  CST_ICMS_DESCRICOES,
-  ORIGENS_MERCADORIA,
-} from "@/lib/nfe/rotulosFiscais";
 
 import {
   type AssistedFiscalItem,
   type AssistedItemIssue,
+  type ContextoBaseIcms,
   type FiscalSetup,
+  calcularIcmsDoItem,
   inferPisCofinsMode,
   onlyDigits,
 } from "./emissao-assistida-model";
+import { NfeItemIcmsSection } from "./nfe-item-icms-section";
 
 type Props = {
   open: boolean;
@@ -66,12 +64,11 @@ type Props = {
   modelo: ModeloDocumentoFiscal;
   tipoOperacao: NFeOperationDirection;
   parceiroUf?: string | null;
+  /** Frete do item e decisão da nota sobre ele entrar na base do ICMS. */
+  contextoBase?: ContextoBaseIcms;
   onChange: (patch: Partial<AssistedFiscalItem>) => void;
 };
 
-const CSOSN_DESCRIPTIONS = CSOSN_DESCRICOES;
-const CST_DESCRIPTIONS = CST_ICMS_DESCRICOES;
-const ORIGENS = ORIGENS_MERCADORIA;
 
 /**
  * Selo de procedência do valor que abriu no campo.
@@ -172,6 +169,7 @@ export function NfeItemFiscalEditor({
   modelo,
   tipoOperacao,
   parceiroUf,
+  contextoBase,
   onChange,
 }: Props) {
   const [cfopOpen, setCfopOpen] = useState(false);
@@ -191,12 +189,11 @@ export function NfeItemFiscalEditor({
   // Procedência com que o servidor montou o item. Não acompanha a edição: o
   // selo descreve como o campo abriu, não o que o usuário digitou depois.
   const proc = item.procedenciaFiscal ?? {};
-  const needsIcmsRate =
-    ["00", "10", "20", "51", "70", "90"].includes(item.cst) ||
-    item.csosn === "900";
-  const needsCest =
-    ["10", "30", "70"].includes(item.cst) ||
-    ["201", "202", "203"].includes(item.csosn);
+  // CEST é exigido quando o item retém ICMS-ST — o mesmo critério do XML.
+  const needsCest = calcularIcmsDoItem(item, setup, contextoBase).valores?.vBCST != null;
+  // Avisos de CFOP × CST têm seção própria, com a caixa de ciência.
+  const pendencias = issues.filter((issue) => !issue.requerCiencia);
+  const avisosPendentes = issues.length - pendencias.length;
 
   const updateQuantity = (value: string) => {
     const quantidade = Number(value);
@@ -253,17 +250,23 @@ export function NfeItemFiscalEditor({
           </DialogDescription>
         </DialogHeader>
 
-        {issues.length > 0 ? (
+        {pendencias.length > 0 ? (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{issues.length} pendência(s) fiscal(is)</AlertTitle>
+            <AlertTitle>{pendencias.length} pendência(s) fiscal(is)</AlertTitle>
             <AlertDescription className="min-w-0">
               <ul className="mt-1 min-w-0 list-disc space-y-1 pl-4 [overflow-wrap:anywhere]">
-                {issues.map((issue, index) => (
+                {pendencias.map((issue, index) => (
                   <li key={`${issue.code}-${issue.field}-${index}`}>{issue.message}</li>
                 ))}
               </ul>
             </AlertDescription>
+          </Alert>
+        ) : avisosPendentes > 0 ? (
+          <Alert className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Confirme a ciência do aviso de CFOP × CST</AlertTitle>
+            <AlertDescription>Veja o aviso na seção ICMS abaixo.</AlertDescription>
           </Alert>
         ) : (
           <Alert>
@@ -326,6 +329,8 @@ export function NfeItemFiscalEditor({
                               onChange({
                                 cfop: entry.codigo,
                                 cfopResolution: null,
+                                // A ciência valia para o CFOP anterior.
+                                avisosFiscaisConfirmados: [],
                                 procedenciaFiscal: {
                                   ...item.procedenciaFiscal,
                                   cfop: "USUARIO",
@@ -411,72 +416,14 @@ export function NfeItemFiscalEditor({
           </div>
         </section>
 
-        <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4 bg-card">
-          <h3 className="text-sm font-semibold">ICMS</h3>
-          <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Field
-              label="Origem da mercadoria"
-              required
-              origem={proc.origem_mercadoria}
-              className="sm:col-span-2"
-            >
-              <Select value={item.orig} onValueChange={(orig) => onChange({ orig })}>
-                <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                <SelectContent className="w-[calc(100vw-2rem)] max-w-[32rem]">
-                  {ORIGENS.map(([value, label]) => (
-                    <SelectItem className="break-words whitespace-normal py-2 [overflow-wrap:anywhere]" key={value} value={value}>
-                      {value} - {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-
-            {rules?.icms.csosn === "REQUIRED" ? (
-              <Field label="CSOSN" required origem={proc.csosn} className="sm:col-span-2">
-                <Select
-                  value={item.csosn}
-                  onValueChange={(csosn) => onChange({ csosn, cst: "" })}
-                >
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent className="w-[calc(100vw-2rem)] max-w-[34rem]">
-                    {rules.icms.csosnPermitidos.map((code) => (
-                      <SelectItem className="break-words whitespace-normal py-2 [overflow-wrap:anywhere]" key={code} value={code}>
-                        {code} - {CSOSN_DESCRIPTIONS[code] || code}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            ) : null}
-
-            {rules?.icms.cst === "REQUIRED" ? (
-              <Field label="CST ICMS" required origem={proc.cst} className="sm:col-span-2">
-                <Select value={item.cst} onValueChange={(cst) => onChange({ cst, csosn: "" })}>
-                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                  <SelectContent className="w-[calc(100vw-2rem)] max-w-[30rem]">
-                    {rules.icms.cstPermitidos.map((code) => (
-                      <SelectItem className="break-words whitespace-normal py-2 [overflow-wrap:anywhere]" key={code} value={code}>
-                        {code} - {CST_DESCRIPTIONS[code] || code}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            ) : null}
-
-            {needsIcmsRate ? (
-              <Field label="Alíquota ICMS (%)" required origem={proc.aliquotaicms}>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  value={item.aliquotaIcms}
-                  onChange={(event) => onChange({ aliquotaIcms: event.target.value })}
-                />
-              </Field>
-            ) : null}
-          </div>
-        </section>
+        <NfeItemIcmsSection
+          item={item}
+          setup={setup}
+          contextoBase={contextoBase}
+          procedencia={proc}
+          onChange={onChange}
+          Field={Field}
+        />
 
         <section className="min-w-0 space-y-4 rounded-lg border p-3 sm:p-4 bg-card">
           <h3 className="text-sm font-semibold">PIS e COFINS</h3>

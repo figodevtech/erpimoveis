@@ -13,6 +13,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  decisaoFreteDoDraft,
+  resolverIndFinalDaOperacao,
   validarDraftAvulso,
   validarLimiteTotalDevolucao,
 } from "./nfeAvulsaService";
@@ -42,7 +44,7 @@ function draftBase(overrides: Partial<Draft> = {}): Draft {
       tipoOperacao: "SAIDA",
       naturezaOperacao: "VENDA DE MERCADORIA",
       finalidade: "NORMAL",
-      consumidorFinal: true,
+      destinoMercadoria: "USO_CONSUMO",
       indicadorPresenca: "1",
     },
     destinatario: {
@@ -84,6 +86,8 @@ describe("emissão avulsa: caminho feliz", () => {
   it("aceita a nota com frete quando os pagamentos incluem o frete", () => {
     const draft = draftBase({
       itens: [itemBase({ valorFrete: 20 })],
+      // Frete cobrado na nota com transporte contratado pelo remetente.
+      transporte: { modFrete: "0" },
       pagamentos: [
         { meio: "01", valor: 60, tipoIntegracao: "2" },
         { meio: "17", valor: 60, tipoIntegracao: "2" },
@@ -91,6 +95,49 @@ describe("emissão avulsa: caminho feliz", () => {
     });
 
     assert.deepEqual(validarDraftAvulso(draft), []);
+  });
+});
+
+describe("emissão avulsa: frete na base do ICMS (LC 87/96, art. 13, §1º, II, b)", () => {
+  const comFrete = (transporte: Draft["transporte"]) =>
+    draftBase({
+      itens: [itemBase({ valorFrete: 20 })],
+      transporte,
+      pagamentos: [{ meio: "01", valor: 120, tipoIntegracao: "2" }],
+    });
+
+  it("transporte do remetente: o frete integra a base por lei, sem perguntar", () => {
+    for (const modFrete of ["0", "3"]) {
+      const draft = comFrete({ modFrete });
+      assert.equal(erros(draft, "transporte.freteIntegraBaseIcms").length, 0, modFrete);
+      const decisao = decisaoFreteDoDraft(draft);
+      assert.equal(decisao.integra, true);
+      assert.equal(decisao.fonte, "LEI");
+    }
+  });
+
+  it("frete cobrado em outra modalidade: exige a decisão do usuário", () => {
+    for (const modFrete of ["1", "2", "4", "9"]) {
+      const [erro] = erros(comFrete({ modFrete }), "transporte.freteIntegraBaseIcms");
+      assert.ok(erro, modFrete);
+      assert.equal(erro.step, "transport");
+      assert.match(erro.message, /Informe se este frete integra a base do ICMS próprio/);
+    }
+  });
+
+  it("com a decisão informada, vale o que o usuário escolheu", () => {
+    const naoIntegra = comFrete({ modFrete: "1", freteIntegraBaseIcms: false });
+    assert.deepEqual(validarDraftAvulso(naoIntegra), []);
+    assert.equal(decisaoFreteDoDraft(naoIntegra).integra, false);
+    assert.equal(decisaoFreteDoDraft(comFrete({ modFrete: "9", freteIntegraBaseIcms: true })).integra, true);
+  });
+
+  it("a decisão não se sobrepõe à lei quando o transporte é do remetente", () => {
+    assert.equal(decisaoFreteDoDraft(comFrete({ modFrete: "0", freteIntegraBaseIcms: false })).integra, true);
+  });
+
+  it("sem frete cobrado não há o que decidir", () => {
+    assert.equal(decisaoFreteDoDraft(draftBase({ transporte: { modFrete: "1" } })).fonte, "SEM_FRETE");
   });
 });
 
@@ -259,12 +306,79 @@ describe("emissão avulsa: destinatário e transporte", () => {
     assert.equal(erros(draft, "cpfCnpj").length, 1);
   });
 
-  it("recusa não contribuinte marcado como não consumidor final", () => {
+  it("recusa revenda para não contribuinte: ele é sempre consumidor final", () => {
     const draft = draftBase({
-      operacao: { ...draftBase().operacao, consumidorFinal: false },
+      operacao: { ...draftBase().operacao, destinoMercadoria: "REVENDA_INDUSTRIALIZACAO" },
     });
 
-    assert.equal(erros(draft, "consumidorFinal").length, 1);
+    const encontrados = erros(draft, "destinoMercadoria");
+    assert.equal(encontrados.length, 1);
+    assert.match(encontrados[0].message, /não contribuinte \(indIEDest 9\) é sempre consumidor final/);
+  });
+});
+
+describe("emissão avulsa: destino da mercadoria e indFinal", () => {
+  const contribuinte = {
+    ...draftBase().destinatario,
+    indicadorIe: "1",
+    inscricaoEstadual: "160000000",
+  };
+
+  it("exige o destino na NF-e de saída em vez de presumir consumidor final", () => {
+    const draft = draftBase({
+      operacao: { ...draftBase().operacao, destinoMercadoria: null, consumidorFinal: true },
+    });
+    const encontrados = erros(draft, "destinoMercadoria");
+    assert.equal(encontrados.length, 1);
+    assert.match(encontrados[0].message, /não o presume/);
+  });
+
+  it("aceita contribuinte comprando para uso e consumo", () => {
+    const draft = draftBase({ destinatario: contribuinte });
+    assert.deepEqual(validarDraftAvulso(draft), []);
+    assert.equal(resolverIndFinalDaOperacao(draft), 1);
+  });
+
+  it("revenda para contribuinte sai com indFinal 0", () => {
+    const draft = draftBase({
+      destinatario: contribuinte,
+      operacao: { ...draftBase().operacao, destinoMercadoria: "REVENDA_INDUSTRIALIZACAO" },
+    });
+    assert.deepEqual(validarDraftAvulso(draft), []);
+    assert.equal(resolverIndFinalDaOperacao(draft), 0);
+  });
+
+  it("OUTRO só vale com o indicador de consumidor final informado", () => {
+    const semIndicador = draftBase({ operacao: { ...draftBase().operacao, destinoMercadoria: "OUTRO" } });
+    assert.equal(erros(semIndicador, "destinoMercadoria").length, 1);
+
+    const comIndicador = draftBase({
+      destinatario: contribuinte,
+      operacao: { ...draftBase().operacao, destinoMercadoria: "OUTRO", consumidorFinal: false },
+    });
+    assert.deepEqual(validarDraftAvulso(comIndicador), []);
+    assert.equal(resolverIndFinalDaOperacao(comIndicador), 0);
+  });
+
+  it("ignora o consumidorFinal enviado quando o destino decide", () => {
+    const draft = draftBase({
+      destinatario: contribuinte,
+      operacao: { ...draftBase().operacao, destinoMercadoria: "ATIVO_IMOBILIZADO", consumidorFinal: false },
+    });
+    assert.equal(resolverIndFinalDaOperacao(draft), 1);
+  });
+
+  it("NFC-e é sempre consumidor final e não pergunta o destino", () => {
+    const draft = draftBase({ modelo: 65, operacao: { ...draftBase().operacao, destinoMercadoria: null } });
+    assert.equal(resolverIndFinalDaOperacao(draft), 1);
+    assert.equal(erros(draft, "destinoMercadoria").length, 0);
+  });
+
+  it("NF-e de entrada própria mantém o indicador do fluxo de entrada", () => {
+    const draft = draftBase({
+      operacao: { ...draftBase().operacao, tipoOperacao: "ENTRADA", destinoMercadoria: null, consumidorFinal: false },
+    });
+    assert.equal(resolverIndFinalDaOperacao(draft), 0);
   });
 });
 
@@ -379,7 +493,7 @@ describe("emissão avulsa: NF-e referenciada", () => {
         ...draftBase().operacao,
         finalidade: "DEVOLUCAO",
         naturezaOperacao: "DEVOLUCAO DE MERCADORIA",
-        consumidorFinal: false,
+        destinoMercadoria: "REVENDA_INDUSTRIALIZACAO",
         indicadorPresenca: "0",
       },
       destinatario: {

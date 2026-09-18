@@ -27,6 +27,8 @@ import {
 } from "@/lib/nfe/recipientNormalization";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
+import type { DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
+import { stRetidaProporcional, type StRetidaDaCompra } from "@/lib/nfe/icms/stRetida";
 import {
   salvarNFeAvulsaDraft,
   type NFeAvulsaDraftInput,
@@ -76,6 +78,14 @@ export type NFeSaidaDraftInput = {
    * anterior. Omitido, vale o contexto já gravado.
    */
   contextoFiscal?: Omit<SalvarContextoFiscalSaidaInput, "destinatario"> | null;
+  /**
+   * Destino da mercadoria no destinatário, escolhido na emissão. Dele sai o
+   * indFinal — ser ou não contribuinte (indIEDest) não responde se ele vai
+   * revender ou consumir.
+   */
+  destinoMercadoria?: DestinoMercadoria | null;
+  /** Só lido quando o destino é "OUTRO". */
+  consumidorFinal?: boolean | null;
 };
 
 type DestinatarioFiscalSaida = NFeAvulsaDraftInput["destinatario"] & {
@@ -681,12 +691,12 @@ export type EspelhoFiscalItem = {
   valorUnitario: number | null;
   /** Descrição do item na NF-e original, quando ela existir. */
   descricaoOrigem: string | null;
-  /** ST retida na entrada — precisa voltar na devolução de mercadoria de ST. */
-  substituicaoTributaria: {
-    vBCSTRet: number | null;
-    vICMSSTRet: number | null;
-    pST: number | null;
-  } | null;
+  /**
+   * ST cobrada anteriormente, lida da NF-e de compra e proporcional à
+   * quantidade desta saída. `null` sem vínculo com a entrada: o ERP não
+   * inventa valor de ST retida.
+   */
+  substituicaoTributaria: StRetidaDaCompra | null;
   /** Por que o espelho não pôde ser usado, quando for o caso. */
   aviso: string | null;
 };
@@ -827,7 +837,11 @@ export async function montarEspelhoFiscalSaida(
       procedencia,
       valorUnitario: origem?.valorUnitario ?? null,
       descricaoOrigem: origem?.descricao ?? null,
-      substituicaoTributaria: origem?.substituicaoTributaria ?? null,
+      substituicaoTributaria: stRetidaProporcional(
+        origem?.substituicaoTributaria,
+        numberValue(saidaItem.quantidade),
+        origem?.quantidade,
+      ),
       aviso,
     });
   }
@@ -1049,7 +1063,8 @@ async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput)
       tipoOperacao: "SAIDA",
       naturezaOperacao: contexto.natureza_operacao,
       finalidade: contexto.finalidade,
-      consumidorFinal: destinatario.indicadorIe === "9",
+      destinoMercadoria: input.destinoMercadoria ?? null,
+      consumidorFinal: input.consumidorFinal ?? null,
       indicadorPresenca: "0",
       observacoesFiscais: resolverObservacoesFiscais(
         input.observacoesFiscais,
@@ -1340,7 +1355,8 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
       tipoOperacao: "SAIDA",
       naturezaOperacao: contexto.natureza_operacao,
       finalidade: contexto.finalidade,
-      consumidorFinal: destinatario.indicadorIe === "9",
+      destinoMercadoria: input.destinoMercadoria ?? null,
+      consumidorFinal: input.consumidorFinal ?? null,
       indicadorPresenca: "0",
       observacoesFiscais: resolverObservacoesFiscais(
         input.observacoesFiscais,

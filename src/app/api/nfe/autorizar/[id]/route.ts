@@ -21,6 +21,7 @@ import { resolveSefazEndpoint } from "@/lib/nfe/webservices";
 import { anexarQrCodeNfce } from "@/services/fiscal/nfceQrCodeService";
 import type { ClienteRow, EmpresaRow } from "@/lib/nfe/types";
 import { truncateNfeXNomeInXml } from "@/lib/nfe/xmlUtils";
+import { rascunhoPrecisaSerRegerado } from "@/lib/nfe/taxRules";
 
 export const runtime = "nodejs";
 
@@ -281,6 +282,19 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     }
 
     const statusAtual: string | null = nfe.status ?? null;
+
+    if (rascunhoPrecisaSerRegerado(nfe)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          tipo: "REGRA_FISCAL_DESATUALIZADA",
+          mensagem:
+            "Este rascunho foi montado com uma versão anterior das regras fiscais. " +
+            "Abra a nota, confira os tributos e salve de novo antes de transmitir.",
+        },
+        { status: 409 }
+      );
+    }
 
     // -------------------------------------------------------------------
     // 3) Buscar empresa no Supabase (usando nfe.empresaid)

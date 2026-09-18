@@ -2,6 +2,7 @@
 
 import type { ICMSUFDest } from './difal';
 import type { IndIEDest } from './indIEDest';
+import type { DecisaoIcms, IcmsCanonico } from './icms/tipos';
 
 export type { ICMSUFDest };
 
@@ -276,13 +277,12 @@ export interface NFeItem {
   vICMS?: number;
 
   /**
-   * Base de cálculo de ICMS (vBC) – opcional, hoje calculamos em cima do valorTotal.
+   * Base do ICMS próprio informada explicitamente (vBC). Nunca é preenchida só
+   * porque existe alíquota: num grupo sem ICMS próprio (60, 40...) ela é erro.
    */
   baseCalculoIcms?: number;
 
-  /**
-   * Valor de ICMS (vICMS) – opcional, hoje calculamos em cima do valorTotal.
-   */
+  /** Valor do ICMS próprio informado explicitamente (vICMS). Mesma regra da base. */
   valorIcms?: number;
 
   pRedBC?: number;
@@ -313,6 +313,16 @@ export interface NFeItem {
   vICMSOp?: number;
   pDif?: number;
   vICMSDif?: number;
+
+  /**
+   * Grupo ICMS decidido pelo núcleo (`src/lib/nfe/icms`). Quando presente, é a
+   * única fonte do XML, dos totais e de `nfe_item`: os campos soltos acima
+   * passam a ser só a classificação de origem. Sem ele, o núcleo decide a
+   * partir dos campos soltos.
+   */
+  icms?: IcmsCanonico;
+  /** Por que o grupo ficou assim: vai para o snapshot do item. */
+  icmsDecisao?: DecisaoIcms;
 
   // ---------- PIS ----------
   /**

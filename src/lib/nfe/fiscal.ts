@@ -1,5 +1,6 @@
 import type { CRT, NFeItem, TributoPisCofins } from './types';
 import { assertNFeItemTax } from './taxRules';
+import { icmsCanonicoDoItem, serializarIcms, somarTotaisIcms, valorLiquidoItem } from './icms';
 import { escapeXml } from './xmlUtils';
 
 export type TotaisNFe = {
@@ -67,29 +68,7 @@ function requiredNumber(item: NFeItem, field: keyof NFeItem, value: unknown, for
   return formatter(value);
 }
 
-/**
- * Valor do item efetivamente cobrado: vProd menos o desconto incondicional.
- * E a base padrao de ICMS, PIS/COFINS e IPI quando nada for informado — o
- * desconto incondicional reduz a base de calculo desses tributos.
- */
-export function valorLiquidoItem(item: NFeItem) {
-  const bruto = Number(item.valorTotal ?? 0);
-  const desconto = Math.min(Math.max(0, Number(item.valorDesconto ?? 0)), Math.max(0, bruto));
-  return Number((bruto - desconto).toFixed(2));
-}
-
-function baseIcms(item: NFeItem) {
-  return Number(item.vBC ?? item.baseCalculoIcms ?? valorLiquidoItem(item));
-}
-
-function rateIcms(item: NFeItem) {
-  return Number(item.pICMS ?? item.aliquotaIcms);
-}
-
-function valueIcms(item: NFeItem) {
-  const informed = item.vICMS ?? item.valorIcms;
-  return has(informed) ? Number(informed) : Number(((baseIcms(item) * rateIcms(item)) / 100).toFixed(2));
-}
+export { valorLiquidoItem };
 
 export function normalizarCRT(value: string | number | null | undefined): CRT {
   const crt = clean(value);
@@ -98,6 +77,7 @@ export function normalizarCRT(value: string | number | null | undefined): CRT {
 }
 
 function hasIcmsST(item: NFeItem) {
+  if (item.icms) return item.icms.vBCST !== null;
   const csosn = digits(item.csosn, 3);
   const cst = digits(item.cstIcms ?? item.cst, 2);
   return ['201', '202', '203'].includes(csosn) || ['10', '30', '70'].includes(cst) || has(item.vBCST) || has(item.vICMSST);
@@ -110,100 +90,18 @@ export function getCestXml(item: NFeItem): string {
   return cest ? tag('CEST', cest) : '';
 }
 
-function fcpOwn(item: NFeItem) {
-  if (![item.vBCFCP, item.pFCP, item.vFCP].some(has)) return '';
-  return tag('vBCFCP', requiredNumber(item, 'vBCFCP', item.vBCFCP)) +
-    tag('pFCP', requiredNumber(item, 'pFCP', item.pFCP, rate)) +
-    tag('vFCP', requiredNumber(item, 'vFCP', item.vFCP));
-}
-
-function stFields(item: NFeItem) {
-  const base = requiredNumber(item, 'vBCST', item.vBCST);
-  const aliquota = requiredNumber(item, 'pICMSST', item.pICMSST, rate);
-  const valor = has(item.vICMSST) ? Number(item.vICMSST) : Number(((Number(item.vBCST) * Number(item.pICMSST)) / 100).toFixed(2));
-  let xml = tag('modBCST', clean(item.modBCST) || '4') +
-    optionalTag('pMVAST', item.pMVAST, rate) + optionalTag('pRedBCST', item.pRedBCST, rate) +
-    tag('vBCST', base) + tag('pICMSST', aliquota) + tag('vICMSST', money(valor));
-  if ([item.vBCFCPST, item.pFCPST, item.vFCPST].some(has)) {
-    xml += tag('vBCFCPST', requiredNumber(item, 'vBCFCPST', item.vBCFCPST)) +
-      tag('pFCPST', requiredNumber(item, 'pFCPST', item.pFCPST, rate)) +
-      tag('vFCPST', requiredNumber(item, 'vFCPST', item.vFCPST));
-  }
-  return xml;
-}
-
-function retainedFields(item: NFeItem) {
-  return optionalTag('vBCSTRet', item.vBCSTRet) + optionalTag('pST', item.pST, rate) +
-    optionalTag('vICMSSubstituto', item.vICMSSubstituto) + optionalTag('vICMSSTRet', item.vICMSSTRet) +
-    optionalTag('vBCFCPSTRet', item.vBCFCPSTRet) + optionalTag('pFCPSTRet', item.pFCPSTRet, rate) +
-    optionalTag('vFCPSTRet', item.vFCPSTRet);
-}
-
-function desoneracao(item: NFeItem) {
-  if (![item.vICMSDeson, item.motDesICMS].some(has)) return '';
-  return tag('vICMSDeson', requiredNumber(item, 'vICMSDeson', item.vICMSDeson)) +
-    tag('motDesICMS', clean(item.motDesICMS));
-}
-
-function buildIcmsSn(item: NFeItem) {
-  const csosn = digits(item.csosn, 3);
-  const common = tag('orig', digits(item.orig)) + tag('CSOSN', csosn);
-  if (csosn === '101') {
-    return `<ICMSSN101>${common}${tag('pCredSN', requiredNumber(item, 'pCredSN', item.pCredSN, rate))}${tag('vCredICMSSN', requiredNumber(item, 'vCredICMSSN', item.vCredICMSSN))}</ICMSSN101>`;
-  }
-  if (csosn === '201') {
-    return `<ICMSSN201>${common}${stFields(item)}${tag('pCredSN', requiredNumber(item, 'pCredSN', item.pCredSN, rate))}${tag('vCredICMSSN', requiredNumber(item, 'vCredICMSSN', item.vCredICMSSN))}</ICMSSN201>`;
-  }
-  if (csosn === '202' || csosn === '203') return `<ICMSSN202>${common}${stFields(item)}</ICMSSN202>`;
-  if (csosn === '500') return `<ICMSSN500>${common}${retainedFields(item)}</ICMSSN500>`;
-  if (csosn === '900') {
-    let conditional = '';
-    if ([item.vBC, item.baseCalculoIcms, item.pICMS, item.aliquotaIcms, item.vICMS, item.valorIcms].some(has)) {
-      conditional += tag('modBC', clean(item.modBC) || '3') + tag('vBC', money(baseIcms(item))) +
-        optionalTag('pRedBC', item.pRedBC, rate) + tag('pICMS', rate(rateIcms(item))) + tag('vICMS', money(valueIcms(item)));
-    }
-    if ([item.vBCST, item.pICMSST, item.vICMSST].some(has)) conditional += stFields(item);
-    conditional += fcpOwn(item) + optionalTag('pCredSN', item.pCredSN, rate) + optionalTag('vCredICMSSN', item.vCredICMSSN);
-    return `<ICMSSN900>${common}${conditional}</ICMSSN900>`;
-  }
-  return `<ICMSSN102>${common}</ICMSSN102>`;
-}
-
-function buildIcmsNormal(item: NFeItem) {
-  const cst = digits(item.cstIcms ?? item.cst, 2);
-  const common = tag('orig', digits(item.orig)) + tag('CST', cst);
-  const own = () => tag('modBC', clean(item.modBC) || '3') + tag('vBC', money(baseIcms(item))) +
-    tag('pICMS', rate(rateIcms(item))) + tag('vICMS', money(valueIcms(item))) + fcpOwn(item);
-  switch (cst) {
-    case '00': return `<ICMS00>${common}${own()}</ICMS00>`;
-    case '10': return `<ICMS10>${common}${own()}${stFields(item)}</ICMS10>`;
-    case '20': return `<ICMS20>${common}${tag('modBC', clean(item.modBC) || '3')}${tag('pRedBC', requiredNumber(item, 'pRedBC', item.pRedBC, rate))}${tag('vBC', money(baseIcms(item)))}${tag('pICMS', rate(rateIcms(item)))}${tag('vICMS', money(valueIcms(item)))}${fcpOwn(item)}${desoneracao(item)}</ICMS20>`;
-    case '30': return `<ICMS30>${common}${stFields(item)}${desoneracao(item)}</ICMS30>`;
-    case '40':
-    case '41':
-    case '50': return `<ICMS40>${common}${desoneracao(item)}</ICMS40>`;
-    case '51': return `<ICMS51>${common}${optionalTag('modBC', item.modBC, clean)}${optionalTag('pRedBC', item.pRedBC, rate)}${optionalTag('vBC', item.vBC ?? item.baseCalculoIcms)}${optionalTag('pICMS', item.pICMS ?? item.aliquotaIcms, rate)}${optionalTag('vICMSOp', item.vICMSOp)}${optionalTag('pDif', item.pDif, rate)}${optionalTag('vICMSDif', item.vICMSDif)}${optionalTag('vICMS', item.vICMS ?? item.valorIcms)}${fcpOwn(item)}</ICMS51>`;
-    case '60': return `<ICMS60>${common}${retainedFields(item)}</ICMS60>`;
-    case '70': return `<ICMS70>${common}${tag('modBC', clean(item.modBC) || '3')}${tag('pRedBC', requiredNumber(item, 'pRedBC', item.pRedBC, rate))}${tag('vBC', money(baseIcms(item)))}${tag('pICMS', rate(rateIcms(item)))}${tag('vICMS', money(valueIcms(item)))}${stFields(item)}${fcpOwn(item)}${desoneracao(item)}</ICMS70>`;
-    case '90': {
-      let conditional = '';
-      if ([item.vBC, item.baseCalculoIcms].some(has)) conditional += own();
-      if ([item.vBCST, item.vICMSST].some(has)) conditional += stFields(item);
-      conditional += desoneracao(item);
-      return `<ICMS90>${common}${conditional}</ICMS90>`;
-    }
-    default: throw new Error(`NFE_ICMS_CST_UNSUPPORTED: item ${item.numeroItem}, CST ${cst}.`);
-  }
-}
-
 export function validarItemFiscal(item: NFeItem, crt: CRT): void {
   assertNFeItemTax(item, crt);
   getCestXml(item);
 }
 
+/**
+ * Grupo ICMS do item. Só serializa: o que entra e com que valor foi decidido
+ * pelo núcleo (`src/lib/nfe/icms`), o mesmo que alimenta totais e nfe_item.
+ */
 export function buildIcmsXmlPorCRT(item: NFeItem, crt: CRT): string {
   validarItemFiscal(item, crt);
-  return crt === 1 || crt === 4 ? buildIcmsSn(item) : buildIcmsNormal(item);
+  return serializarIcms(icmsCanonicoDoItem(item, crt));
 }
 
 function legacyTributo(item: NFeItem, type: 'PIS' | 'COFINS'): TributoPisCofins {
@@ -320,13 +218,11 @@ export function calcularTotaisNFe(itens: NFeItem[], crt: CRT): TotaisNFe {
     // no preco unitario, para a nota espelhar o preco de tabela.
     total.vProd += Number(item.valorTotal);
     total.vDesc += Number((Number(item.valorTotal) - valorLiquidoItem(item)).toFixed(2));
-    const cst = digits(item.cstIcms ?? item.cst, 2);
-    if ((crt === 2 || crt === 3) && ['00', '10', '20', '51', '70', '90'].includes(cst) && has(item.vBC ?? item.baseCalculoIcms)) {
-      total.vBC += baseIcms(item); total.vICMS += valueIcms(item);
-    }
-    total.vICMSDeson += Number(item.vICMSDeson ?? 0); total.vFCP += Number(item.vFCP ?? 0);
-    total.vBCST += Number(item.vBCST ?? 0); total.vST += Number(item.vICMSST ?? 0);
-    total.vFCPST += Number(item.vFCPST ?? 0); total.vFCPSTRet += Number(item.vFCPSTRet ?? 0);
+    // ICMS: soma do mesmo canônico que foi serializado no item.
+    const icms = somarTotaisIcms([icmsCanonicoDoItem(item, crt)]);
+    total.vBC += icms.vBC; total.vICMS += icms.vICMS; total.vICMSDeson += icms.vICMSDeson;
+    total.vFCP += icms.vFCP; total.vBCST += icms.vBCST; total.vST += icms.vST;
+    total.vFCPST += icms.vFCPST; total.vFCPSTRet += icms.vFCPSTRet;
     total.vPIS += contributionValue(item, 'PIS'); total.vCOFINS += contributionValue(item, 'COFINS');
     total.vIPI += Number(item.valorIpi ?? 0); total.vIPIDevol += Number(item.valorIpiDevolvido ?? 0);
     total.vIS += Number(item.impostoSeletivo?.valor ?? 0);

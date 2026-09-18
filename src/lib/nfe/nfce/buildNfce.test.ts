@@ -203,7 +203,7 @@ describe("ambiente fiscal é único: a empresa manda", () => {
 
 describe("NF-e modelo 55 não regride", () => {
   it("continua com mod 55 e destinatário obrigatório quando o modelo é omitido", () => {
-    const { xml, chave } = buildNFePreviewXml(empresa, 1, 1, itens, consumidor, base);
+    const { xml, chave } = buildNFePreviewXml(empresa, 1, 1, itens, consumidor, { ...base, indFinal: 1 });
 
     assert.ok(xml.includes("<mod>55</mod>"));
     assert.equal(chave.slice(20, 22), "55");
@@ -214,9 +214,10 @@ describe("NF-e modelo 55 não regride", () => {
   it("modelo 55 explícito é igual ao modelo omitido", () => {
     const explicito = buildNFePreviewXml(empresa, 1, 1, itens, consumidor, {
       ...base,
+      indFinal: 1,
       modelo: MODELO_NFE,
     });
-    const omitido = buildNFePreviewXml(empresa, 1, 1, itens, consumidor, base);
+    const omitido = buildNFePreviewXml(empresa, 1, 1, itens, consumidor, { ...base, indFinal: 1 });
 
     // cNF é sorteado a cada emissão, e entra na chave (logo, no Id e no cDV):
     // comparamos o documento com esses três normalizados.

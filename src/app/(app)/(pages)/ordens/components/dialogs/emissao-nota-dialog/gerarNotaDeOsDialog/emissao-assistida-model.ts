@@ -25,6 +25,18 @@ import {
 import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
+import {
+  calcularIcmsItem,
+  montarDecisaoIcms,
+  resolverTratamentoIcms,
+  validarCoerenciaCfopIcms,
+  type BlocoIcms,
+  type CampoIgnorado,
+  type EntradaIcms,
+  type IcmsIssue,
+  type ResultadoIcms,
+  type TratamentoIcms,
+} from "@/lib/nfe/icms";
 
 export type FiscalSetup = {
   empresa: {
@@ -120,11 +132,38 @@ export type AssistedFiscalItem = {
   orig: string;
   csosn: string;
   cst: string;
+  /**
+   * Alíquota de ICMS da classificação (produto/padrão). Só vira pICMS quando o
+   * CST/CSOSN tem ICMS próprio; nos demais fica guardada e não gera imposto.
+   */
   aliquotaIcms: string;
-  /** Valores de ICMS-ST retido recuperados da NF-e de entrada. */
+  /** CST 51, 90 e CSOSN 900: destacar ICMS próprio é escolha, não consequência da alíquota. */
+  icmsDestacarProprio: boolean;
+  pRedBC: string;
+  pFCP: string;
+  pDif: string;
+  /** CST 90 e CSOSN 900: reter ICMS-ST nesta operação. */
+  icmsReterSt: boolean;
+  modBCST: string;
+  pMVAST: string;
+  pRedBCST: string;
+  vBCST: string;
+  pICMSST: string;
+  vICMSST: string;
+  pFCPST: string;
+  /** ICMS-ST cobrado anteriormente (CST 60, CSOSN 500): valores da NF-e de compra. */
   vBCSTRet: string;
   pST: string;
+  vICMSSubstituto: string;
   vICMSSTRet: string;
+  vBCFCPSTRet: string;
+  pFCPSTRet: string;
+  vFCPSTRet: string;
+  vICMSDeson: string;
+  motDesICMS: string;
+  pCredSN: string;
+  /** Avisos de coerência CFOP × CST que o usuário confirmou ter visto. */
+  avisosFiscaisConfirmados: string[];
   cest: string;
   cstPis: string;
   modoPis: "" | ModoCalculoPisCofins;
@@ -174,6 +213,8 @@ export type AssistedItemIssue = {
   code: string;
   field: string;
   message: string;
+  /** Aviso que libera o item depois que o usuário confirma a ciência. */
+  requerCiencia?: boolean;
 };
 
 export function onlyDigits(value: unknown) {
@@ -283,9 +324,29 @@ export function createAssistedItem(
       source.aliquotaicms === null || source.aliquotaicms === undefined
         ? ""
         : String(source.aliquotaicms),
+    icmsDestacarProprio: false,
+    pRedBC: "",
+    pFCP: "",
+    pDif: "",
+    icmsReterSt: false,
+    modBCST: "",
+    pMVAST: "",
+    pRedBCST: "",
+    vBCST: "",
+    pICMSST: "",
+    vICMSST: "",
+    pFCPST: "",
     vBCSTRet: "",
     pST: "",
+    vICMSSubstituto: "",
     vICMSSTRet: "",
+    vBCFCPSTRet: "",
+    pFCPSTRet: "",
+    vFCPSTRet: "",
+    vICMSDeson: "",
+    motDesICMS: "",
+    pCredSN: "",
+    avisosFiscaisConfirmados: [],
     cest: onlyDigits(source.cest),
     cstPis: normalizeCode(source.cst_pis, 2),
     modoPis,
@@ -347,10 +408,15 @@ export type EspelhoFiscalResposta = {
   campos: Record<string, unknown>;
   procedencia?: Record<string, string>;
   valorUnitario?: number | null;
+  /** ST cobrada anteriormente, já proporcional à quantidade da saída. */
   substituicaoTributaria?: {
     vBCSTRet?: number | null;
     pST?: number | null;
     vICMSSTRet?: number | null;
+    vICMSSubstituto?: number | null;
+    vBCFCPSTRet?: number | null;
+    pFCPSTRet?: number | null;
+    vFCPSTRet?: number | null;
   } | null;
 };
 
@@ -399,6 +465,10 @@ export function aplicarCamposFiscais(
     vBCSTRet: manter(espelho.substituicaoTributaria?.vBCSTRet, item.vBCSTRet),
     pST: manter(espelho.substituicaoTributaria?.pST, item.pST),
     vICMSSTRet: manter(espelho.substituicaoTributaria?.vICMSSTRet, item.vICMSSTRet),
+    vICMSSubstituto: manter(espelho.substituicaoTributaria?.vICMSSubstituto, item.vICMSSubstituto),
+    vBCFCPSTRet: manter(espelho.substituicaoTributaria?.vBCFCPSTRet, item.vBCFCPSTRet),
+    pFCPSTRet: manter(espelho.substituicaoTributaria?.pFCPSTRet, item.pFCPSTRet),
+    vFCPSTRet: manter(espelho.substituicaoTributaria?.vFCPSTRet, item.vFCPSTRet),
     cstPis: manter(campos.cst_pis, item.cstPis),
     modoPis,
     aliquotaPis: manter(campos.aliquota_pis, item.aliquotaPis),
@@ -412,7 +482,223 @@ export function aplicarCamposFiscais(
   };
 }
 
-export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
+function texto(value: string) {
+  return value.trim() || undefined;
+}
+
+function algum(...valores: string[]) {
+  return valores.some((valor) => valor.trim() !== "");
+}
+
+/** Campos da tela agrupados pelo bloco do XML a que pertencem. */
+const CAMPOS_POR_BLOCO: Partial<Record<BlocoIcms, Array<{ campo: keyof AssistedFiscalItem; rotulo: string }>>> = {
+  reducaoBase: [{ campo: "pRedBC", rotulo: "Redução da base (%)" }],
+  fcp: [{ campo: "pFCP", rotulo: "FCP (%)" }],
+  diferimento: [{ campo: "pDif", rotulo: "Diferimento (%)" }],
+  st: [
+    { campo: "modBCST", rotulo: "Modalidade da BC ST" },
+    { campo: "pMVAST", rotulo: "MVA ST (%)" },
+    { campo: "pRedBCST", rotulo: "Redução da BC ST (%)" },
+    { campo: "vBCST", rotulo: "BC ST" },
+    { campo: "pICMSST", rotulo: "Alíquota ST (%)" },
+    { campo: "vICMSST", rotulo: "ICMS-ST" },
+    { campo: "pFCPST", rotulo: "FCP-ST (%)" },
+  ],
+  stRetida: [
+    { campo: "vBCSTRet", rotulo: "BC ST retida" },
+    { campo: "pST", rotulo: "Alíquota suportada (pST)" },
+    { campo: "vICMSSubstituto", rotulo: "ICMS próprio do substituto" },
+    { campo: "vICMSSTRet", rotulo: "ICMS-ST retido" },
+  ],
+  fcpStRetido: [
+    { campo: "vBCFCPSTRet", rotulo: "BC FCP-ST retido" },
+    { campo: "pFCPSTRet", rotulo: "FCP-ST retido (%)" },
+    { campo: "vFCPSTRet", rotulo: "FCP-ST retido" },
+  ],
+  desoneracao: [
+    { campo: "vICMSDeson", rotulo: "ICMS desonerado" },
+    { campo: "motDesICMS", rotulo: "Motivo da desoneração" },
+  ],
+  creditoSn: [{ campo: "pCredSN", rotulo: "Crédito do Simples (%)" }],
+};
+
+export function tratamentoIcmsDoItem(item: Pick<AssistedFiscalItem, "cst" | "csosn">, setup: FiscalSetup) {
+  const crt = Number(setup.empresa?.crt ?? 0) as CRT;
+  if (![1, 2, 3, 4].includes(crt)) return null;
+  return resolverTratamentoIcms({ crt, cst: item.cst, csosn: item.csosn });
+}
+
+/** O item destaca ICMS próprio com o CST/CSOSN atual? */
+export function destacaIcmsProprio(item: AssistedFiscalItem, tratamento: TratamentoIcms | null) {
+  if (!tratamento) return false;
+  return (
+    tratamento.blocos.proprio === "OBRIGATORIO" ||
+    (tratamento.blocos.proprio === "OPCIONAL" && item.icmsDestacarProprio)
+  );
+}
+
+/** O item retém ICMS-ST nesta operação com o CST/CSOSN atual? */
+export function reteIcmsSt(item: AssistedFiscalItem, tratamento: TratamentoIcms | null) {
+  if (!tratamento) return false;
+  return tratamento.blocos.st === "OBRIGATORIO" || (tratamento.blocos.st === "OPCIONAL" && item.icmsReterSt);
+}
+
+/**
+ * Blocos que a tela manda ao servidor: só os que o CST/CSOSN aceita e que o
+ * usuário ativou. Valores de blocos que deixaram de valer continuam guardados
+ * no item (o usuário confirmou a troca do CST vendo a lista), mas não vão para
+ * o cálculo.
+ */
+export function icmsInputDoItem(item: AssistedFiscalItem, tratamento: TratamentoIcms | null) {
+  if (!tratamento) return null;
+  const regra = tratamento.blocos;
+  const proprio = destacaIcmsProprio(item, tratamento);
+  const st = reteIcmsSt(item, tratamento);
+  const permitido = (bloco: BlocoIcms) => regra[bloco] !== "PROIBIDO";
+  return {
+    ...(regra.proprio === "OPCIONAL" && item.icmsDestacarProprio ? { proprio: { destacar: true } } : {}),
+    ...(proprio && permitido("reducaoBase") && algum(item.pRedBC)
+      ? { proprio: { destacar: regra.proprio === "OPCIONAL" ? true : undefined, pRedBC: texto(item.pRedBC) } }
+      : {}),
+    ...(proprio && permitido("fcp") && algum(item.pFCP) ? { fcp: { pFCP: texto(item.pFCP) } } : {}),
+    ...(proprio && permitido("diferimento") && algum(item.pDif) ? { diferimento: { pDif: texto(item.pDif) } } : {}),
+    ...(st
+      ? {
+          st: {
+            modBCST: texto(item.modBCST),
+            pMVAST: texto(item.pMVAST),
+            pRedBCST: texto(item.pRedBCST),
+            vBCST: texto(item.vBCST),
+            pICMSST: texto(item.pICMSST),
+            vICMSST: texto(item.vICMSST),
+          },
+          ...(permitido("fcpSt") && algum(item.pFCPST) ? { fcpSt: { pFCPST: texto(item.pFCPST) } } : {}),
+        }
+      : {}),
+    ...(permitido("stRetida") && algum(item.vBCSTRet, item.pST, item.vICMSSubstituto, item.vICMSSTRet)
+      ? {
+          stRetida: {
+            vBCSTRet: texto(item.vBCSTRet),
+            pST: texto(item.pST),
+            vICMSSubstituto: texto(item.vICMSSubstituto),
+            vICMSSTRet: texto(item.vICMSSTRet),
+          },
+        }
+      : {}),
+    ...(permitido("fcpStRetido") && algum(item.vBCFCPSTRet, item.pFCPSTRet, item.vFCPSTRet)
+      ? {
+          fcpStRetido: {
+            vBCFCPSTRet: texto(item.vBCFCPSTRet),
+            pFCPSTRet: texto(item.pFCPSTRet),
+            vFCPSTRet: texto(item.vFCPSTRet),
+          },
+        }
+      : {}),
+    ...(permitido("desoneracao") && algum(item.vICMSDeson, item.motDesICMS)
+      ? { desoneracao: { vICMSDeson: texto(item.vICMSDeson), motDesICMS: texto(item.motDesICMS) } }
+      : {}),
+    ...(regra.creditoSn === "OBRIGATORIO" || (permitido("creditoSn") && algum(item.pCredSN))
+      ? { creditoSn: { pCredSN: texto(item.pCredSN) } }
+      : {}),
+  } satisfies Omit<EntradaIcms, "crt" | "valorOperacao">;
+}
+
+/**
+ * Valores preenchidos que o CST/CSOSN informado não usa. Servem para a tela
+ * mostrar o que ficou de fora e para a confirmação da troca de CST — nunca são
+ * descartados em silêncio.
+ */
+export function valoresSemUsoNoCodigo(
+  item: AssistedFiscalItem,
+  tratamento: TratamentoIcms | null,
+): Array<{ rotulo: string; valor: string }> {
+  if (!tratamento) return [];
+  const regra = tratamento.blocos;
+  const proprio = destacaIcmsProprio(item, tratamento);
+  const st = reteIcmsSt(item, tratamento);
+  const ativo: Record<BlocoIcms, boolean> = {
+    proprio,
+    reducaoBase: proprio && regra.reducaoBase !== "PROIBIDO",
+    fcp: proprio && regra.fcp !== "PROIBIDO",
+    diferimento: proprio && regra.diferimento !== "PROIBIDO",
+    st,
+    fcpSt: st && regra.fcpSt !== "PROIBIDO",
+    stRetida: regra.stRetida !== "PROIBIDO",
+    fcpStRetido: regra.fcpStRetido !== "PROIBIDO",
+    icmsEfetivo: regra.icmsEfetivo !== "PROIBIDO",
+    desoneracao: regra.desoneracao !== "PROIBIDO",
+    creditoSn: regra.creditoSn !== "PROIBIDO",
+  };
+  const sobras: Array<{ rotulo: string; valor: string }> = [];
+  for (const [bloco, campos] of Object.entries(CAMPOS_POR_BLOCO) as Array<[BlocoIcms, typeof CAMPOS_POR_BLOCO.st]>) {
+    if (ativo[bloco]) continue;
+    for (const { campo, rotulo } of campos ?? []) {
+      const valor = String(item[campo] ?? "").trim();
+      if (valor) sobras.push({ rotulo, valor });
+    }
+  }
+  return sobras;
+}
+
+/**
+ * Frete do item na nota e a decisão da nota sobre ele entrar na base do ICMS
+ * próprio (`freteNaBaseIcms`). O frete é da nota inteira na tela e rateado nos
+ * itens pelo servidor; quem chama passa a parcela de cada item.
+ */
+export type ContextoBaseIcms = {
+  valorFrete?: number;
+  freteIntegraBaseIcms?: boolean | null;
+};
+
+/** Mesmo cálculo que o servidor faz: a tela mostra o que vai para o XML. */
+export function calcularIcmsDoItem(
+  item: AssistedFiscalItem,
+  setup: FiscalSetup,
+  contexto: ContextoBaseIcms = {},
+): ResultadoIcms & {
+  avisos: IcmsIssue[];
+} {
+  const crt = Number(setup.empresa?.crt ?? 0) as CRT;
+  const tratamento = tratamentoIcmsDoItem(item, setup);
+  if (!tratamento) return { tratamento: null, valores: null, camposIgnorados: [], issues: [], avisos: [] };
+  const valorTotal = Number((item.quantidade * item.valorUnitario).toFixed(2));
+  const valorDesconto = Math.min(Math.max(0, item.valorDesconto || 0), valorTotal);
+  const resultado = calcularIcmsItem({
+    crt,
+    cst: item.cst,
+    csosn: item.csosn,
+    orig: item.orig,
+    valorOperacao: Number((valorTotal - valorDesconto).toFixed(2)),
+    composicaoBase: {
+      frete: Math.max(0, contexto.valorFrete ?? 0),
+      freteIntegraBaseIcms: contexto.freteIntegraBaseIcms,
+    },
+    aliquotaIcms: item.aliquotaIcms,
+    procedenciaAliquota: item.procedenciaFiscal?.aliquotaicms ?? null,
+    ...icmsInputDoItem(item, tratamento),
+  });
+  const avisos =
+    resultado.tratamento && resultado.valores
+      ? validarCoerenciaCfopIcms({ cfop: item.cfop, tratamento: resultado.tratamento, valores: resultado.valores })
+      : [];
+  return { ...resultado, avisos };
+}
+
+/** Motivos pelos quais algum valor da classificação não entrou no cálculo. */
+export function camposIgnoradosDoItem(
+  item: AssistedFiscalItem,
+  setup: FiscalSetup,
+  contexto?: ContextoBaseIcms,
+): CampoIgnorado[] {
+  return calcularIcmsDoItem(item, setup, contexto).camposIgnorados;
+}
+
+export function toNFeItem(
+  item: AssistedFiscalItem,
+  index = 0,
+  setup?: FiscalSetup,
+  contexto?: ContextoBaseIcms,
+): NFeItem {
   const valorTotal = Number((item.quantidade * item.valorUnitario).toFixed(2));
   const valorDesconto = Math.min(Math.max(0, item.valorDesconto || 0), valorTotal);
   // Base dos tributos é o item já líquido do desconto incondicional.
@@ -447,6 +733,8 @@ export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
     informed.trim()
       ? parseDecimal(informed)
       : Number(((base * rate) / 100).toFixed(2));
+  const icms = setup ? calcularIcmsDoItem(item, setup, contexto) : null;
+  const confirmados = new Set(item.avisosFiscaisConfirmados);
 
   return {
     numeroItem: index + 1,
@@ -476,11 +764,15 @@ export function toNFeItem(item: AssistedFiscalItem, index = 0): NFeItem {
     csosn: item.csosn || null,
     cst: item.cst || null,
     cstIcms: item.cst || null,
+    // A alíquota é da classificação; se ela vira ICMS próprio quem decide é o
+    // grupo do CST/CSOSN, no núcleo — o mesmo cálculo que o servidor refaz.
     aliquotaIcms: optionalDecimal(item.aliquotaIcms),
-    baseCalculoIcms: item.aliquotaIcms.trim() ? valorLiquido : undefined,
-    vBCSTRet: optionalDecimal(item.vBCSTRet),
-    pST: optionalDecimal(item.pST),
-    vICMSSTRet: optionalDecimal(item.vICMSSTRet),
+    ...(icms?.valores
+      ? {
+          icms: icms.valores,
+          icmsDecisao: montarDecisaoIcms(icms, icms.avisos.filter((aviso) => confirmados.has(aviso.code))),
+        }
+      : {}),
     cstPis: item.cstPis || null,
     aliquotaPis: optionalDecimal(item.aliquotaPis),
     cstCofins: item.cstCofins || null,
@@ -525,7 +817,7 @@ export function validateAssistedItem(
     parceiroUf?: string | null;
     tipoOperacao?: NFeOperationDirection;
     modelo?: ModeloDocumentoFiscal;
-  },
+  } & ContextoBaseIcms,
 ): AssistedItemIssue[] {
   const issues: AssistedItemIssue[] = [];
   if (!item.descricao.trim()) {
@@ -578,9 +870,12 @@ export function validateAssistedItem(
     }
   }
 
-  const cst = normalizeCode(item.cst, 2);
-  const csosn = normalizeCode(item.csosn, 3);
-  const st = ["10", "30", "70"].includes(cst) || ["201", "202", "203"].includes(csosn);
+  const contextoBase: ContextoBaseIcms = {
+    valorFrete: context?.valorFrete,
+    freteIntegraBaseIcms: context?.freteIntegraBaseIcms,
+  };
+  const icms = calcularIcmsDoItem(item, setup, contextoBase);
+  const st = icms.valores?.vBCST !== null && icms.valores?.vBCST !== undefined;
   if (st && onlyDigits(item.cest).length !== 7) {
     issues.push({ code: "NFE_CEST_REQUIRED", field: "cest", message: "CEST deve ter 7 dígitos para tributação com ICMS-ST." });
   } else if (item.cest && onlyDigits(item.cest).length !== 7) {
@@ -592,9 +887,23 @@ export function validateAssistedItem(
     const classification = item.rtcHabilitado
       ? setup.classificacoesRtc.find((entry) => entry.codigo === item.cClassTrib) ?? null
       : null;
-    issues.push(
-      ...validateNFeItemTax(toNFeItem(item), crt, { classificacaoRtc: classification }),
-    );
+    const vistos = new Set<string>();
+    for (const issue of validateNFeItemTax(toNFeItem(item, 0, setup, contextoBase), crt, { classificacaoRtc: classification })) {
+      vistos.add(`${issue.code}|${issue.field}`);
+      issues.push(issue);
+    }
+    // Bloqueios do cálculo (campo que o grupo não aceita ou que ele exige).
+    for (const issue of icms.issues) {
+      if (issue.severidade !== "BLOQUEIO" || vistos.has(`${issue.code}|${issue.field}`)) continue;
+      issues.push({ code: issue.code, field: issue.field, message: issue.message });
+    }
+    // CFOP × CST contraditos pela descrição oficial: a escolha é do usuário,
+    // mas o item só fica pronto depois que ele confirma a ciência.
+    const confirmados = new Set(item.avisosFiscaisConfirmados);
+    for (const aviso of icms.avisos) {
+      if (confirmados.has(aviso.code)) continue;
+      issues.push({ code: aviso.code, field: aviso.field, message: aviso.message, requerCiencia: true });
+    }
   } else {
     issues.push({ code: "NFE_CRT_REQUIRED", field: "crt", message: "CRT da empresa não está configurado." });
   }
@@ -631,7 +940,8 @@ export function ratearDescontoGeralNosItens(
   );
 }
 
-export function toApiItem(item: AssistedFiscalItem) {
+export function toApiItem(item: AssistedFiscalItem, setup?: FiscalSetup) {
+  const tratamento = setup ? tratamentoIcmsDoItem(item, setup) : null;
   return {
     sourceItemId: item.sourceItemId,
     produtoId: item.produtoId,
@@ -647,9 +957,14 @@ export function toApiItem(item: AssistedFiscalItem) {
     csosn: item.csosn || null,
     cst: item.cst || null,
     aliquotaIcms: item.aliquotaIcms || null,
-    vBCSTRet: item.vBCSTRet || null,
-    pST: item.pST || null,
-    vICMSSTRet: item.vICMSSTRet || null,
+    // Só os blocos que o CST/CSOSN aceita e que o usuário ativou. Sem o setup
+    // (quem chama não sabe o CRT), manda tudo e o servidor recusa o que não cabe.
+    icms: tratamento ? icmsInputDoItem(item, tratamento) : {
+      stRetida: algum(item.vBCSTRet, item.pST, item.vICMSSTRet)
+        ? { vBCSTRet: texto(item.vBCSTRet), pST: texto(item.pST), vICMSSTRet: texto(item.vICMSSTRet) }
+        : null,
+    },
+    avisosFiscaisConfirmados: item.avisosFiscaisConfirmados,
     cest: item.cest || null,
     cstPis: item.cstPis || null,
     modoPis: item.modoPis || null,

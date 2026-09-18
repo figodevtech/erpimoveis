@@ -64,6 +64,10 @@ describe("itens fiscais da NF-e de origem", () => {
       vBCSTRet: 4200,
       pST: 18,
       vICMSSTRet: 756,
+      vICMSSubstituto: null,
+      vBCFCPSTRet: null,
+      pFCPSTRet: null,
+      vFCPSTRet: null,
     });
   });
 

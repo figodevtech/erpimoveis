@@ -29,6 +29,8 @@ import CabecalhoSecao from "../../shared/cabecalho-secao";
 import ChartCard from "../../shared/chart-card";
 import FaixaKpis from "../../shared/faixa-kpis";
 import Kpi from "../../shared/kpi";
+import PresetsPeriodo from "../../shared/presets-periodo";
+import type { PeriodoDashboard } from "../../shared/periodo";
 import { SheetFinanceiroFiltros } from "./sheet-financeiro-filtros";
 import GraficoPlanoDeConta from "./grafico-plano-de-conta";
 
@@ -164,10 +166,13 @@ export default function DashboardFinanceiro({
     setDataFim(date);
   }
 
+  function aplicarPeriodo(periodo: PeriodoDashboard) {
+    setDataInicio(periodo.inicio);
+    setDataFim(periodo.fim);
+  }
+
   function limparFiltros() {
-    const { inicio, fim } = obterPeriodoInicial();
-    setDataInicio(inicio);
-    setDataFim(fim);
+    aplicarPeriodo(obterPeriodoInicial());
     setMetodoSelecionado(null);
   }
 
@@ -207,6 +212,8 @@ export default function DashboardFinanceiro({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-3">
+          <PresetsPeriodo dataInicio={dataInicio} dataFim={dataFim} aoAplicar={aplicarPeriodo} />
+
           <SheetFinanceiroFiltros
             aberto={filtroAberto}
             aoMudarAberto={setFiltroAberto}

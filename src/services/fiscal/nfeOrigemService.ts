@@ -18,6 +18,7 @@ import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 import type { ClienteRow, ModeloDocumentoFiscal } from "@/lib/nfe/types";
+import type { DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
 import {
   salvarNFeAvulsaDraft,
   type NFeAvulsaDraftInput,
@@ -84,6 +85,12 @@ export type NFeOrigemDraftInput = {
   descontoGeral?: string | number | null;
   destinatario?: NFeAvulsaDraftInput["destinatario"];
   configuracaoFiscal?: {
+    /**
+     * Destino da mercadoria escolhido na emissão. É dele que sai o indFinal;
+     * a origem (venda ou OS) não diz se o comprador revende ou consome.
+     */
+    destinoMercadoria?: DestinoMercadoria | null;
+    /** Só lido quando o destino é "OUTRO". */
     consumidorFinal?: boolean;
     indicadorPresenca?: string | null;
     pagamentos?: NonNullable<NFeAvulsaDraftInput["pagamentos"]>;
@@ -146,7 +153,11 @@ type LoadedSource = {
   observacoesFiscais: string | null;
   garantia: string | null;
   destinatario: NFeAvulsaDraftInput["destinatario"] | null;
-  consumidorFinal: boolean;
+  /**
+   * Só a entrada fixa o indicador: é a própria empresa documentando a compra.
+   * Venda e OS deixam `null` — quem decide é o destino escolhido na emissão.
+   */
+  consumidorFinal: boolean | null;
   indicadorPresenca: string;
   transporte: NFeAvulsaDraftInput["transporte"];
   itens: SourceItem[];
@@ -331,7 +342,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
     observacoesFiscais: os.observacoes_fiscais as string | null,
     garantia: os.garantia as string | null,
     destinatario: clienteToDraft(cliente),
-    consumidorFinal: true,
+    consumidorFinal: null,
     indicadorPresenca: "1",
     transporte: { modFrete: freight > 0 ? "0" : "9" },
     itens: rows.map((row: any, index: number) => {
@@ -409,7 +420,7 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
     observacoesFiscais: venda.observacoes_fiscais as string | null,
     garantia: venda.garantia as string | null,
     destinatario: clienteToDraft(cliente),
-    consumidorFinal: true,
+    consumidorFinal: null,
     indicadorPresenca: mapSalesChannelToPresence(venda.canal),
     transporte: { modFrete: freight > 0 ? "0" : "9" },
     itens: rows.map((row: any, index: number) => {
@@ -656,6 +667,9 @@ export async function salvarNFeDeOrigem(
   });
 
   const requestedFiscalConfig = tipo === "ENTRADA" ? undefined : input.configuracaoFiscal;
+  const destinoMercadoria = isNfce || tipo === "ENTRADA"
+    ? null
+    : requestedFiscalConfig?.destinoMercadoria ?? null;
   const consumidorFinal = typeof requestedFiscalConfig?.consumidorFinal === "boolean"
     ? requestedFiscalConfig.consumidorFinal
     : source.consumidorFinal;
@@ -776,7 +790,9 @@ export async function salvarNFeDeOrigem(
       tipoOperacao: source.tipoOperacao,
       naturezaOperacao: isNfce ? "VENDA AO CONSUMIDOR" : source.naturezaOperacao,
       finalidade: source.finalidade,
-      // NFC-e é sempre para consumidor final, por definição do modelo.
+      destinoMercadoria,
+      // NFC-e é sempre para consumidor final, por definição do modelo. Na NF-e
+      // de venda/OS o indicador sai do destino (`resolverIndFinalDaOperacao`).
       consumidorFinal: isNfce ? true : consumidorFinal,
       indicadorPresenca,
       observacoesFiscais,

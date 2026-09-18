@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -65,6 +65,14 @@ import {
 } from "@/lib/nfe/originFiscalDefaults";
 import { isValidCnpj, isValidCpf, normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
+import {
+  indFinalDoDestino,
+  normalizarDestinoMercadoria,
+  type DestinoMercadoria,
+} from "@/lib/nfe/destinoMercadoria";
+import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
+import { distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
+import { freteNaBaseIcms } from "@/lib/nfe/icms";
 import { MODELO_NFE, MODELO_NFCE, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { PB_NFCE_PISO_IDENTIFICACAO } from "@/lib/nfe/fiscalRules";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
@@ -210,7 +218,15 @@ type SaidaRelacionadaResponse = {
 };
 
 type AssistedFiscalConfig = {
-  consumidorFinal: boolean;
+  /** Obrigatório na NF-e de saída; sai daqui o indFinal. Começa em branco. */
+  destinoMercadoria: DestinoMercadoria | "";
+  /** Só usado quando o destino é "OUTRO". */
+  consumidorFinal: boolean | null;
+  /**
+   * O frete cobrado integra a base do ICMS próprio? Só é perguntado quando a
+   * lei não responde sozinha (frete com modalidade diferente de 0 e 3).
+   */
+  freteIntegraBaseIcms: boolean | null;
   indicadorPresenca: string;
   pagamentos: Array<{ meio: string; valor: number }>;
   modFrete: string;
@@ -227,7 +243,9 @@ type AssistedFiscalConfig = {
 };
 
 const defaultFiscalConfig: AssistedFiscalConfig = {
-  consumidorFinal: true,
+  destinoMercadoria: "",
+  consumidorFinal: null,
+  freteIntegraBaseIcms: null,
   indicadorPresenca: "1",
   pagamentos: [],
   modFrete: "9",
@@ -456,14 +474,21 @@ export function GerarNotaDeOsDialog({
   //
   // NFC-e nunca entra aqui: é operação interna por definição, e a UF do cliente
   // não pode transformá-la em interestadual.
+  // indFinal escolhido na emissão. `null` enquanto o destino não foi escolhido.
+  const indFinalEscolhido = isNfce
+    ? 1
+    : indFinalDoDestino(fiscalConfig.destinoMercadoria, fiscalConfig.consumidorFinal);
   const difalContexto = useMemo(() => {
     const parceiro = source?.fornecedor ?? source?.cliente;
+    const indIEDest = indicadorDoCliente(source?.cliente);
     return {
       ufEmitente: setup?.empresa?.uf ?? null,
       ufDestinatario: isNfce ? (setup?.empresa?.uf ?? null) : parceiro?.uf ?? null,
       tipoOperacao: source?.tipo_operacao ?? "SAIDA",
-      indFinal: fiscalConfig.consumidorFinal ? 1 : 0,
-      indIEDest: indicadorDoCliente(source?.cliente),
+      // Só a sugestão de DIFAL usa isto. Sem destino escolhido, vale a única
+      // regra estrutural: não contribuinte é sempre consumidor final.
+      indFinal: indFinalEscolhido ?? (String(indIEDest) === "9" ? 1 : 0),
+      indIEDest,
     } satisfies DifalContexto;
   }, [
     isNfce,
@@ -471,7 +496,7 @@ export function GerarNotaDeOsDialog({
     source?.fornecedor,
     source?.cliente,
     source?.tipo_operacao,
-    fiscalConfig.consumidorFinal,
+    indFinalEscolhido,
   ]);
 
   useEffect(() => {
@@ -557,7 +582,7 @@ export function GerarNotaDeOsDialog({
         createAssistedItem(item, fiscalSetup, {
           tipoOperacao: productsJson.tipo_operacao ?? "SAIDA",
           parceiroUf: parceiroUfCfop,
-          indFinal: defaultFiscalConfig.consumidorFinal ? 1 : 0,
+          indFinal: modelo === MODELO_NFCE || String(indIEDest) === "9" ? 1 : 0,
           indIEDest,
           modelo,
         }),
@@ -575,6 +600,10 @@ export function GerarNotaDeOsDialog({
       setFiscalConfig({
         ...defaultFiscalConfig,
         ...productsJson.configuracao_fiscal,
+        // A origem não sugere destino: ele é decisão de quem emite.
+        destinoMercadoria: normalizarDestinoMercadoria(productsJson.configuracao_fiscal?.destinoMercadoria) ?? "",
+        consumidorFinal: null,
+        freteIntegraBaseIcms: null,
         pagamentos: ratearPagamentosParaTotal(
           productsJson.configuracao_fiscal?.pagamentos ?? [],
           totalFiscalSugerido,
@@ -690,6 +719,42 @@ export function GerarNotaDeOsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, productsEndpoint, modelo]);
 
+  // Frete da nota rateado nos itens selecionados — mesmo rateio do servidor
+  // (`salvarNFeDeOrigem`) — e a decisão sobre ele entrar na base do ICMS
+  // próprio. A prévia de cada item usa esses números.
+  const temFreteNaNota = !isNfce && (origin === "OS" || origin === "VENDA");
+  const fretePorItem = useMemo(() => {
+    const porItem = new Map<string, number>();
+    if (!temFreteNaNota) return porItem;
+    const selecionados = items.filter((item) => selectedIds.includes(item.sourceItemId));
+    const rateio = distribuirDinheiro(
+      Math.max(0, fiscalConfig.valorFrete),
+      selecionados.map((item) =>
+        Math.max(0, item.quantidade * item.valorUnitario - Math.max(0, item.valorDesconto)),
+      ),
+    );
+    selecionados.forEach((item, index) => porItem.set(item.sourceItemId, rateio[index] ?? 0));
+    return porItem;
+  }, [fiscalConfig.valorFrete, items, selectedIds, temFreteNaNota]);
+  const freteNaBase = useMemo(
+    () =>
+      freteNaBaseIcms({
+        modFrete: temFreteNaNota ? fiscalConfig.modFrete : "9",
+        valorFrete: temFreteNaNota ? Math.max(0, fiscalConfig.valorFrete) : 0,
+        decisaoUsuario: fiscalConfig.freteIntegraBaseIcms,
+      }),
+    [fiscalConfig.freteIntegraBaseIcms, fiscalConfig.modFrete, fiscalConfig.valorFrete, temFreteNaNota],
+  );
+  // Enquanto a decisão está pendente, a prévia mostra o frete fora da base e a
+  // nota não é gerada (ver `freteBaseErrors`).
+  const contextoBaseDoItem = useCallback(
+    (sourceItemId: string) => ({
+      valorFrete: fretePorItem.get(sourceItemId) ?? 0,
+      freteIntegraBaseIcms: freteNaBase.integra ?? false,
+    }),
+    [fretePorItem, freteNaBase.integra],
+  );
+
   const issuesByItem = useMemo(() => {
     const map = new Map<string, AssistedItemIssue[]>();
     if (!setup) return map;
@@ -704,11 +769,12 @@ export function GerarNotaDeOsDialog({
           tipoOperacao: source?.tipo_operacao ?? "SAIDA",
           parceiroUf: parceiroUfCfop,
           modelo,
+          ...contextoBaseDoItem(item.sourceItemId),
         }),
       );
     }
     return map;
-  }, [entrySupplier.estado, isNfce, items, modelo, setup, source, usesEditableRecipient]);
+  }, [contextoBaseDoItem, entrySupplier.estado, isNfce, items, modelo, setup, source, usesEditableRecipient]);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectedItems = useMemo(
@@ -850,6 +916,20 @@ export function GerarNotaDeOsDialog({
     return errors;
   }, [fiscalConfig.pagamentos, origin, selectedTotal]);
 
+  const freteBaseErrors = useMemo(
+    () => (freteNaBase.integra === null ? [freteNaBase.motivo] : []),
+    [freteNaBase],
+  );
+
+  // NF-e de saída sem destino escolhido não tem indFinal: a nota não é gerada.
+  // A entrada própria documenta a compra da empresa e não pergunta destino.
+  const destinoErrors = useMemo(() => {
+    if (isNfce || origin === "ENTRADA") return [];
+    return indFinalEscolhido === null
+      ? ["Escolha o destino da mercadoria: é dele que sai o indicador de consumidor final da NF-e."]
+      : [];
+  }, [indFinalEscolhido, isNfce, origin]);
+
   // Indicador informativo: mostra o que já está resolvido. Não bloqueia nenhuma
   // seção — todas seguem visíveis e editáveis em qualquer ordem.
   const etapasEmissao = useMemo<EtapaFiscal[]>(
@@ -857,12 +937,16 @@ export function GerarNotaDeOsDialog({
       { rotulo: "Emitente", concluida: (setup?.empresaErros.length ?? 0) === 0 },
       {
         rotulo: origin === "ENTRADA" ? "Fornecedor" : isNfce ? "Consumidor" : "Destinatário",
-        concluida: usesEditableRecipient ? entrySupplierErrors.length === 0 : customerErrors.length === 0,
+        concluida:
+          destinoErrors.length === 0 &&
+          (usesEditableRecipient ? entrySupplierErrors.length === 0 : customerErrors.length === 0),
       },
       { rotulo: "Produtos", concluida: selectedItems.length > 0 && selectedIssues.length === 0 },
       { rotulo: "Pagamento", concluida: paymentErrors.length === 0 },
       // NFC-e não tem etapa de transporte.
-      ...(isNfce ? [] : [{ rotulo: "Transporte", concluida: transportErrors.length === 0 }]),
+      ...(isNfce
+        ? []
+        : [{ rotulo: "Transporte", concluida: transportErrors.length === 0 && freteBaseErrors.length === 0 }]),
     ],
     [
       setup?.empresaErros.length,
@@ -871,10 +955,12 @@ export function GerarNotaDeOsDialog({
       isNfce,
       entrySupplierErrors.length,
       customerErrors.length,
+      destinoErrors.length,
       selectedItems.length,
       selectedIssues.length,
       paymentErrors.length,
       transportErrors.length,
+      freteBaseErrors.length,
     ],
   );
 
@@ -1042,7 +1128,7 @@ export function GerarNotaDeOsDialog({
         createAssistedItem(candidato.item, setupAtual, {
           tipoOperacao: "SAIDA",
           parceiroUf: modelo === MODELO_NFCE ? setupAtual.empresa?.uf : destinatarioAtual.estado,
-          indFinal: destinatarioAtual.indicadorIe === "9" ? 1 : 0,
+          indFinal: indFinalEscolhido ?? (destinatarioAtual.indicadorIe === "9" ? 1 : 0),
           indIEDest: destinatarioAtual.indicadorIe,
           modelo,
         }),
@@ -1217,7 +1303,7 @@ export function GerarNotaDeOsDialog({
       const updatedItem = createAssistedItem(updatedSource, setup, {
         tipoOperacao: json.tipo_operacao ?? "SAIDA",
         parceiroUf: modelo === MODELO_NFCE ? setup.empresa?.uf : parceiro?.uf,
-        indFinal: fiscalConfig.consumidorFinal ? 1 : 0,
+        indFinal: indFinalEscolhido ?? (String(indicadorDoCliente(json.cliente)) === "9" ? 1 : 0),
         indIEDest: indicadorDoCliente(json.cliente),
         modelo,
       });
@@ -1274,6 +1360,14 @@ export function GerarNotaDeOsDialog({
       toast.error(paymentErrors[0]);
       return;
     }
+    if (destinoErrors.length) {
+      toast.error(destinoErrors[0]);
+      return;
+    }
+    if (freteBaseErrors.length) {
+      toast.error("Informe se o frete integra a base do ICMS.", { description: freteBaseErrors[0] });
+      return;
+    }
     if (origin === "SAIDA") {
       const origemErros = validarOrigemFiscalSaida({
         ...saidaOrigem,
@@ -1295,7 +1389,7 @@ export function GerarNotaDeOsDialog({
           // Corrigindo uma rejeitada: o servidor atualiza este rascunho em vez
           // de criar outro, preservando número e chave já alocados.
           ...(nfeId ? { nfeId } : {}),
-          itens: selectedItems.map(toApiItem),
+          itens: selectedItems.map((item) => toApiItem(item, setup ?? undefined)),
           observacoesFiscais:
             includeObservations && observations.trim()
               ? observations.trim()
@@ -1313,6 +1407,8 @@ export function GerarNotaDeOsDialog({
           // PUT anterior feito por outra tela.
           ...(origin === "SAIDA"
             ? {
+                destinoMercadoria: fiscalConfig.destinoMercadoria || null,
+                consumidorFinal: fiscalConfig.consumidorFinal,
                 contextoFiscal: {
                   operacaoFiscalCodigo: saidaOrigem.operacaoFiscalCodigo,
                   naturezaOperacao: saidaOrigem.naturezaOperacao,
@@ -1351,7 +1447,12 @@ export function GerarNotaDeOsDialog({
             ? {
                 descontoGeral,
                 configuracaoFiscal: {
-                  consumidorFinal: isNfce ? true : fiscalConfig.consumidorFinal,
+                  destinoMercadoria: isNfce ? null : fiscalConfig.destinoMercadoria || null,
+                  ...(isNfce
+                    ? { consumidorFinal: true }
+                    : fiscalConfig.consumidorFinal === null
+                      ? {}
+                      : { consumidorFinal: fiscalConfig.consumidorFinal }),
                   indicadorPresenca: fiscalConfig.indicadorPresenca,
                   pagamentos: fiscalConfig.pagamentos.map((pagamento) => ({
                     meio: pagamento.meio,
@@ -1367,6 +1468,8 @@ export function GerarNotaDeOsDialog({
                           modFrete: fiscalConfig.modFrete,
                           valorFrete: freteDaNota,
                           transportadora: fiscalConfig.transportadora,
+                          // Só é lido quando a lei não decide sozinha.
+                          freteIntegraBaseIcms: fiscalConfig.freteIntegraBaseIcms,
                         },
                       }),
                 },
@@ -1487,6 +1590,26 @@ export function GerarNotaDeOsDialog({
                       }
                     }}
                   />
+                ) : null}
+
+                {origin === "SAIDA" && !isNfce ? (
+                  <section className="min-w-0 space-y-3 border border-l-4 border-l-border bg-card p-3 sm:p-4">
+                    <div>
+                      <p className="font-medium">Destino da mercadoria</p>
+                      <p className="text-xs text-muted-foreground">
+                        Devolução, remessa ou garantia: diga o que o destinatário fará com a mercadoria.
+                        Ser contribuinte do ICMS não responde isso.
+                      </p>
+                    </div>
+                    <DestinoMercadoriaField
+                      destino={fiscalConfig.destinoMercadoria}
+                      consumidorFinal={fiscalConfig.consumidorFinal}
+                      naoContribuinte={entrySupplier.indicadorIe === "9"}
+                      onChange={({ destino, consumidorFinal }) =>
+                        setFiscalConfig((current) => ({ ...current, destinoMercadoria: destino, consumidorFinal }))
+                      }
+                    />
+                  </section>
                 ) : null}
 
                 {origin === "SAIDA" && resumoRelacionadas ? (
@@ -1638,28 +1761,15 @@ export function GerarNotaDeOsDialog({
                     <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-2">
                       {/* NFC-e é sempre a consumidor final: não há escolha. */}
                       {isNfce ? null : (
-                        <div className="min-w-0 space-y-1.5">
-                          <Label>Consumidor final</Label>
-                          {difalAtivo ? (
-                            <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                              Esta operação exige DIFAL. Alterar este campo recalcula a seção
-                              de partilha nos itens.
-                            </p>
-                          ) : null}
-                          <Select
-                            value={fiscalConfig.consumidorFinal ? "SIM" : "NAO"}
-                            onValueChange={(value) => setFiscalConfig((current) => ({
-                              ...current,
-                              consumidorFinal: value === "SIM",
-                            }))}
-                          >
-                            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="SIM">Sim</SelectItem>
-                              <SelectItem value="NAO">Não</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                        <DestinoMercadoriaField
+                          destino={fiscalConfig.destinoMercadoria}
+                          consumidorFinal={fiscalConfig.consumidorFinal}
+                          naoContribuinte={String(indicadorDoCliente(source?.cliente)) === "9"}
+                          alertaDifal={difalAtivo}
+                          onChange={({ destino, consumidorFinal }) =>
+                            setFiscalConfig((current) => ({ ...current, destinoMercadoria: destino, consumidorFinal }))
+                          }
+                        />
                       )}
                       <div className="min-w-0 space-y-1.5">
                         <Label>Indicador de presença</Label>
@@ -1771,7 +1881,45 @@ export function GerarNotaDeOsDialog({
                             ocorrência de transporte&quot; não descreve esta operação.
                           </p>
                         ) : null}
+                        {freteNaBase.fonte === "LEI" ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            Transporte do remetente: o frete entra na base do ICMS próprio (LC 87/96,
+                            art. 13, §1º, II, &quot;b&quot;) e na base da ST.
+                          </p>
+                        ) : null}
                       </div>
+                      {!isNfce && (freteNaBase.fonte === "PENDENTE" || freteNaBase.fonte === "USUARIO") ? (
+                        <div className="min-w-0 space-y-1.5 sm:col-span-2">
+                          <Label>
+                            O frete integra a base do ICMS próprio? <span className="text-destructive">*</span>
+                          </Label>
+                          <Select
+                            value={
+                              fiscalConfig.freteIntegraBaseIcms === null
+                                ? undefined
+                                : fiscalConfig.freteIntegraBaseIcms
+                                  ? "SIM"
+                                  : "NAO"
+                            }
+                            onValueChange={(value) =>
+                              setFiscalConfig((current) => ({ ...current, freteIntegraBaseIcms: value === "SIM" }))
+                            }
+                          >
+                            <SelectTrigger className="w-full" aria-invalid={fiscalConfig.freteIntegraBaseIcms === null}>
+                              <SelectValue placeholder="Escolha conforme a operação" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="SIM">Sim, o frete integra a base do ICMS próprio</SelectItem>
+                              <SelectItem value="NAO">Não, o frete fica fora da base do ICMS próprio</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[11px] leading-snug text-muted-foreground">
+                            {freteNaBase.fonte === "PENDENTE"
+                              ? freteNaBase.motivo
+                              : "Fora da hipótese automática da LC 87/96. A escolha fica registrada na nota. Na ST, o frete cobrado entra na base de qualquer forma."}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
 
                     {fiscalConfig.pagamentos.length > 1 ? (
@@ -2237,6 +2385,7 @@ export function GerarNotaDeOsDialog({
           item={editingItem}
           setup={setup}
           issues={editingIssues}
+          contextoBase={editingItem ? contextoBaseDoItem(editingItem.sourceItemId) : undefined}
           modelo={modelo}
           tipoOperacao={source?.tipo_operacao ?? "SAIDA"}
           parceiroUf={

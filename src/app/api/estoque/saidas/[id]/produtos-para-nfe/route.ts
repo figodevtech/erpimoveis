@@ -145,7 +145,9 @@ export async function GET(_request: Request, context: Context) {
       destinatario,
       parceiro_erros: [],
       configuracao_fiscal: {
-        consumidorFinal: false,
+        // Devolução, remessa e garantia também pedem o destino na emissão:
+        // ser contribuinte não diz se o destinatário revende ou consome.
+        destinoMercadoria: null,
         indicadorPresenca: "0",
         pagamentos: [],
         modFrete: "9",

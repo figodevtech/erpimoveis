@@ -94,6 +94,17 @@ import {
 import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
+import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
+import { indFinalDoDestino, type DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
+import { freteNaBaseIcms, type IcmsCanonico } from "@/lib/nfe/icms";
+import {
+  calcularIcmsDoItem,
+  icmsInputDoItem,
+  tratamentoIcmsDoItem,
+  type AssistedFiscalItem,
+  type FiscalSetup,
+} from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/emissao-assistida-model";
+import { NfeItemIcmsSection } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/nfe-item-icms-section";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 
 type ClienteSetup = {
@@ -220,7 +231,32 @@ type DraftItem = {
   orig: string;
   csosn: string;
   cst: string;
+  /** Alíquota da classificação: só vira ICMS próprio se o CST/CSOSN tiver. */
   aliquotaIcms: string;
+  /** Blocos de ICMS da emissão, os mesmos da emissão assistida (`NfeItemIcmsSection`). */
+  icmsDestacarProprio: boolean;
+  pRedBC: string;
+  pFCP: string;
+  pDif: string;
+  icmsReterSt: boolean;
+  modBCST: string;
+  pMVAST: string;
+  pRedBCST: string;
+  vBCST: string;
+  pICMSST: string;
+  vICMSST: string;
+  pFCPST: string;
+  vBCSTRet: string;
+  pST: string;
+  vICMSSubstituto: string;
+  vICMSSTRet: string;
+  vBCFCPSTRet: string;
+  pFCPSTRet: string;
+  vFCPSTRet: string;
+  vICMSDeson: string;
+  motDesICMS: string;
+  pCredSN: string;
+  avisosFiscaisConfirmados: string[];
   cstPis: string;
   aliquotaPis: string;
   cstCofins: string;
@@ -260,6 +296,11 @@ type DraftItem = {
 
 type DraftTransporte = {
   modFrete: "0" | "1" | "2" | "3" | "4" | "9";
+  /**
+   * O frete cobrado integra a base do ICMS próprio? Só é perguntado quando a
+   * lei não responde sozinha (frete com modalidade diferente de 0 e 3).
+   */
+  freteIntegraBaseIcms: boolean | null;
   transportadora: {
     documento: string;
     nome: string;
@@ -311,7 +352,10 @@ type DraftPayload = {
     tipoOperacao: "SAIDA" | "ENTRADA";
     naturezaOperacao: string;
     finalidade: "NORMAL" | "COMPLEMENTAR" | "AJUSTE" | "DEVOLUCAO";
-    consumidorFinal: boolean;
+    /** Obrigatório na saída: é dele que sai o indFinal. Começa em branco. */
+    destinoMercadoria: DestinoMercadoria | "";
+    /** Lido na entrada e quando o destino é "OUTRO". */
+    consumidorFinal: boolean | null;
     indicadorPresenca: string;
     observacaoInterna: string;
     observacoesFiscais: string;
@@ -457,24 +501,6 @@ const cardBrandOptions = [
   { value: "99", label: "Outros" },
 ];
 
-const csosnDescriptions: Record<string, string> = {
-  "101": "Tributada pelo Simples Nacional com permissão de crédito",
-  "102": "Tributada pelo Simples Nacional sem permissão de crédito",
-  "103": "Isenção do ICMS no Simples Nacional para faixa de receita bruta",
-  "201": "Tributada pelo Simples Nacional com permissão de crédito e com cobrança do ICMS por substituição tributária",
-  "202": "Tributada pelo Simples Nacional sem permissão de crédito e com cobrança do ICMS por substituição tributária",
-  "203": "Isenção do ICMS no Simples Nacional para faixa de receita bruta e com cobrança do ICMS por substituição tributária",
-  "300": "Imune",
-  "400": "Não tributada pelo Simples Nacional",
-  "500": "ICMS cobrado anteriormente por substituição tributária ou por antecipação",
-  "900": "Outros",
-};
-
-function formatCsosn(value: string) {
-  const description = csosnDescriptions[value];
-  return description ? `${value} - ${description}` : value;
-}
-
 function formatPisCofinsCst(value: string) {
   const option = PIS_COFINS_CST_OPTIONS.find((item) => item.value === value);
   return option ? `${option.value} - ${option.description}` : value;
@@ -515,6 +541,29 @@ const emptyItem: DraftItem = {
   csosn: "",
   cst: "",
   aliquotaIcms: "",
+  icmsDestacarProprio: false,
+  pRedBC: "",
+  pFCP: "",
+  pDif: "",
+  icmsReterSt: false,
+  modBCST: "",
+  pMVAST: "",
+  pRedBCST: "",
+  vBCST: "",
+  pICMSST: "",
+  vICMSST: "",
+  pFCPST: "",
+  vBCSTRet: "",
+  pST: "",
+  vICMSSubstituto: "",
+  vICMSSTRet: "",
+  vBCFCPSTRet: "",
+  pFCPSTRet: "",
+  vFCPSTRet: "",
+  vICMSDeson: "",
+  motDesICMS: "",
+  pCredSN: "",
+  avisosFiscaisConfirmados: [],
   cstPis: "",
   aliquotaPis: "",
   cstCofins: "",
@@ -555,7 +604,8 @@ const initialDraft: DraftPayload = {
     tipoOperacao: "SAIDA",
     naturezaOperacao: "VENDA DE MERCADORIA",
     finalidade: "NORMAL",
-    consumidorFinal: true,
+    destinoMercadoria: "",
+    consumidorFinal: null,
     indicadorPresenca: "1",
     observacaoInterna: "",
     observacoesFiscais: "",
@@ -581,6 +631,7 @@ const initialDraft: DraftPayload = {
   descontoGeral: "0",
   transporte: {
     modFrete: "9",
+    freteIntegraBaseIcms: null,
     transportadora: {
       documento: "",
       nome: "",
@@ -740,6 +791,8 @@ function normalizeTransporte(value: unknown): DraftTransporte {
 
   return {
     modFrete,
+    freteIntegraBaseIcms:
+      typeof transporte.freteIntegraBaseIcms === "boolean" ? transporte.freteIntegraBaseIcms : null,
     transportadora: {
       ...initialDraft.transporte.transportadora,
       ...(transporte.transportadora ?? {}),
@@ -822,6 +875,88 @@ function stringifyNumber(value: unknown, fallback = "") {
   return String(value);
 }
 
+/**
+ * Campos de ICMS informados na emissão, lidos de volta do snapshot do item.
+ * Só volta o que foi decisão do usuário: base e ICMS-ST calculados pela MVA ou
+ * pelo ICMS próprio são refeitos pelo núcleo ao salvar de novo.
+ */
+function camposIcmsDoSnapshot(snapshot: any): Partial<DraftItem> {
+  const icms = snapshot?.icms as IcmsCanonico | undefined;
+  if (!icms) return {};
+  const decisao = snapshot?.icmsDecisao;
+  const semProprio = icms.vICMS === null;
+  return {
+    icmsDestacarProprio: icms.vBC !== null,
+    pRedBC: stringifyNumber(icms.pRedBC),
+    pFCP: stringifyNumber(icms.pFCP),
+    pDif: stringifyNumber(icms.pDif),
+    icmsReterSt: icms.vBCST !== null,
+    modBCST: stringifyNumber(icms.modBCST),
+    pMVAST: stringifyNumber(icms.pMVAST),
+    pRedBCST: stringifyNumber(icms.pRedBCST),
+    vBCST: icms.pMVAST === null ? stringifyNumber(icms.vBCST) : "",
+    pICMSST: stringifyNumber(icms.pICMSST),
+    vICMSST: semProprio ? stringifyNumber(icms.vICMSST) : "",
+    pFCPST: stringifyNumber(icms.pFCPST),
+    vBCSTRet: stringifyNumber(icms.vBCSTRet),
+    pST: stringifyNumber(icms.pST),
+    vICMSSubstituto: stringifyNumber(icms.vICMSSubstituto),
+    vICMSSTRet: stringifyNumber(icms.vICMSSTRet),
+    vBCFCPSTRet: stringifyNumber(icms.vBCFCPSTRet),
+    pFCPSTRet: stringifyNumber(icms.pFCPSTRet),
+    vFCPSTRet: stringifyNumber(icms.vFCPSTRet),
+    vICMSDeson: stringifyNumber(icms.vICMSDeson),
+    motDesICMS: stringifyNumber(icms.motDesICMS),
+    pCredSN: stringifyNumber(icms.pCredSN),
+    avisosFiscaisConfirmados: Array.isArray(decisao?.avisosConfirmados)
+      ? decisao.avisosConfirmados.map((aviso: { code: string }) => aviso.code)
+      : [],
+  };
+}
+
+/**
+ * O frete cobrado na nota integra a base do ICMS próprio? A mesma decisão que o
+ * servidor toma em `decisaoFreteDoDraft`: por lei com transporte do remetente,
+ * pela escolha do usuário nas demais modalidades.
+ */
+function freteNaBaseDaAvulsa(draft: DraftPayload) {
+  return freteNaBaseIcms({
+    modFrete: draft.transporte.modFrete,
+    valorFrete: Number(
+      draft.itens.reduce((total, item) => total + Math.max(0, parseCurrency(item.valorFrete)), 0).toFixed(2),
+    ),
+    decisaoUsuario: draft.transporte.freteIntegraBaseIcms,
+  });
+}
+
+/** Frete do item e decisão da nota, para a prévia calcular a base como o servidor. */
+function contextoBaseDaAvulsa(item: DraftItem, draft: DraftPayload) {
+  return {
+    valorFrete: Math.max(0, parseCurrency(item.valorFrete)),
+    // Pendente: a prévia mostra o frete fora da base e o servidor não gera a nota.
+    freteIntegraBaseIcms: freteNaBaseDaAvulsa(draft).integra ?? false,
+  };
+}
+
+/** O item da avulsa no formato que a seção de ICMS e o núcleo leem. */
+function itemAssistidoDaAvulsa(item: DraftItem, index: number): AssistedFiscalItem {
+  const quantidade = parseNumberInput(item.quantidade);
+  const valorUnitario = parseNumberInput(item.valorUnitario);
+  return {
+    ...item,
+    sourceItemId: item.sourceItemId ?? `avulsa:${index}`,
+    produtoId: item.produtoId ?? 0,
+    titulo: item.descricao,
+    quantidade,
+    valorUnitario,
+    subtotal: Number((quantidade * valorUnitario).toFixed(2)),
+    valorDesconto: parseNumberInput(item.valorDesconto),
+    valorDescontoProprio: 0,
+    cfopResolution: null,
+    procedenciaFiscal: {},
+  };
+}
+
 function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: NFeDocumentState } {
   const nfe = value?.nfe ?? {};
   const dadosAvulsos = nfe.dados_avulsos ?? {};
@@ -900,7 +1035,10 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
             orig: String(item.tributacao_snapshot?.orig ?? ""),
             csosn: String(item.csosn ?? ""),
             cst: String(item.cst ?? ""),
-            aliquotaIcms: stringifyNumber(item.aliquotaicms),
+            // nfe_item.aliquotaicms é o pICMS do XML (vazio no CST 60); a alíquota
+            // da classificação fica no snapshot.
+            aliquotaIcms: stringifyNumber(item.tributacao_snapshot?.aliquotaIcms ?? item.aliquotaicms),
+            ...camposIcmsDoSnapshot(item.tributacao_snapshot),
             cstPis: String(item.cst_pis ?? ""),
             aliquotaPis: stringifyNumber(item.aliquota_pis),
             cstCofins: String(item.cst_cofins ?? ""),
@@ -974,13 +1112,18 @@ export default function NFeAvulsaPage() {
       ufEmitente: setup?.empresa?.uf ?? null,
       ufDestinatario: draft.destinatario.estado ?? null,
       tipoOperacao: "SAIDA" as const,
-      indFinal: draft.operacao.consumidorFinal ? 1 : 0,
+      // Só a sugestão de DIFAL usa isto. Sem destino escolhido, vale a regra
+      // estrutural: não contribuinte é sempre consumidor final.
+      indFinal:
+        indFinalDoDestino(draft.operacao.destinoMercadoria, draft.operacao.consumidorFinal) ??
+        ((draft.destinatario.indicadorIe || "9") === "9" ? 1 : 0),
       indIEDest: draft.destinatario.indicadorIe || "9",
     }),
     [
       setup?.empresa?.uf,
       draft.destinatario.estado,
       draft.destinatario.indicadorIe,
+      draft.operacao.destinoMercadoria,
       draft.operacao.consumidorFinal,
     ],
   );
@@ -1147,8 +1290,30 @@ export default function NFeAvulsaPage() {
   const isFreteContratado = ["0", "1", "2"].includes(draft.transporte.modFrete);
   const isTransporteProprio = ["3", "4"].includes(draft.transporte.modFrete);
   const crtEmitente = String(setup?.empresa?.regimetributario ?? "");
-  const isRegimeNormal = crtEmitente === "3";
-  const isSublimite = crtEmitente === "2";
+  // A seção de ICMS e o núcleo leem o setup no formato da emissão assistida.
+  const setupFiscal = React.useMemo<FiscalSetup | null>(
+    () =>
+      setup
+        ? {
+            empresa: setup.empresa
+              ? {
+                  id: setup.empresa.id,
+                  nome: setup.empresa.razaosocial,
+                  uf: setup.empresa.uf,
+                  crt: setup.empresa.regimetributario,
+                  ambiente: setup.empresa.ambiente,
+                }
+              : null,
+            config: null,
+            empresaErros: [],
+            unidades: [],
+            regrasFiscais: setup.regrasFiscais as FiscalSetup["regrasFiscais"],
+            versaoRegraFiscal: "",
+            classificacoesRtc: setup.classificacoesRtc as FiscalSetup["classificacoesRtc"],
+          }
+        : null,
+    [setup],
+  );
   const isDestinatarioExterior = draft.destinatario.tipoPessoa === "ESTRANGEIRO";
   const isDestinatarioJuridica = draft.destinatario.tipoPessoa === "JURIDICA";
 
@@ -1303,6 +1468,26 @@ export default function NFeAvulsaPage() {
         aliquotaFcpDestino: item.difalHabilitado ? item.difalAliquotaFcp || null : null,
         percentualPartilhaDestino: item.difalHabilitado ? item.difalPercentualPartilha || null : null,
         baseCalculoFcpDestino: item.difalHabilitado ? item.difalBaseFcp || null : null,
+      })),
+    };
+  }
+
+  /**
+   * Cada item leva os blocos de ICMS que o CST/CSOSN aceita (`icms`). Os campos
+   * soltos de ST retida saem vazios: quem manda é o bloco, e um valor guardado
+   * de um CST anterior não pode voltar pela porta dos fundos.
+   */
+  function comBlocosIcms(payload: DraftPayload) {
+    return {
+      ...payload,
+      itens: payload.itens.map((item, index) => ({
+        ...item,
+        icms: setupFiscal
+          ? icmsInputDoItem(itemAssistidoDaAvulsa(item, index), tratamentoIcmsDoItem(item, setupFiscal))
+          : null,
+        vBCSTRet: null,
+        pST: null,
+        vICMSSTRet: null,
       })),
     };
   }
@@ -1748,7 +1933,7 @@ export default function NFeAvulsaPage() {
         toast.error("Revise os pagamentos", { description: paymentErrors[0] });
         return null;
       }
-      const submissionDraft = getDraftForSubmission(draft);
+      const submissionDraft = comBlocosIcms(getDraftForSubmission(draft));
       const response = draft.nfeId
         ? await axios.patch(`/api/fiscal/nfe-avulsa/drafts/${draft.nfeId}`, submissionDraft)
         : await axios.post("/api/fiscal/nfe-avulsa/drafts", submissionDraft);
@@ -1938,6 +2123,7 @@ export default function NFeAvulsaPage() {
         draft={draft}
         documentState={documentState}
         setup={setup}
+        setupFiscal={setupFiscal}
         totalProdutos={totalProdutos}
         totalFrete={totalFreteItens}
       />
@@ -2088,14 +2274,13 @@ export default function NFeAvulsaPage() {
                           : current.pagamentos.length === 0 || current.pagamentos.every((item) => item.meio === "90")
                             ? initialDraft.pagamentos.map((item) => ({ ...item }))
                             : current.pagamentos;
-                        // Devolução não herda o perfil da venda: quem recebe é o
-                        // fornecedor, que revende a mercadoria (indFinal=0), e
-                        // não houve balcão nenhum (indPres=0, não se aplica).
+                        // Devolução não houve balcão (indPres=0, não se aplica). O
+                        // destino da mercadoria continua sendo escolha do usuário:
+                        // a finalidade não diz se o destinatário revende.
                         const operacao = value === "DEVOLUCAO"
                           ? {
                               ...current.operacao,
                               finalidade: value,
-                              consumidorFinal: false,
                               indicadorPresenca: "0",
                             }
                           : { ...current.operacao, finalidade: value };
@@ -2149,29 +2334,38 @@ export default function NFeAvulsaPage() {
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label="Consumidor final" required>
-                  {difalAtivo ? (
-                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                      Esta operação exige DIFAL. Alterar este campo recalcula a seção de
-                      partilha nos itens.
-                    </p>
-                  ) : null}
-                  <Select
-                    value={draft.operacao.consumidorFinal ? "SIM" : "NAO"}
-                    onValueChange={(value) =>
+                {draft.operacao.tipoOperacao === "SAIDA" ? (
+                  <DestinoMercadoriaField
+                    destino={draft.operacao.destinoMercadoria}
+                    consumidorFinal={draft.operacao.consumidorFinal}
+                    naoContribuinte={draft.destinatario.indicadorIe === "9"}
+                    alertaDifal={difalAtivo}
+                    onChange={({ destino, consumidorFinal }) =>
                       updateDraft((current) => ({
                         ...current,
-                        operacao: { ...current.operacao, consumidorFinal: value === "SIM" },
+                        operacao: { ...current.operacao, destinoMercadoria: destino, consumidorFinal },
                       }))
                     }
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="SIM">Sim</SelectItem>
-                      <SelectItem value="NAO">Não</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
+                  />
+                ) : (
+                  <Field label="Consumidor final" required>
+                    <Select
+                      value={draft.operacao.consumidorFinal ? "SIM" : "NAO"}
+                      onValueChange={(value) =>
+                        updateDraft((current) => ({
+                          ...current,
+                          operacao: { ...current.operacao, consumidorFinal: value === "SIM" },
+                        }))
+                      }
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="SIM">Sim</SelectItem>
+                        <SelectItem value="NAO">Não</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                )}
                 <Field label="Observação interna">
                   <Input
                     value={draft.operacao.observacaoInterna}
@@ -2737,7 +2931,7 @@ export default function NFeAvulsaPage() {
                         <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">
                             CEST
-                            {["201", "202", "203"].includes(item.csosn) || ["10", "30", "70"].includes(item.cst) ? <RequiredMark /> : null}
+                            {setupFiscal && calcularIcmsDoItem(itemAssistidoDaAvulsa(item, index), setupFiscal, contextoBaseDaAvulsa(item, draft)).valores?.vBCST != null ? <RequiredMark /> : null}
                           </Label>
                           <Input value={item.cest} onChange={(event) => updateItem(index, { cest: onlyDigits(event.target.value) })} />
                         </div>
@@ -2757,55 +2951,18 @@ export default function NFeAvulsaPage() {
                         </div>
                         <p className="text-sm font-medium md:col-span-12">Tributação do item</p>
                         <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-4 md:col-span-12">
-                        <Field label="Origem da mercadoria" required className="sm:col-span-2">
-                          <Select value={item.orig} onValueChange={(value) => updateItem(index, { orig: value })}>
-                            <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                            <SelectContent>
-                              {[
-                                ["0", "Nacional"], ["1", "Estrangeira - importação direta"],
-                                ["2", "Estrangeira - mercado interno"], ["3", "Nacional, conteúdo importado > 40%"],
-                                ["4", "Nacional, processo produtivo básico"], ["5", "Nacional, conteúdo importado ≤ 40%"],
-                                ["6", "Estrangeira sem similar nacional"], ["7", "Estrangeira sem similar - mercado interno"],
-                                ["8", "Nacional, conteúdo importado > 70%"],
-                              ].map(([value, label]) => <SelectItem key={value} value={value}>{value} - {label}</SelectItem>)}
-                            </SelectContent>
-                          </Select>
-                        </Field>
-                        {setup?.regrasFiscais?.icms.csosn === "REQUIRED" && (
-                          <Field label="CSOSN" required className="sm:col-span-2">
-                            <Select value={item.csosn} onValueChange={(value) => updateItem(index, { csosn: value, cst: "" })}>
-                              <SelectTrigger title={item.csosn ? formatCsosn(item.csosn) : undefined}>
-                                <SelectValue placeholder="Selecione" />
-                              </SelectTrigger>
-                              <SelectContent className="max-w-[calc(100vw-2rem)] sm:w-[32rem]">
-                                {setup.regrasFiscais.icms.csosnPermitidos.map((value) => (
-                                  <SelectItem
-                                    className="whitespace-normal py-2 pr-8 leading-snug"
-                                    key={value}
-                                    value={value}
-                                  >
-                                    {formatCsosn(value)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </Field>
-                        )}
-                        {setup?.regrasFiscais?.icms.cst === "REQUIRED" && (
-                          <Field label="CST ICMS" required>
-                            <Select value={item.cst} onValueChange={(value) => updateItem(index, { cst: value, csosn: "" })}>
-                              <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                              <SelectContent>
-                                {setup.regrasFiscais.icms.cstPermitidos.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </Field>
-                        )}
-                        {((isRegimeNormal || isSublimite) && ["00", "10", "20", "51", "70", "90"].includes(item.cst) || item.csosn === "900") && (
-                          <Field label="% ICMS" required>
-                            <Input value={item.aliquotaIcms} onChange={(event) => updateItem(index, { aliquotaIcms: event.target.value })} />
-                          </Field>
-                        )}
+                        {setupFiscal ? (
+                          <div className="min-w-0 sm:col-span-2 lg:col-span-4">
+                            <NfeItemIcmsSection
+                              item={itemAssistidoDaAvulsa(item, index)}
+                              setup={setupFiscal}
+                              contextoBase={contextoBaseDaAvulsa(item, draft)}
+                              procedencia={{}}
+                              onChange={(patch) => updateItem(index, patch as Partial<DraftItem>)}
+                              Field={Field}
+                            />
+                          </div>
+                        ) : null}
                         </div>
 
                         {item.difalHabilitado ? (
@@ -3439,12 +3596,15 @@ function NFeAutorizadaView({
   draft,
   documentState,
   setup,
+  setupFiscal,
   totalProdutos,
   totalFrete,
 }: {
   draft: DraftPayload;
   documentState: NFeDocumentState;
   setup: SetupResponse | null;
+  /** Para a prévia calcular o ICMS com o mesmo núcleo do servidor. */
+  setupFiscal: FiscalSetup | null;
   totalProdutos: number;
   totalFrete: number;
 }) {
@@ -3494,7 +3654,11 @@ function NFeAutorizadaView({
     const valorDesconto = Math.min(Math.max(0, parseNumberInput(item.valorDesconto)), valorTotal);
     // Os tributos incidem sobre o item já líquido do desconto incondicional.
     const valorLiquido = Number((valorTotal - valorDesconto).toFixed(2));
-    const aliquotaIcms = parseNumberInput(item.aliquotaIcms);
+    // ICMS da prévia = o que o servidor vai serializar: sem ICMS próprio no
+    // CST 60/40/SN102 mesmo com alíquota no cadastro.
+    const icms = setupFiscal
+      ? calcularIcmsDoItem(itemAssistidoDaAvulsa(item, index), setupFiscal, contextoBaseDaAvulsa(item, draft)).valores
+      : null;
     const aliquotaPis = parseNumberInput(item.aliquotaPis);
     const aliquotaCofins = parseNumberInput(item.aliquotaCofins);
 
@@ -3514,9 +3678,9 @@ function NFeAutorizadaView({
       valor_unitario: valorUnitario,
       valor_total: valorTotal,
       valor_desconto: valorDesconto,
-      valor_bc_icms: aliquotaIcms > 0 ? valorLiquido : 0,
-      aliquotaicms: aliquotaIcms,
-      valor_icms: Number((valorLiquido * (aliquotaIcms / 100)).toFixed(2)),
+      valor_bc_icms: icms?.vBC ?? 0,
+      aliquotaicms: icms?.pICMS ?? 0,
+      valor_icms: icms?.vICMS ?? 0,
       cst_ipi: null,
       valor_bc_ipi: 0,
       aliquota_ipi: 0,
@@ -3754,6 +3918,58 @@ function ReadOnlyStep({ title, description }: { title: string; description: stri
   );
 }
 
+/**
+ * Frete cobrado na nota e a base do ICMS. Com transporte do remetente a lei
+ * decide; nas demais modalidades o usuário escolhe e a escolha fica gravada.
+ */
+function FreteNaBaseIcms({
+  draft,
+  updateTransporte,
+}: {
+  draft: DraftPayload;
+  updateTransporte: (patch: Partial<DraftTransporte>) => void;
+}) {
+  const decisao = freteNaBaseDaAvulsa(draft);
+  if (decisao.fonte === "SEM_FRETE") return null;
+  if (decisao.fonte === "LEI") {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Transporte do remetente: o frete de {formatarEmReal(decisao.valorFrete)} entra na base do ICMS próprio
+        (LC 87/96, art. 13, §1º, II, &quot;b&quot;) e na base da ST.
+      </p>
+    );
+  }
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Field label="O frete integra a base do ICMS próprio?" required>
+        <Select
+          value={
+            draft.transporte.freteIntegraBaseIcms === null
+              ? undefined
+              : draft.transporte.freteIntegraBaseIcms
+                ? "SIM"
+                : "NAO"
+          }
+          onValueChange={(value) => updateTransporte({ freteIntegraBaseIcms: value === "SIM" })}
+        >
+          <SelectTrigger aria-invalid={draft.transporte.freteIntegraBaseIcms === null}>
+            <SelectValue placeholder="Escolha conforme a operação" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="SIM">Sim, integra a base do ICMS próprio</SelectItem>
+            <SelectItem value="NAO">Não, fica fora da base do ICMS próprio</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      <p className="self-end text-xs text-muted-foreground">
+        {decisao.fonte === "PENDENTE"
+          ? decisao.motivo
+          : "Fora da hipótese automática da LC 87/96. A escolha fica registrada na nota. Na ST, o frete cobrado entra na base de qualquer forma."}
+      </p>
+    </div>
+  );
+}
+
 function TransporteStep({
   draft,
   updateDraft,
@@ -3844,6 +4060,8 @@ function TransporteStep({
         </Field>
         <Info label="Tag enviada no XML" value={`modFrete ${draft.transporte.modFrete}`} />
       </div>
+
+      <FreteNaBaseIcms draft={draft} updateTransporte={updateTransporte} />
 
       {isSemTransporte && (
         <Alert>

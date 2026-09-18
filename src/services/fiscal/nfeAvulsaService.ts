@@ -33,6 +33,21 @@ import {
 } from "@/lib/nfe/recipientNormalization";
 import { truncateNfeXNome } from "@/lib/nfe/xmlUtils";
 import { isValidCnpj as isValidCanonicalCnpj, normalizeCnpj, normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
+import {
+  calcularIcmsItem,
+  freteNaBaseIcms,
+  montarDecisaoIcms,
+  validarCoerenciaCfopIcms,
+  type DecisaoFreteNaBase,
+  type EntradaIcms,
+  type IcmsIssue,
+} from "@/lib/nfe/icms";
+import {
+  DESTINO_MERCADORIA_OPCOES,
+  indFinalDoDestino,
+  normalizarDestinoMercadoria,
+  type DestinoMercadoria,
+} from "@/lib/nfe/destinoMercadoria";
 
 type NFeConfigRow = {
   id: number;
@@ -69,10 +84,26 @@ export type NFeAvulsaItemInput = {
   aliquotaPis?: string | number | null;
   cstCofins?: string | null;
   aliquotaCofins?: string | number | null;
+  /**
+   * Alíquota de ICMS da classificação (produto, padrão ou digitada). Só vira
+   * pICMS quando o CST/CSOSN escolhido tem ICMS próprio; nos demais grupos é
+   * registrada como ignorada no snapshot, com o motivo.
+   */
   aliquotaIcms?: string | number | null;
+  /** Legado: ST retida anteriormente em campos soltos. Prefira `icms.stRetida`. */
   vBCSTRet?: string | number | null;
   pST?: string | number | null;
   vICMSSTRet?: string | number | null;
+  /**
+   * Campos de ICMS informados na emissão, bloco a bloco (redução, ST, ST
+   * retida, diferimento...). O núcleo recusa bloco que o grupo não aceita.
+   */
+  icms?: NFeAvulsaIcmsInput | null;
+  /**
+   * Avisos de coerência (CFOP × CST/CSOSN) que o usuário viu e confirmou. Sem
+   * a confirmação a nota não é gerada; com ela, o aviso vai para o snapshot.
+   */
+  avisosFiscaisConfirmados?: string[] | null;
   cest?: string | null;
   modoPis?: "PERCENTUAL" | "QUANTIDADE" | "NAO_TRIBUTADO" | null;
   basePis?: string | number | null;
@@ -136,7 +167,16 @@ export type NFeAvulsaDraftInput = {
     tipoOperacao: "SAIDA" | "ENTRADA";
     naturezaOperacao: string;
     finalidade: "NORMAL" | "COMPLEMENTAR" | "AJUSTE" | "DEVOLUCAO";
-    consumidorFinal: boolean;
+    /**
+     * O que o destinatário fará com a mercadoria. Na NF-e de saída é
+     * obrigatório e é dele que sai o indFinal.
+     */
+    destinoMercadoria?: DestinoMercadoria | null;
+    /**
+     * Operação com consumidor final. Só é lido quando o destino é "OUTRO" ou
+     * na NF-e de entrada; nos demais casos é derivado do destino.
+     */
+    consumidorFinal?: boolean | null;
     indicadorPresenca: string;
     observacaoInterna?: string | null;
     observacoesFiscais?: string | null;
@@ -166,6 +206,12 @@ export type NFeAvulsaDraftInput = {
   }> | null;
   transporte?: {
     modFrete?: "0" | "1" | "2" | "3" | "4" | "9" | string | null;
+    /**
+     * O frete cobrado na nota integra a base do ICMS próprio? Só é lido quando a
+     * lei não responde sozinha: frete cobrado com modFrete diferente de 0 e 3
+     * (ver `freteNaBaseIcms`). Com transporte do remetente, integra sempre.
+     */
+    freteIntegraBaseIcms?: boolean | null;
     transportadora?: {
       documento?: string | null;
       nome?: string | null;
@@ -233,11 +279,28 @@ export type NFeAvulsaDraftInput = {
   documentosReferenciados?: Array<{ chaveAcesso: string }> | null;
 };
 
+export type NFeAvulsaIcmsInput = Pick<
+  EntradaIcms,
+  | "proprio"
+  | "fcp"
+  | "diferimento"
+  | "st"
+  | "fcpSt"
+  | "stRetida"
+  | "fcpStRetido"
+  | "icmsEfetivo"
+  | "desoneracao"
+  | "creditoSn"
+>;
+
 type ValidationError = {
   step: string;
   field?: string;
   itemIndex?: number;
   message: string;
+  code?: string;
+  /** Aviso que libera a emissão depois que o usuário confirma a ciência. */
+  requerCiencia?: boolean;
 };
 
 const unidadesPermitidas = new Set(["UN", "JGO", "KIT", "PAR", "CX", "PCT"]);
@@ -347,11 +410,9 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     csosn: cleanText(item.csosn) || null,
     cst: cleanText(item.cst) || null,
     cstIcms: cleanText(item.cst) || null,
+    // A alíquota é a da classificação. Base e valor do ICMS não nascem dela:
+    // quem decide se há ICMS próprio é o grupo do CST/CSOSN (`prepararItemFiscal`).
     aliquotaIcms: toOptionalDecimal(item.aliquotaIcms) ?? undefined,
-    baseCalculoIcms: toOptionalDecimal(item.aliquotaIcms) === null ? undefined : valorLiquido,
-    vBCSTRet: toOptionalDecimal(item.vBCSTRet) ?? undefined,
-    pST: toOptionalDecimal(item.pST) ?? undefined,
-    vICMSSTRet: toOptionalDecimal(item.vICMSSTRet) ?? undefined,
     cstPis: cleanText(item.cstPis) || null,
     aliquotaPis: toOptionalDecimal(item.aliquotaPis) ?? undefined,
     cstCofins: cleanText(item.cstCofins) || null,
@@ -369,6 +430,96 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
         cbs: { aliquota: pCbs, valor: calculateValue(baseRtc, pCbs, item.valorCbs) },
       },
     } : {}),
+  };
+}
+
+function entradaIcmsDoInput(
+  item: NFeAvulsaItemInput,
+  crt: CRT,
+  valorOperacao: number,
+  valorFrete: number,
+  freteIntegraBaseIcms: boolean | null | undefined,
+): EntradaIcms {
+  const icms = item.icms ?? {};
+  // Rascunhos e o espelho da saída mandavam a ST retida em campos soltos.
+  const stRetidaLegada = [item.vBCSTRet, item.pST, item.vICMSSTRet].some(
+    (value) => value !== null && value !== undefined && String(value).trim() !== "",
+  )
+    ? { vBCSTRet: item.vBCSTRet, pST: item.pST, vICMSSTRet: item.vICMSSTRet }
+    : null;
+  return {
+    crt,
+    cst: item.cst,
+    csosn: item.csosn,
+    orig: item.orig,
+    valorOperacao,
+    // O ERP ainda não tem seguro nem outras despesas por item (vSeg/vOutro saem
+    // zerados); quando tiver, entram aqui e somam nas duas bases.
+    composicaoBase: { frete: valorFrete, freteIntegraBaseIcms },
+    aliquotaIcms: item.aliquotaIcms,
+    procedenciaAliquota: item.procedenciaFiscal?.aliquotaicms ?? null,
+    proprio: icms.proprio,
+    fcp: icms.fcp,
+    diferimento: icms.diferimento,
+    st: icms.st,
+    fcpSt: icms.fcpSt,
+    stRetida: icms.stRetida ?? stRetidaLegada,
+    fcpStRetido: icms.fcpStRetido,
+    icmsEfetivo: icms.icmsEfetivo,
+    desoneracao: icms.desoneracao,
+    creditoSn: icms.creditoSn,
+  };
+}
+
+export type ItemFiscalPreparado = {
+  nfeItem: NFeItem;
+  /** Combinação que o núcleo recusa: a nota não é gerada. */
+  bloqueios: IcmsIssue[];
+  /** Avisos de coerência que o usuário ainda não confirmou. */
+  avisosPendentes: IcmsIssue[];
+};
+
+/**
+ * Item fiscal pronto para XML, totais e `nfe_item`. É aqui que os cinco
+ * fluxos de emissão passam pelo núcleo de ICMS: o CST/CSOSN escolhido decide
+ * o grupo, e só então os valores são calculados.
+ */
+export function prepararItemFiscal(
+  item: NFeAvulsaItemInput,
+  index: number,
+  crt: CRT,
+  contexto: {
+    /** Decisão da nota (`decisaoFreteDoDraft`). Sem ela, frete no item bloqueia o ICMS próprio. */
+    freteIntegraBaseIcms?: boolean | null;
+  } = {},
+): ItemFiscalPreparado {
+  const nfeItem = mapInputToTaxItem(item, index);
+  const valorOperacao = Number((nfeItem.valorTotal - Number(nfeItem.valorDesconto ?? 0)).toFixed(2));
+  const resultado = calcularIcmsItem(
+    entradaIcmsDoInput(item, crt, valorOperacao, Number(nfeItem.valorFrete ?? 0), contexto.freteIntegraBaseIcms),
+  );
+  const avisos =
+    resultado.tratamento && resultado.valores
+      ? validarCoerenciaCfopIcms({ cfop: nfeItem.cfop, tratamento: resultado.tratamento, valores: resultado.valores })
+      : [];
+  const confirmados = new Set((item.avisosFiscaisConfirmados ?? []).map((code) => cleanText(code)));
+  if (resultado.valores) {
+    nfeItem.icms = resultado.valores;
+    // O código gravado é o que foi para o XML ("060" digitado vira "60").
+    if (resultado.valores.cst) {
+      nfeItem.cst = resultado.valores.cst;
+      nfeItem.cstIcms = resultado.valores.cst;
+    }
+    if (resultado.valores.csosn) nfeItem.csosn = resultado.valores.csosn;
+    nfeItem.icmsDecisao = montarDecisaoIcms(
+      resultado,
+      avisos.filter((aviso) => confirmados.has(aviso.code)),
+    );
+  }
+  return {
+    nfeItem,
+    bloqueios: resultado.issues.filter((issue) => issue.severidade === "BLOQUEIO"),
+    avisosPendentes: avisos.filter((aviso) => !confirmados.has(aviso.code)),
   };
 }
 
@@ -551,7 +702,31 @@ function getTransporteFiscal(input: NFeAvulsaDraftInput): NFeTransporteOptions {
 }
 
 function getTransporteDadosAvulsos(input: NFeAvulsaDraftInput) {
-  return getTransporteFiscal(input);
+  // A decisão sobre o frete na base do ICMS não vai para o XML, mas precisa
+  // voltar quando o rascunho é reaberto.
+  return {
+    ...getTransporteFiscal(input),
+    freteIntegraBaseIcms: typeof input.transporte?.freteIntegraBaseIcms === "boolean"
+      ? input.transporte.freteIntegraBaseIcms
+      : null,
+  };
+}
+
+/**
+ * O frete cobrado na nota integra a base do ICMS próprio? Com transporte do
+ * remetente a lei decide; nas demais modalidades vale a escolha do usuário.
+ * NFC-e não tem frete.
+ */
+export function decisaoFreteDoDraft(input: NFeAvulsaDraftInput): DecisaoFreteNaBase {
+  const valorFrete = (input.itens ?? []).reduce(
+    (total, item) => total + Math.max(0, toDecimalNumber(item.valorFrete)),
+    0,
+  );
+  return freteNaBaseIcms({
+    modFrete: getTransporteFiscal(input).modFrete,
+    valorFrete: Number(valorFrete.toFixed(2)),
+    decisaoUsuario: input.transporte?.freteIntegraBaseIcms,
+  });
 }
 
 /**
@@ -609,6 +784,24 @@ function validarEmpresa(
   if (!empresa.certificadocaminho) erros.push("Certificado A1 não configurado.");
   if (!empresa.certificadosenha) erros.push("Senha do certificado A1 não configurada.");
   return erros;
+}
+
+/**
+ * indFinal da nota. `null` quando falta a escolha do destino da mercadoria na
+ * NF-e de saída — o ERP cobra a escolha em vez de presumir.
+ *
+ * - NFC-e: sempre 1, por definição do modelo.
+ * - Entrada emitida pela própria empresa: documenta a compra dela; vale o que o
+ *   fluxo de entrada informar (hoje 0), sem destino a perguntar.
+ * - Saída: sai do destino da mercadoria; "OUTRO" exige o indicador explícito.
+ */
+export function resolverIndFinalDaOperacao(input: Pick<NFeAvulsaDraftInput, "modelo" | "operacao">): 0 | 1 | null {
+  if ((input.modelo ?? MODELO_NFE) === MODELO_NFCE) return 1;
+  const operacao = input.operacao;
+  if (operacao?.tipoOperacao === "ENTRADA") {
+    return indFinalDoDestino(operacao.destinoMercadoria, operacao.consumidorFinal) ?? (operacao.consumidorFinal ? 1 : 0);
+  }
+  return indFinalDoDestino(operacao?.destinoMercadoria, operacao?.consumidorFinal);
 }
 
 export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
@@ -748,11 +941,22 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
         message: "Indicador de inscrição estadual do destinatário é inválido.",
       });
     }
-    if (cleanText(destinatario.indicadorIe) === "9" && input.operacao?.consumidorFinal === false) {
+    const indFinal = resolverIndFinalDaOperacao(input);
+    if (indFinal === null) {
       errors.push({
-        step: "recipient",
-        field: "consumidorFinal",
-        message: "Destinatário não contribuinte deve ser informado como consumidor final.",
+        step: "operation",
+        field: "destinoMercadoria",
+        message:
+          "Informe o destino da mercadoria (" +
+          DESTINO_MERCADORIA_OPCOES.map((opcao) => opcao.label.toLowerCase()).join(", ") +
+          "). É dele que sai o indicador de consumidor final da NF-e; o ERP não o presume pelo tipo de venda nem pelo cadastro do cliente.",
+      });
+    } else if (cleanText(destinatario.indicadorIe) === "9" && indFinal === 0) {
+      errors.push({
+        step: "operation",
+        field: "destinoMercadoria",
+        message:
+          "Destinatário não contribuinte (indIEDest 9) é sempre consumidor final: revenda ou industrialização não se aplica a ele.",
       });
     }
     if (
@@ -992,6 +1196,18 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       step: "transport",
       field: "veiculo.placa",
       message: "Placa do veÃ­culo deve ter 7 caracteres.",
+    });
+  }
+
+  // Frete cobrado fora da hipótese automática da LC 87/96: a base do ICMS
+  // depende da operação e o ERP não presume.
+  const freteNaBase = decisaoFreteDoDraft(input);
+  if (freteNaBase.integra === null) {
+    errors.push({
+      step: "transport",
+      field: "transporte.freteIntegraBaseIcms",
+      code: "NFE_ICMS_FRETE_BASE_INDEFINIDA",
+      message: freteNaBase.motivo,
     });
   }
 
@@ -1283,15 +1499,25 @@ async function getConfigAndEmpresa(modelo: ModeloDocumentoFiscal = MODELO_NFE) {
   return { config, empresa };
 }
 
-function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number, fiscalItem?: NFeItem) {
-  const taxItem = fiscalItem ?? mapInputToTaxItem(item, index);
+/**
+ * Linha de `nfe_item`. As colunas de ICMS espelham o grupo serializado no XML:
+ * `valor_bc_icms`/`valor_icms`/`aliquotaicms` são o ICMS PRÓPRIO do documento e
+ * ficam NULL quando o grupo não o tem (CST 60, 40, SN102...). ST, ST retida,
+ * FCP, desoneração e diferimento têm colunas próprias — nunca reaproveitam as
+ * do ICMS próprio. A alíquota do cadastro que não entrou no cálculo fica no
+ * snapshot (`icmsDecisao.camposIgnorados`), com o motivo.
+ */
+export function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number, taxItem: NFeItem) {
   const quantidade = taxItem.quantidade;
   const valorUnitario = taxItem.valorUnitario;
   const valorTotal = taxItem.valorTotal;
   const valorDesconto = Number(taxItem.valorDesconto ?? 0);
   // Base dos tributos é o item já líquido do desconto incondicional.
   const valorLiquido = Number((valorTotal - valorDesconto).toFixed(2));
-  const aliquotaIcms = taxItem.aliquotaIcms ?? null;
+  const icms = taxItem.icms;
+  if (!icms) {
+    throw new Error(`NFE_ICMS_NAO_RESOLVIDO: item ${index + 1} sem grupo ICMS decidido pelo núcleo.`);
+  }
   const aliquotaPis = taxItem.pis?.aliquota ?? taxItem.aliquotaPis ?? null;
   const aliquotaCofins = taxItem.cofins?.aliquota ?? taxItem.aliquotaCofins ?? null;
 
@@ -1302,8 +1528,8 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number,
     descricao: cleanText(item.descricao),
     ncm: onlyDigits(item.ncm),
     cfop: onlyDigits(item.cfop),
-    csosn: cleanText(item.csosn) || null,
-    cst: cleanText(item.cst) || null,
+    csosn: icms.csosn,
+    cst: icms.cst,
     origem_mercadoria: cleanText(taxItem.orig) || null,
     cest: onlyDigits(item.cest) || null,
     unidade: cleanText(item.unidade) || "UN",
@@ -1312,9 +1538,19 @@ function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: number,
     valor_total: valorTotal,
     valor_desconto: valorDesconto,
     valor_frete: Number(taxItem.valorFrete ?? 0),
-    aliquotaicms: aliquotaIcms,
-    valor_bc_icms: aliquotaIcms === null ? null : valorLiquido,
-    valor_icms: aliquotaIcms === null ? null : Number((valorLiquido * (aliquotaIcms / 100)).toFixed(2)),
+    grupo_icms_xml: icms.grupoXml,
+    aliquotaicms: icms.pICMS,
+    valor_bc_icms: icms.vBC,
+    valor_icms: icms.vICMS,
+    valor_bc_icms_st: icms.vBCST,
+    valor_icms_st: icms.vICMSST,
+    valor_fcp: icms.vFCP,
+    valor_fcp_st: icms.vFCPST,
+    valor_bc_st_retido: icms.vBCSTRet,
+    valor_icms_st_retido: icms.vICMSSTRet,
+    valor_fcp_st_retido: icms.vFCPSTRet,
+    valor_icms_desonerado: icms.vICMSDeson,
+    valor_icms_diferido: icms.vICMSDif,
     cst_pis: cleanText(item.cstPis) || null,
     aliquota_pis: aliquotaPis,
     valor_pis: taxItem.pis?.valor ?? (aliquotaPis === null ? null : Number((Number(taxItem.pis?.base ?? valorLiquido) * (aliquotaPis / 100)).toFixed(2))),
@@ -1451,7 +1687,12 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       .map((row: any) => row.cst));
   }
 
-  const itensXml = input.itens.map(mapInputToTaxItem);
+  // `validarDraftAvulso` já barrou frete sem decisão; aqui ela só é aplicada.
+  const freteNaBase = decisaoFreteDoDraft(input);
+  const preparados = input.itens.map((item, index) =>
+    prepararItemFiscal(item, index, crt, { freteIntegraBaseIcms: freteNaBase.integra }),
+  );
+  const itensXml = preparados.map((preparado) => preparado.nfeItem);
   for (const item of itensXml) {
     if (!item.rtc) continue;
     const classification = classificationsByCode.get(item.rtc.cClassTrib);
@@ -1484,14 +1725,63 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         message: "A classificação exige grupo RTC especial (monofásico, diferimento ou sem cálculo) ainda não disponível nesta tela.",
       });
     }
+    // Bloqueios do cálculo (campo informado num grupo que não o aceita, campo
+    // obrigatório faltando) vêm do núcleo; a validação acima confere o grupo já
+    // decidido. O mesmo problema não aparece duas vezes.
+    const vistos = new Set(issues.map((issue) => `${issue.code}|${issue.field}`));
+    for (const bloqueio of preparados[itemIndex].bloqueios) {
+      if (!vistos.has(`${bloqueio.code}|${bloqueio.field}`)) issues.push(bloqueio);
+    }
     return issues.map((issue) => ({
       step: "products",
       itemIndex,
       field: issue.field,
+      code: issue.code,
       message: `${issue.code}: ${issue.message}`,
     }));
   });
   if (taxErrors.length > 0) return { ok: false as const, errors: taxErrors };
+
+  // Combinação CFOP × CST/CSOSN que a descrição oficial do CFOP contradiz: a
+  // escolha continua sendo do usuário, mas a nota só sai com a ciência dele.
+  const avisosPendentes: ValidationError[] = preparados.flatMap((preparado, itemIndex) =>
+    preparado.avisosPendentes.map((aviso) => ({
+      step: "products",
+      itemIndex,
+      field: aviso.field,
+      code: aviso.code,
+      requerCiencia: true,
+      message: `${aviso.code}: ${aviso.message} Para emitir assim, confirme a ciência no item.`,
+    })),
+  );
+  if (avisosPendentes.length > 0) return { ok: false as const, errors: avisosPendentes };
+
+  const indFinal = resolverIndFinalDaOperacao(input);
+  if (indFinal === null) {
+    // `validarDraftAvulso` já barrou; a guarda mantém o tipo e o motivo.
+    return {
+      ok: false as const,
+      errors: [{ step: "operation", field: "destinoMercadoria", message: "Informe o destino da mercadoria." }],
+    };
+  }
+  const operacaoGravada = {
+    ...input.operacao,
+    destinoMercadoria: normalizarDestinoMercadoria(input.operacao.destinoMercadoria),
+    consumidorFinal: indFinal === 1,
+  };
+  const decisaoIcmsItens = itensXml.map((item) => ({
+    item: item.numeroItem,
+    ...(item.icmsDecisao
+      ? {
+          cst: item.icmsDecisao.cst,
+          csosn: item.icmsDecisao.csosn,
+          grupoXmlIcms: item.icmsDecisao.grupoXmlIcms,
+          tratamentoIcms: item.icmsDecisao.tratamentoIcms,
+          icmsProprio: item.icmsDecisao.icmsProprio,
+          avisosConfirmados: item.icmsDecisao.avisosConfirmados.map((aviso) => aviso.code),
+        }
+      : {}),
+  }));
 
   const limiteDevolucaoErrors = await validarTotalDevolucaoComDocumentosLocais(
     input,
@@ -1607,7 +1897,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
       nomeMunicipioEmitente,
       natOp: cleanText(input.operacao.naturezaOperacao),
-      indFinal: input.operacao.consumidorFinal ? 1 : 0,
+      indFinal,
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
@@ -1659,7 +1949,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         },
         dados_avulsos: {
           origem: origem ?? { tipo: "AVULSA" },
-          operacao: input.operacao,
+          operacao: operacaoGravada,
           pagamento: pagamentoDadosAvulsos,
           pagamentos: pagamentosDadosAvulsos,
           transporte: transporteDadosAvulsos,
@@ -1676,6 +1966,10 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           modelo: String(modelo),
           crt,
           dataEmissao: now,
+          destinoMercadoria: operacaoGravada.destinoMercadoria,
+          indFinal,
+          freteNaBaseIcms: freteNaBase,
+          icms: decisaoIcmsItens,
           classificacoesRtc: itensXml.filter((item) => item.rtc).map((item) => ({
             item: item.numeroItem,
             cst: item.rtc?.cstIbsCbs,
@@ -1752,7 +2046,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       tpNF: input.operacao.tipoOperacao === "ENTRADA" ? 0 : 1,
       nomeMunicipioEmitente,
       natOp: cleanText(input.operacao.naturezaOperacao),
-      indFinal: input.operacao.consumidorFinal ? 1 : 0,
+      indFinal,
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
@@ -1781,7 +2075,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
         destinatario_snapshot: destinatario,
         dados_avulsos: {
           origem: origem ?? { tipo: "AVULSA" },
-          operacao: input.operacao,
+          operacao: operacaoGravada,
           pagamento: pagamentoDadosAvulsos,
           pagamentos: pagamentosDadosAvulsos,
           transporte: transporteDadosAvulsos,
@@ -1798,6 +2092,10 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           modelo: String(modelo),
           crt,
           dataEmissao: now,
+          destinoMercadoria: operacaoGravada.destinoMercadoria,
+          indFinal,
+          freteNaBaseIcms: freteNaBase,
+          icms: decisaoIcmsItens,
           classificacoesRtc: itensXml.filter((item) => item.rtc).map((item) => ({
             item: item.numeroItem,
             cst: item.rtc?.cstIbsCbs,

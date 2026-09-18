@@ -412,6 +412,13 @@ export function criarIdeParaEmpresa(
     cNF,
   });
 
+  // indFinal da NF-e de saída vem da decisão da emissão (destino da
+  // mercadoria). Ser venda não faz de ninguém consumidor final, então não há
+  // valor padrão: sem a decisão, a nota não é montada.
+  if (!nfce && (options?.tpNF ?? 1) === 1 && options?.indFinal === undefined) {
+    throw new Error('NFE_INDFINAL_REQUIRED: informe se a operação é com consumidor final (destino da mercadoria).');
+  }
+
   // 2) Monta objeto ide completo
   //
   // A NFC-e tem três campos sem escolha: só documenta operação interna
@@ -581,9 +588,13 @@ export function buildNFePreviewXml(
       cfopDispensaDifal(item.cfop) ? item : {
         ...item,
         icmsUfDest: item.icmsUfDest ?? montarICMSUFDest({
-          // A base do DIFAL e o valor da operacao: item liquido do desconto
-          // incondicional, mais o frete rateado.
-          baseCalculo: valorLiquidoItem(item) + Number(item.valorFrete ?? 0),
+          // A base do DIFAL e o valor da operacao, a mesma do ICMS proprio sem
+          // reducao: item liquido do desconto, mais o frete quando ele integra a
+          // base (LC 87/96, art. 13, par. 1o). Itens montados fora do nucleo
+          // seguem com o frete rateado, como sempre.
+          baseCalculo:
+            item.icmsDecisao?.composicaoBase?.baseIcmsProprio ??
+            valorLiquidoItem(item) + Number(item.valorFrete ?? 0),
           baseCalculoFcp: item.baseCalculoFcpDestino,
           ufEmitente: empresaUf,
           ufDestinatario: ufDestino,

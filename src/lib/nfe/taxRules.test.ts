@@ -4,7 +4,9 @@ import { describe, it } from 'node:test';
 import { buildDetXml } from './xmlItem';
 import {
   getRequiredPisCofinsMode,
+  NFE_FISCAL_RULE_VERSION,
   PIS_COFINS_CST_OPTIONS,
+  rascunhoPrecisaSerRegerado,
   RTC_REGULAR_REQUIRED_FROM,
   validateNFeItemTax,
 } from './taxRules';
@@ -155,5 +157,19 @@ describe('CST de PIS e COFINS', () => {
     assert.equal(getRequiredPisCofinsMode('07'), 'NAO_TRIBUTADO');
     assert.equal(getRequiredPisCofinsMode('49'), null);
     assert.equal(getRequiredPisCofinsMode('99'), null);
+  });
+});
+
+describe('rascunho montado com regra fiscal anterior', () => {
+  it('exige salvar de novo antes de transmitir', () => {
+    assert.equal(rascunhoPrecisaSerRegerado({ status: 'RASCUNHO', versao_regra_fiscal: 'regras_nfe@2026-07-19' }), true);
+    assert.equal(rascunhoPrecisaSerRegerado({ status: 'REJEITADA', versao_regra_fiscal: null }), true);
+    assert.equal(rascunhoPrecisaSerRegerado({ status: 'RASCUNHO', versao_regra_fiscal: NFE_FISCAL_RULE_VERSION }), false);
+  });
+
+  it('não barra o que já foi à SEFAZ ou saiu em contingência', () => {
+    for (const status of ['CONTINGENCIA', 'ENVIADA', 'RESULTADO_INCERTO', 'AUTORIZADA']) {
+      assert.equal(rascunhoPrecisaSerRegerado({ status, versao_regra_fiscal: 'antiga' }), false, status);
+    }
   });
 });

@@ -5,12 +5,28 @@ import type {
   NFeItem,
   TributoPisCofins,
 } from './types';
+import { NFE_ICMS_RULE_VERSION, resolverIcmsDoItem } from './icms';
 
 export const NFE_FISCAL_RULE_VERSION =
-  'regras_nfe@2026-07-19|NT-2025.002-v1.50|IT-2025.002-v1.60|PL-010b-v1.30';
+  `regras_nfe@2026-09-18|NT-2025.002-v1.50|IT-2025.002-v1.60|PL-010b-v1.30|${NFE_ICMS_RULE_VERSION}`;
 export const RTC_REGULAR_REQUIRED_FROM = '2026-08-03';
 
-export type FieldRule = 'REQUIRED' | 'OPTIONAL' | 'DERIVED' | 'FORBIDDEN' | 'CONDITIONAL';
+/**
+ * A autorização transmite o XML gravado no rascunho. Se ele foi montado com
+ * uma regra fiscal anterior, a nota tem de ser salva de novo antes de ir para
+ * a SEFAZ — senão sairia com o cálculo que a regra nova corrigiu. Só vale para
+ * o que ainda não foi à SEFAZ: contingência e envio em curso seguem como estão.
+ */
+export function rascunhoPrecisaSerRegerado(nfe: {
+  status?: string | null;
+  versao_regra_fiscal?: string | null;
+}): boolean {
+  const status = String(nfe.status ?? '').toUpperCase();
+  if (status !== 'RASCUNHO' && status !== 'REJEITADA') return false;
+  return (nfe.versao_regra_fiscal ?? '') !== NFE_FISCAL_RULE_VERSION;
+}
+
+export type FieldRule ='REQUIRED' | 'OPTIONAL' | 'DERIVED' | 'FORBIDDEN' | 'CONDITIONAL';
 
 export type NFeFiscalFieldRules = {
   modelo: '55';
@@ -212,8 +228,22 @@ export function validateNFeItemTax(
   if (rules.icms.cst === 'FORBIDDEN' && cst) {
     issues.push({ code: 'NFE_ICMS_CST_FORBIDDEN', field: 'cst', message: `CRT ${crt} não permite CST comum de ICMS.` });
   }
-  if (crt === 4 && (present(item.pCredSN) || present(item.vCredICMSSN))) {
+  if (crt === 4 && (present(item.pCredSN) || present(item.vCredICMSSN) || item.icms?.pCredSN != null)) {
     issues.push({ code: 'NFE_MEI_CREDIT_FORBIDDEN', field: 'pCredSN', message: 'Crédito do Simples é proibido para MEI.' });
+  }
+
+  // Com o código válido para o regime, o núcleo de ICMS confere os campos que
+  // o grupo escolhido aceita e exige. Avisos de coerência (CFOP × CST) ficam
+  // fora daqui: eles pedem ciência do usuário, não bloqueiam.
+  const codigoIcmsValido = !issues.some((issue) =>
+    ['NFE_ICMS_CST_REQUIRED', 'NFE_CSOSN_REQUIRED', 'NFE_MEI_CSOSN_NOT_ALLOWED'].includes(issue.code),
+  );
+  if (codigoIcmsValido) {
+    for (const issue of resolverIcmsDoItem(item, crt).issues) {
+      if (issue.severidade === 'BLOQUEIO') {
+        issues.push({ code: issue.code, field: issue.field, message: issue.message });
+      }
+    }
   }
 
   issues.push(...validatePisCofins('PIS', item.pis, item.cstPis, item.aliquotaPis));

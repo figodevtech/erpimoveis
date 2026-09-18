@@ -93,7 +93,7 @@ function destinatario(uf: string): NFeDestinatario {
 describe("destino da operação na NF-e", () => {
   it("marca operação interna quando emitente e destinatário estão na mesma UF", () => {
     const result = buildNFePreviewXml(empresa, 1, 1, [item], destinatario("SP"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
     assert.match(result.xml, /<idDest>1<\/idDest>/);
   });
@@ -105,7 +105,7 @@ describe("destino da operação na NF-e", () => {
       1,
       [{ ...item, cfop: "6102" }],
       destinatario("MG"),
-      { nomeMunicipioEmitente: "SAO PAULO" },
+      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
     );
     assert.match(result.xml, /<idDest>2<\/idDest>/);
   });
@@ -126,7 +126,7 @@ describe("limite de xNome", () => {
       [item],
       destinatarioLongo,
       {
-        nomeMunicipioEmitente: "SAO PAULO",
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
         ambiente: "PRODUCAO",
         transporte: {
           modFrete: "0",
@@ -165,7 +165,7 @@ describe("documentos referenciados e devolução", () => {
       }],
       destinatario("SP"),
       {
-        nomeMunicipioEmitente: "SAO PAULO",
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
         natOp: "DEVOLUCAO DE COMPRA",
         finNFe: 4,
       },
@@ -183,7 +183,7 @@ describe("documentos referenciados e devolução", () => {
 
   it("preserva a NF-e de venda sem grupos de devolução ou referência", () => {
     const { xml } = buildNFePreviewXml(empresa, 92, 1, [item], destinatario("SP"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
     assert.doesNotMatch(xml, /<impostoDevol>|<DFeReferenciado>|<NFref>/);
     assert.match(xml, /<vIPIDevol>0\.00<\/vIPIDevol>/);
@@ -192,7 +192,7 @@ describe("documentos referenciados e devolução", () => {
 
   it("gera NFref no bloco ide quando o chamador usa uma referência de cabeçalho", () => {
     const { xml } = buildNFePreviewXml(empresa, 93, 1, [item], destinatario("SP"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
       documentosReferenciados: [{ chaveAcesso: chaveOriginal }],
     });
     // No XSD 4.00, NFref é o último grupo de ide, depois de verProc. O código
@@ -218,7 +218,7 @@ describe("documentos referenciados e devolução", () => {
       }],
       destinatario("SP"),
       {
-        nomeMunicipioEmitente: "SAO PAULO",
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
         natOp: "DEVOLUCAO DE COMPRA PARA COMERCIALIZACAO",
         finNFe: 4,
         documentosReferenciados: [{ chaveAcesso: chaveOriginal }],
@@ -261,7 +261,7 @@ describe("DIFAL (ICMSUFDest)", () => {
 
   it("gera o grupo na venda interestadual a consumidor final não contribuinte", () => {
     const { xml } = buildNFePreviewXml(empresaRegimeNormal, 3, 1, [itemDifal], destinatario("MG"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
     assert.match(xml, /<ICMSUFDest>/);
@@ -292,7 +292,7 @@ describe("DIFAL (ICMSUFDest)", () => {
         },
       }],
       destinatario("MG"),
-      { nomeMunicipioEmitente: "SAO PAULO" },
+      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
     );
 
     // Sequência do PL_010: ... COFINS, COFINSST, ICMSUFDest, IS, IBSCBS.
@@ -306,7 +306,7 @@ describe("DIFAL (ICMSUFDest)", () => {
 
   it("soma os totais no ICMSTot entre vICMSDeson e vFCP", () => {
     const { xml } = buildNFePreviewXml(empresaRegimeNormal, 5, 1, [itemDifal, itemDifal], destinatario("MG"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
     assert.match(
@@ -335,7 +335,7 @@ describe("DIFAL (ICMSUFDest)", () => {
         },
       }],
       destinatario("MG"),
-      { nomeMunicipioEmitente: "SAO PAULO" },
+      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
     );
 
     // gIBS = gIBSUF, gIBSMun, vIBS, vCredPres, vCredPresCondSus.
@@ -353,7 +353,7 @@ describe("DIFAL (ICMSUFDest)", () => {
 
   it("não soma o DIFAL ao vNF", () => {
     const { xml } = buildNFePreviewXml(empresaRegimeNormal, 6, 1, [itemDifal], destinatario("MG"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
     assert.match(xml, /<vProd>2000\.00<\/vProd>/);
@@ -362,7 +362,7 @@ describe("DIFAL (ICMSUFDest)", () => {
 
   it("não gera o grupo em operação interna", () => {
     const { xml } = buildNFePreviewXml(empresaRegimeNormal, 7, 1, [{ ...itemDifal, cfop: "5102" }], destinatario("SP"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
     assert.doesNotMatch(xml, /<ICMSUFDest>/);
@@ -376,7 +376,7 @@ describe("DIFAL (ICMSUFDest)", () => {
       inscricaoEstadual: "1234567890",
     };
     const { xml } = buildNFePreviewXml(empresaRegimeNormal, 8, 1, [itemDifal], contribuinte, {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
     assert.doesNotMatch(xml, /<ICMSUFDest>/);
@@ -392,7 +392,7 @@ describe("pagamentos na NF-e", () => {
       [{ ...item, valorUnitario: 100, valorTotal: 100 }],
       destinatario("SP"),
       {
-        nomeMunicipioEmitente: "SAO PAULO",
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
         pagamentos: [
           { tPag: "17", valor: 40 },
           { tPag: "03", valor: 60, tpIntegra: "2" },
@@ -407,7 +407,7 @@ describe("pagamentos na NF-e", () => {
 
   it("atribui o total da nota ao método único quando o valor não é informado", () => {
     const result = buildNFePreviewXml(empresa, 4, 1, [item], destinatario("SP"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
       pagamento: { tPag: "17" },
     });
 
@@ -422,7 +422,7 @@ describe("pagamentos na NF-e", () => {
       [{ ...item, valorFrete: 12.5 }],
       destinatario("SP"),
       {
-        nomeMunicipioEmitente: "SAO PAULO",
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
         pagamento: { tPag: "17" },
       },
     );
@@ -439,7 +439,7 @@ describe("pagamentos na NF-e", () => {
       1,
       [{ ...item, valorFrete: 12.5, valorDesconto: 2.5 }],
       destinatario("SP"),
-      { nomeMunicipioEmitente: "SAO PAULO" },
+      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
     );
 
     // I14a vUnTrib < I15 vFrete < I17 vDesc < I17b indTot.
@@ -459,7 +459,7 @@ describe("desconto na NF-e", () => {
       [{ ...item, quantidade: 2, valorTotal: 20, valorDesconto: 5 }],
       destinatario("SP"),
       {
-        nomeMunicipioEmitente: "SAO PAULO",
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
         pagamento: { tPag: "17" },
       },
     );
@@ -488,7 +488,7 @@ describe("desconto na NF-e", () => {
         },
       ],
       destinatario("SP"),
-      { nomeMunicipioEmitente: "SAO PAULO" },
+      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
     );
 
     assert.match(result.xml, /<PISAliq><CST>01<\/CST><vBC>15\.00<\/vBC><pPIS>10\.0000<\/pPIS><vPIS>1\.50<\/vPIS>/);
@@ -497,7 +497,7 @@ describe("desconto na NF-e", () => {
 
   it("mantém vDesc zerado quando não há desconto", () => {
     const result = buildNFePreviewXml(empresa, 9, 1, [item], destinatario("SP"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
     assert.doesNotMatch(result.xml, /<prod>.*<vDesc>.*<\/prod>/);
@@ -539,7 +539,7 @@ describe("normalização de rascunho legado", () => {
 describe("grupo <entrega> (local de entrega/retirada)", () => {
   it("não gera <entrega> quando a opção não foi informada", () => {
     const { xml } = buildNFePreviewXml(empresa, 20, 1, [item], destinatario("SP"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
     assert.doesNotMatch(xml, /<entrega>/);
@@ -547,7 +547,7 @@ describe("grupo <entrega> (local de entrega/retirada)", () => {
 
   it("gera <entrega> com a pessoa indicada, sem alterar o <dest>", () => {
     const { xml } = buildNFePreviewXml(empresa, 21, 1, [item], destinatario("MT"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
       entrega: {
         documento: "49354549896",
         nome: "Gustavo Guarnieri Guarnieri",
@@ -573,7 +573,7 @@ describe("grupo <entrega> (local de entrega/retirada)", () => {
 
   it("não gera <entrega> pela metade quando falta documento ou endereço", () => {
     const { xml } = buildNFePreviewXml(empresa, 22, 1, [item], destinatario("SP"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
       entrega: {
         documento: "49354549896",
         nome: "Gustavo Guarnieri Guarnieri",
@@ -592,7 +592,7 @@ describe("grupo <transp> (modalidade de frete)", () => {
     // nenhum dado de transportadora — <transporta> é opcional no layout da
     // NF-e independente do modFrete escolhido.
     const { xml } = buildNFePreviewXml(empresa, 23, 1, [item], destinatario("SP"), {
-      nomeMunicipioEmitente: "SAO PAULO",
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
       transporte: { modFrete: "0" },
     });
 

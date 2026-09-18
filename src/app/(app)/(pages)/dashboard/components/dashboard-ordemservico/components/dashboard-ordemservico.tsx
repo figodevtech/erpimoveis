@@ -34,15 +34,8 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ServiceOrdersDashboardProps } from "../lib/types";
-import type { PeriodoDashboard } from "../lib/datas";
-import {
-  obterPeriodoInicial,
-  obterMesAtual,
-  obterMesAnterior,
-  mesmoPeriodo,
-  formatarDataYYYYMMDD,
-  formatarDataCompleta,
-} from "../lib/datas";
+import { obterPeriodoInicial, formatarDataYYYYMMDD, formatarDataCompleta } from "../lib/datas";
+import type { PeriodoDashboard } from "../../shared/periodo";
 import { formatCurrencyBRL, formatDurationHours, formatNumber } from "../lib/format";
 import { pickColorForKey } from "../lib/palette";
 import { STATIC_ZERO_MONTHS, makeZeroedMonthlyFrom, formatMonthLabel } from "../lib/monthly";
@@ -51,6 +44,7 @@ import { useInsights } from "../hooks/use-insights";
 import ChartCard from "../../shared/chart-card";
 import Kpi from "../../shared/kpi";
 import FaixaKpis from "../../shared/faixa-kpis";
+import PresetsPeriodo from "../../shared/presets-periodo";
 import EmptyState from "./emply-state";
 import SheetOsFiltros from "./sheet-os-filtros";
 
@@ -93,11 +87,6 @@ const ROTULOS_PRIORIDADE: Record<string, string> = {
   NORMAL: "Normal",
   BAIXA: "Baixa",
 };
-
-const PRESETS_PERIODO: { chave: string; rotulo: string; calcular: () => PeriodoDashboard }[] = [
-  { chave: "mes-atual", rotulo: "Mês atual", calcular: obterMesAtual },
-  { chave: "mes-anterior", rotulo: "Mês anterior", calcular: obterMesAnterior },
-];
 
 function formatarStatusOS(raw: string) {
   const chave = String(raw ?? "").trim().toUpperCase();
@@ -272,35 +261,12 @@ export default function ServiceOrdersDashboard({
         </div>
 
         <div className="contents sm:flex sm:w-auto sm:shrink-0 sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
-          <div className="col-span-2 col-start-2 row-start-1 flex min-w-0 items-center gap-1 rounded-xl border bg-muted/40 p-0.5 sm:flex-none sm:p-1">
-            {PRESETS_PERIODO.map((preset) => {
-              const alvo = preset.calcular();
-              const selecionado = mesmoPeriodo(
-                { inicio: dataInicio ?? undefined, fim: dataFim ?? undefined },
-                alvo,
-              );
-
-              return (
-                <button
-                  key={preset.chave}
-                  type="button"
-                  aria-label={preset.rotulo}
-                  aria-pressed={selecionado}
-                  onClick={() => aplicarPeriodo(alvo)}
-                  className={cn(
-                    "h-6 flex-1 whitespace-nowrap rounded-lg px-2 text-[11px] font-medium transition-all sm:h-8 sm:flex-none sm:px-2.5 sm:text-xs",
-                    "hover:cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    selecionado
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <span className="sm:hidden">{preset.chave === "mes-atual" ? "Mês atual" : "Anterior"}</span>
-                  <span className="hidden sm:inline">{preset.rotulo}</span>
-                </button>
-              );
-            })}
-          </div>
+          <PresetsPeriodo
+            dataInicio={dataInicio}
+            dataFim={dataFim}
+            aoAplicar={aplicarPeriodo}
+            className="col-span-2 col-start-2 row-start-1"
+          />
 
           <SheetOsFiltros
             aberto={filtroAberto}
