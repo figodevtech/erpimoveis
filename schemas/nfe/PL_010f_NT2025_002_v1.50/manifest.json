@@ -2,7 +2,15 @@
   "pacote": "PL_010f_NT2025_002_v1.50",
   "url": "https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=8ITFuBLltXs%3D",
   "sha256Zip": "b8589490a58a09a993a80e6ac4d7ed10f20892061ecfc56719337098d4b95998",
+  "hashMode": "utf8-lf",
   "arquivos": {
+    "nfe_v4.00.xsd": "920fd7c04a35b49d0b7f56792e650e63cef76cf1b23f10995b1bbec1f0202774",
+    "leiauteNFe_v4.00.xsd": "2bace939973916d54184ff3e2740041a932de5d79772f3363504504160f22542",
+    "DFeTiposBasicos_v1.00.xsd": "173577a4e3a9dc1d0deced85b89b955b6064bb5a4ae5a96f6727d2da8a694d09",
+    "tiposBasico_v4.00.xsd": "772619c85723e598840667ca66e7298a250442df47eeb94b397d2a333ce62047",
+    "xmldsig-core-schema_v1.01.xsd": "78f924e7c9cbeb1e4be900b3b1e7faf2d901972635842980fd43dabb533c512b"
+  },
+  "sha256OfficialRaw": {
     "nfe_v4.00.xsd": "adce3646c13ceb54922ec3142fc1dc45bd4fb839ac35ad583e86c733c07d27df",
     "leiauteNFe_v4.00.xsd": "2bace939973916d54184ff3e2740041a932de5d79772f3363504504160f22542",
     "DFeTiposBasicos_v1.00.xsd": "173577a4e3a9dc1d0deced85b89b955b6064bb5a4ae5a96f6727d2da8a694d09",

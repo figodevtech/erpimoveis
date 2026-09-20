@@ -1,8 +1,9 @@
 // Validação de XML da NF-e contra o XSD oficial, só para testes.
 //
 // Os schemas ficam versionados em schemas/nfe/<pacote>, baixados do Portal da
-// NF-e, com o SHA-256 de cada arquivo em manifest.json. Nada é baixado em
-// runtime: se um XSD for alterado, a validação recusa antes de rodar.
+// NF-e, com o SHA-256 canônico de cada arquivo em manifest.json. O ZIP e os
+// bytes raw oficiais também ficam registrados para auditoria. Nada é baixado
+// em runtime: se um XSD for alterado, a validação recusa antes de rodar.
 //
 // O validador é o libxml2 compilado para WebAssembly (xmllint-wasm), que roda
 // no Node puro — no CI (`npm ci`) e no prebuild da Vercel, sem Python nem
@@ -19,22 +20,52 @@ export const PACOTE_XSD_VIGENTE = 'PL_010f_NT2025_002_v1.50';
 
 const RAIZ_SCHEMAS = path.resolve(process.cwd(), 'schemas', 'nfe');
 
-type Manifesto = { pacote: string; url: string; arquivos: Record<string, string> };
+export const XSD_HASH_MODE = 'utf8-lf' as const;
+
+type Manifesto = {
+  pacote: string;
+  url: string;
+  sha256Zip: string;
+  hashMode: typeof XSD_HASH_MODE;
+  /** SHA-256 do UTF-8 após canonicalizar CRLF e CR para LF. */
+  arquivos: Record<string, string>;
+  /** SHA-256 dos bytes extraídos do ZIP oficial, sem canonicalização. */
+  sha256OfficialRaw: Record<string, string>;
+};
+
+/**
+ * Única transformação aceita antes do hash: finais de linha CRLF/CR viram LF.
+ * Tags, atributos, texto, ordem, namespaces e qualquer outro byte UTF-8 são
+ * preservados e, portanto, continuam protegidos pelo SHA-256.
+ */
+export function canonicalizarXsd(conteudo: Buffer | string): Buffer {
+  const texto = Buffer.isBuffer(conteudo) ? conteudo.toString('utf8') : conteudo;
+  return Buffer.from(texto.replace(/\r\n?/g, '\n'), 'utf8');
+}
+
+export function sha256XsdCanonico(conteudo: Buffer | string): string {
+  return createHash('sha256').update(canonicalizarXsd(conteudo)).digest('hex');
+}
+
+export function validarIntegridadeXsd(
+  conteudo: Buffer | string,
+  sha256Esperado: string,
+  identificador = 'XSD',
+): void {
+  if (sha256XsdCanonico(conteudo) !== sha256Esperado.toLowerCase()) {
+    throw new Error(`XSD alterado em relação ao manifesto: ${identificador}`);
+  }
+}
 
 export function lerPacoteXsd(pacote = PACOTE_XSD_VIGENTE) {
   const pasta = path.join(RAIZ_SCHEMAS, pacote);
   const manifesto = JSON.parse(fs.readFileSync(path.join(pasta, 'manifest.json'), 'utf8')) as Manifesto;
+  if (manifesto.hashMode !== XSD_HASH_MODE) {
+    throw new Error(`Modo de hash XSD não suportado em ${pacote}: ${String(manifesto.hashMode)}`);
+  }
   const arquivos = Object.entries(manifesto.arquivos).map(([nome, sha256]) => {
     const conteudo = fs.readFileSync(path.join(pasta, nome));
-    const hash = createHash('sha256').update(conteudo).digest('hex');
-    // Git pode materializar o mesmo XML com CRLF no Windows. O manifesto usa
-    // os bytes oficiais em LF; aceitamos somente essa normalização semântica e
-    // continuamos recusando qualquer alteração real no schema.
-    const conteudoLf = Buffer.from(conteudo.toString('utf8').replace(/\r\n/g, '\n'));
-    const hashLf = createHash('sha256').update(conteudoLf).digest('hex');
-    if (hash !== sha256 && hashLf !== sha256) {
-      throw new Error(`XSD alterado em relação ao manifesto: ${pacote}/${nome}`);
-    }
+    validarIntegridadeXsd(conteudo, sha256, `${pacote}/${nome}`);
     return { fileName: nome, contents: conteudo.toString('utf8') };
   });
   return { manifesto, arquivos };

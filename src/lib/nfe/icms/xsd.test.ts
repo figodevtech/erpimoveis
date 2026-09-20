@@ -16,8 +16,60 @@ import { describe, it } from 'node:test';
 
 import { buildNFePreviewXml } from '../buildNFe';
 import { calcularIcmsItem, montarDecisaoIcms, NFE_ICMS_RULE_VERSION, ORDEM_XSD_ICMS, type EntradaIcms } from '.';
-import { comAssinaturaXsdTeste, PACOTE_XSD_VIGENTE, elementosDoGrupoNoXsd, validarNFeContraXsd } from './__xsdOficial';
+import {
+  comAssinaturaXsdTeste,
+  elementosDoGrupoNoXsd,
+  PACOTE_XSD_VIGENTE,
+  sha256XsdCanonico,
+  validarIntegridadeXsd,
+  validarNFeContraXsd,
+} from './__xsdOficial';
 import { destinatario, empresa, item, rtcTeste } from './fixtures/nfe';
+
+const XSD_INTEGRIDADE_LF = [
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">',
+  '  <xs:element name="raiz" type="xs:string"/>',
+  '</xs:schema>',
+  '',
+].join('\n');
+
+describe('integridade canônica dos arquivos XSD', () => {
+  const hashEsperado = sha256XsdCanonico(XSD_INTEGRIDADE_LF);
+  const validar = (conteudo: string, hash = hashEsperado) =>
+    validarIntegridadeXsd(Buffer.from(conteudo, 'utf8'), hash, 'fixture.xsd');
+
+  it('aceita o conteúdo canônico com LF', () => {
+    assert.doesNotThrow(() => validar(XSD_INTEGRIDADE_LF));
+  });
+
+  it('aceita exatamente o mesmo conteúdo com CRLF', () => {
+    assert.doesNotThrow(() => validar(XSD_INTEGRIDADE_LF.replace(/\n/g, '\r\n')));
+  });
+
+  it('aceita exatamente o mesmo conteúdo com CR isolado', () => {
+    assert.doesNotThrow(() => validar(XSD_INTEGRIDADE_LF.replace(/\n/g, '\r')));
+  });
+
+  it('rejeita a mudança de um caractere real', () => {
+    assert.throws(() => validar(XSD_INTEGRIDADE_LF.replace('UTF-8', 'UTF-9')), /XSD alterado/);
+  });
+
+  it('rejeita a mudança de uma tag', () => {
+    assert.throws(() => validar(XSD_INTEGRIDADE_LF.replace('xs:element', 'xs:attribute')), /XSD alterado/);
+  });
+
+  it('rejeita a remoção de um elemento', () => {
+    assert.throws(
+      () => validar(XSD_INTEGRIDADE_LF.replace('  <xs:element name="raiz" type="xs:string"/>\n', '')),
+      /XSD alterado/,
+    );
+  });
+
+  it('rejeita hash incorreto vindo do manifesto', () => {
+    assert.throws(() => validar(XSD_INTEGRIDADE_LF, '0'.repeat(64)), /XSD alterado/);
+  });
+});
 
 const st = { modBCST: '4', pMVAST: 40, pICMSST: 18, vICMSST: 72 };
 const creditoSn = { pCredSN: 2 };
