@@ -107,7 +107,7 @@ describe("destino da operação na NF-e", () => {
       1,
       [{ ...item, cfop: "6102" }],
       destinatario("MG"),
-      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
+      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 0 },
     );
     assert.match(result.xml, /<idDest>2<\/idDest>/);
   });
@@ -256,13 +256,30 @@ describe("DIFAL (ICMSUFDest)", () => {
     csosn: null,
     valorUnitario: 2000,
     valorTotal: 2000,
+    aliquotaInternaDestino: 18,
+    aliquotaFcpDestino: 0,
     // Desde 03/08/2026 o regime regular não emite sem IBS/CBS: uma nota de CRT 3
     // sem o grupo é rejeitada. Alíquotas-teste de 2026: 0,1% IBS e 0,9% CBS.
     rtc: rtcTeste(2000),
   };
 
-  it("gera o grupo na venda interestadual a consumidor final não contribuinte", () => {
-    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 3, 1, [itemDifal], destinatario("MG"), {
+  type ContextoDifal = Parameters<typeof resolverDifalDoItem>[1];
+  const contextoDifal: ContextoDifal = {
+    ufEmitente: "SP",
+    ufDestinatario: "MG",
+    indFinal: 1,
+    indIEDest: "9",
+    tpNF: 1,
+    finNFe: 1,
+    ufEntrega: null,
+  };
+  const itemComDifal = (
+    overrides: Partial<NFeItem> = {},
+    contexto: Partial<ContextoDifal> = {},
+  ) => resolverDifalDoItem({ ...itemDifal, ...overrides }, { ...contextoDifal, ...contexto });
+
+  it("preserva o DIFAL canônico válido na venda interestadual a consumidor final não contribuinte", () => {
+    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 3, 1, [itemComDifal()], destinatario("MG"), {
       nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
@@ -279,8 +296,7 @@ describe("DIFAL (ICMSUFDest)", () => {
       empresaRegimeNormal,
       4,
       1,
-      [{
-        ...itemDifal,
+      [itemComDifal({
         rtc: {
           cstIbsCbs: "000",
           cClassTrib: "000001",
@@ -292,7 +308,7 @@ describe("DIFAL (ICMSUFDest)", () => {
           versaoClassificacao: "1.00",
           validadoEm: new Date().toISOString(),
         },
-      }],
+      })],
       destinatario("MG"),
       { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
     );
@@ -307,7 +323,7 @@ describe("DIFAL (ICMSUFDest)", () => {
   });
 
   it("soma os totais no ICMSTot entre vICMSDeson e vFCP", () => {
-    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 5, 1, [itemDifal, itemDifal], destinatario("MG"), {
+    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 5, 1, [itemComDifal(), itemComDifal()], destinatario("MG"), {
       nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
@@ -342,7 +358,7 @@ describe("DIFAL (ICMSUFDest)", () => {
       numeroItem: 2,
       cfop: "6901",
     };
-    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 11, 1, [itemDifal, itemDispensado], destinatario("MG"), {
+    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 11, 1, [itemComDifal(), itemDispensado], destinatario("MG"), {
       nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
@@ -355,10 +371,7 @@ describe("DIFAL (ICMSUFDest)", () => {
   });
 
   it("serializa o DIFAL canônico já resolvido sem recalculá-lo no builder", () => {
-    const resolvido = resolverDifalDoItem(
-      { ...itemDifal, aliquotaInternaDestino: 18, aliquotaFcpDestino: 0 },
-      { ufEmitente: "SP", ufDestinatario: "MG", indFinal: 1, indIEDest: "9", tpNF: 1 },
-    );
+    const resolvido = itemComDifal();
     const alteradoDepoisDaResolucao = { ...resolvido, aliquotaInternaDestino: 20 };
     const { xml } = buildNFePreviewXml(
       empresaRegimeNormal,
@@ -372,6 +385,75 @@ describe("DIFAL (ICMSUFDest)", () => {
     assert.match(xml, /<pICMSUFDest>18\.00<\/pICMSUFDest>/);
     assert.match(xml, /<vICMSUFDest>120\.00<\/vICMSUFDest>/);
     assert.doesNotMatch(xml, /<pICMSUFDest>20\.00<\/pICMSUFDest>/);
+  });
+
+  it("bloqueia DIFAL canônico resolvido para outra UF de destino", () => {
+    assert.throws(
+      () => buildNFePreviewXml(empresaRegimeNormal, 14, 1, [itemComDifal()], destinatario("MT"), {
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
+      }),
+      /NFE_DIFAL_CANONICO_DESATUALIZADO.*ufDestino/,
+    );
+  });
+
+  it("bloqueia DIFAL canônico quando indFinal muda", () => {
+    assert.throws(
+      () => buildNFePreviewXml(empresaRegimeNormal, 15, 1, [itemComDifal()], destinatario("MG"), {
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 0,
+      }),
+      /NFE_DIFAL_CANONICO_DESATUALIZADO/,
+    );
+  });
+
+  it("bloqueia DIFAL canônico quando indIEDest muda", () => {
+    const contribuinte: NFeDestinatario = {
+      ...destinatario("MG"),
+      indIEDest: "1",
+      inscricaoEstadual: "1234567890",
+    };
+    assert.throws(
+      () => buildNFePreviewXml(empresaRegimeNormal, 16, 1, [itemComDifal()], contribuinte, {
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
+      }),
+      /NFE_DIFAL_CANONICO_DESATUALIZADO/,
+    );
+  });
+
+  it("bloqueia DIFAL canônico quando o CST atual dispensa o grupo", () => {
+    assert.throws(
+      () => buildNFePreviewXml(
+        empresaRegimeNormal,
+        17,
+        1,
+        [{ ...itemComDifal(), cst: "40", cstIcms: "40" }],
+        destinatario("MG"),
+        { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
+      ),
+      /NFE_DIFAL_CANONICO_DESATUALIZADO/,
+    );
+  });
+
+  it("bloqueia DIFAL canônico quando o CFOP atual é remessa/devolução", () => {
+    assert.throws(
+      () => buildNFePreviewXml(
+        empresaRegimeNormal,
+        18,
+        1,
+        [{ ...itemComDifal(), cfop: "6901" }],
+        destinatario("MG"),
+        { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
+      ),
+      /NFE_DIFAL_CANONICO_DESATUALIZADO/,
+    );
+  });
+
+  it("bloqueia antes do XML quando o contexto passa a exigir DIFAL e o item não foi preparado", () => {
+    assert.throws(
+      () => buildNFePreviewXml(empresaRegimeNormal, 19, 1, [itemDifal], destinatario("MG"), {
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
+      }),
+      /NFE_DIFAL_CANONICO_DESATUALIZADO/,
+    );
   });
 
   it("recusa PIS-ST/COFINS-ST explícito enquanto a emissão de ponta a ponta não existe", () => {
@@ -396,8 +478,7 @@ describe("DIFAL (ICMSUFDest)", () => {
       empresaRegimeNormal,
       9,
       1,
-      [{
-        ...itemDifal,
+      [itemComDifal({
         rtc: {
           cstIbsCbs: "000",
           cClassTrib: "000001",
@@ -409,7 +490,7 @@ describe("DIFAL (ICMSUFDest)", () => {
           versaoClassificacao: "1.00",
           validadoEm: new Date().toISOString(),
         },
-      }],
+      })],
       destinatario("MG"),
       { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
     );
@@ -428,7 +509,7 @@ describe("DIFAL (ICMSUFDest)", () => {
   });
 
   it("não soma o DIFAL ao vNF", () => {
-    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 6, 1, [itemDifal], destinatario("MG"), {
+    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 6, 1, [itemComDifal()], destinatario("MG"), {
       nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
     });
 
@@ -625,7 +706,7 @@ describe("grupo <entrega> (local de entrega/retirada)", () => {
 
   it("gera <entrega> com a pessoa indicada, sem alterar o <dest>", () => {
     const { xml } = buildNFePreviewXml(empresa, 21, 1, [item], destinatario("MT"), {
-      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 0,
       entrega: {
         documento: "49354549896",
         nome: "Gustavo Guarnieri Guarnieri",

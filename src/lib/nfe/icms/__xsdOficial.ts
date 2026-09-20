@@ -27,7 +27,14 @@ export function lerPacoteXsd(pacote = PACOTE_XSD_VIGENTE) {
   const arquivos = Object.entries(manifesto.arquivos).map(([nome, sha256]) => {
     const conteudo = fs.readFileSync(path.join(pasta, nome));
     const hash = createHash('sha256').update(conteudo).digest('hex');
-    if (hash !== sha256) throw new Error(`XSD alterado em relação ao manifesto: ${pacote}/${nome}`);
+    // Git pode materializar o mesmo XML com CRLF no Windows. O manifesto usa
+    // os bytes oficiais em LF; aceitamos somente essa normalização semântica e
+    // continuamos recusando qualquer alteração real no schema.
+    const conteudoLf = Buffer.from(conteudo.toString('utf8').replace(/\r\n/g, '\n'));
+    const hashLf = createHash('sha256').update(conteudoLf).digest('hex');
+    if (hash !== sha256 && hashLf !== sha256) {
+      throw new Error(`XSD alterado em relação ao manifesto: ${pacote}/${nome}`);
+    }
     return { fileName: nome, contents: conteudo.toString('utf8') };
   });
   return { manifesto, arquivos };

@@ -527,6 +527,17 @@ describe("AVULSA — mesmo núcleo", () => {
     assert.equal(tot.vICMS, 290);
     assertBancoIgualXml(nota);
   });
+
+  it("bloqueia PIS-ST/COFINS-ST antes de calcular IBS/CBS ou gravar o rascunho", async () => {
+    await assert.rejects(
+      () => salvarNFeAvulsaDraft(draftAvulso([itemDaTela({
+        pisST: { modo: "PERCENTUAL", base: 11000, aliquota: 1, valor: 110, compoeTotal: false },
+      })])),
+      /NFE_PIS_COFINS_ST_NAO_SUPORTADO/,
+    );
+    assert.equal(banco.tabela("nfe").length, 0);
+    assert.equal(banco.tabela("nfe_item").length, 0);
+  });
 });
 
 describe("VENDA — frete na base do ICMS", () => {

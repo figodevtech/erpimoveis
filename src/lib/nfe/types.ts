@@ -1,6 +1,6 @@
 // src/lib/nfe/types.ts
 
-import type { ICMSUFDest } from './difal';
+import type { ContextoDifalCanonico, ICMSUFDest } from './difal';
 import type { IndIEDest } from './indIEDest';
 import type { DecisaoIcms, IcmsCanonico } from './icms/tipos';
 
@@ -418,6 +418,8 @@ export interface NFeItem {
     aliquotaInterna: number;
     origemFcp: 'ITEM' | 'NAO_CONFIGURADO';
     aviso: string | null;
+    /** Snapshot estrutural usado para detectar grupo canônico stale. */
+    contexto: ContextoDifalCanonico;
   };
   aliquotaInternaDestino?: number | null;
   aliquotaInterestadual?: number | null;

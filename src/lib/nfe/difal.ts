@@ -23,6 +23,31 @@ export type ICMSUFDest = {
   vICMSUFRemet: number;
 };
 
+export type ContextoDifal = {
+  ufEmitente: string;
+  ufDestinatario: string;
+  indFinal: number | string;
+  indIEDest: number | string;
+  tpNF?: number | string;
+  finNFe?: number;
+  ufEntrega?: string | null;
+};
+
+/**
+ * Fatos estruturais usados quando o DIFAL canônico foi decidido. Alíquotas e
+ * valores ficam no próprio grupo ICMSUFDest: mudar um padrão depois da decisão
+ * não autoriza o builder a recalcular ou sobrescrever o snapshot.
+ */
+export type ContextoDifalCanonico = {
+  ufEmitente: string;
+  ufDestino: string;
+  indFinal: string;
+  indIEDest: string;
+  tpNF: string;
+  finNFe: number;
+  ufEntrega: string | null;
+};
+
 /**
  * Aliquota interna padrao de ICMS por UF de destino, em percentual.
  *
@@ -303,11 +328,68 @@ export function montarICMSUFDest(params: {
   });
 }
 
+function contextoCanonico(contexto: ContextoDifal): ContextoDifalCanonico {
+  return {
+    ufEmitente: normalizarUf(contexto.ufEmitente),
+    ufDestino: normalizarUf(contexto.ufDestinatario),
+    indFinal: String(contexto.indFinal),
+    indIEDest: String(contexto.indIEDest),
+    tpNF: String(contexto.tpNF ?? 1),
+    finNFe: Number(contexto.finNFe ?? 1),
+    ufEntrega: contexto.ufEntrega ? normalizarUf(contexto.ufEntrega) : null,
+  };
+}
+
+function erroDifalCanonico(item: NFeItem, motivo: string): never {
+  throw new Error(
+    `NFE_DIFAL_CANONICO_DESATUALIZADO: item ${item.numeroItem}; ${motivo} `
+      + 'O DIFAL deste item foi calculado para um contexto fiscal diferente do atual. '
+      + 'Recalcule/regrave o item fiscal antes de emitir.',
+  );
+}
+
+/**
+ * Confere somente a coerência estrutural do grupo já decidido. Não recalcula
+ * valores nem compara alíquotas: o canônico presente continua sendo a fonte de
+ * verdade, desde que pertença ao mesmo contexto fiscal.
+ */
+export function validarDifalCanonicoDoItem(item: NFeItem, contexto: ContextoDifal): void {
+  const deveGerar = deveGerarICMSUFDest({
+    ...contexto,
+    cfop: item.cfop,
+    cst: item.cstIcms ?? item.cst,
+    csosn: item.csosn,
+  });
+  const possuiGrupo = Boolean(item.icmsUfDest);
+
+  if (deveGerar !== possuiGrupo) {
+    erroDifalCanonico(
+      item,
+      deveGerar
+        ? 'o contexto atual exige ICMSUFDest, mas o grupo canônico não está presente.'
+        : 'o grupo ICMSUFDest está presente, mas o contexto atual dispensa DIFAL.',
+    );
+  }
+  if (!possuiGrupo) return;
+
+  const gravado = item.difalDecisao?.contexto;
+  if (!gravado) {
+    erroDifalCanonico(item, 'o grupo ICMSUFDest não possui o snapshot do contexto em que foi decidido.');
+  }
+
+  const atual = contextoCanonico(contexto);
+  const divergencias = (Object.keys(atual) as Array<keyof ContextoDifalCanonico>)
+    .filter((campo) => gravado[campo] !== atual[campo]);
+  if (item.difalDecisao?.ufDestino !== atual.ufDestino && !divergencias.includes('ufDestino')) {
+    divergencias.push('ufDestino');
+  }
+  if (divergencias.length > 0) {
+    erroDifalCanonico(item, `contexto divergente em: ${divergencias.join(', ')}.`);
+  }
+}
+
 /** Proveniência gravada junto do item e usada tanto na prévia quanto no XML. */
-export function resolverDifalDoItem(item: NFeItem, contexto: {
-  ufEmitente: string; ufDestinatario: string; indFinal: number | string; indIEDest: number | string;
-  tpNF?: number | string; finNFe?: number; ufEntrega?: string | null;
-}): NFeItem {
+export function resolverDifalDoItem(item: NFeItem, contexto: ContextoDifal): NFeItem {
   if (!deveGerarICMSUFDest({ ...contexto, cfop: item.cfop, cst: item.cstIcms ?? item.cst, csosn: item.csosn })) return item;
   const resolvida = resolverAliquotaInternaDestino(contexto.ufDestinatario, item.aliquotaInternaDestino);
   const avisos = [
@@ -317,7 +399,7 @@ export function resolverDifalDoItem(item: NFeItem, contexto: {
   return { ...item, difalDecisao: {
     origemAliquotaInterna: resolvida.origem, ufDestino: normalizarUf(contexto.ufDestinatario),
     aliquotaInterna: resolvida.aliquota, origemFcp: item.aliquotaFcpDestino == null ? 'NAO_CONFIGURADO' : 'ITEM',
-    aviso: avisos.join(' ') || null,
+    aviso: avisos.join(' ') || null, contexto: contextoCanonico(contexto),
   }, icmsUfDest: montarICMSUFDest({
     baseCalculo: item.icmsDecisao?.composicaoBase?.baseIcmsProprio ?? valorOperacaoDifal(item),
     baseCalculoFcp: item.baseCalculoFcpDestino,

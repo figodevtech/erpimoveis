@@ -12,7 +12,7 @@ import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
-import { calcularTotaisNFe } from "@/lib/nfe/fiscal";
+import { calcularTotaisNFe, validarPisCofinsStSuportado } from "@/lib/nfe/fiscal";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { validarNfce } from "@/lib/nfe/nfce/validator";
 import type {
@@ -22,6 +22,7 @@ import type {
   ModeloDocumentoFiscal,
   NFeDestinatario,
   NFeItem,
+  TributoPisCofinsSt,
 } from "@/lib/nfe/types";
 import { padraoDaOperacao } from "@/lib/nfe/padraoFiscalItem";
 import { getNFeFiscalFieldRules, NFE_FISCAL_RULE_VERSION, validateNFeItemTax } from "@/lib/nfe/taxRules";
@@ -118,6 +119,10 @@ export type NFeAvulsaItemInput = {
   quantidadeCofins?: string | number | null;
   aliquotaPorUnidadeCofins?: string | number | null;
   valorCofins?: string | number | null;
+  /** Ainda não emitido: se recebido, o serviço bloqueia antes de calcular ou gravar. */
+  pisST?: TributoPisCofinsSt | null;
+  /** Ainda não emitido: se recebido, o serviço bloqueia antes de calcular ou gravar. */
+  cofinsST?: TributoPisCofinsSt | null;
   rtcHabilitado?: boolean;
   cstIbsCbs?: string | null;
   cClassTrib?: string | null;
@@ -422,6 +427,8 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     aliquotaCofins: toOptionalDecimal(item.aliquotaCofins) ?? undefined,
     pis: buildContribution("pis"),
     cofins: buildContribution("cofins"),
+    pisST: item.pisST ?? undefined,
+    cofinsST: item.cofinsST ?? undefined,
     ...(rtcEnabled ? {
       rtc: {
         cstIbsCbs: cleanText(item.cstIbsCbs),
@@ -513,6 +520,9 @@ export function prepararItemFiscal(
   } = {},
 ): ItemFiscalPreparado {
   let nfeItem = mapInputToTaxItem(item, index);
+  // Falha antes do ICMS, DIFAL, IBS/CBS e de qualquer escrita. O modelo aceita
+  // os valores apenas para compor UB16-10 quando o suporte ponta a ponta existir.
+  validarPisCofinsStSuportado(nfeItem);
   const valorOperacao = Number((nfeItem.valorTotal - Number(nfeItem.valorDesconto ?? 0)).toFixed(2));
   const resultado = calcularIcmsItem(
     entradaIcmsDoInput(item, crt, valorOperacao, Number(nfeItem.valorFrete ?? 0), contexto.freteIntegraBaseIcms),

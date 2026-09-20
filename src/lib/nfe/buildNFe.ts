@@ -17,7 +17,7 @@ import { gerarCNF, gerarChaveAcesso } from './chaveAcesso';
 import { mapEmpresaToEmitente } from './mapEmpresaToEmitente';
 import { getCodigoUF } from './ufUtils';
 import { calcularTotaisNFe, normalizarCRT } from './fiscal';
-import { deveGerarICMSUFDest, resolverDifalDoItem } from './difal';
+import { deveGerarICMSUFDest, validarDifalCanonicoDoItem } from './difal';
 import { escapeXml, truncateNfeXNome } from './xmlUtils';
 import { validarInscricaoEstadualDestinatario } from './indIEDest';
 import {
@@ -469,6 +469,12 @@ export function buildNFePreviewXml(
   destinatario?: NFeDestinatario,
   options?: IdeOptions
 ): { xml: string; chave: string; id: string } {
+  // Contrato do fluxo moderno: os itens chegam com ICMS, DIFAL e RTC já
+  // resolvidos por `prepararItemFiscal`. Este builder valida a coerência do
+  // canônico e serializa; não recalcula DIFAL nem RTC. A compatibilidade para
+  // ICMS ausente usa somente `resolverIcmsDoItem`, que delega ao mesmo motor
+  // canônico central. Chamadores legados devem passar explicitamente pelos
+  // mesmos resolvedores antes desta função.
   const modelo = options?.modelo ?? MODELO_NFE;
   const nfce = modelo === MODELO_NFCE;
   // Ambiente do documento, não da empresa: as regras de homologação (nome do
@@ -582,22 +588,27 @@ export function buildNFePreviewXml(
     tpNF: ide.tpNF ?? 1,
   });
 
-  const itens: NFeItem[] = exigeDifal
-    ? itensNumerados.map((item) => {
-      // O servidor e a prévia resolvem DIFAL antes do IBS/CBS. Quando o grupo
-      // canônico já veio no item, o builder apenas o serializa: recalculá-lo aqui
-      // poderia separar snapshot/banco do XML e da base UB16-10. Chamadas legadas
-      // sem grupo continuam usando o mesmo resolvedor central.
-      if (item.icmsUfDest) return item;
-      const resolvido = resolverDifalDoItem(item, {
-        ufEmitente: empresaUf, ufDestinatario: ufDestino, indFinal: ide.indFinal ?? 1,
-        indIEDest: dest?.indIEDest ?? '9', tpNF: ide.tpNF ?? 1,
-        finNFe: ide.finNFe, ufEntrega: options?.entrega?.endereco?.uf,
-      });
-      if (resolvido.difalDecisao?.aviso) console.warn(`[NF-e] Item ${item.numeroItem}: ${resolvido.difalDecisao.aviso}`);
-      return resolvido;
-    })
-    : itensNumerados;
+  const itens: NFeItem[] = itensNumerados.map((item) => {
+    if (nfce) {
+      if (item.icmsUfDest) {
+        throw new Error(
+          `NFE_DIFAL_CANONICO_DESATUALIZADO: item ${item.numeroItem}; NFC-e não admite ICMSUFDest. `
+            + 'Recalcule/regrave o item fiscal antes de emitir.',
+        );
+      }
+      return item;
+    }
+    validarDifalCanonicoDoItem(item, {
+      ufEmitente: empresaUf,
+      ufDestinatario: ufDestino,
+      indFinal: ide.indFinal ?? 1,
+      indIEDest: dest?.indIEDest ?? '9',
+      tpNF: ide.tpNF ?? 1,
+      finNFe: ide.finNFe,
+      ufEntrega: options?.entrega?.endereco?.uf,
+    });
+    return item;
+  });
 
   // Os dois níveis de referenciamento são EXCLUDENTES: informar <NFref> no
   // <ide> junto com <DFeReferenciado> nos itens é a rejeição 1010. Quando algum
