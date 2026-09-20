@@ -1,5 +1,6 @@
 // Base do IBS/CBS pela composição oficial (NT 2025.002-RTC, RV UB16-10):
 // vBC = vProd + vServ + vFrete + vSeg + vOutro + vII − vDesc − vPIS − vCOFINS
+//       − vPISST (salvo indSomaPISST=1) − vCOFINSST (salvo indSomaCOFINSST=1)
 //       − vICMS − vICMSUFDest − vFCP − vFCPUFDest − vICMSMono − vISSQN + vIS
 
 import assert from 'node:assert/strict';
@@ -57,6 +58,34 @@ describe('base IBS/CBS — composição da UB16-10', () => {
   it('desconta o DIFAL e o FCP de destino', () => {
     const composicao = comporBaseIbsCbs({ vProd: 1000, vICMSUFDest: 60, vFCPUFDest: 20, modFrete: '9', dataEmissao: DATA });
     assert.equal(composicao.baseCalculada, 920);
+  });
+
+  it('subtrai PIS-ST e COFINS-ST quando eles não compõem o total da NF-e', () => {
+    const composicao = comporBaseIbsCbs({
+      vProd: 1000,
+      vPISST: 30,
+      vCOFINSST: 70,
+      indSomaPISST: false,
+      indSomaCOFINSST: false,
+      modFrete: '9',
+      dataEmissao: DATA,
+    });
+    assert.equal(composicao.baseCalculada, 900);
+  });
+
+  it('não subtrai PIS-ST/COFINS-ST quando indSoma*=1 (exceções 1 e 2)', () => {
+    const composicao = comporBaseIbsCbs({
+      vProd: 1000,
+      vPISST: 30,
+      vCOFINSST: 70,
+      indSomaPISST: true,
+      indSomaCOFINSST: true,
+      modFrete: '9',
+      dataEmissao: DATA,
+    });
+    assert.equal(composicao.baseCalculada, 1000);
+    assert.equal(composicao.componentes.indSomaPISST, true);
+    assert.equal(composicao.componentes.indSomaCOFINSST, true);
   });
 
   it('frete cobrado na nota entra qualquer que seja a modalidade de transporte', () => {
@@ -118,6 +147,19 @@ describe('base IBS/CBS — lida do item já resolvido', () => {
     assert.equal(alvo.rtc?.baseCalculo, 920);
     assert.equal(alvo.rtc?.cbs.valor, 8.28);
     assert.equal(alvo.rtc?.ibsUf.valor, 0.92);
+  });
+
+  it('consome PIS-ST/COFINS-ST explícitos do item sem inventar valores', () => {
+    const alvo = item({
+      pis: { cst: '04', modo: 'NAO_TRIBUTADO' },
+      cofins: { cst: '04', modo: 'NAO_TRIBUTADO' },
+      pisST: { modo: 'PERCENTUAL', base: 1000, aliquota: 3, valor: 30, compoeTotal: false },
+      cofinsST: { modo: 'PERCENTUAL', base: 1000, aliquota: 7, valor: 70, compoeTotal: true },
+    });
+    const composicao = baseIbsCbsDoItem(alvo, { modFrete: '9', dataEmissao: DATA });
+    assert.equal(composicao.baseCalculada, 970);
+    assert.equal(composicao.componentes.vPISST, 30);
+    assert.equal(composicao.componentes.vCOFINSST, 70);
   });
 
   it('base digitada diferente da composição vira aviso citando a UB16-10, sem bloquear', () => {

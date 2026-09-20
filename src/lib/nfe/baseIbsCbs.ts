@@ -7,8 +7,11 @@ import type { NFeItem, TributoPisCofins } from './types';
 // que a compõem"):
 //
 //   vBC = vProd + vServ + vFrete + vSeg + vOutro + vII
-//       − vDesc − vPIS − vCOFINS − vICMS − vICMSUFDest − vFCP − vFCPUFDest
+//       − vDesc − vPIS − vCOFINS − vPISST* − vCOFINSST* − vICMS − vICMSUFDest − vFCP − vFCPUFDest
 //       − vICMSMono − vISSQN + vIS
+//
+// * Exceções 1 e 2 da UB16-10: não subtrair PIS-ST/COFINS-ST quando o
+//   respectivo indSoma*=1, pois nesse caso o valor compõe o total da NF-e.
 //
 // Fundamento material: LC 214/2025, art. 12. O §1º põe na base o valor
 // integral cobrado pelo fornecedor, inclusive transporte, seguros e demais
@@ -24,8 +27,8 @@ import type { NFeItem, TributoPisCofins } from './types';
 // orientação normativa": a SEFAZ não rejeita hoje uma base diferente. Por isso
 // a base digitada à mão que diverge da composição é AVISO, não bloqueio.
 
-export const VERSAO_BASE_IBS_CBS = 'base-ibs-cbs@2026-09-18.2|UB16-10';
-export const FONTE_BASE_IBS_CBS = 'NT 2025.002-RTC, RV UB16-10; LC 214/2025, art. 12, §§ 1º e 2º';
+export const VERSAO_BASE_IBS_CBS = 'base-ibs-cbs@2026-09-20.3|UB16-10';
+export const FONTE_BASE_IBS_CBS = 'NT 2025.002-RTC v1.51, RV UB16-10; LC 214/2025, art. 12, §§ 1º e 2º';
 
 const moeda = (valor: number) => Number(valor.toFixed(2));
 const naoNegativo = (valor: unknown) => Math.max(0, Number(valor) || 0);
@@ -40,6 +43,10 @@ export type ComponentesBaseIbsCbs = {
   vDesc: number;
   vPIS: number;
   vCOFINS: number;
+  vPISST: number;
+  indSomaPISST: boolean;
+  vCOFINSST: number;
+  indSomaCOFINSST: boolean;
   vICMS: number;
   vICMSUFDest: number;
   vFCP: number;
@@ -64,6 +71,10 @@ export function comporBaseIbsCbs(input: Partial<ComponentesBaseIbsCbs> & {
     vDesc: naoNegativo(input.vDesc),
     vPIS: naoNegativo(input.vPIS),
     vCOFINS: naoNegativo(input.vCOFINS),
+    vPISST: naoNegativo(input.vPISST),
+    indSomaPISST: input.indSomaPISST === true,
+    vCOFINSST: naoNegativo(input.vCOFINSST),
+    indSomaCOFINSST: input.indSomaCOFINSST === true,
     vICMS: naoNegativo(input.vICMS),
     vICMSUFDest: naoNegativo(input.vICMSUFDest),
     vFCP: naoNegativo(input.vFCP),
@@ -75,7 +86,10 @@ export function comporBaseIbsCbs(input: Partial<ComponentesBaseIbsCbs> & {
   const c = componentes;
   const baseCalculada = moeda(
     c.vProd + c.vServ + c.vFrete + c.vSeg + c.vOutro + c.vII
-      - c.vDesc - c.vPIS - c.vCOFINS - c.vICMS - c.vICMSUFDest - c.vFCP - c.vFCPUFDest
+      - c.vDesc - c.vPIS - c.vCOFINS
+      - (c.indSomaPISST ? 0 : c.vPISST)
+      - (c.indSomaCOFINSST ? 0 : c.vCOFINSST)
+      - c.vICMS - c.vICMSUFDest - c.vFCP - c.vFCPUFDest
       - c.vICMSMono - c.vISSQN + c.vIS,
   );
   const modFrete = input.modFrete ?? '9';
@@ -138,6 +152,10 @@ export function baseIbsCbsDoItem(
     vFrete: Number(item.valorFrete ?? 0),
     vPIS: contribuicao(item.pis, valorLiquido, item.cstPis, item.aliquotaPis, item.valorPis),
     vCOFINS: contribuicao(item.cofins, valorLiquido, item.cstCofins, item.aliquotaCofins, item.valorCofins),
+    vPISST: item.pisST?.valor ?? 0,
+    indSomaPISST: item.pisST?.compoeTotal ?? false,
+    vCOFINSST: item.cofinsST?.valor ?? 0,
+    indSomaCOFINSST: item.cofinsST?.compoeTotal ?? false,
     vICMS: item.icms?.vICMS ?? 0,
     vFCP: item.icms?.vFCP ?? 0,
     vICMSUFDest: item.icmsUfDest?.vICMSUFDest ?? 0,
@@ -199,7 +217,7 @@ export function issuesBaseIbsCbs(rtc: NFeItem['rtc']): import('./icms/tipos').Ic
         field: 'baseRtc',
         message:
           `Base IBS/CBS informada (${base.baseCalculo.toFixed(2)}) difere da composição oficial ` +
-          `(${base.baseCalculada.toFixed(2)}: vProd + vFrete − vDesc − vPIS − vCOFINS − vICMS − vICMSUFDest − vFCP − vFCPUFDest...). ` +
+          `(${base.baseCalculada.toFixed(2)}: vProd + vFrete − vDesc − vPIS − vCOFINS − PIS-ST/COFINS-ST quando não somados ao total − vICMS − vICMSUFDest − vFCP − vFCPUFDest...). ` +
           'Quando a UB16-10 entrar em vigor a SEFAZ rejeita essa diferença (rejeição 1104). ' +
           `Fonte: ${base.fonte}.`,
       }]

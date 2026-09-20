@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildNFePreviewXml } from "./buildNFe";
+import { resolverDifalDoItem } from "./difal";
+import { comAssinaturaXsdTeste, validarNFeContraXsd } from "./icms/__xsdOficial";
 import type { EmpresaRow, NFeDestinatario, NFeItem } from "./types";
 import { normalizarNiveisDeReferencia, normalizarOrdemNfRefIde } from "./xmlIde";
 
@@ -312,6 +314,80 @@ describe("DIFAL (ICMSUFDest)", () => {
     assert.match(
       xml,
       /<vICMSDeson>0\.00<\/vICMSDeson><vFCPUFDest>0\.00<\/vFCPUFDest><vICMSUFDest>240\.00<\/vICMSUFDest><vICMSUFRemet>0\.00<\/vICMSUFRemet><vFCP>/,
+    );
+  });
+
+  it("nota estruturalmente sujeita ao DIFAL com todos os itens dispensados mantém totais zero válidos", async () => {
+    const itemDispensado = {
+      ...itemDifal,
+      cst: "40",
+      cstIcms: "40",
+    };
+    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 10, 1, [itemDispensado], destinatario("MG"), {
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
+    });
+
+    assert.doesNotMatch(xml, /<ICMSUFDest>/);
+    assert.match(
+      xml,
+      /<vFCPUFDest>0\.00<\/vFCPUFDest><vICMSUFDest>0\.00<\/vICMSUFDest><vICMSUFRemet>0\.00<\/vICMSUFRemet>/,
+    );
+    const xsd = await validarNFeContraXsd(comAssinaturaXsdTeste(xml));
+    assert.equal(xsd.valido, true, xsd.erros.join("\n"));
+  });
+
+  it("nota mista soma no ICMSTot somente o item que efetivamente gerou DIFAL", () => {
+    const itemDispensado = {
+      ...itemDifal,
+      numeroItem: 2,
+      cfop: "6901",
+    };
+    const { xml } = buildNFePreviewXml(empresaRegimeNormal, 11, 1, [itemDifal, itemDispensado], destinatario("MG"), {
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
+    });
+
+    assert.equal(xml.match(/<ICMSUFDest>/g)?.length, 1);
+    assert.match(xml, /<vICMSUFDest>120\.00<\/vICMSUFDest>/);
+    assert.match(
+      xml,
+      /<vFCPUFDest>0\.00<\/vFCPUFDest><vICMSUFDest>120\.00<\/vICMSUFDest><vICMSUFRemet>0\.00<\/vICMSUFRemet>/,
+    );
+  });
+
+  it("serializa o DIFAL canônico já resolvido sem recalculá-lo no builder", () => {
+    const resolvido = resolverDifalDoItem(
+      { ...itemDifal, aliquotaInternaDestino: 18, aliquotaFcpDestino: 0 },
+      { ufEmitente: "SP", ufDestinatario: "MG", indFinal: 1, indIEDest: "9", tpNF: 1 },
+    );
+    const alteradoDepoisDaResolucao = { ...resolvido, aliquotaInternaDestino: 20 };
+    const { xml } = buildNFePreviewXml(
+      empresaRegimeNormal,
+      12,
+      1,
+      [alteradoDepoisDaResolucao],
+      destinatario("MG"),
+      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
+    );
+
+    assert.match(xml, /<pICMSUFDest>18\.00<\/pICMSUFDest>/);
+    assert.match(xml, /<vICMSUFDest>120\.00<\/vICMSUFDest>/);
+    assert.doesNotMatch(xml, /<pICMSUFDest>20\.00<\/pICMSUFDest>/);
+  });
+
+  it("recusa PIS-ST/COFINS-ST explícito enquanto a emissão de ponta a ponta não existe", () => {
+    assert.throws(
+      () => buildNFePreviewXml(
+        empresaRegimeNormal,
+        13,
+        1,
+        [{
+          ...itemDifal,
+          pisST: { modo: "PERCENTUAL", base: 2000, aliquota: 1, valor: 20, compoeTotal: false },
+        }],
+        destinatario("SP"),
+        { nomeMunicipioEmitente: "SAO PAULO", indFinal: 0 },
+      ),
+      /NFE_PIS_COFINS_ST_NAO_SUPORTADO/,
     );
   });
 

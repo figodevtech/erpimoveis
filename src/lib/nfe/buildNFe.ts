@@ -584,6 +584,11 @@ export function buildNFePreviewXml(
 
   const itens: NFeItem[] = exigeDifal
     ? itensNumerados.map((item) => {
+      // O servidor e a prévia resolvem DIFAL antes do IBS/CBS. Quando o grupo
+      // canônico já veio no item, o builder apenas o serializa: recalculá-lo aqui
+      // poderia separar snapshot/banco do XML e da base UB16-10. Chamadas legadas
+      // sem grupo continuam usando o mesmo resolvedor central.
+      if (item.icmsUfDest) return item;
       const resolvido = resolverDifalDoItem(item, {
         ufEmitente: empresaUf, ufDestinatario: ufDestino, indFinal: ide.indFinal ?? 1,
         indIEDest: dest?.indIEDest ?? '9', tpNF: ide.tpNF ?? 1,

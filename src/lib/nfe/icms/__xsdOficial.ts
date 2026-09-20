@@ -46,6 +46,25 @@ export async function validarNFeContraXsd(xml: string, pacote = PACOTE_XSD_VIGEN
 }
 
 /**
+ * Completa uma prévia com assinatura estruturalmente válida para o XSD.
+ * Uso exclusivo em testes: não prova criptografia e nunca autoriza uma NF-e.
+ */
+export function comAssinaturaXsdTeste(xml: string) {
+  const id = /Id="([^"]+)"/.exec(xml)?.[1];
+  if (!id) throw new Error('Prévia sem Id da NF-e para a assinatura de teste.');
+  const assinatura =
+    '<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo>' +
+    '<CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>' +
+    '<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>' +
+    `<Reference URI="#${id}"><Transforms>` +
+    '<Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>' +
+    '<Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/></Transforms>' +
+    '<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><DigestValue>AAAAAAAAAAAAAAAAAAAAAAAAAAA=</DigestValue>' +
+    '</Reference></SignedInfo><SignatureValue>AAAA</SignatureValue><KeyInfo><X509Data><X509Certificate>AAAA</X509Certificate></X509Data></KeyInfo></Signature>';
+  return xml.replace('</NFe>', `${assinatura}</NFe>`);
+}
+
+/**
  * Elementos de um grupo do leiauteNFe, na ordem do XSD, lidos do próprio
  * schema — e não do modelo interno do ERP.
  */

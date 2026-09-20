@@ -16,7 +16,7 @@ import { describe, it } from 'node:test';
 
 import { buildNFePreviewXml } from '../buildNFe';
 import { calcularIcmsItem, montarDecisaoIcms, NFE_ICMS_RULE_VERSION, ORDEM_XSD_ICMS, type EntradaIcms } from '.';
-import { PACOTE_XSD_VIGENTE, elementosDoGrupoNoXsd, validarNFeContraXsd } from './__xsdOficial';
+import { comAssinaturaXsdTeste, PACOTE_XSD_VIGENTE, elementosDoGrupoNoXsd, validarNFeContraXsd } from './__xsdOficial';
 import { destinatario, empresa, item, rtcTeste } from './fixtures/nfe';
 
 const st = { modBCST: '4', pMVAST: 40, pICMSST: 18, vICMSST: 72 };
@@ -61,21 +61,6 @@ const CASOS: Array<{ nome: string; entrada: Partial<EntradaIcms> }> = [
   { nome: 'ICMSSN900 com próprio, ST e crédito', entrada: { crt: 1, csosn: '900', proprio: { destacar: true, pRedBC: 20 }, st, creditoSn } },
 ];
 
-/** Assinatura bem-formada para o schema; não prova criptografia nem autorização. */
-function comAssinatura(xml: string) {
-  const id = /Id="([^"]+)"/.exec(xml)![1];
-  const assinatura =
-    '<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo>' +
-    '<CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>' +
-    '<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>' +
-    `<Reference URI="#${id}"><Transforms>` +
-    '<Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>' +
-    '<Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/></Transforms>' +
-    '<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/><DigestValue>AAAAAAAAAAAAAAAAAAAAAAAAAAA=</DigestValue>' +
-    '</Reference></SignedInfo><SignatureValue>AAAA</SignatureValue><KeyInfo><X509Data><X509Certificate>AAAA</X509Certificate></X509Data></KeyInfo></Signature>';
-  return xml.replace('</NFe>', `${assinatura}</NFe>`);
-}
-
 function nfeCompleta(entrada: Partial<EntradaIcms>) {
   const crt = entrada.crt ?? 3;
   const resultado = calcularIcmsItem({ crt, orig: '0', valorOperacao: 1000, aliquotaIcms: 18, ...entrada } as EntradaIcms);
@@ -100,7 +85,7 @@ function nfeCompleta(entrada: Partial<EntradaIcms>) {
     destinatario('SP'),
     { nomeMunicipioEmitente: 'SAO PAULO', indFinal: 1 },
   );
-  return comAssinatura(xml);
+  return comAssinaturaXsdTeste(xml);
 }
 
 describe(`XSD oficial ${PACOTE_XSD_VIGENTE} — ordem do serializador (${NFE_ICMS_RULE_VERSION})`, () => {

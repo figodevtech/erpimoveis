@@ -648,7 +648,7 @@ describe("AVULSA — DIFAL antes do IBS/CBS", () => {
     destinatario: naoContribuinte,
     pagamentos: [{ meio: "01", valor: 11000, tipoIntegracao: "2" }],
     transporte: { modFrete: "9" },
-    itens: [itemDaTela({ cfop: "6102", cst: "00", aliquotaIcms: "12", ...item })],
+    itens: [itemDaTela({ cfop: "6102", cst: "00", aliquotaIcms: "12", ...item, sourceItemId: item.sourceItemId ?? undefined })],
   });
 
   it("sem alíquota interna e FCP configurados, a nota não é gerada (a tabela por UF é só referência)", async () => {

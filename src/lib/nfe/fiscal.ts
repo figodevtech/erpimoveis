@@ -91,6 +91,12 @@ export function getCestXml(item: NFeItem): string {
 }
 
 export function validarItemFiscal(item: NFeItem, crt: CRT): void {
+  if (item.pisST || item.cofinsST) {
+    throw new Error(
+      `NFE_PIS_COFINS_ST_NAO_SUPORTADO: item ${item.numeroItem}; ` +
+      'a composição UB16-10 aceita os valores explícitos, mas a emissão ainda não captura, persiste nem serializa PIS-ST/COFINS-ST.',
+    );
+  }
   assertNFeItemTax(item, crt);
   getCestXml(item);
 }

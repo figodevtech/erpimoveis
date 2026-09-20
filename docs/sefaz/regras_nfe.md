@@ -1,8 +1,8 @@
 ---
 title: Regras de emissão de NF-e e NFC-e por CRT
 file: regras_nfe.md
-version: 1.0.0
-updated_at: 2026-07-19
+version: 1.0.1
+updated_at: 2026-09-20
 scope:
   - NF-e modelo 55
   - NFC-e modelo 65
@@ -955,6 +955,17 @@ Campos podem incluir:
 - quantidade;
 - alíquota por unidade;
 - valor.
+
+No leiaute atual, cada grupo também pode informar se o respectivo valor compõe
+o total da NF-e (`indSomaPISST` e `indSomaCOFINSST`). A regra UB16-10 da NT
+2025.002 v1.51 manda subtrair PIS-ST/COFINS-ST da base do IBS/CBS somente
+quando o indicador correspondente não for `1`.
+
+Limitação atual do ERP: a leitura e a totalização de XML de entrada suportam
+PIS-ST/COFINS-ST, e o modelo canônico da UB16-10 já consome valores explícitos,
+mas VENDA, OS, ENTRADA, SAÍDA e AVULSA ainda não capturam, persistem nem
+serializam esses grupos em emissões novas. Não calcular ou preencher valores
+por inferência enquanto o suporte de ponta a ponta não for implementado.
 
 # PARTE VI — IPI, II E GRUPOS ESPECIAIS
 

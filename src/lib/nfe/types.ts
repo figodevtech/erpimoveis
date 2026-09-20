@@ -40,6 +40,25 @@ export type TributoPisCofins = {
   valor?: number;
 };
 
+/**
+ * PIS/COFINS por substituição tributária. O leiaute exige uma das duas
+ * formas de cálculo e um valor explícito; o motor não deve inventá-lo.
+ *
+ * Os cinco fluxos de emissão ainda não capturam, persistem ou serializam este
+ * grupo. A estrutura existe para a composição UB16-10 consumir corretamente
+ * documentos preparados quando esse suporte for implementado de ponta a ponta.
+ */
+export type TributoPisCofinsSt = {
+  modo: Exclude<ModoCalculoPisCofins, 'NAO_TRIBUTADO'>;
+  base?: number;
+  aliquota?: number;
+  quantidade?: number;
+  aliquotaPorUnidade?: number;
+  valor: number;
+  /** `indSomaPISST`/`indSomaCOFINSST = 1` no XML. */
+  compoeTotal: boolean;
+};
+
 export type ParcelaIbsCbs = {
   aliquota: number;
   percentualReducao?: number;
@@ -362,6 +381,10 @@ export interface NFeItem {
    * sendo lidos para compatibilidade com notas antigas. */
   pis?: TributoPisCofins;
   cofins?: TributoPisCofins;
+  /** Preparado para UB16-10; ainda não emitido pelos formulários do ERP. */
+  pisST?: TributoPisCofinsSt;
+  /** Preparado para UB16-10; ainda não emitido pelos formulários do ERP. */
+  cofinsST?: TributoPisCofinsSt;
 
   // ---------- IPI ----------
   cstIpi?: string | null;
