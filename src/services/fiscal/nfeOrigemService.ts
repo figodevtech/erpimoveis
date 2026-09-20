@@ -36,21 +36,26 @@ const COLUNA_ORIGEM: Record<NFeOrigemTipo, "ordemservicoid" | "vendaid" | "entra
 };
 
 /**
- * Estados em que a nota ainda "ocupa" a origem.
+ * Estados em que a nota ainda "ocupa" a origem para impedir dois rascunhos ou
+ * duas transmissões concorrentes.
  *
  * REJEITADA fica de fora porque é nota que não existe na SEFAZ: o fluxo normal
- * é corrigir e retransmitir o mesmo rascunho. CANCELADA e DENEGADA também
- * liberam a origem para uma emissão nova.
+ * é corrigir e retransmitir o mesmo rascunho. AUTORIZADA, CANCELADA e DENEGADA
+ * também liberam a origem para uma nova emissão deliberada; a nota anterior
+ * permanece vinculada e intacta.
  */
 const STATUS_OCUPAM_ORIGEM = [
   "RASCUNHO",
   "ASSINADA",
   "ENVIADA",
-  "AUTORIZADA",
   "PENDENTE_ENVIO",
   "CONTINGENCIA",
   "RESULTADO_INCERTO",
 ];
+
+export function statusOcupaOrigem(status: unknown) {
+  return STATUS_OCUPAM_ORIGEM.includes(String(status ?? "").trim().toUpperCase());
+}
 
 async function buscarNotaAtivaDaOrigem(
   tipo: NFeOrigemTipo,
@@ -547,7 +552,8 @@ export async function salvarNFeDeOrigem(
 
   // Idempotência: uma origem não pode ter duas notas do mesmo modelo em curso.
   // Sem isso, o duplo clique em "Emitir" abre dois rascunhos, cada um reserva
-  // seu número na transmissão e a venda sai documentada duas vezes.
+  // seu número na transmissão. Uma nota já AUTORIZADA não entra nesta trava:
+  // o usuário pode iniciar outra emissão deliberadamente para a mesma origem.
   if (!input.nfeId) {
     const emAndamento = await buscarNotaAtivaDaOrigem(tipo, origemId, modelo);
     if (emAndamento) {

@@ -19,6 +19,16 @@ import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-pro
 import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -76,6 +86,7 @@ import { freteNaBaseIcms } from "@/lib/nfe/icms";
 import {
   aplicarAlteracoesComCienciaFiscal,
   classificarIssuesFiscais,
+  confirmarAvisosFiscais,
 } from "@/lib/nfe/issuesFiscais";
 import { MODELO_NFE, MODELO_NFCE, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { PB_NFCE_PISO_IDENTIFICACAO } from "@/lib/nfe/fiscalRules";
@@ -456,6 +467,7 @@ export function GerarNotaDeOsDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [serverErrorTom, setServerErrorTom] = useState<"BLOQUEIO" | "AVISO">("BLOQUEIO");
+  const [confirmWarningsOpen, setConfirmWarningsOpen] = useState(false);
   const [includeObservations, setIncludeObservations] = useState(false);
   const [observations, setObservations] = useState("");
   // Desconto geral da nota. Chega da origem já rateado nos itens; redigitar aqui
@@ -1383,8 +1395,12 @@ export function GerarNotaDeOsDialog({
     if (first) setEditingId(first.sourceItemId);
   }
 
-  async function generateDraft() {
-    if (!generateEndpoint || selectedItems.length === 0) {
+  async function generateDraft(options: {
+    itens?: AssistedFiscalItem[];
+    avisosJaConfirmados?: boolean;
+  } = {}) {
+    const itensParaGerar = options.itens ?? selectedItems;
+    if (!generateEndpoint || itensParaGerar.length === 0) {
       toast.error("Selecione pelo menos um produto.");
       return;
     }
@@ -1395,13 +1411,9 @@ export function GerarNotaDeOsDialog({
       );
       return;
     }
-    if (!selectedIssuesClassificadas.pronto) {
+    if (selectedIssuesClassificadas.bloqueios.length > 0) {
       openFirstPending();
-      if (selectedIssuesClassificadas.bloqueios.length > 0) {
-        toast.error("Corrija as pendências fiscais dos produtos selecionados.");
-      } else {
-        toast.warning("Confirme os avisos fiscais dos produtos selecionados.");
-      }
+      toast.error("Corrija as pendências fiscais dos produtos selecionados.");
       return;
     }
     if (setup?.empresaErros.length) {
@@ -1443,6 +1455,10 @@ export function GerarNotaDeOsDialog({
         return;
       }
     }
+    if (selectedIssuesClassificadas.avisos.length > 0 && !options.avisosJaConfirmados) {
+      setConfirmWarningsOpen(true);
+      return;
+    }
 
     setSaving(true);
     setServerError(null);
@@ -1454,7 +1470,7 @@ export function GerarNotaDeOsDialog({
           // Corrigindo uma rejeitada: o servidor atualiza este rascunho em vez
           // de criar outro, preservando número e chave já alocados.
           ...(nfeId ? { nfeId } : {}),
-          itens: selectedItems.map((item) => toApiItem(item, setup ?? undefined)),
+          itens: itensParaGerar.map((item) => toApiItem(item, setup ?? undefined)),
           observacoesFiscais:
             includeObservations && observations.trim()
               ? observations.trim()
@@ -1554,8 +1570,8 @@ export function GerarNotaDeOsDialog({
             : "BLOQUEIO",
         );
         const firstIndex = json?.errors?.find((error) => error.itemIndex != null)?.itemIndex;
-        if (firstIndex != null && selectedItems[firstIndex]) {
-          setEditingId(selectedItems[firstIndex].sourceItemId);
+        if (firstIndex != null && itensParaGerar[firstIndex]) {
+          setEditingId(itensParaGerar[firstIndex].sourceItemId);
         }
         if (classificadas.bloqueios.length === 0 && classificadas.avisos.length > 0) {
           toast.warning(message);
@@ -1576,6 +1592,25 @@ export function GerarNotaDeOsDialog({
     } finally {
       setSaving(false);
     }
+  }
+
+  function aceitarAvisosEGerarRascunho() {
+    const codigosPorItem = new Map<string, string[]>();
+    for (const aviso of selectedIssuesClassificadas.avisos) {
+      const codigos = codigosPorItem.get(aviso.item.sourceItemId) ?? [];
+      codigos.push(aviso.code);
+      codigosPorItem.set(aviso.item.sourceItemId, codigos);
+    }
+    const itensComCiencia = selectedItems.map((item) =>
+      confirmarAvisosFiscais(item, codigosPorItem.get(item.sourceItemId) ?? []),
+    );
+    const atualizadosPorId = new Map(itensComCiencia.map((item) => [item.sourceItemId, item]));
+
+    setItems((current) =>
+      current.map((item) => atualizadosPorId.get(item.sourceItemId) ?? item),
+    );
+    setConfirmWarningsOpen(false);
+    void generateDraft({ itens: itensComCiencia, avisosJaConfirmados: true });
   }
 
   return (
@@ -2519,7 +2554,7 @@ export function GerarNotaDeOsDialog({
                     disabled={
                       saving ||
                       selectedItems.length === 0 ||
-                      !selectedIssuesClassificadas.pronto ||
+                      selectedIssuesClassificadas.bloqueios.length > 0 ||
                       setup.empresaErros.length > 0 ||
                       entrySupplierErrors.length > 0 ||
                       customerErrors.length > 0 ||
@@ -2537,6 +2572,39 @@ export function GerarNotaDeOsDialog({
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={confirmWarningsOpen} onOpenChange={setConfirmWarningsOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar avisos fiscais e gerar o rascunho?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p>
+                  Não há bloqueios fiscais nos itens selecionados, mas os avisos abaixo exigem sua ciência:
+                </p>
+                <ul className="max-h-64 list-disc space-y-2 overflow-y-auto pl-5">
+                  {selectedIssuesClassificadas.avisos.map((aviso, index) => (
+                    <li key={`${aviso.item.sourceItemId}-${aviso.code}-${index}`}>
+                      <span className="font-medium">{aviso.item.descricao}:</span>{" "}
+                      {aviso.message}
+                    </li>
+                  ))}
+                </ul>
+                <p>
+                  Ao continuar, você confirma que conferiu a classificação fiscal. O ERP não alterará CFOP,
+                  CST ou CSOSN e seguirá com a geração do rascunho.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar e revisar</AlertDialogCancel>
+            <AlertDialogAction onClick={aceitarAvisosEGerarRascunho}>
+              Estou ciente e quero continuar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {setup ? (
         <NfeItemFiscalEditor

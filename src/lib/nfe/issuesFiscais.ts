@@ -68,3 +68,28 @@ export function aplicarAlteracoesComCienciaFiscal<T extends ItemComCienciaFiscal
     ...(mudouClassificacao ? { avisosFiscaisConfirmados: [] } : {}),
   } as T;
 }
+
+/**
+ * Registra a ciência dada no fechamento da emissão. Mantém confirmações
+ * anteriores e não duplica códigos quando o mesmo aviso reaparece na tela.
+ */
+export function confirmarAvisosFiscais<T extends ItemComCienciaFiscal>(
+  item: T,
+  codigos: readonly string[],
+): T {
+  const confirmados = [
+    ...new Set([
+      ...item.avisosFiscaisConfirmados,
+      ...codigos.map((codigo) => String(codigo).trim()).filter(Boolean),
+    ]),
+  ];
+
+  if (
+    confirmados.length === item.avisosFiscaisConfirmados.length &&
+    confirmados.every((codigo, index) => codigo === item.avisosFiscaisConfirmados[index])
+  ) {
+    return item;
+  }
+
+  return { ...item, avisosFiscaisConfirmados: confirmados };
+}

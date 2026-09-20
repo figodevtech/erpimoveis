@@ -1338,6 +1338,7 @@ export function EmissaoNotaDialog({
                                           }
 
                                           toast.success(`SEFAZ: ${json.sefaz?.cStat} - ${json.sefaz?.xMotivo || ""}`);
+                                          await fetchNfes();
                                         }}
                                       >
                                         Consultar NF-e
@@ -1385,6 +1386,7 @@ export function EmissaoNotaDialog({
                                           }
 
                                           toast.success(`SEFAZ: ${json.sefaz?.cStat} - ${json.sefaz?.xMotivo || ""}`);
+                                          await fetchNfes();
                                         }}
                                       >
                                         Consultar NF-e

@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   aplicarAlteracoesComCienciaFiscal,
   classificarIssuesFiscais,
+  confirmarAvisosFiscais,
 } from "./issuesFiscais";
 
 describe("classificação visual das issues fiscais", () => {
@@ -76,5 +77,19 @@ describe("ciência de avisos fiscais", () => {
 
     assert.deepEqual(novoCfop.avisosFiscaisConfirmados, []);
     assert.deepEqual(novoCst.avisosFiscaisConfirmados, []);
+  });
+
+  it("aceita em lote os avisos do fechamento sem duplicar ciências anteriores", () => {
+    const atualizado = confirmarAvisosFiscais(item, [
+      "NFE_ST_RETIDA_POLITICA_UF",
+      "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO",
+      "",
+    ]);
+
+    assert.deepEqual(atualizado.avisosFiscaisConfirmados, [
+      "NFE_ST_RETIDA_POLITICA_UF",
+      "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO",
+    ]);
+    assert.equal(confirmarAvisosFiscais(atualizado, atualizado.avisosFiscaisConfirmados), atualizado);
   });
 });

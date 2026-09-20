@@ -13,10 +13,20 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 import { BancoFalso, instalarIbgeFalso } from "./__bancoFalso";
 import { salvarNFeAvulsaDraft, type NFeAvulsaDraftInput, type NFeAvulsaItemInput } from "./nfeAvulsaService";
-import { salvarNFeDeOrigem } from "./nfeOrigemService";
+import { salvarNFeDeOrigem, statusOcupaOrigem } from "./nfeOrigemService";
 import { salvarNFeDaSaida } from "./nfeSaidaService";
 
 const AVISO_6403_CST60 = "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO";
+
+describe("nova emissão para uma origem já documentada", () => {
+  it("libera origem com NF-e autorizada e preserva a trava durante rascunho/transmissão", () => {
+    assert.equal(statusOcupaOrigem("AUTORIZADA"), false);
+    assert.equal(statusOcupaOrigem("CANCELADA"), false);
+    assert.equal(statusOcupaOrigem("RASCUNHO"), true);
+    assert.equal(statusOcupaOrigem("ENVIADA"), true);
+    assert.equal(statusOcupaOrigem("RESULTADO_INCERTO"), true);
+  });
+});
 
 const produto = {
   id: 1964,
@@ -261,6 +271,31 @@ function assertRegressao136(nota: Emitida) {
 }
 
 describe("VENDA — regressão da NF-e 136", () => {
+  it("permite novo rascunho quando a mesma venda já tem NF-e autorizada", async () => {
+    const input = {
+      itens: [itemDaTela({
+        avisosFiscaisConfirmados: [
+          AVISO_6403_CST60,
+          "NFE_ST_RETIDA_POLITICA_UF",
+          "NFE_ICMS_EFETIVO_POLITICA_UF",
+        ],
+      })],
+      configuracaoFiscal: configuracaoVenda,
+    };
+    const primeira = await salvarNFeDeOrigem("VENDA", 164, input);
+    assert.ok(primeira.ok, JSON.stringify(!primeira.ok && primeira.errors));
+    const notaExistente = banco.tabela("nfe").find((nota) => Number(nota.id) === primeira.nfeId);
+    assert.ok(notaExistente);
+    notaExistente.status = "AUTORIZADA";
+    notaExistente.numero = 136;
+
+    const segunda = await salvarNFeDeOrigem("VENDA", 164, input);
+
+    assert.ok(segunda.ok, JSON.stringify(!segunda.ok && segunda.errors));
+    assert.notEqual(segunda.nfeId, primeira.nfeId);
+    assert.equal(banco.tabela("nfe").filter((nota) => Number(nota.vendaid) === 164).length, 2);
+  });
+
   it("6403 com CST 60 não sai sem a ciência do usuário, e o CST não é trocado", async () => {
     const resultado = await salvarNFeDeOrigem("VENDA", 164, { itens: [itemDaTela()], configuracaoFiscal: configuracaoVenda });
     assert.equal(resultado.ok, false);

@@ -19,6 +19,7 @@ import { normalizarNiveisDeReferencia, normalizarOrdemNfRefIde } from "@/lib/nfe
 import { atualizarDataEmissao } from "@/lib/nfe/nfce/dataEmissao";
 import { resolveSefazEndpoint } from "@/lib/nfe/webservices";
 import { anexarQrCodeNfce } from "@/services/fiscal/nfceQrCodeService";
+import { consultarProtocoloNfe } from "@/services/fiscal/nfeConsultaProtocoloService";
 import type { ClienteRow, EmpresaRow } from "@/lib/nfe/types";
 import { truncateNfeXNomeInXml } from "@/lib/nfe/xmlUtils";
 import { rascunhoPrecisaSerRegerado } from "@/lib/nfe/taxRules";
@@ -717,8 +718,44 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // -------------------------------------------------------------------
     // 16) Montar nfeProc (xml_autorizado), se tivermos protNFe no retorno
     // -------------------------------------------------------------------
-    const protNFeXml = extrairProtNFeXml(respostaText);
-    const xmlAutorizado = buildNfeProcXml(xmlAssinado, protNFeXml);
+    let protNFeXml = extrairProtNFeXml(respostaText);
+    let xmlAutorizado = buildNfeProcXml(xmlAssinado, protNFeXml);
+    let dataAutorizacaoSefaz: string | null = null;
+
+    // 204 significa que ESTA MESMA chave já está na SEFAZ. Isso acontece, por
+    // exemplo, quando uma primeira transmissão é autorizada e a resposta se
+    // perde ou quando dois requests saem quase juntos. Tratar o segundo retorno
+    // como rejeição sobrescrevia a autorização local e fazia a nota "sumir" da
+    // lista de autorizadas. A fonte da verdade aqui é a consulta da chave.
+    if (prot_cStat === "204" && chave) {
+      try {
+        const consulta = await consultarProtocoloNfe({
+          chaveAcesso: chave,
+          ambiente,
+          agent: httpsAgent,
+        });
+
+        if (consulta.protocolo.cStat === "100") {
+          lote_cStat = consulta.cStat;
+          lote_xMotivo = consulta.xMotivo;
+          prot_cStat = consulta.protocolo.cStat;
+          prot_xMotivo = consulta.protocolo.xMotivo;
+          nProt = consulta.protocolo.nProt;
+          dataAutorizacaoSefaz = consulta.protocolo.dhRecbto;
+          protNFeXml = consulta.protNFeXml;
+          xmlAutorizado = buildNfeProcXml(xmlAssinado, protNFeXml);
+        }
+      } catch (consultaError) {
+        // A proteção atômica abaixo ainda impede que uma resposta 204 tardia
+        // rebaixe uma linha que outro request já salvou como AUTORIZADA. Se a
+        // primeira resposta realmente se perdeu, o operador pode consultar a
+        // chave de novo pela tela.
+        console.warn(
+          `[nfe] não foi possível reconciliar automaticamente a duplicidade da NF-e ${nfeId}:`,
+          consultaError,
+        );
+      }
+    }
 
     // -------------------------------------------------------------------
     // 17) Determinar novo status da NF-e
@@ -791,11 +828,36 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       }
 
       if (statusFinal === "AUTORIZADA") {
-        // Usamos "agora" como data de autorizaÃ§Ã£o (poderia ser dhRecbto do infProt tambÃ©m)
-        updatePayload.dataautorizacao = new Date().toISOString();
+        updatePayload.dataautorizacao = dataAutorizacaoSefaz ?? new Date().toISOString();
       }
 
-      await supabaseAdmin.from("nfe").update(updatePayload).eq("id", nfeId);
+      // Uma resposta de rejeição pode chegar depois da resposta autorizada de
+      // outro request. A condição no próprio UPDATE fecha essa corrida: não há
+      // janela entre reler o status e gravar o novo valor.
+      let updateQuery = supabaseAdmin.from("nfe").update(updatePayload).eq("id", nfeId);
+      if (novoStatus === "REJEITADA") {
+        updateQuery = updateQuery.neq("status", "AUTORIZADA");
+      }
+
+      const { data: nfeAtualizada, error: updateError } = await updateQuery
+        .select("status, protocolo, dataautorizacao")
+        .maybeSingle();
+
+      if (updateError) throw updateError;
+
+      if (!nfeAtualizada && novoStatus === "REJEITADA") {
+        const { data: nfePersistida, error: readError } = await supabaseAdmin
+          .from("nfe")
+          .select("status, protocolo, dataautorizacao")
+          .eq("id", nfeId)
+          .maybeSingle();
+        if (readError) throw readError;
+
+        if (nfePersistida?.status === "AUTORIZADA") {
+          statusFinal = "AUTORIZADA";
+          protocoloFinal = nfePersistida.protocolo ?? protocoloFinal;
+        }
+      }
     } catch (updateErr) {
       console.warn(
         "[nfe] falha ao atualizar status/infos da NF-e:",
