@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { baseRtcParaEdicao, valorRtcParaEdicao } from "@/lib/nfe/baseIbsCbs";
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -99,6 +100,7 @@ import { indFinalDoDestino, type DestinoMercadoria } from "@/lib/nfe/destinoMerc
 import { freteNaBaseIcms, type IcmsCanonico } from "@/lib/nfe/icms";
 import {
   calcularIcmsDoItem,
+  toNFeItem,
   icmsInputDoItem,
   tratamentoIcmsDoItem,
   type AssistedFiscalItem,
@@ -930,11 +932,28 @@ function freteNaBaseDaAvulsa(draft: DraftPayload) {
 }
 
 /** Frete do item e decisão da nota, para a prévia calcular a base como o servidor. */
-function contextoBaseDaAvulsa(item: DraftItem, draft: DraftPayload) {
+function contextoBaseDaAvulsa(item: DraftItem, draft: DraftPayload, ufEmitente?: string | null) {
+  const saida = draft.operacao.tipoOperacao === "SAIDA";
   return {
+    modFrete: draft.transporte.modFrete,
+    indFinal: indFinalDoDestino(draft.operacao.destinoMercadoria, draft.operacao.consumidorFinal),
     valorFrete: Math.max(0, parseCurrency(item.valorFrete)),
     // Pendente: a prévia mostra o frete fora da base e o servidor não gera a nota.
     freteIntegraBaseIcms: freteNaBaseDaAvulsa(draft).integra ?? false,
+    ufEmitente: ufEmitente ?? undefined,
+    ufDestino: draft.destinatario.estado || undefined,
+    // Mesmos dados que `salvarNFeAvulsaDraft` passa ao DIFAL: a base do IBS/CBS
+    // desconta o ICMSUFDest, então a prévia precisa dele.
+    difal: saida
+      ? {
+          indIEDest: draft.destinatario.indicadorIe || "9",
+          tpNF: 1 as const,
+          finNFe: ({ NORMAL: 1, COMPLEMENTAR: 2, AJUSTE: 3, DEVOLUCAO: 4 } as Record<string, number>)[
+            draft.operacao.finalidade
+          ] ?? 1,
+          ufEntrega: draft.entrega?.habilitado ? draft.entrega.estado || null : null,
+        }
+      : null,
   };
 }
 
@@ -1057,13 +1076,13 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
             rtcHabilitado: Boolean(item.tributacao_snapshot?.rtc),
             cstIbsCbs: String(item.tributacao_snapshot?.rtc?.cstIbsCbs ?? ""),
             cClassTrib: String(item.tributacao_snapshot?.rtc?.cClassTrib ?? ""),
-            baseRtc: stringifyNumber(item.tributacao_snapshot?.rtc?.baseCalculo),
+            baseRtc: baseRtcParaEdicao(item.tributacao_snapshot?.rtc),
             aliquotaIbsUf: stringifyNumber(item.tributacao_snapshot?.rtc?.ibsUf?.aliquota),
-            valorIbsUf: stringifyNumber(item.tributacao_snapshot?.rtc?.ibsUf?.valor),
+            valorIbsUf: valorRtcParaEdicao(item.tributacao_snapshot?.rtc, "ibsUf"),
             aliquotaIbsMunicipio: stringifyNumber(item.tributacao_snapshot?.rtc?.ibsMunicipio?.aliquota),
-            valorIbsMunicipio: stringifyNumber(item.tributacao_snapshot?.rtc?.ibsMunicipio?.valor),
+            valorIbsMunicipio: valorRtcParaEdicao(item.tributacao_snapshot?.rtc, "ibsMun"),
             aliquotaCbs: stringifyNumber(item.tributacao_snapshot?.rtc?.cbs?.aliquota),
-            valorCbs: stringifyNumber(item.tributacao_snapshot?.rtc?.cbs?.valor),
+            valorCbs: valorRtcParaEdicao(item.tributacao_snapshot?.rtc, "cbs"),
           }))
         : [],
     },
@@ -2931,7 +2950,7 @@ export default function NFeAvulsaPage() {
                         <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">
                             CEST
-                            {setupFiscal && calcularIcmsDoItem(itemAssistidoDaAvulsa(item, index), setupFiscal, contextoBaseDaAvulsa(item, draft)).valores?.vBCST != null ? <RequiredMark /> : null}
+                            {setupFiscal && calcularIcmsDoItem(itemAssistidoDaAvulsa(item, index), setupFiscal, contextoBaseDaAvulsa(item, draft, setupFiscal?.empresa?.uf)).valores?.vBCST != null ? <RequiredMark /> : null}
                           </Label>
                           <Input value={item.cest} onChange={(event) => updateItem(index, { cest: onlyDigits(event.target.value) })} />
                         </div>
@@ -2956,7 +2975,7 @@ export default function NFeAvulsaPage() {
                             <NfeItemIcmsSection
                               item={itemAssistidoDaAvulsa(item, index)}
                               setup={setupFiscal}
-                              contextoBase={contextoBaseDaAvulsa(item, draft)}
+                              contextoBase={contextoBaseDaAvulsa(item, draft, setupFiscal?.empresa?.uf)}
                               procedencia={{}}
                               onChange={(patch) => updateItem(index, patch as Partial<DraftItem>)}
                               Field={Field}
@@ -3094,7 +3113,7 @@ export default function NFeAvulsaPage() {
                             </Select>
                           </Field>
                           <Field label="CST IBS/CBS" required><Input value={item.cstIbsCbs} disabled /></Field>
-                          <Field label="Base IBS/CBS" required><Input value={item.baseRtc} placeholder="Total do item" onChange={(event) => updateItem(index, { baseRtc: event.target.value })} /></Field>
+                          <Field label="Base IBS/CBS" required><Input value={item.baseRtc} placeholder="Automática conforme a operação" onChange={(event) => updateItem(index, { baseRtc: event.target.value })} /></Field>
                           <Field label="% IBS UF" required><Input value={item.aliquotaIbsUf} onChange={(event) => updateItem(index, { aliquotaIbsUf: event.target.value })} /></Field>
                           <Field label="% IBS Município" required><Input value={item.aliquotaIbsMunicipio} onChange={(event) => updateItem(index, { aliquotaIbsMunicipio: event.target.value })} /></Field>
                           <Field label="% CBS" required><Input value={item.aliquotaCbs} onChange={(event) => updateItem(index, { aliquotaCbs: event.target.value })} /></Field>
@@ -3656,9 +3675,9 @@ function NFeAutorizadaView({
     const valorLiquido = Number((valorTotal - valorDesconto).toFixed(2));
     // ICMS da prévia = o que o servidor vai serializar: sem ICMS próprio no
     // CST 60/40/SN102 mesmo com alíquota no cadastro.
-    const icms = setupFiscal
-      ? calcularIcmsDoItem(itemAssistidoDaAvulsa(item, index), setupFiscal, contextoBaseDaAvulsa(item, draft)).valores
-      : null;
+    const taxItem = toNFeItem(itemAssistidoDaAvulsa(item, index), index, setupFiscal ?? undefined, contextoBaseDaAvulsa(item, draft, setupFiscal?.empresa?.uf));
+    const icms = taxItem.icms;
+    const rtc = taxItem.rtc;
     const aliquotaPis = parseNumberInput(item.aliquotaPis);
     const aliquotaCofins = parseNumberInput(item.aliquotaCofins);
 
@@ -3693,14 +3712,14 @@ function NFeAutorizadaView({
       valor_cofins: Number((valorLiquido * (aliquotaCofins / 100)).toFixed(2)),
       cst_ibs_cbs: item.rtcHabilitado ? item.cstIbsCbs || null : null,
       classificacao_tributaria: item.rtcHabilitado ? item.cClassTrib || null : null,
-      base_ibs_cbs: item.rtcHabilitado ? parseNumberInput(item.baseRtc) : 0,
-      aliquota_ibs_uf: item.rtcHabilitado ? parseNumberInput(item.aliquotaIbsUf) : 0,
-      valor_ibs_uf: item.rtcHabilitado ? parseNumberInput(item.valorIbsUf) : 0,
-      aliquota_ibs_municipio: item.rtcHabilitado ? parseNumberInput(item.aliquotaIbsMunicipio) : 0,
-      valor_ibs_municipio: item.rtcHabilitado ? parseNumberInput(item.valorIbsMunicipio) : 0,
-      valor_ibs: item.rtcHabilitado ? parseNumberInput(item.valorIbsUf) + parseNumberInput(item.valorIbsMunicipio) : 0,
-      aliquota_cbs: item.rtcHabilitado ? parseNumberInput(item.aliquotaCbs) : 0,
-      valor_cbs: item.rtcHabilitado ? parseNumberInput(item.valorCbs) : 0,
+      base_ibs_cbs: rtc?.baseCalculo ?? 0,
+      aliquota_ibs_uf: rtc?.ibsUf.aliquota ?? 0,
+      valor_ibs_uf: rtc?.ibsUf.valor ?? 0,
+      aliquota_ibs_municipio: rtc?.ibsMunicipio.aliquota ?? 0,
+      valor_ibs_municipio: rtc?.ibsMunicipio.valor ?? 0,
+      valor_ibs: rtc?.valorIbs ?? 0,
+      aliquota_cbs: rtc?.cbs.aliquota ?? 0,
+      valor_cbs: rtc?.cbs.valor ?? 0,
       cst_is: null,
       valor_is: 0,
     };
@@ -3931,6 +3950,7 @@ function FreteNaBaseIcms({
 }) {
   const decisao = freteNaBaseDaAvulsa(draft);
   if (decisao.fonte === "SEM_FRETE") return null;
+  if (decisao.fonte === "INCONSISTENTE") return <p role="alert" className="text-sm text-destructive">{decisao.motivo}</p>;
   if (decisao.fonte === "LEI") {
     return (
       <p className="text-xs text-muted-foreground">

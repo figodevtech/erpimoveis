@@ -50,6 +50,8 @@ export type ParcelaIbsCbs = {
 };
 
 export type TributosRtc = {
+  composicaoBase?: import('./baseIbsCbs').ComposicaoBaseIbsCbs;
+  valoresInformados?: { ibsUf: number | null; ibsMun: number | null; cbs: number | null };
   cstIbsCbs: string;
   cClassTrib: string;
   baseCalculo: number;
@@ -387,6 +389,13 @@ export interface NFeItem {
    * Os campos abaixo permitem sobrepor as alíquotas resolvidas por padrão.
    */
   icmsUfDest?: ICMSUFDest;
+  difalDecisao?: {
+    origemAliquotaInterna: 'ITEM' | 'TABELA';
+    ufDestino: string;
+    aliquotaInterna: number;
+    origemFcp: 'ITEM' | 'NAO_CONFIGURADO';
+    aviso: string | null;
+  };
   aliquotaInternaDestino?: number | null;
   aliquotaInterestadual?: number | null;
   aliquotaFcpDestino?: number | null;

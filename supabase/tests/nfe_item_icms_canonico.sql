@@ -54,6 +54,41 @@ BEGIN
     NULL;
   END;
 
+  -- CST 90 com diferimento dentro do ICMS próprio (PL_010e/010f): aceito.
+  INSERT INTO public.nfe_item (nfe_id, n_item, descricao, ncm, cfop, unidade, quantidade, valor_unitario,
+    valor_total, cst, grupo_icms_xml, aliquotaicms, valor_bc_icms, valor_icms, valor_icms_diferido)
+  VALUES (v_nfe, v_item + 6, 'TESTE CST 90 DIF', '90328921', '5102', 'UN', 1, 1000, 1000, '90', 'ICMS90', 18, 1000, 90, 90);
+
+  -- Diferimento fora do ICMS51/ICMS90: recusado.
+  BEGIN
+    INSERT INTO public.nfe_item (nfe_id, n_item, descricao, ncm, cfop, unidade, quantidade, valor_unitario,
+      valor_total, cst, grupo_icms_xml, aliquotaicms, valor_bc_icms, valor_icms, valor_icms_diferido)
+    VALUES (v_nfe, v_item + 7, 'TESTE CST 00 DIF', '90328921', '5102', 'UN', 1, 1000, 1000, '00', 'ICMS00', 18, 1000, 90, 90);
+    RAISE EXCEPTION 'diferimento foi aceito num item ICMS00';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  -- Diferimento sem ICMS próprio: recusado (no XSD o bloco fica dentro dele).
+  BEGIN
+    INSERT INTO public.nfe_item (nfe_id, n_item, descricao, ncm, cfop, unidade, quantidade, valor_unitario,
+      valor_total, cst, grupo_icms_xml, valor_icms_diferido)
+    VALUES (v_nfe, v_item + 8, 'TESTE CST 90 DIF SEM BASE', '90328921', '5102', 'UN', 1, 1000, 1000, '90', 'ICMS90', 90);
+    RAISE EXCEPTION 'diferimento sem ICMS próprio foi aceito';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
+  -- FCP próprio sem base do ICMS próprio: recusado.
+  BEGIN
+    INSERT INTO public.nfe_item (nfe_id, n_item, descricao, ncm, cfop, unidade, quantidade, valor_unitario,
+      valor_total, cst, grupo_icms_xml, valor_fcp)
+    VALUES (v_nfe, v_item + 9, 'TESTE FCP SEM BASE', '90328921', '5102', 'UN', 1, 1000, 1000, '90', 'ICMS90', 20);
+    RAISE EXCEPTION 'FCP sem ICMS próprio foi aceito';
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+
   -- Grupo inexistente: recusado.
   BEGIN
     INSERT INTO public.nfe_item (nfe_id, n_item, descricao, ncm, cfop, unidade, quantidade, valor_unitario,

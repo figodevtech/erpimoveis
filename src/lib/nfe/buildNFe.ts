@@ -16,8 +16,8 @@ import { buildDetXml } from './xmlItem';
 import { gerarCNF, gerarChaveAcesso } from './chaveAcesso';
 import { mapEmpresaToEmitente } from './mapEmpresaToEmitente';
 import { getCodigoUF } from './ufUtils';
-import { calcularTotaisNFe, normalizarCRT, valorLiquidoItem } from './fiscal';
-import { cfopDispensaDifal, deveGerarICMSUFDest, montarICMSUFDest } from './difal';
+import { calcularTotaisNFe, normalizarCRT } from './fiscal';
+import { deveGerarICMSUFDest, resolverDifalDoItem } from './difal';
 import { escapeXml, truncateNfeXNome } from './xmlUtils';
 import { validarInscricaoEstadualDestinatario } from './indIEDest';
 import {
@@ -583,33 +583,15 @@ export function buildNFePreviewXml(
   });
 
   const itens: NFeItem[] = exigeDifal
-    ? itensNumerados.map((item) => (
-      // O CFOP é por item: devolução e remessa na mesma nota não geram DIFAL.
-      cfopDispensaDifal(item.cfop) ? item : {
-        ...item,
-        icmsUfDest: item.icmsUfDest ?? montarICMSUFDest({
-          // A base do DIFAL e o valor da operacao, a mesma do ICMS proprio sem
-          // reducao: item liquido do desconto, mais o frete quando ele integra a
-          // base (LC 87/96, art. 13, par. 1o). Itens montados fora do nucleo
-          // seguem com o frete rateado, como sempre.
-          baseCalculo:
-            item.icmsDecisao?.composicaoBase?.baseIcmsProprio ??
-            valorLiquidoItem(item) + Number(item.valorFrete ?? 0),
-          baseCalculoFcp: item.baseCalculoFcpDestino,
-          ufEmitente: empresaUf,
-          ufDestinatario: ufDestino,
-          origemMercadoria: item.orig,
-          aliquotaInternaDestino: item.aliquotaInternaDestino,
-          aliquotaInterestadual: item.aliquotaInterestadual,
-          aliquotaFcpDestino: item.aliquotaFcpDestino,
-          percentualPartilhaDestino: item.percentualPartilhaDestino,
-          onAliquotaPadrao: (uf, aliquota) =>
-            console.warn(
-              `[NF-e] Item ${item.numeroItem}: alíquota interna de ${uf} não configurada no cadastro fiscal; usando o padrão da tabela (${aliquota}%).`,
-            ),
-        }),
-      }
-    ))
+    ? itensNumerados.map((item) => {
+      const resolvido = resolverDifalDoItem(item, {
+        ufEmitente: empresaUf, ufDestinatario: ufDestino, indFinal: ide.indFinal ?? 1,
+        indIEDest: dest?.indIEDest ?? '9', tpNF: ide.tpNF ?? 1,
+        finNFe: ide.finNFe, ufEntrega: options?.entrega?.endereco?.uf,
+      });
+      if (resolvido.difalDecisao?.aviso) console.warn(`[NF-e] Item ${item.numeroItem}: ${resolvido.difalDecisao.aviso}`);
+      return resolvido;
+    })
     : itensNumerados;
 
   // Os dois níveis de referenciamento são EXCLUDENTES: informar <NFref> no
@@ -644,6 +626,9 @@ export function buildNFePreviewXml(
   const vPIS = soma.vPIS.toFixed(2);
   const vCOFINS = soma.vCOFINS.toFixed(2);
   const valorFrete = itens.reduce((total, item) => total + Number(item.valorFrete ?? 0), 0);
+  if (valorFrete > 0 && (nfce || (options?.transporte?.modFrete ?? '9') === '9')) {
+    throw new Error('NFE_FRETE_SEM_TRANSPORTE: frete cobrado é incompatível com modFrete 9. Corrija a modalidade ou o valor. Regra de coerência do ERP.');
+  }
   const vFrete = valorFrete.toFixed(2);
   // vNF inclui o IPI devolvido quando a operação usa o grupo impostoDevol.
   const vNF = (

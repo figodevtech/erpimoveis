@@ -424,6 +424,8 @@ describe("pagamentos na NF-e", () => {
       {
         nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
         pagamento: { tPag: "17" },
+        // Frete cobrado na nota exige transporte: com modFrete 9 é incoerente.
+        transporte: { modFrete: "0" },
       },
     );
 
@@ -439,7 +441,7 @@ describe("pagamentos na NF-e", () => {
       1,
       [{ ...item, valorFrete: 12.5, valorDesconto: 2.5 }],
       destinatario("SP"),
-      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1 },
+      { nomeMunicipioEmitente: "SAO PAULO", indFinal: 1, transporte: { modFrete: "0" } },
     );
 
     // I14a vUnTrib < I15 vFrete < I17 vDesc < I17b indTot.
@@ -598,5 +600,23 @@ describe("grupo <transp> (modalidade de frete)", () => {
 
     assert.match(xml, /<transp><modFrete>0<\/modFrete><\/transp>/);
     assert.doesNotMatch(xml, /<transporta>/);
+  });
+});
+
+describe("frete sem transporte", () => {
+  it("recusa frete cobrado com modFrete 9 (sem ocorrência de transporte)", () => {
+    assert.throws(
+      () => buildNFePreviewXml(empresa, 7, 1, [{ ...item, valorFrete: 12.5 }], destinatario("SP"), {
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1, transporte: { modFrete: "9" },
+      }),
+      /NFE_FRETE_SEM_TRANSPORTE/,
+    );
+  });
+
+  it("aceita modFrete 9 sem frete", () => {
+    const { xml } = buildNFePreviewXml(empresa, 8, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1, transporte: { modFrete: "9" },
+    });
+    assert.match(xml, /<modFrete>9<\/modFrete>/);
   });
 });

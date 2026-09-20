@@ -1,6 +1,7 @@
 // Matriz CST/CSOSN → grupo ICMS do XML e blocos que ele aceita.
 //
-// Fonte: leiaute NF-e 4.00, schema PL_010_V1.30 (leiauteNFe_v4.00.xsd), grupos
+// Fonte: leiaute NF-e 4.00, pacote vigente PL_010f (NT 2025.002 v1.50), em
+// schemas/nfe/PL_010f_NT2025_002_v1.50/leiauteNFe_v4.00.xsd, grupos
 // ICMS00..ICMS90 e ICMSSN101..ICMSSN900. Cada bloco aqui corresponde a uma
 // sequência do XSD. `OPCIONAL` quer dizer que o bloco só entra quando a emissão
 // o informa — nunca porque um campo do cadastro está preenchido.
@@ -12,7 +13,7 @@ import type { CRT } from '../types';
 import { CSOSN_DESCRICOES, CST_ICMS_DESCRICOES } from '../rotulosFiscais';
 import type { BlocoIcms, NaturezaIcms, RegraBloco, TratamentoIcms, GrupoIcmsXml } from './tipos';
 
-export const NFE_ICMS_RULE_VERSION = 'icms-tratamento@2026-09-18|PL_010_V1.30';
+export const NFE_ICMS_RULE_VERSION = 'icms-tratamento@2026-09-18.3|PL_010f_v1.50';
 
 export const BLOCOS_ICMS: BlocoIcms[] = [
   'proprio',
@@ -82,6 +83,7 @@ const MATRIZ_CST: Record<string, Linha> = {
     blocos: blocos({
       proprio: Op,
       reducaoBase: Op,
+      // Bloco de diferimento no ICMS90 existe desde o PL_010e (NT 2025.002 v1.40).
       diferimento: Op,
       fcp: Op,
       st: Op,

@@ -1,3 +1,5 @@
+import { resolverRtcDoItem, issuesBaseIbsCbs } from "@/lib/nfe/baseIbsCbs";
+import { validarPoliticaStRetida } from "@/lib/nfe/icms/politicaStRetida";
 import type {
   CRT,
   ClassificacaoTributariaRtc,
@@ -10,9 +12,10 @@ import {
   type NFeFiscalFieldRules,
 } from "@/lib/nfe/taxRules";
 import {
-  ALIQUOTA_INTERNA_POR_UF,
   aliquotaInterestadual,
   deveGerarICMSUFDest,
+  issuesDifalDoItem,
+  resolverDifalDoItem,
 } from "@/lib/nfe/difal";
 export { aplicarSugestaoDifal, type DifalContexto } from "@/lib/nfe/difal-sugestao";
 import {
@@ -296,9 +299,6 @@ export function createAssistedItem(
       tpNF: 1,
       cfop: cfopResolution.cfop,
     });
-  const internaSugerida = exigeDifal
-    ? ALIQUOTA_INTERNA_POR_UF[ufDestino.trim().toUpperCase()]
-    : undefined;
   const modoPis = source.modo_pis || inferPisCofinsMode(source.cst_pis, source.aliquota_pis);
   const modoCofins =
     source.modo_cofins || inferPisCofinsMode(source.cst_cofins, source.aliquota_cofins);
@@ -387,7 +387,7 @@ export function createAssistedItem(
     difalHabilitado: exigeDifal,
     // Interna vem da tabela de referência; vazia se a UF não estiver mapeada,
     // para o usuário pesquisar e preencher em vez de emitir com valor errado.
-    difalAliquotaInterna: internaSugerida == null ? "" : String(internaSugerida),
+    difalAliquotaInterna: "",
     // Interestadual é a única com regra objetiva (Resolução 13/2012 + origem),
     // mas segue editável.
     difalAliquotaInterestadual: exigeDifal
@@ -646,8 +646,20 @@ export function valoresSemUsoNoCodigo(
  * itens pelo servidor; quem chama passa a parcela de cada item.
  */
 export type ContextoBaseIcms = {
+  modFrete?: string;
+  ufEmitente?: string;
+  ufDestino?: string;
+  indFinal?: number | null;
+  dataEmissao?: string;
   valorFrete?: number;
   freteIntegraBaseIcms?: boolean | null;
+  /** Dados do DIFAL; sem eles (NFC-e, entrada) o grupo ICMSUFDest não é avaliado. */
+  difal?: {
+    indIEDest: string | number;
+    tpNF: 0 | 1;
+    finNFe?: number;
+    ufEntrega?: string | null;
+  } | null;
 };
 
 /** Mesmo cálculo que o servidor faz: a tela mostra o que vai para o XML. */
@@ -681,6 +693,12 @@ export function calcularIcmsDoItem(
     resultado.tratamento && resultado.valores
       ? validarCoerenciaCfopIcms({ cfop: item.cfop, tratamento: resultado.tratamento, valores: resultado.valores })
       : [];
+  if (resultado.valores) {
+    // Política de UF: bloqueia só quando cadastrada como obrigatória.
+    const politica = validarPoliticaStRetida(resultado.valores, contexto);
+    avisos.push(...politica.filter((issue) => issue.severidade === "AVISO"));
+    resultado.issues.push(...politica.filter((issue) => issue.severidade === "BLOQUEIO"));
+  }
   return { ...resultado, avisos };
 }
 
@@ -725,7 +743,7 @@ export function toNFeItem(
     };
   };
 
-  const baseRtc = parseDecimal(item.baseRtc || valorLiquido);
+  const baseRtc = optionalDecimal(item.baseRtc) ?? valorLiquido;
   const aliquotaIbsUf = parseDecimal(item.aliquotaIbsUf);
   const aliquotaIbsMunicipio = parseDecimal(item.aliquotaIbsMunicipio);
   const aliquotaCbs = parseDecimal(item.aliquotaCbs);
@@ -736,7 +754,8 @@ export function toNFeItem(
   const icms = setup ? calcularIcmsDoItem(item, setup, contexto) : null;
   const confirmados = new Set(item.avisosFiscaisConfirmados);
 
-  return {
+  let nfeItem: NFeItem = {
+    valorFrete: contexto?.valorFrete ?? 0,
     numeroItem: index + 1,
     // cProd usa o id do produto; a referencia continua so na exibicao do item.
     codigoProduto: item.produtoId != null ? String(item.produtoId) : item.codigo,
@@ -807,6 +826,22 @@ export function toNFeItem(
         }
       : {}),
   };
+  // Mesma ordem do servidor: ICMS, DIFAL e só então IBS/CBS, cuja base desconta
+  // vICMSUFDest e vFCPUFDest (NT 2025.002, UB16-10).
+  if (contexto?.difal && contexto.ufEmitente && contexto.ufDestino) {
+    nfeItem = resolverDifalDoItem(nfeItem, {
+      ufEmitente: contexto.ufEmitente,
+      ufDestinatario: contexto.ufDestino,
+      indFinal: contexto.indFinal ?? 0,
+      indIEDest: contexto.difal.indIEDest,
+      tpNF: contexto.difal.tpNF,
+      finNFe: contexto.difal.finNFe,
+      ufEntrega: contexto.difal.ufEntrega,
+    });
+  }
+  resolverRtcDoItem(nfeItem, contexto ?? {}, { base: optionalDecimal(item.baseRtc),
+    ibsUf: optionalDecimal(item.valorIbsUf), ibsMun: optionalDecimal(item.valorIbsMunicipio), cbs: optionalDecimal(item.valorCbs) });
+  return nfeItem;
 }
 
 export function validateAssistedItem(
@@ -871,6 +906,9 @@ export function validateAssistedItem(
   }
 
   const contextoBase: ContextoBaseIcms = {
+    ...context,
+    ufEmitente: context?.ufEmitente ?? setup.empresa?.uf ?? undefined,
+    ufDestino: context?.ufDestino ?? context?.parceiroUf ?? context?.clienteUf ?? undefined,
     valorFrete: context?.valorFrete,
     freteIntegraBaseIcms: context?.freteIntegraBaseIcms,
   };
@@ -888,7 +926,15 @@ export function validateAssistedItem(
       ? setup.classificacoesRtc.find((entry) => entry.codigo === item.cClassTrib) ?? null
       : null;
     const vistos = new Set<string>();
-    for (const issue of validateNFeItemTax(toNFeItem(item, 0, setup, contextoBase), crt, { classificacaoRtc: classification })) {
+    const taxItem = toNFeItem(item, 0, setup, contextoBase);
+    for (const issue of issuesDifalDoItem(taxItem)) {
+      issues.push({ code: issue.code, field: issue.field, message: issue.message });
+    }
+    for (const issue of issuesBaseIbsCbs(taxItem.rtc)) {
+      if (issue.severidade === 'AVISO' && item.avisosFiscaisConfirmados.includes(issue.code)) continue;
+      issues.push({ code: issue.code, field: issue.field, message: issue.message, requerCiencia: issue.severidade === 'AVISO' });
+    }
+    for (const issue of validateNFeItemTax(taxItem, crt, { classificacaoRtc: classification })) {
       vistos.add(`${issue.code}|${issue.field}`);
       issues.push(issue);
     }

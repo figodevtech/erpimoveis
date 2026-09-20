@@ -68,15 +68,23 @@ ALTER TABLE public.nfe_item
       (grupo_icms_xml IN ('ICMS00', 'ICMS10', 'ICMS20', 'ICMS51', 'ICMS70', 'ICMS90', 'ICMSSN900')
         OR (valor_bc_icms IS NULL AND valor_icms IS NULL AND aliquotaicms IS NULL))
       AND ((valor_bc_icms IS NULL) = (valor_icms IS NULL))
+      AND ((valor_bc_icms IS NULL) = (aliquotaicms IS NULL))
       -- ICMS-ST desta operação.
       AND (grupo_icms_xml IN ('ICMS10', 'ICMS30', 'ICMS70', 'ICMS90', 'ICMSSN201', 'ICMSSN202', 'ICMSSN900')
         OR (valor_bc_icms_st IS NULL AND valor_icms_st IS NULL AND valor_fcp_st IS NULL))
       -- ST cobrada anteriormente.
       AND (grupo_icms_xml IN ('ICMS60', 'ICMSSN500')
         OR (valor_bc_st_retido IS NULL AND valor_icms_st_retido IS NULL AND valor_fcp_st_retido IS NULL))
+      AND ((valor_bc_icms_st IS NULL) = (valor_icms_st IS NULL))
+      AND ((valor_bc_st_retido IS NULL) = (valor_icms_st_retido IS NULL))
+      AND (valor_fcp IS NULL OR valor_bc_icms IS NOT NULL)
+      AND (valor_fcp_st IS NULL OR valor_bc_icms_st IS NOT NULL)
       AND (grupo_icms_xml IN ('ICMS00', 'ICMS10', 'ICMS20', 'ICMS51', 'ICMS70', 'ICMS90') OR valor_fcp IS NULL)
       AND (grupo_icms_xml IN ('ICMS20', 'ICMS30', 'ICMS40', 'ICMS70', 'ICMS90') OR valor_icms_desonerado IS NULL)
+      -- Diferimento: ICMS51 e, desde o PL_010e (NT 2025.002 v1.40), ICMS90.
       AND (grupo_icms_xml IN ('ICMS51', 'ICMS90') OR valor_icms_diferido IS NULL)
+      -- No XSD o bloco de diferimento fica dentro da sequência do ICMS próprio.
+      AND (valor_icms_diferido IS NULL OR valor_bc_icms IS NOT NULL)
     )
   ) NOT VALID;
 

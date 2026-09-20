@@ -628,3 +628,55 @@ describe('frete na base do ICMS (LC 87/96, art. 13, §1º, II, "b", e art. 8º, 
     assert.match(decisao?.motivo ?? '', /Frete de 100\.00 incluído na base do ICMS próprio/);
   });
 });
+
+describe('modFrete × frete cobrado (coerência do ERP e LC 87/96, art. 13, §1º, II, "b")', () => {
+  const decidir = (modFrete: string, valorFrete: number, decisaoUsuario?: boolean) =>
+    freteNaBaseIcms({ modFrete, valorFrete, decisaoUsuario });
+
+  it('modFrete 9 sem frete: nada a decidir', () => {
+    assert.deepEqual([decidir('9', 0).fonte, decidir('9', 0).integra], ['SEM_FRETE', false]);
+  });
+
+  it('modFrete 9 com frete: incoerente, e a decisão do usuário não a torna válida', () => {
+    for (const decisao of [undefined, true, false]) {
+      const resultado = decidir('9', 100, decisao);
+      assert.equal(resultado.fonte, 'INCONSISTENTE');
+      assert.equal(resultado.integra, null);
+      assert.match(resultado.motivo, /sem ocorrência de transporte/);
+    }
+  });
+
+  it('modFrete 0 e 3: integra por lei, sem perguntar', () => {
+    for (const modFrete of ['0', '3']) {
+      assert.deepEqual([decidir(modFrete, 100).fonte, decidir(modFrete, 100).integra], ['LEI', true], modFrete);
+      assert.equal(decidir(modFrete, 100, false).integra, true, `${modFrete}: a lei prevalece`);
+    }
+  });
+
+  it('modFrete 1, 2 e 4: pendente até o usuário decidir', () => {
+    for (const modFrete of ['1', '2', '4']) {
+      assert.deepEqual([decidir(modFrete, 100).fonte, decidir(modFrete, 100).integra], ['PENDENTE', null], modFrete);
+      assert.deepEqual([decidir(modFrete, 100, false).fonte, decidir(modFrete, 100, false).integra], ['USUARIO', false], modFrete);
+    }
+  });
+});
+
+describe('CST 90 com diferimento (ICMS90 do PL_010e/010f)', () => {
+  it('calcula vICMSOp, vICMSDif e o vICMS devido dentro do ICMS próprio', () => {
+    const icms = valores(semBloqueio(calcular({ cst: '90', aliquotaIcms: 18, valorOperacao: 1000, proprio: { destacar: true }, diferimento: { pDif: 50 } })));
+    assert.deepEqual([icms.vBC, icms.vICMSOp, icms.pDif, icms.vICMSDif, icms.vICMS], [1000, 180, 50, 90, 90]);
+  });
+
+  it('diferimento pede ICMS próprio: sem alíquota, bloqueia em vez de inventar', () => {
+    assert.ok(codigos(calcular({ cst: '90', diferimento: { pDif: 50 } })).includes('NFE_ICMS_ALIQUOTA_REQUIRED'));
+  });
+
+  it('diferimento continua proibido onde o XSD não o prevê (ICMS00, ICMS60, ICMS70)', () => {
+    for (const cst of ['00', '60', '70']) {
+      assert.ok(
+        codigos(calcular({ cst, aliquotaIcms: 18, proprio: { pRedBC: 10 }, diferimento: { pDif: 50 } })).includes('NFE_ICMS_BLOCO_PROIBIDO_DIFERIMENTO'),
+        `CST ${cst}`,
+      );
+    }
+  });
+});

@@ -32,7 +32,7 @@ export const FONTE_FRETE_NA_BASE = 'LC 87/1996, art. 13, §1º, II, "b"';
 export type DecisaoFreteNaBase = {
   /** `null` = há frete cobrado e ninguém decidiu ainda: a nota não sai. */
   integra: boolean | null;
-  fonte: 'SEM_FRETE' | 'LEI' | 'USUARIO' | 'PENDENTE';
+  fonte: 'SEM_FRETE' | 'LEI' | 'USUARIO' | 'PENDENTE' | 'INCONSISTENTE';
   modFrete: string;
   valorFrete: number;
   motivo: string;
@@ -61,6 +61,12 @@ export function freteNaBaseIcms(input: {
 
   if (valorFrete <= 0) {
     return { integra: false, fonte: 'SEM_FRETE', modFrete, valorFrete, motivo: 'Nenhum frete cobrado na nota.' };
+  }
+  if (modFrete === '9') {
+    return {
+      integra: null, fonte: 'INCONSISTENTE', modFrete, valorFrete,
+      motivo: 'Frete cobrado na NF-e é incompatível com modFrete 9 (sem ocorrência de transporte). Corrija a modalidade ou o valor do frete. Regra de coerência do ERP.',
+    };
   }
   if (MODALIDADES_FRETE_DO_REMETENTE.has(modFrete)) {
     return {

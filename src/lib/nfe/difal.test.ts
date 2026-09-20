@@ -61,7 +61,7 @@ describe("obrigatoriedade do ICMSUFDest", () => {
   });
 
   it("não exige em devolução, remessa, retorno ou transferência", () => {
-    for (const cfop of ["6201", "6202", "6551", "6152", "6913"]) {
+    for (const cfop of ["6201", "6202", "6552", "6152", "6913"]) {
       assert.equal(deveGerarICMSUFDest({ ...PB_MS, cfop }), false, `CFOP ${cfop}`);
     }
   });

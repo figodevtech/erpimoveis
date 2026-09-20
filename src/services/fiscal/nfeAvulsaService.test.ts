@@ -117,7 +117,7 @@ describe("emissão avulsa: frete na base do ICMS (LC 87/96, art. 13, §1º, II, 
   });
 
   it("frete cobrado em outra modalidade: exige a decisão do usuário", () => {
-    for (const modFrete of ["1", "2", "4", "9"]) {
+    for (const modFrete of ["1", "2", "4"]) {
       const [erro] = erros(comFrete({ modFrete }), "transporte.freteIntegraBaseIcms");
       assert.ok(erro, modFrete);
       assert.equal(erro.step, "transport");
@@ -129,7 +129,7 @@ describe("emissão avulsa: frete na base do ICMS (LC 87/96, art. 13, §1º, II, 
     const naoIntegra = comFrete({ modFrete: "1", freteIntegraBaseIcms: false });
     assert.deepEqual(validarDraftAvulso(naoIntegra), []);
     assert.equal(decisaoFreteDoDraft(naoIntegra).integra, false);
-    assert.equal(decisaoFreteDoDraft(comFrete({ modFrete: "9", freteIntegraBaseIcms: true })).integra, true);
+    assert.equal(decisaoFreteDoDraft(comFrete({ modFrete: "9", freteIntegraBaseIcms: true })).fonte, "INCONSISTENTE");
   });
 
   it("a decisão não se sobrepõe à lei quando o transporte é do remetente", () => {

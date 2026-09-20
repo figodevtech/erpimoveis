@@ -749,10 +749,46 @@ export function GerarNotaDeOsDialog({
   // nota não é gerada (ver `freteBaseErrors`).
   const contextoBaseDoItem = useCallback(
     (sourceItemId: string) => ({
+      modFrete: fiscalConfig.modFrete,
+      indFinal: indFinalEscolhido,
       valorFrete: fretePorItem.get(sourceItemId) ?? 0,
       freteIntegraBaseIcms: freteNaBase.integra ?? false,
+      ufEmitente: setup?.empresa?.uf ?? undefined,
+      ufDestino:
+        (usesEditableRecipient ? entrySupplier.estado : (source?.fornecedor ?? source?.cliente)?.uf) ?? undefined,
+      // Mesmos dados que o servidor usa para decidir e calcular o ICMSUFDest; a
+      // base do IBS/CBS desconta o DIFAL, então a prévia precisa dele.
+      difal:
+        isNfce || source?.tipo_operacao === "ENTRADA"
+          ? null
+          : {
+              indIEDest: usesEditableRecipient
+                ? entrySupplier.indicadorIe || "9"
+                : String(indicadorDoCliente(source?.cliente) ?? "9"),
+              tpNF: 1 as const,
+              finNFe:
+                origin === "SAIDA"
+                  ? ({ NORMAL: 1, COMPLEMENTAR: 2, AJUSTE: 3, DEVOLUCAO: 4 } as Record<string, number>)[
+                      saidaOrigem.finalidade
+                    ] ?? 1
+                  : 1,
+              ufEntrega: null,
+            },
     }),
-    [fretePorItem, freteNaBase.integra],
+    [
+      fretePorItem,
+      freteNaBase.integra,
+      fiscalConfig.modFrete,
+      indFinalEscolhido,
+      setup?.empresa?.uf,
+      usesEditableRecipient,
+      entrySupplier.estado,
+      entrySupplier.indicadorIe,
+      source,
+      isNfce,
+      origin,
+      saidaOrigem.finalidade,
+    ],
   );
 
   const issuesByItem = useMemo(() => {
@@ -1888,6 +1924,7 @@ export function GerarNotaDeOsDialog({
                           </p>
                         ) : null}
                       </div>
+                      {freteNaBase.fonte === "INCONSISTENTE" ? <p role="alert" className="text-sm text-destructive">{freteNaBase.motivo}</p> : null}
                       {!isNfce && (freteNaBase.fonte === "PENDENTE" || freteNaBase.fonte === "USUARIO") ? (
                         <div className="min-w-0 space-y-1.5 sm:col-span-2">
                           <Label>

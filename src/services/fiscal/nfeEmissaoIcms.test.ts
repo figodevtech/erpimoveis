@@ -170,6 +170,7 @@ function itemDaTela(overrides: SemOrigem & { sourceItemId?: string } = {}): NFeA
     aliquotaIbsUf: "0.1",
     aliquotaIbsMunicipio: "0",
     aliquotaCbs: "0.9",
+    avisosFiscaisConfirmados: ["NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"],
     procedenciaFiscal: { cst: "PRODUTO", aliquotaicms: "PRODUTO", cfop: "PRODUTO" },
     ...overrides,
   };
@@ -271,7 +272,7 @@ describe("VENDA — regressão da NF-e 136", () => {
 
   it("com a ciência, grava ICMS60 sem ICMS próprio no banco, no XML e nos totais", async () => {
     const resultado = await salvarNFeDeOrigem("VENDA", 164, {
-      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
+      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })],
       configuracaoFiscal: configuracaoVenda,
     });
     assert.equal(resultado.ok, true, JSON.stringify(resultado.errors));
@@ -279,7 +280,7 @@ describe("VENDA — regressão da NF-e 136", () => {
     assertRegressao136(nota);
     assert.deepEqual(
       nota.itens[0].tributacao_snapshot.icmsDecisao.avisosConfirmados.map((aviso: { code: string }) => aviso.code),
-      [AVISO_6403_CST60],
+      [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF"],
     );
     assert.match(nota.xml, /<CFOP>6403<\/CFOP>/);
     assert.equal(nota.nfe.decisao_fiscal.icms[0].grupoXmlIcms, "ICMS60");
@@ -287,7 +288,7 @@ describe("VENDA — regressão da NF-e 136", () => {
 
   it("não presume consumidor final: sem destino a nota não é gerada", async () => {
     const resultado = await salvarNFeDeOrigem("VENDA", 164, {
-      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
+      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })],
       configuracaoFiscal: { ...configuracaoVenda, destinoMercadoria: null },
     });
     assert.equal(resultado.ok, false);
@@ -296,7 +297,7 @@ describe("VENDA — regressão da NF-e 136", () => {
 
   it("o indFinal sai do destino escolhido, não do tipo de origem", async () => {
     const revenda = await salvarNFeDeOrigem("VENDA", 164, {
-      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
+      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })],
       configuracaoFiscal: configuracaoVenda,
     });
     assert.ok(revenda.ok);
@@ -329,7 +330,7 @@ describe("OS — mesmo núcleo", () => {
 
   it("regressão da NF-e 136 pela OS", async () => {
     const resultado = await salvarNFeDeOrigem("OS", 50, {
-      itens: [itemOs({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
+      itens: [itemOs({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })],
       configuracaoFiscal: configuracaoVenda,
     });
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
@@ -491,7 +492,7 @@ describe("AVULSA — mesmo núcleo", () => {
   }
 
   it("regressão da NF-e 136 pela avulsa", async () => {
-    const resultado = await salvarNFeAvulsaDraft(draftAvulso([itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })]));
+    const resultado = await salvarNFeAvulsaDraft(draftAvulso([itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })]));
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
     assertRegressao136(notaGravada(resultado.nfeId));
   });
@@ -567,5 +568,105 @@ describe("VENDA — frete na base do ICMS", () => {
     assert.equal(nota.nfe.decisao_fiscal.freteNaBaseIcms.fonte, "USUARIO");
     assert.equal(nota.nfe.dados_avulsos.transporte.freteIntegraBaseIcms, false);
     assertBancoIgualXml(nota);
+  });
+});
+
+/** Base do IBS/CBS serializada no item (gIBSCBS/vBC) e no total. */
+function baseIbsCbsNoXml(xml: string) {
+  return {
+    item: Number(/<gIBSCBS><vBC>([\d.]+)<\/vBC>/.exec(xml)?.[1]),
+    total: Number(/<vBCIBSCBS>([\d.]+)<\/vBCIBSCBS>/.exec(xml)?.[1]),
+  };
+}
+
+describe("IBS/CBS — base pela composição oficial (UB16-10) nos fluxos", () => {
+  it("VENDA CST 00: base = valor − ICMS próprio, igual no XML, no total e no snapshot", async () => {
+    const resultado = await salvarNFeDeOrigem("VENDA", 164, {
+      itens: [itemDaTela({ cfop: "6102", cst: "00" })],
+      configuracaoFiscal: configuracaoVenda,
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    const nota = notaGravada(resultado.nfeId);
+    assert.deepEqual(baseIbsCbsNoXml(nota.xml), { item: 8800, total: 8800 });
+    assert.equal(nota.itens[0].tributacao_snapshot.rtc.baseCalculo, 8800);
+    assert.equal(nota.itens[0].tributacao_snapshot.rtc.composicaoBase.componentes.vICMS, 2200);
+  });
+
+  it("VENDA com frete CIF: o frete entra nas bases do ICMS e do IBS/CBS", async () => {
+    const resultado = await salvarNFeDeOrigem("VENDA", 164, {
+      itens: [itemDaTela({ cfop: "6102", cst: "00" })],
+      configuracaoFiscal: { ...configuracaoVenda, transporte: { modFrete: "0", valorFrete: 500 } },
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    // 11.000 + 500 de frete − 2.300 de ICMS (20% sobre 11.500)
+    assert.deepEqual(baseIbsCbsNoXml(notaGravada(resultado.nfeId).xml), { item: 9200, total: 9200 });
+  });
+
+  it("VENDA CST 60 da NF-e 136: sem ICMS próprio, a base é o valor da operação", async () => {
+    const resultado = await salvarNFeDeOrigem("VENDA", 164, {
+      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF"] })],
+      configuracaoFiscal: configuracaoVenda,
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    assert.deepEqual(baseIbsCbsNoXml(notaGravada(resultado.nfeId).xml), { item: 11000, total: 11000 });
+  });
+});
+
+describe("AVULSA — CST 90 com diferimento (PL_010e/010f)", () => {
+  it("serializa o diferimento no ICMS90, grava valor_icms_diferido e desconta só o ICMS devido do IBS/CBS", async () => {
+    const draft = {
+      operacao: { tipoOperacao: "SAIDA" as const, naturezaOperacao: "VENDA", finalidade: "NORMAL" as const, destinoMercadoria: "REVENDA_INDUSTRIALIZACAO" as const, indicadorPresenca: "1" },
+      destinatario: {
+        clienteId: 10, tipoPessoa: "JURIDICA" as const, cpfCnpj: clienteContribuinteMG.cpfcnpj,
+        nomeRazaoSocial: clienteContribuinteMG.nomerazaosocial, indicadorIe: "1",
+        inscricaoEstadual: clienteContribuinteMG.inscricaoestadual, endereco: "AV", numero: "1", bairro: "CENTRO",
+        cidade: "BELO HORIZONTE", estado: "MG", cep: "30110000", codigoMunicipio: "3106200",
+      },
+      pagamentos: [{ meio: "01", valor: 11000, tipoIntegracao: "2" }],
+      transporte: { modFrete: "9" },
+      itens: [itemDaTela({ cfop: "6102", cst: "90", icms: { proprio: { destacar: true }, diferimento: { pDif: 50 } } })],
+    };
+    const resultado = await salvarNFeAvulsaDraft(draft);
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    const nota = notaGravada(resultado.nfeId);
+    assert.match(nota.xml, /<ICMS90>.*<pICMS>20\.0000<\/pICMS><vICMSOp>2200\.00<\/vICMSOp><pDif>50\.0000<\/pDif><vICMSDif>1100\.00<\/vICMSDif><vICMS>1100\.00<\/vICMS>/);
+    assert.equal(numero(nota.itens[0].valor_icms_diferido), 1100);
+    assert.equal(numero(nota.itens[0].valor_icms), 1100);
+    assert.deepEqual(baseIbsCbsNoXml(nota.xml), { item: 9900, total: 9900 });
+    assertBancoIgualXml(nota);
+  });
+});
+
+describe("AVULSA — DIFAL antes do IBS/CBS", () => {
+  const naoContribuinte = {
+    clienteId: null, tipoPessoa: "FISICA" as const, cpfCnpj: "12345678909", nomeRazaoSocial: "CONSUMIDOR MG",
+    indicadorIe: "9", endereco: "RUA", numero: "1", bairro: "CENTRO", cidade: "BELO HORIZONTE", estado: "MG",
+    cep: "30110000", codigoMunicipio: "3106200",
+  };
+  const draft = (item: Partial<NFeAvulsaItemInput>) => ({
+    operacao: { tipoOperacao: "SAIDA" as const, naturezaOperacao: "VENDA", finalidade: "NORMAL" as const, destinoMercadoria: "USO_CONSUMO" as const, indicadorPresenca: "1" },
+    destinatario: naoContribuinte,
+    pagamentos: [{ meio: "01", valor: 11000, tipoIntegracao: "2" }],
+    transporte: { modFrete: "9" },
+    itens: [itemDaTela({ cfop: "6102", cst: "00", aliquotaIcms: "12", ...item })],
+  });
+
+  it("sem alíquota interna e FCP configurados, a nota não é gerada (a tabela por UF é só referência)", async () => {
+    const resultado = await salvarNFeAvulsaDraft(draft({}));
+    assert.equal(resultado.ok, false);
+    assert.ok(resultado.errors.some((erro) => (erro as { code?: string }).code === "NFE_DIFAL_CONFIGURACAO_REQUIRED"));
+  });
+
+  it("com DIFAL configurado, a base do IBS/CBS desconta vICMSUFDest e vFCPUFDest", async () => {
+    const resultado = await salvarNFeAvulsaDraft(draft({ aliquotaInternaDestino: "18", aliquotaFcpDestino: "2" }));
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    const nota = notaGravada(resultado.nfeId);
+    const vICMSUFDest = Number(/<vICMSUFDest>([\d.]+)<\/vICMSUFDest>/.exec(nota.xml)?.[1]);
+    const vFCPUFDest = Number(/<vFCPUFDest>([\d.]+)<\/vFCPUFDest>/.exec(nota.xml)?.[1]);
+    assert.ok(vICMSUFDest > 0 && vFCPUFDest > 0);
+    // 11.000 − ICMS próprio (12%) − DIFAL − FCP de destino
+    const esperado = Number((11000 - 1320 - vICMSUFDest - vFCPUFDest).toFixed(2));
+    assert.deepEqual(baseIbsCbsNoXml(nota.xml), { item: esperado, total: esperado });
+    assert.equal(nota.itens[0].tributacao_snapshot.difalDecisao.origemAliquotaInterna, "ITEM");
   });
 });

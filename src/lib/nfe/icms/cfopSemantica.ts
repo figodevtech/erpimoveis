@@ -14,8 +14,10 @@
 //   - Grupos x.100 (compras e vendas): o leiaute reserva o grupo x.400 para as
 //     operações com ST.
 //
-// O resultado é sempre AVISO: a SEFAZ autoriza essas combinações e a escolha é
-// do usuário. O ERP só não deixa a nota sair sem que ele confirme que viu.
+// Divergência de descrição é AVISO: não prova proibição nacional. Não garante
+// autorização pela SEFAZ. CST/CRT inválido, CFOP inexistente ou incompatível
+// com direção/geografia são BLOQUEIO nos validadores estruturais específicos.
+// Papel neutro ou ST sem papel explícito não gera alerta. A classificação é do usuário.
 
 import { CFOP_CATALOG_VERSION, getCfopCatalogEntry } from '../cfopCatalog';
 import type { IcmsCanonico, IcmsIssue, TratamentoIcms } from './tipos';

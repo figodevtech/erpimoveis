@@ -1,3 +1,5 @@
+import type { NFeItem } from './types';
+
 /**
  * DIFAL — partilha do ICMS para a UF de destino (grupo ICMSUFDest, NF-e 4.00).
  *
@@ -5,9 +7,8 @@
  * ICMS (EC 87/2015). A ausencia do grupo gera a rejeicao 694: "Nao informado o
  * grupo de ICMS para a UF de destino".
  *
- * O grupo e independente do CST: um item com CST 60 (ST) continua devendo o
- * DIFAL. Trocar o CST para fugir da rejeicao gera nota autorizada porem
- * fiscalmente incorreta.
+ * CST 60 não dispensa o DIFAL por si só. Isenção/não incidência e as exceções
+ * da RV NA01-20 precisam ser consideradas por item, sem trocar classificações.
  */
 
 export type ICMSUFDest = {
@@ -122,11 +123,12 @@ export function aliquotaInterestadual(
  */
 export const FINAIS_CFOP_SEM_DIFAL = new Set([
   "201", "202", "208", "209", // devolucao de compra / transferencia
-  "551", "552", "553", "554", "555", "556", "557", // bens do ativo e uso/consumo
+  "552", "553", "554", "555", "556", "557", // 6551 é VENDA de ativo, não dispensa por si só
   "901", "902", "903", "904", "905", "906", "907", "908", "909", // remessas e retornos
   "910", "911", "912", "913", "914", "915", "916", "917", "918", "919",
   "920", "921", "922", "923", "924", "925",
   "934",
+  "929", // NA01-20, exceção 9
   "151", "152", "153", "155", "156", // transferencias
 ]);
 
@@ -152,6 +154,10 @@ export function deveGerarICMSUFDest(params: {
   tpNF?: number | string;
   possuiISSQN?: boolean;
   cfop?: string | number | null;
+  cst?: string | null;
+  csosn?: string | null;
+  finNFe?: number;
+  ufEntrega?: string | null;
 }): boolean {
   const destino = normalizarUf(params.ufDestinatario);
 
@@ -161,6 +167,10 @@ export function deveGerarICMSUFDest(params: {
   // Entrada nao gera DIFAL de saida. Default 1 preserva chamadas antigas.
   if (String(params.tpNF ?? 1) !== "1") return false;
   if (params.possuiISSQN) return false;
+  // NA01-20, exceções 7, 10 e 11; não inferir benefício a partir de alíquota.
+  if (params.ufEntrega && normalizarUf(params.ufEntrega) === normalizarUf(params.ufEmitente)) return false;
+  if (['40', '41'].includes(params.cst ?? '') || ['103', '300', '400'].includes(params.csosn ?? '')) return false;
+  if (params.finNFe === 2 || params.finNFe === 3) return false;
   // Devolucao, remessa, retorno e transferencia nao sao venda a consumidor final.
   if (cfopDispensaDifal(params.cfop)) return false;
 
@@ -235,7 +245,7 @@ export function resolverAliquotaInternaDestino(
   if (!UFS_VALIDAS.has(destino)) throw new Error(`UF de destino desconhecida: ${destino}.`);
 
   const informada = Number(aliquotaInformada);
-  if (Number.isFinite(informada) && informada > 0) {
+  if (aliquotaInformada != null) {
     return { aliquota: validarPercentual("Alíquota interna da UF de destino", informada), origem: "ITEM" };
   }
 
@@ -276,7 +286,7 @@ export function montarICMSUFDest(params: {
   }
 
   const informadaInter = Number(params.aliquotaInterestadual);
-  const inter = Number.isFinite(informadaInter) && informadaInter > 0
+  const inter = params.aliquotaInterestadual != null
     ? informadaInter
     : aliquotaInterestadual(params.ufEmitente, destino, params.origemMercadoria);
 
@@ -288,9 +298,60 @@ export function montarICMSUFDest(params: {
     baseCalculoFcp: params.baseCalculoFcp ?? undefined,
     aliquotaInternaDestino: interna,
     aliquotaInterestadual: inter,
-    percentualPartilhaDestino: Number.isFinite(partilha) && partilha > 0 ? partilha : 100,
-    aliquotaFcpDestino: Number.isFinite(fcp) && fcp > 0 ? fcp : 0,
+    percentualPartilhaDestino: params.percentualPartilhaDestino != null ? partilha : 100,
+    aliquotaFcpDestino: params.aliquotaFcpDestino != null ? fcp : 0,
   });
+}
+
+/** Proveniência gravada junto do item e usada tanto na prévia quanto no XML. */
+export function resolverDifalDoItem(item: NFeItem, contexto: {
+  ufEmitente: string; ufDestinatario: string; indFinal: number | string; indIEDest: number | string;
+  tpNF?: number | string; finNFe?: number; ufEntrega?: string | null;
+}): NFeItem {
+  if (!deveGerarICMSUFDest({ ...contexto, cfop: item.cfop, cst: item.cstIcms ?? item.cst, csosn: item.csosn })) return item;
+  const resolvida = resolverAliquotaInternaDestino(contexto.ufDestinatario, item.aliquotaInternaDestino);
+  const avisos = [
+    ...(resolvida.origem === 'TABELA' ? ['Alíquota interna obtida de tabela genérica por UF; não considera NCM, benefício ou vigência específica do produto. Configure a alíquota de destino.'] : []),
+    ...(item.aliquotaFcpDestino == null ? ['FCP de destino não configurado; confirme a incidência e informe inclusive zero quando não devido.'] : []),
+  ];
+  return { ...item, difalDecisao: {
+    origemAliquotaInterna: resolvida.origem, ufDestino: normalizarUf(contexto.ufDestinatario),
+    aliquotaInterna: resolvida.aliquota, origemFcp: item.aliquotaFcpDestino == null ? 'NAO_CONFIGURADO' : 'ITEM',
+    aviso: avisos.join(' ') || null,
+  }, icmsUfDest: montarICMSUFDest({
+    baseCalculo: item.icmsDecisao?.composicaoBase?.baseIcmsProprio ?? valorOperacaoDifal(item),
+    baseCalculoFcp: item.baseCalculoFcpDestino,
+    ufEmitente: contexto.ufEmitente, ufDestinatario: contexto.ufDestinatario,
+    origemMercadoria: item.orig, aliquotaInternaDestino: item.aliquotaInternaDestino,
+    aliquotaInterestadual: item.aliquotaInterestadual, aliquotaFcpDestino: item.aliquotaFcpDestino,
+    percentualPartilhaDestino: item.percentualPartilhaDestino,
+  }) };
+}
+
+/**
+ * Pendência de configuração do DIFAL do item. A tabela ALIQUOTA_INTERNA_POR_UF
+ * é referência genérica por UF (não conhece NCM, benefício nem vigência): sem a
+ * alíquota interna do destino e o FCP configurados na emissão, a nota não sai.
+ * Servidor e tela usam esta mesma função.
+ */
+export function issuesDifalDoItem(item: NFeItem): Array<{
+  code: string;
+  severidade: 'BLOQUEIO';
+  field: string;
+  message: string;
+}> {
+  const aviso = item.difalDecisao?.aviso;
+  if (!aviso) return [];
+  return [{
+    code: 'NFE_DIFAL_CONFIGURACAO_REQUIRED',
+    severidade: 'BLOQUEIO',
+    field: 'aliquotaInternaDestino',
+    message: `${aviso} O ERP exige configuração fiscal explícita para gerar o rascunho; a tabela serve apenas de referência.`,
+  }];
+}
+
+function valorOperacaoDifal(item: NFeItem) {
+  return Number((item.valorTotal - Number(item.valorDesconto ?? 0) + Number(item.valorFrete ?? 0)).toFixed(2));
 }
 
 /**

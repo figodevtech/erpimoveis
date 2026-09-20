@@ -1,3 +1,6 @@
+import { issuesDifalDoItem, resolverDifalDoItem } from "@/lib/nfe/difal";
+import { resolverRtcDoItem, issuesBaseIbsCbs } from "@/lib/nfe/baseIbsCbs";
+import { validarPoliticaStRetida } from "@/lib/nfe/icms/politicaStRetida";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   buildNFePreviewXml,
@@ -367,7 +370,7 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     };
   };
   const rtcEnabled = Boolean(item.rtcHabilitado);
-  const baseRtc = toDecimalNumber(item.baseRtc || valorLiquido);
+  const baseRtc = toOptionalDecimal(item.baseRtc) ?? valorLiquido;
   const pIbsUf = toDecimalNumber(item.aliquotaIbsUf);
   const pIbsMun = toDecimalNumber(item.aliquotaIbsMunicipio);
   const pCbs = toDecimalNumber(item.aliquotaCbs);
@@ -491,9 +494,25 @@ export function prepararItemFiscal(
   contexto: {
     /** Decisão da nota (`decisaoFreteDoDraft`). Sem ela, frete no item bloqueia o ICMS próprio. */
     freteIntegraBaseIcms?: boolean | null;
+    modFrete?: string;
+    ufEmitente?: string;
+    ufDestino?: string;
+    indFinal?: number | null;
+    dataEmissao?: string;
+    /**
+     * Dados para o DIFAL (ICMSUFDest). Sem eles (NFC-e, entrada) o grupo não é
+     * avaliado. O DIFAL é resolvido antes do IBS/CBS porque a base do IBS/CBS
+     * desconta vICMSUFDest e vFCPUFDest (NT 2025.002, UB16-10).
+     */
+    difal?: {
+      indIEDest: string | number;
+      tpNF: 0 | 1;
+      finNFe?: number;
+      ufEntrega?: string | null;
+    } | null;
   } = {},
 ): ItemFiscalPreparado {
-  const nfeItem = mapInputToTaxItem(item, index);
+  let nfeItem = mapInputToTaxItem(item, index);
   const valorOperacao = Number((nfeItem.valorTotal - Number(nfeItem.valorDesconto ?? 0)).toFixed(2));
   const resultado = calcularIcmsItem(
     entradaIcmsDoInput(item, crt, valorOperacao, Number(nfeItem.valorFrete ?? 0), contexto.freteIntegraBaseIcms),
@@ -502,6 +521,11 @@ export function prepararItemFiscal(
     resultado.tratamento && resultado.valores
       ? validarCoerenciaCfopIcms({ cfop: nfeItem.cfop, tratamento: resultado.tratamento, valores: resultado.valores })
       : [];
+  if (resultado.valores) {
+    const politica = validarPoliticaStRetida(resultado.valores, contexto);
+    avisos.push(...politica.filter((issue) => issue.severidade === 'AVISO'));
+    resultado.issues.push(...politica.filter((issue) => issue.severidade === 'BLOQUEIO'));
+  }
   const confirmados = new Set((item.avisosFiscaisConfirmados ?? []).map((code) => cleanText(code)));
   if (resultado.valores) {
     nfeItem.icms = resultado.valores;
@@ -516,6 +540,26 @@ export function prepararItemFiscal(
       avisos.filter((aviso) => confirmados.has(aviso.code)),
     );
   }
+  if (contexto.difal && contexto.ufEmitente && contexto.ufDestino) {
+    nfeItem = resolverDifalDoItem(nfeItem, {
+      ufEmitente: contexto.ufEmitente,
+      ufDestinatario: contexto.ufDestino,
+      indFinal: contexto.indFinal ?? 0,
+      indIEDest: contexto.difal.indIEDest,
+      tpNF: contexto.difal.tpNF,
+      finNFe: contexto.difal.finNFe,
+      ufEntrega: contexto.difal.ufEntrega,
+    });
+    resultado.issues.push(...issuesDifalDoItem(nfeItem));
+  }
+  resolverRtcDoItem(nfeItem, contexto, {
+    base: toOptionalDecimal(item.baseRtc), ibsUf: toOptionalDecimal(item.valorIbsUf),
+    ibsMun: toOptionalDecimal(item.valorIbsMunicipio), cbs: toOptionalDecimal(item.valorCbs),
+  });
+  const issuesRtc = issuesBaseIbsCbs(nfeItem.rtc);
+  resultado.issues.push(...issuesRtc.filter((issue) => issue.severidade === 'BLOQUEIO'));
+  avisos.push(...issuesRtc.filter((issue) => issue.severidade === 'AVISO'));
+  if (nfeItem.icmsDecisao) nfeItem.icmsDecisao.avisosConfirmados = avisos.filter((aviso) => confirmados.has(aviso.code)).map(({ code, message }) => ({ code, message }));
   return {
     nfeItem,
     bloqueios: resultado.issues.filter((issue) => issue.severidade === "BLOQUEIO"),
@@ -1205,8 +1249,8 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
   if (freteNaBase.integra === null) {
     errors.push({
       step: "transport",
-      field: "transporte.freteIntegraBaseIcms",
-      code: "NFE_ICMS_FRETE_BASE_INDEFINIDA",
+      field: freteNaBase.fonte === 'INCONSISTENTE' ? 'transporte.modFrete' : 'transporte.freteIntegraBaseIcms',
+      code: freteNaBase.fonte === 'INCONSISTENTE' ? 'NFE_FRETE_SEM_TRANSPORTE' : 'NFE_ICMS_FRETE_BASE_INDEFINIDA',
       message: freteNaBase.motivo,
     });
   }
@@ -1690,7 +1734,18 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   // `validarDraftAvulso` já barrou frete sem decisão; aqui ela só é aplicada.
   const freteNaBase = decisaoFreteDoDraft(input);
   const preparados = input.itens.map((item, index) =>
-    prepararItemFiscal(item, index, crt, { freteIntegraBaseIcms: freteNaBase.integra }),
+    prepararItemFiscal(item, index, crt, {
+      freteIntegraBaseIcms: freteNaBase.integra, modFrete: freteNaBase.modFrete,
+      ufEmitente: empresaUf, ufDestino: destinatarioUf,
+      indFinal: resolverIndFinalDaOperacao(input), dataEmissao: issueDate.toISOString(),
+      // NFC-e é operação interna: nunca gera ICMSUFDest.
+      difal: isNfce ? null : {
+        indIEDest: input.destinatario.indicadorIe ?? '9',
+        tpNF: input.operacao.tipoOperacao === 'ENTRADA' ? 0 : 1,
+        finNFe: finalidadeToFinNFe(input.operacao.finalidade),
+        ufEntrega: input.entrega?.habilitado ? input.entrega.estado : null,
+      },
+    }),
   );
   const itensXml = preparados.map((preparado) => preparado.nfeItem);
   for (const item of itensXml) {

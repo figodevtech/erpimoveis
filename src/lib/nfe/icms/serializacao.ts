@@ -1,7 +1,8 @@
 // Serialização do grupo ICMS a partir do canônico. Não calcula nada: escreve
 // os campos preenchidos na ordem da `xs:sequence` de cada grupo do
-// leiauteNFe_v4.00.xsd (PL_010_V1.30). Fora dessa ordem a SEFAZ devolve a
-// rejeição 225.
+// leiauteNFe_v4.00.xsd do pacote vigente (schemas/nfe/PL_010f_NT2025_002_v1.50,
+// "versão oficial em uso" no Portal da NF-e). Fora dessa ordem a SEFAZ devolve
+// a rejeição 225. A conformidade é provada contra o XSD em icms/xsd.test.ts.
 
 import { escapeXml } from '../xmlUtils';
 import type { GrupoIcmsXml, IcmsCanonico, IcmsIssue, TratamentoIcms } from './tipos';
@@ -39,6 +40,8 @@ export const ORDEM_XSD_ICMS: Record<GrupoIcmsXml, Campo[]> = {
   ICMS51: ['modBC', 'pRedBC', 'vBC', 'pICMS', 'vICMSOp', 'pDif', 'vICMSDif', 'vICMS', ...FCP],
   ICMS60: ST_RETIDA,
   ICMS70: [...PROPRIO_REDUZIDO, ...FCP, ...ST, ...FCP_ST, ...DESONERACAO],
+  // Desde o PL_010e (NT 2025.002 v1.40) o ICMS90 tem o bloco de diferimento
+  // dentro do ICMS próprio, entre pICMS e vICMS. O PL_010b não tinha.
   ICMS90: [
     'modBC',
     'vBC',
@@ -151,8 +154,9 @@ export function validarIcmsCanonico(valores: IcmsCanonico, tratamento: Tratament
   }
   for (const subgrupo of SUBGRUPOS_COMPLETOS) {
     const exigidos = subgrupo.campos.filter((campo) => permitidos.has(campo) && !subgrupo.opcionais?.includes(campo));
-    const preenchidos = exigidos.filter((campo) => valores[campo] !== null);
-    if (preenchidos.length > 0 && preenchidos.length < exigidos.length) {
+    const preenchidos = exigidos.filter((campo) => valores[campo] != null);
+    const informado = subgrupo.campos.some((campo) => permitidos.has(campo) && valores[campo] != null);
+    if (informado && preenchidos.length < exigidos.length) {
       bloquear(
         'NFE_ICMS_SUBGRUPO_INCOMPLETO',
         exigidos.find((campo) => valores[campo] === null) ?? exigidos[0],
