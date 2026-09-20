@@ -501,6 +501,11 @@ describe("AVULSA — mesmo núcleo", () => {
     const resultado = await salvarNFeAvulsaDraft(draftAvulso([itemDaTela({
       cfop: "6404",
       icms: { stRetida: { vBCSTRet: 13200, pST: 18, vICMSSTRet: 1656, vICMSSubstituto: 720 } },
+      avisosFiscaisConfirmados: [
+        AVISO_6403_CST60,
+        "NFE_ST_RETIDA_POLITICA_UF",
+        "NFE_ICMS_EFETIVO_POLITICA_UF",
+      ],
     })]));
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
     const nota = notaGravada(resultado.nfeId);
@@ -514,7 +519,14 @@ describe("AVULSA — mesmo núcleo", () => {
 
   it("vários CST na mesma nota: o total soma só o ICMS próprio serializado", async () => {
     const resultado = await salvarNFeAvulsaDraft(draftAvulso([
-      itemDaTela({ cfop: "6404" }),
+      itemDaTela({
+        cfop: "6404",
+        avisosFiscaisConfirmados: [
+          AVISO_6403_CST60,
+          "NFE_ST_RETIDA_POLITICA_UF",
+          "NFE_ICMS_EFETIVO_POLITICA_UF",
+        ],
+      }),
       itemDaTela({ cfop: "6102", cst: "00", valorUnitario: 1000 }),
       itemDaTela({ cfop: "6102", cst: "20", aliquotaIcms: "18", valorUnitario: 1000, icms: { proprio: { pRedBC: 50 } } }),
       itemDaTela({ cfop: "6102", cst: "41", aliquotaIcms: "18", valorUnitario: 1000 }),

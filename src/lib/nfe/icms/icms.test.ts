@@ -486,17 +486,22 @@ describe('estrutura do canônico', () => {
 describe('coerência CFOP × CST (aviso, nunca troca)', () => {
   const aviso = (cfop: string, entrada: Partial<EntradaIcms>) => {
     const resultado = calcular({ valorOperacao: 1000, ...entrada });
-    return validarCoerenciaCfopIcms({ cfop, tratamento: resultado.tratamento!, valores: valores(resultado) }).map(
-      (issue) => issue.code,
-    );
+    return validarCoerenciaCfopIcms({
+      cfop,
+      tratamento: resultado.tratamento!,
+      stAtivada: entrada.st != null,
+    }).map((issue) => issue.code);
   };
   const st10 = { cst: '10', aliquotaIcms: 18, st: { pMVAST: 40, pICMSST: 18 } };
+  const stOpcional = { modBCST: '4', vBCST: 1400, pICMSST: 18, vICMSST: 252 };
 
   it('lê o papel da ST na descrição oficial do CFOP', () => {
     assert.equal(papelStDoCfop('5403'), 'SUBSTITUTO');
     assert.equal(papelStDoCfop('6403'), 'SUBSTITUTO');
     assert.equal(papelStDoCfop('5405'), 'SUBSTITUIDO');
-    assert.equal(papelStDoCfop('6404'), 'SUBSTITUIDO');
+    // A nota explicativa do 6.404 diz "na condição de substituto tributário";
+    // SEFAZ-SP RC 21691/2020 confirma o uso com CST 10 e nova retenção no destino.
+    assert.equal(papelStDoCfop('6404'), 'SUBSTITUTO');
     assert.equal(papelStDoCfop('5402'), 'ST_SEM_PAPEL');
     assert.equal(papelStDoCfop('5411'), 'ST_SEM_PAPEL');
     assert.equal(papelStDoCfop('5102'), 'SEM_ST');
@@ -507,14 +512,27 @@ describe('coerência CFOP × CST (aviso, nunca troca)', () => {
     assert.deepEqual(aviso('6403', { cst: '60' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
   });
 
+  it('6404 + CST 10 sem ST preenchida mantém o papel semântico e deixa a completude bloquear', () => {
+    const incompleto = calcular({ cst: '10', aliquotaIcms: 18 });
+    assert.deepEqual(aviso('6404', { cst: '10', aliquotaIcms: 18 }), []);
+    assert.ok(codigos(incompleto).includes('NFE_ICMS_MODBCST_REQUIRED'));
+    assert.ok(codigos(incompleto).includes('NFE_ICMS_VBCST_REQUIRED'));
+    assert.ok(codigos(incompleto).includes('NFE_ICMS_PICMSST_REQUIRED'));
+  });
+
   it('combinações coerentes não geram aviso', () => {
     assert.deepEqual(aviso('5405', { cst: '60' }), []);
-    assert.deepEqual(aviso('6404', { cst: '60' }), []);
+    assert.deepEqual(aviso('6404', st10), []);
     assert.deepEqual(aviso('5403', st10), []);
     assert.deepEqual(aviso('6403', st10), []);
     assert.deepEqual(aviso('5102', { cst: '00', aliquotaIcms: 18 }), []);
+    assert.deepEqual(aviso('6102', { cst: '00', aliquotaIcms: 18 }), []);
     assert.deepEqual(aviso('5411', { cst: '60' }), []);
     assert.deepEqual(aviso('5915', { cst: '60' }), []);
+  });
+
+  it('6404 + CST 60 diverge do papel de substituto definido na nota explicativa', () => {
+    assert.deepEqual(aviso('6404', { cst: '60' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
   });
 
   it('venda comum com CST de ST e CFOP de substituído sem ST pedem ciência', () => {
@@ -522,6 +540,17 @@ describe('coerência CFOP × CST (aviso, nunca troca)', () => {
     assert.deepEqual(aviso('6102', st10), ['NFE_CFOP_SEM_ST_COM_CST_DE_ST']);
     assert.deepEqual(aviso('5405', { cst: '00', aliquotaIcms: 18 }), ['NFE_CFOP_ST_SUBSTITUIDO_SEM_ST_ANTERIOR']);
     assert.deepEqual(aviso('5403', { cst: '00', aliquotaIcms: 18 }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
+  });
+
+  it('CST 90 e CSOSN 900 só retêm ST quando o bloco opcional foi explicitamente ativado', () => {
+    assert.deepEqual(aviso('6102', { cst: '90' }), []);
+    assert.deepEqual(aviso('6403', { cst: '90' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
+    assert.deepEqual(aviso('6403', { cst: '90', st: stOpcional }), []);
+    assert.deepEqual(aviso('6102', { cst: '90', st: stOpcional }), ['NFE_CFOP_SEM_ST_COM_CST_DE_ST']);
+
+    assert.deepEqual(aviso('6102', { crt: 1, csosn: '900' }), []);
+    assert.deepEqual(aviso('6403', { crt: 1, csosn: '900' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
+    assert.deepEqual(aviso('6403', { crt: 1, csosn: '900', st: stOpcional }), []);
   });
 
   it('vale igual para o Simples', () => {

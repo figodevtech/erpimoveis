@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertCircle, Check, CheckCircle2, ChevronsUpDown } from "lucide-react";
+import { AlertCircle, AlertTriangle, Check, CheckCircle2, ChevronsUpDown, Info } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Command,
   CommandEmpty,
@@ -39,6 +40,7 @@ import {
   type NFeOperationDirection,
 } from "@/lib/nfe/cfopOperation";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
+import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
 import {
   getRequiredPisCofinsMode,
   PIS_COFINS_CST_OPTIONS,
@@ -191,9 +193,7 @@ export function NfeItemFiscalEditor({
   const proc = item.procedenciaFiscal ?? {};
   // CEST é exigido quando o item retém ICMS-ST — o mesmo critério do XML.
   const needsCest = calcularIcmsDoItem(item, setup, contextoBase).valores?.vBCST != null;
-  // Avisos de CFOP × CST têm seção própria, com a caixa de ciência.
-  const pendencias = issues.filter((issue) => !issue.requerCiencia);
-  const avisosPendentes = issues.length - pendencias.length;
+  const issuesClassificadas = classificarIssuesFiscais(issues);
 
   const updateQuantity = (value: string) => {
     const quantidade = Number(value);
@@ -250,31 +250,83 @@ export function NfeItemFiscalEditor({
           </DialogDescription>
         </DialogHeader>
 
-        {pendencias.length > 0 ? (
+        {issuesClassificadas.bloqueios.length > 0 ? (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{pendencias.length} pendência(s) fiscal(is)</AlertTitle>
+            <AlertTitle>
+              {issuesClassificadas.bloqueios.length}{" "}
+              {issuesClassificadas.bloqueios.length === 1 ? "pendência fiscal" : "pendências fiscais"}
+            </AlertTitle>
             <AlertDescription className="min-w-0">
               <ul className="mt-1 min-w-0 list-disc space-y-1 pl-4 [overflow-wrap:anywhere]">
-                {pendencias.map((issue, index) => (
+                {issuesClassificadas.bloqueios.map((issue, index) => (
                   <li key={`${issue.code}-${issue.field}-${index}`}>{issue.message}</li>
                 ))}
               </ul>
             </AlertDescription>
           </Alert>
-        ) : avisosPendentes > 0 ? (
+        ) : null}
+
+        {issuesClassificadas.avisos.length > 0 ? (
           <Alert className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Confirme a ciência do aviso de CFOP × CST</AlertTitle>
-            <AlertDescription>Veja o aviso na seção ICMS abaixo.</AlertDescription>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>
+              {issuesClassificadas.avisos.length === 1
+                ? "Aviso fiscal — confirme a ciência"
+                : `${issuesClassificadas.avisos.length} avisos fiscais — confirme a ciência`}
+            </AlertTitle>
+            <AlertDescription className="min-w-0 space-y-3 [overflow-wrap:anywhere]">
+              {issuesClassificadas.avisos.map((issue, index) => {
+                const checkboxId = `ciencia-issue-${item.sourceItemId}-${issue.code}-${index}`;
+                return (
+                  <div key={`${issue.code}-${issue.field}-${index}`} className="space-y-2">
+                    <p>{issue.message}</p>
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id={checkboxId}
+                        checked={false}
+                        onCheckedChange={(checked) => {
+                          if (!checked) return;
+                          onChange({
+                            avisosFiscaisConfirmados: [
+                              ...item.avisosFiscaisConfirmados.filter((code) => code !== issue.code),
+                              issue.code,
+                            ],
+                          });
+                        }}
+                      />
+                      <Label htmlFor={checkboxId} className="text-xs font-normal leading-snug">
+                        Li este aviso e confirmo que os dados da operação foram conferidos.
+                      </Label>
+                    </div>
+                  </div>
+                );
+              })}
+            </AlertDescription>
           </Alert>
-        ) : (
+        ) : null}
+
+        {issuesClassificadas.informativos.length > 0 ? (
+          <Alert className="border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
+            <Info className="h-4 w-4" />
+            <AlertTitle>Informações fiscais</AlertTitle>
+            <AlertDescription className="min-w-0">
+              <ul className="mt-1 min-w-0 list-disc space-y-1 pl-4 [overflow-wrap:anywhere]">
+                {issuesClassificadas.informativos.map((issue, index) => (
+                  <li key={`${issue.code}-${issue.field}-${index}`}>{issue.message}</li>
+                ))}
+              </ul>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {issuesClassificadas.pronto ? (
           <Alert>
             <CheckCircle2 className="h-4 w-4" />
             <AlertTitle>Produto pronto para emissão</AlertTitle>
             <AlertDescription>Os dados preenchidos são compatíveis com as regras atuais do motor.</AlertDescription>
           </Alert>
-        )}
+        ) : null}
 
         {item.cfopResolution?.warning ? (
           <Alert className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
@@ -596,7 +648,7 @@ export function NfeItemFiscalEditor({
 
         <DialogFooter className="min-w-0">
           <Button type="button" className="h-auto min-h-9 w-full whitespace-normal sm:w-auto" onClick={() => onOpenChange(false)}>
-            {issues.length === 0 ? "Concluir" : "Continuar depois"}
+            {issuesClassificadas.pronto ? "Concluir" : "Continuar depois"}
           </Button>
         </DialogFooter>
       </DialogContent>

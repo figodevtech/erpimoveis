@@ -216,9 +216,25 @@ export type AssistedItemIssue = {
   code: string;
   field: string;
   message: string;
+  severidade?: "BLOQUEIO" | "AVISO" | "INFO";
   /** Aviso que libera o item depois que o usuário confirma a ciência. */
   requerCiencia?: boolean;
 };
+
+const CAMPOS_CANONICOS_ST = new Set(["modBCST", "vBCST", "pICMSST", "vICMSST"]);
+
+/**
+ * A validação estrutural do canônico protege backend/XML, enquanto o cálculo
+ * conhece a causa acionável (modalidade, MVA/base ou alíquota). Na tela, quando
+ * essa causa detalhada existe, não repetimos a consequência genérica do XSD.
+ */
+function pendenciaEstruturalStRedundante(issue: AssistedItemIssue, haPendenciaDetalhadaSt: boolean) {
+  return (
+    haPendenciaDetalhadaSt &&
+    (issue.code === "NFE_ICMS_CAMPO_OBRIGATORIO" || issue.code === "NFE_ICMS_SUBGRUPO_INCOMPLETO") &&
+    CAMPOS_CANONICOS_ST.has(issue.field)
+  );
+}
 
 export function onlyDigits(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
@@ -691,7 +707,13 @@ export function calcularIcmsDoItem(
   });
   const avisos =
     resultado.tratamento && resultado.valores
-      ? validarCoerenciaCfopIcms({ cfop: item.cfop, tratamento: resultado.tratamento, valores: resultado.valores })
+      ? validarCoerenciaCfopIcms({
+          cfop: item.cfop,
+          tratamento: resultado.tratamento,
+          // Para os grupos opcionais, o switch é a decisão canônica da tela;
+          // completude e cálculo dos campos continuam no núcleo de ICMS.
+          stAtivada: item.icmsReterSt,
+        })
       : [];
   if (resultado.valores) {
     // Política de UF: bloqueia só quando cadastrada como obrigatória.
@@ -932,23 +954,38 @@ export function validateAssistedItem(
     }
     for (const issue of issuesBaseIbsCbs(taxItem.rtc)) {
       if (issue.severidade === 'AVISO' && item.avisosFiscaisConfirmados.includes(issue.code)) continue;
-      issues.push({ code: issue.code, field: issue.field, message: issue.message, requerCiencia: issue.severidade === 'AVISO' });
+      issues.push({
+        code: issue.code,
+        field: issue.field,
+        message: issue.message,
+        severidade: issue.severidade,
+        requerCiencia: issue.severidade === 'AVISO',
+      });
     }
+    const bloqueiosIcms = icms.issues.filter((issue) => issue.severidade === "BLOQUEIO");
+    const haPendenciaDetalhadaSt = bloqueiosIcms.some((issue) => issue.field.startsWith("icms.st."));
     for (const issue of validateNFeItemTax(taxItem, crt, { classificacaoRtc: classification })) {
+      if (pendenciaEstruturalStRedundante(issue, haPendenciaDetalhadaSt)) continue;
       vistos.add(`${issue.code}|${issue.field}`);
       issues.push(issue);
     }
     // Bloqueios do cálculo (campo que o grupo não aceita ou que ele exige).
-    for (const issue of icms.issues) {
-      if (issue.severidade !== "BLOQUEIO" || vistos.has(`${issue.code}|${issue.field}`)) continue;
-      issues.push({ code: issue.code, field: issue.field, message: issue.message });
+    for (const issue of bloqueiosIcms) {
+      if (vistos.has(`${issue.code}|${issue.field}`)) continue;
+      issues.push({ code: issue.code, field: issue.field, message: issue.message, severidade: "BLOQUEIO" });
     }
     // CFOP × CST contraditos pela descrição oficial: a escolha é do usuário,
     // mas o item só fica pronto depois que ele confirma a ciência.
     const confirmados = new Set(item.avisosFiscaisConfirmados);
     for (const aviso of icms.avisos) {
       if (confirmados.has(aviso.code)) continue;
-      issues.push({ code: aviso.code, field: aviso.field, message: aviso.message, requerCiencia: true });
+      issues.push({
+        code: aviso.code,
+        field: aviso.field,
+        message: aviso.message,
+        severidade: "AVISO",
+        requerCiencia: true,
+      });
     }
   } else {
     issues.push({ code: "NFE_CRT_REQUIRED", field: "crt", message: "CRT da empresa não está configurado." });

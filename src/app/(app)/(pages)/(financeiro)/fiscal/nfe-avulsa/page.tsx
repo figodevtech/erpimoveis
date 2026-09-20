@@ -14,6 +14,7 @@ import {
   FileText,
   Download,
   Hash,
+  Info as InfoIcon,
   Loader2,
   Plus,
   Printer,
@@ -98,6 +99,10 @@ import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
 import { indFinalDoDestino, type DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
 import { freteNaBaseIcms, type IcmsCanonico } from "@/lib/nfe/icms";
+import {
+  aplicarAlteracoesComCienciaFiscal,
+  classificarIssuesFiscais,
+} from "@/lib/nfe/issuesFiscais";
 import {
   calcularIcmsDoItem,
   toNFeItem,
@@ -418,6 +423,9 @@ type ValidationError = {
   field?: string;
   itemIndex?: number;
   message: string;
+  code?: string;
+  severidade?: string;
+  requerCiencia?: boolean;
 };
 
 type NFeDocumentState = {
@@ -466,6 +474,43 @@ function formatValidationError(error: ValidationError) {
     : `${stepLabel} · Produto ${error.itemIndex + 1}`;
 
   return `${location}: ${error.message}`;
+}
+
+function StatusFiscalDoItemAvulso({ issues }: { issues: ValidationError[] }) {
+  const classificadas = classificarIssuesFiscais(issues);
+  if (issues.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 md:col-span-12">
+      {classificadas.bloqueios.length > 0 ? (
+        <Badge variant="destructive" className="gap-1">
+          <AlertTriangle className="h-3 w-3" />
+          {classificadas.bloqueios.length}{" "}
+          {classificadas.bloqueios.length === 1 ? "pendência" : "pendências"}
+        </Badge>
+      ) : null}
+      {classificadas.avisos.length > 0 ? (
+        <Badge
+          variant="outline"
+          className="gap-1 border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+        >
+          <AlertTriangle className="h-3 w-3" />
+          {classificadas.avisos.length}{" "}
+          {classificadas.avisos.length === 1 ? "aviso fiscal" : "avisos fiscais"}
+        </Badge>
+      ) : null}
+      {classificadas.informativos.length > 0 ? (
+        <Badge
+          variant="outline"
+          className="gap-1 border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+        >
+          <InfoIcon className="h-3 w-3" />
+          {classificadas.informativos.length}{" "}
+          {classificadas.informativos.length === 1 ? "informação" : "informações"}
+        </Badge>
+      ) : null}
+    </div>
+  );
 }
 
 const paymentOptions = [
@@ -1121,6 +1166,17 @@ export default function NFeAvulsaPage() {
     origemLabel: null,
   });
   const [errors, setErrors] = React.useState<ValidationError[]>([]);
+  const errorsClassificados = React.useMemo(() => classificarIssuesFiscais(errors), [errors]);
+  const errorsPorItem = React.useMemo(() => {
+    const porItem = new Map<number, ValidationError[]>();
+    for (const error of errors) {
+      if (error.itemIndex === undefined) continue;
+      const atuais = porItem.get(error.itemIndex) ?? [];
+      atuais.push(error);
+      porItem.set(error.itemIndex, atuais);
+    }
+    return porItem;
+  }, [errors]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
 
@@ -1514,7 +1570,9 @@ export default function NFeAvulsaPage() {
   function updateItem(index: number, patch: Partial<DraftItem>) {
     updateDraft((current) => ({
       ...current,
-      itens: current.itens.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)),
+      itens: current.itens.map((item, itemIndex) =>
+        itemIndex === index ? aplicarAlteracoesComCienciaFiscal(item, patch) : item,
+      ),
     }));
   }
 
@@ -1989,6 +2047,7 @@ export default function NFeAvulsaPage() {
     } catch (error) {
       if (isAxiosError(error) && Array.isArray(error.response?.data?.errors)) {
         const validationErrors = error.response.data.errors as ValidationError[];
+        const classificadas = classificarIssuesFiscais(validationErrors);
         setErrors(validationErrors);
 
         const firstErrorStep = validationStepIndexes[validationErrors[0]?.step];
@@ -1996,14 +2055,21 @@ export default function NFeAvulsaPage() {
           setDraft((current) => ({ ...current, currentStep: firstErrorStep }));
         }
 
-        const visibleErrors = validationErrors.slice(0, 3).map(formatValidationError);
-        const remainingErrors = validationErrors.length - visibleErrors.length;
+        const issuesVisiveis = [...classificadas.bloqueios, ...classificadas.avisos].slice(0, 3);
+        const visibleErrors = issuesVisiveis.map(formatValidationError);
+        const remainingErrors = classificadas.bloqueios.length + classificadas.avisos.length - visibleErrors.length;
         const description = [
           visibleErrors.join(" • "),
-          remainingErrors > 0 ? `E mais ${remainingErrors} pendência${remainingErrors === 1 ? "" : "s"}.` : "",
+          remainingErrors > 0
+            ? `E mais ${remainingErrors} ${remainingErrors === 1 ? "ocorrência fiscal" : "ocorrências fiscais"}.`
+            : "",
         ].filter(Boolean).join(" ");
 
-        toast.error("Revise os campos pendentes", { description });
+        if (classificadas.bloqueios.length > 0) {
+          toast.error("Revise os campos pendentes", { description });
+        } else {
+          toast.warning("Confirme os avisos fiscais", { description });
+        }
       } else {
         const description = isAxiosError(error)
           ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
@@ -2201,13 +2267,16 @@ export default function NFeAvulsaPage() {
         </Alert>
       )}
 
-      {errors.length > 0 && (
+      {errorsClassificados.bloqueios.length > 0 && (
         <Alert variant="destructive" aria-live="polite">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>{errors.length} {errors.length === 1 ? "pendência encontrada" : "pendências encontradas"}</AlertTitle>
+          <AlertTitle>
+            {errorsClassificados.bloqueios.length}{" "}
+            {errorsClassificados.bloqueios.length === 1 ? "pendência encontrada" : "pendências encontradas"}
+          </AlertTitle>
           <AlertDescription>
             <ul className="mt-2 list-disc space-y-1 pl-4">
-              {errors.map((error, index) => {
+              {errorsClassificados.bloqueios.map((error, index) => {
                 const stepIndex = validationStepIndexes[error.step];
                 return (
                   <li key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}>
@@ -2229,6 +2298,57 @@ export default function NFeAvulsaPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      {errorsClassificados.avisos.length > 0 ? (
+        <Alert
+          className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+          aria-live="polite"
+        >
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>
+            {errorsClassificados.avisos.length}{" "}
+            {errorsClassificados.avisos.length === 1 ? "aviso fiscal a confirmar" : "avisos fiscais a confirmar"}
+          </AlertTitle>
+          <AlertDescription>
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {errorsClassificados.avisos.map((error, index) => {
+                const stepIndex = validationStepIndexes[error.step];
+                return (
+                  <li key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}>
+                    {stepIndex === undefined ? (
+                      formatValidationError(error)
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-left underline-offset-2 hover:underline"
+                        onClick={() => setDraft((current) => ({ ...current, currentStep: stepIndex }))}
+                      >
+                        {formatValidationError(error)}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {errorsClassificados.informativos.length > 0 ? (
+        <Alert className="border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
+          <InfoIcon className="h-4 w-4" />
+          <AlertTitle>Informações fiscais</AlertTitle>
+          <AlertDescription>
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {errorsClassificados.informativos.map((error, index) => (
+                <li key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}>
+                  {formatValidationError(error)}
+                </li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
         <Card>
@@ -2885,6 +3005,7 @@ export default function NFeAvulsaPage() {
                   {draft.itens.map((item, index) => (
                     <Card key={index} className="border-dashed">
                       <CardContent className="grid gap-3 pt-4 md:grid-cols-12">
+                        <StatusFiscalDoItemAvulso issues={errorsPorItem.get(index) ?? []} />
                         <div className="md:col-span-5">
                           <Label className="inline-flex items-center gap-1">
                             Descrição <RequiredMark />

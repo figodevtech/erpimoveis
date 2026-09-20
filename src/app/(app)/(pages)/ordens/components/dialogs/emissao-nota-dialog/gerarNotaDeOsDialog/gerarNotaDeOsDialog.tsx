@@ -73,6 +73,10 @@ import {
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
 import { distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
 import { freteNaBaseIcms } from "@/lib/nfe/icms";
+import {
+  aplicarAlteracoesComCienciaFiscal,
+  classificarIssuesFiscais,
+} from "@/lib/nfe/issuesFiscais";
 import { MODELO_NFE, MODELO_NFCE, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { PB_NFCE_PISO_IDENTIFICACAO } from "@/lib/nfe/fiscalRules";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
@@ -338,6 +342,9 @@ type GenerateResponse = {
     itemIndex?: number;
     field?: string;
     message: string;
+    code?: string;
+    severidade?: string;
+    requerCiencia?: boolean;
   }>;
 };
 
@@ -448,6 +455,7 @@ export function GerarNotaDeOsDialog({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [serverErrorTom, setServerErrorTom] = useState<"BLOQUEIO" | "AVISO">("BLOQUEIO");
   const [includeObservations, setIncludeObservations] = useState(false);
   const [observations, setObservations] = useState("");
   // Desconto geral da nota. Chega da origem já rateado nos itens; redigitar aqui
@@ -820,15 +828,25 @@ export function GerarNotaDeOsDialog({
   const selectedIssues = useMemo(
     () =>
       selectedItems.flatMap((item) =>
-        (issuesByItem.get(item.sourceItemId) ?? []).map((issue) => ({ item, issue })),
+        (issuesByItem.get(item.sourceItemId) ?? []).map((issue) => ({ ...issue, item })),
       ),
     [issuesByItem, selectedItems],
+  );
+  const selectedIssuesClassificadas = useMemo(
+    () => classificarIssuesFiscais(selectedIssues),
+    [selectedIssues],
   );
   const selectedCfopWarnings = useMemo(
     () => selectedItems.filter((item) => Boolean(item.cfopResolution?.warning)),
     [selectedItems],
   );
-  const readyCount = items.filter((item) => (issuesByItem.get(item.sourceItemId) ?? []).length === 0).length;
+  const statusDosItens = useMemo(
+    () => items.map((item) => classificarIssuesFiscais(issuesByItem.get(item.sourceItemId) ?? [])),
+    [issuesByItem, items],
+  );
+  const readyCount = statusDosItens.filter((status) => status.pronto).length;
+  const itemsComBloqueios = statusDosItens.filter((status) => status.bloqueios.length > 0).length;
+  const itemsComAvisos = statusDosItens.filter((status) => status.avisos.length > 0).length;
   const freteDaNota = Math.max(0, fiscalConfig.valorFrete);
   const totalItensSelecionados = selectedItems.reduce(
     (total, item) => total + Math.max(0, item.quantidade * item.valorUnitario - item.valorDesconto),
@@ -977,7 +995,7 @@ export function GerarNotaDeOsDialog({
           destinoErrors.length === 0 &&
           (usesEditableRecipient ? entrySupplierErrors.length === 0 : customerErrors.length === 0),
       },
-      { rotulo: "Produtos", concluida: selectedItems.length > 0 && selectedIssues.length === 0 },
+      { rotulo: "Produtos", concluida: selectedItems.length > 0 && selectedIssuesClassificadas.pronto },
       { rotulo: "Pagamento", concluida: paymentErrors.length === 0 },
       // NFC-e não tem etapa de transporte.
       ...(isNfce
@@ -993,7 +1011,7 @@ export function GerarNotaDeOsDialog({
       customerErrors.length,
       destinoErrors.length,
       selectedItems.length,
-      selectedIssues.length,
+      selectedIssuesClassificadas.pronto,
       paymentErrors.length,
       transportErrors.length,
       freteBaseErrors.length,
@@ -1030,7 +1048,9 @@ export function GerarNotaDeOsDialog({
     if (!editingId) return;
     setItems((current) =>
       current.map((item) =>
-        item.sourceItemId === editingId ? { ...item, ...patch } : item,
+        item.sourceItemId === editingId
+          ? aplicarAlteracoesComCienciaFiscal(item, patch)
+          : item,
       ),
     );
     setServerError(null);
@@ -1054,7 +1074,10 @@ export function GerarNotaDeOsDialog({
       emitterUf: setup.empresa?.uf,
       partnerUf: isNfce ? setup.empresa?.uf : parceiroUf,
     });
-    return { ...item, cfop: resolution.cfop, cfopResolution: resolution };
+    return aplicarAlteracoesComCienciaFiscal(item, {
+      cfop: resolution.cfop,
+      cfopResolution: resolution,
+    });
   }
 
   function updateEntrySupplier(next: NFeEntrySupplierDraft) {
@@ -1354,7 +1377,9 @@ export function GerarNotaDeOsDialog({
   }
 
   function openFirstPending() {
-    const first = selectedIssues[0]?.item;
+    const first =
+      selectedIssuesClassificadas.bloqueios[0]?.item ??
+      selectedIssuesClassificadas.avisos[0]?.item;
     if (first) setEditingId(first.sourceItemId);
   }
 
@@ -1370,9 +1395,13 @@ export function GerarNotaDeOsDialog({
       );
       return;
     }
-    if (selectedIssues.length > 0) {
+    if (!selectedIssuesClassificadas.pronto) {
       openFirstPending();
-      toast.error("Corrija as pendências fiscais dos produtos selecionados.");
+      if (selectedIssuesClassificadas.bloqueios.length > 0) {
+        toast.error("Corrija as pendências fiscais dos produtos selecionados.");
+      } else {
+        toast.warning("Confirme os avisos fiscais dos produtos selecionados.");
+      }
       return;
     }
     if (setup?.empresaErros.length) {
@@ -1515,14 +1544,24 @@ export function GerarNotaDeOsDialog({
       });
       const json = (await response.json().catch(() => null)) as GenerateResponse | null;
       if (!response.ok || !json?.ok) {
+        const classificadas = classificarIssuesFiscais(json?.errors ?? []);
         const message =
           json?.errors?.[0]?.message || json?.detalhe || json?.message || "Falha ao gerar o rascunho.";
         setServerError(message);
+        setServerErrorTom(
+          classificadas.bloqueios.length === 0 && classificadas.avisos.length > 0
+            ? "AVISO"
+            : "BLOQUEIO",
+        );
         const firstIndex = json?.errors?.find((error) => error.itemIndex != null)?.itemIndex;
         if (firstIndex != null && selectedItems[firstIndex]) {
           setEditingId(selectedItems[firstIndex].sourceItemId);
         }
-        toast.error(message);
+        if (classificadas.bloqueios.length === 0 && classificadas.avisos.length > 0) {
+          toast.warning(message);
+        } else {
+          toast.error(message);
+        }
         return;
       }
 
@@ -1532,6 +1571,7 @@ export function GerarNotaDeOsDialog({
     } catch (error: any) {
       const message = error?.message || "Erro ao gerar o rascunho da NF-e.";
       setServerError(message);
+      setServerErrorTom("BLOQUEIO");
       toast.error(message);
     } finally {
       setSaving(false);
@@ -2100,9 +2140,20 @@ export function GerarNotaDeOsDialog({
                 ) : null}
 
                 {serverError ? (
-                  <Alert variant="destructive" className="min-w-0 overflow-hidden">
+                  <Alert
+                    variant={serverErrorTom === "BLOQUEIO" ? "destructive" : "default"}
+                    className={
+                      serverErrorTom === "AVISO"
+                        ? "min-w-0 overflow-hidden border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
+                        : "min-w-0 overflow-hidden"
+                    }
+                  >
                     <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>A validação do servidor encontrou uma pendência</AlertTitle>
+                    <AlertTitle>
+                      {serverErrorTom === "AVISO"
+                        ? "A validação do servidor encontrou um aviso fiscal"
+                        : "A validação do servidor encontrou uma pendência"}
+                    </AlertTitle>
                     <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">{serverError}</AlertDescription>
                   </Alert>
                 ) : null}
@@ -2120,8 +2171,18 @@ export function GerarNotaDeOsDialog({
                         <Package className="h-4 w-4 shrink-0 text-primary" />
                         <span className="text-sm font-medium">Produtos da emissão</span>
                         <Badge variant="outline">{readyCount} de {items.length} prontos</Badge>
-                        {items.length - readyCount > 0 ? (
-                          <Badge variant="destructive">{items.length - readyCount} com pendências</Badge>
+                        {itemsComBloqueios > 0 ? (
+                          <Badge variant="destructive">
+                            {itemsComBloqueios} {itemsComBloqueios === 1 ? "com pendência" : "com pendências"}
+                          </Badge>
+                        ) : null}
+                        {itemsComAvisos > 0 ? (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                          >
+                            {itemsComAvisos} {itemsComAvisos === 1 ? "com aviso a confirmar" : "com avisos a confirmar"}
+                          </Badge>
                         ) : null}
                       </div>
                       <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
@@ -2204,6 +2265,7 @@ export function GerarNotaDeOsDialog({
                     <div className="space-y-2 grid lg:grid-cols-2 gap-2">
                       {items.map((item) => {
                         const issues = issuesByItem.get(item.sourceItemId) ?? [];
+                        const issuesClassificadas = classificarIssuesFiscais(issues);
                         const selected = selectedSet.has(item.sourceItemId);
                         const itemSaidaId = item.sourceItemId.startsWith("saida:")
                           ? Number(item.sourceItemId.split(":")[1])
@@ -2230,15 +2292,38 @@ export function GerarNotaDeOsDialog({
                                     Saída #{itemSaidaId}{itemDaSaidaPrincipal ? " · obrigatória" : ""}
                                   </Badge>
                                 ) : null}
-                                {issues.length === 0 ? (
+                                {issuesClassificadas.pronto ? (
                                   <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600">
                                     <CheckCircle2 className="h-3 w-3" /> Pronto
                                   </Badge>
-                                ) : (
+                                ) : null}
+                                {issuesClassificadas.bloqueios.length > 0 ? (
                                   <Badge variant="destructive" className="gap-1">
-                                    <AlertCircle className="h-3 w-3" /> {issues.length} pendência(s)
+                                    <AlertCircle className="h-3 w-3" />
+                                    {issuesClassificadas.bloqueios.length}{" "}
+                                    {issuesClassificadas.bloqueios.length === 1 ? "pendência" : "pendências"}
                                   </Badge>
-                                )}
+                                ) : null}
+                                {issuesClassificadas.avisos.length > 0 ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="gap-1 border-amber-400 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                                  >
+                                    <AlertCircle className="h-3 w-3" />
+                                    {issuesClassificadas.avisos.length}{" "}
+                                    {issuesClassificadas.avisos.length === 1 ? "aviso fiscal" : "avisos fiscais"}
+                                  </Badge>
+                                ) : null}
+                                {issuesClassificadas.informativos.length > 0 ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="gap-1 border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                                  >
+                                    <Info className="h-3 w-3" />
+                                    {issuesClassificadas.informativos.length}{" "}
+                                    {issuesClassificadas.informativos.length === 1 ? "informação" : "informações"}
+                                  </Badge>
+                                ) : null}
                                 {item.ncm ? <Badge variant="outline">NCM {item.ncm}</Badge> : null}
                                 {item.cfop ? <Badge variant="outline">CFOP {item.cfop}</Badge> : null}
                                 {item.csosn ? <Badge variant="outline">CSOSN {item.csosn}</Badge> : null}
@@ -2254,12 +2339,37 @@ export function GerarNotaDeOsDialog({
                                   Total: <b>{fmtMoney(Math.max(0, item.quantidade * item.valorUnitario - item.valorDesconto))}</b>
                                 </span>
                               </div>
-                              {issues.length > 0 ? (
+                              {issuesClassificadas.bloqueios.length > 0 ? (
                                 <ul className="min-w-0 list-disc space-y-0.5 pl-4 text-xs text-destructive [overflow-wrap:anywhere]">
-                                  {issues.slice(0, 3).map((issue, index) => (
+                                  {issuesClassificadas.bloqueios.slice(0, 3).map((issue, index) => (
                                     <li key={`${issue.code}-${index}`}>{issue.message}</li>
                                   ))}
-                                  {issues.length > 3 ? <li>Mais {issues.length - 3} pendência(s)</li> : null}
+                                  {issuesClassificadas.bloqueios.length > 3 ? (
+                                    <li>
+                                      Mais {issuesClassificadas.bloqueios.length - 3}{" "}
+                                      {issuesClassificadas.bloqueios.length - 3 === 1 ? "pendência" : "pendências"}
+                                    </li>
+                                  ) : null}
+                                </ul>
+                              ) : null}
+                              {issuesClassificadas.avisos.length > 0 ? (
+                                <ul className="min-w-0 list-disc space-y-0.5 pl-4 text-xs text-amber-700 dark:text-amber-400 [overflow-wrap:anywhere]">
+                                  {issuesClassificadas.avisos.slice(0, 3).map((issue, index) => (
+                                    <li key={`${issue.code}-${index}`}>{issue.message}</li>
+                                  ))}
+                                  {issuesClassificadas.avisos.length > 3 ? (
+                                    <li>
+                                      Mais {issuesClassificadas.avisos.length - 3}{" "}
+                                      {issuesClassificadas.avisos.length - 3 === 1 ? "aviso fiscal" : "avisos fiscais"}
+                                    </li>
+                                  ) : null}
+                                </ul>
+                              ) : null}
+                              {issuesClassificadas.informativos.length > 0 ? (
+                                <ul className="min-w-0 list-disc space-y-0.5 pl-4 text-xs text-sky-700 dark:text-sky-400 [overflow-wrap:anywhere]">
+                                  {issuesClassificadas.informativos.slice(0, 3).map((issue, index) => (
+                                    <li key={`${issue.code}-${index}`}>{issue.message}</li>
+                                  ))}
                                 </ul>
                               ) : null}
                               {item.cfopResolution?.warning ? (
@@ -2279,7 +2389,7 @@ export function GerarNotaDeOsDialog({
                               </DialogProduto>
                               <Button
                                 type="button"
-                                variant={issues.length > 0 ? "outline" : "ghost"}
+                                variant={issuesClassificadas.pronto ? "ghost" : "outline"}
                                 size="sm"
                                 className="max-w-full gap-1"
                                 onClick={() => setEditingId(item.sourceItemId)}
@@ -2360,15 +2470,26 @@ export function GerarNotaDeOsDialog({
                     <b>{selectedItems.length}</b> produto(s) selecionado(s) ·{" "}
                     <b>{fmtMoney(selectedTotal)}</b>
                   </p>
-                  {selectedIssues.length > 0 ? (
+                  {selectedIssuesClassificadas.bloqueios.length > 0 ? (
                     <p className="text-xs text-destructive">
-                      Existem {selectedIssues.length} pendência(s) nos itens selecionados.
+                      Existem {selectedIssuesClassificadas.bloqueios.length}{" "}
+                      {selectedIssuesClassificadas.bloqueios.length === 1 ? "pendência" : "pendências"}{" "}
+                      nos itens selecionados.
                     </p>
-                  ) : (
+                  ) : null}
+                  {selectedIssuesClassificadas.avisos.length > 0 ? (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Existem {selectedIssuesClassificadas.avisos.length}{" "}
+                      {selectedIssuesClassificadas.avisos.length === 1
+                        ? "aviso fiscal a confirmar"
+                        : "avisos fiscais a confirmar"}.
+                    </p>
+                  ) : null}
+                  {selectedIssuesClassificadas.pronto ? (
                     <p className="text-xs text-muted-foreground">
                       Todos os itens selecionados passaram pela validação fiscal.
                     </p>
-                  )}
+                  ) : null}
                   {selectedCfopWarnings.length > 0 ? (
                     <p className="text-xs text-amber-700 dark:text-amber-400">
                       {selectedCfopWarnings.length} item(ns) tiveram o CFOP substituído por uma opção válida.
@@ -2378,14 +2499,18 @@ export function GerarNotaDeOsDialog({
               }
               acoes={
                 <>
-                  {selectedIssues.length > 0 ? (
+                  {!selectedIssuesClassificadas.pronto ? (
                     <Button
                       type="button"
                       variant="outline"
                       className="min-h-11 w-full rounded-sm sm:w-auto"
                       onClick={openFirstPending}
                     >
-                      Corrigir pendências
+                      {selectedIssuesClassificadas.bloqueios.length > 0
+                        ? selectedIssuesClassificadas.avisos.length > 0
+                          ? "Revisar pendências e avisos"
+                          : "Corrigir pendências"
+                        : "Revisar avisos fiscais"}
                     </Button>
                   ) : null}
                   <Button
@@ -2394,7 +2519,7 @@ export function GerarNotaDeOsDialog({
                     disabled={
                       saving ||
                       selectedItems.length === 0 ||
-                      selectedIssues.length > 0 ||
+                      !selectedIssuesClassificadas.pronto ||
                       setup.empresaErros.length > 0 ||
                       entrySupplierErrors.length > 0 ||
                       customerErrors.length > 0 ||

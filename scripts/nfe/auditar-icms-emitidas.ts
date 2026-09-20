@@ -28,7 +28,7 @@ import path from "node:path";
 import { XMLParser } from "fast-xml-parser";
 
 import { connectDatabase, loadDatabaseConfigs, type DatabaseKey } from "../db/lib";
-import { icmsVazio, resolverTratamentoIcms, validarCoerenciaCfopIcms } from "../../src/lib/nfe/icms";
+import { resolverTratamentoIcms, validarCoerenciaCfopIcms } from "../../src/lib/nfe/icms";
 import type { CRT } from "../../src/lib/nfe/types";
 
 type LinhaNota = {
@@ -209,8 +209,11 @@ async function main() {
 
         const tratamento = resolverTratamentoIcms({ crt: xml.crt, cst: itemXml.cst, csosn: itemXml.csosn });
         if (tratamento) {
-          const valores = { ...icmsVazio(tratamento, itemXml.orig), vBCST: itemXml.vBCST };
-          for (const aviso of validarCoerenciaCfopIcms({ cfop: itemXml.cfop, tratamento, valores })) {
+          for (const aviso of validarCoerenciaCfopIcms({
+            cfop: itemXml.cfop,
+            tratamento,
+            stAtivada: itemXml.vBCST !== null,
+          })) {
             classes.add("B");
             motivos.push(aviso.code);
           }

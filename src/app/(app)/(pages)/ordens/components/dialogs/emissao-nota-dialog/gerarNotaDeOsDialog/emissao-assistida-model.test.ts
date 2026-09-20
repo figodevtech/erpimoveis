@@ -8,6 +8,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { getNFeFiscalFieldRules } from "@/lib/nfe/taxRules";
+import {
+  aplicarAlteracoesComCienciaFiscal,
+  classificarIssuesFiscais,
+} from "@/lib/nfe/issuesFiscais";
 import { prepararItemFiscal } from "@/services/fiscal/nfeAvulsaService";
 
 import {
@@ -115,6 +119,8 @@ describe("tela assistida — regressão da NF-e 136", () => {
     const pendente = validateAssistedItem(itemMG(), setup, { parceiroUf: "MG" });
     const aviso = pendente.find((issue) => issue.requerCiencia);
     assert.equal(aviso?.code, "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO");
+    assert.deepEqual(classificarIssuesFiscais(pendente).bloqueios, []);
+    assert.equal(classificarIssuesFiscais(pendente).avisos.includes(aviso!), true);
 
     const confirmado = validateAssistedItem(
       itemMG({ avisosFiscaisConfirmados: ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"] }),
@@ -123,6 +129,57 @@ describe("tela assistida — regressão da NF-e 136", () => {
     );
     assert.deepEqual(confirmado, []);
     assert.deepEqual(noServidor(itemMG({ avisosFiscaisConfirmados: ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"] })).avisosPendentes, []);
+  });
+
+  it("CST 60 + CFOP 6404 + indFinal=0 apresenta a política de ST retida como AVISO", () => {
+    const issues = validateAssistedItem(itemMG({ cfop: "6404" }), setup, {
+      parceiroUf: "MG",
+      indFinal: 0,
+    });
+    const classificadas = classificarIssuesFiscais(issues);
+    const aviso = classificadas.avisos.find((issue) => issue.code === "NFE_ST_RETIDA_POLITICA_UF");
+
+    assert.equal(aviso?.requerCiencia, true);
+    assert.equal(classificadas.bloqueios.some((issue) => issue.code === aviso?.code), false);
+    assert.equal(classificadas.pronto, false);
+  });
+
+  it("CST 60 + indFinal=1 apresenta a política de ICMS efetivo como AVISO", () => {
+    const issues = validateAssistedItem(itemMG({ cfop: "6404" }), setup, {
+      parceiroUf: "MG",
+      indFinal: 1,
+    });
+    const classificadas = classificarIssuesFiscais(issues);
+    const aviso = classificadas.avisos.find((issue) => issue.code === "NFE_ICMS_EFETIVO_POLITICA_UF");
+
+    assert.equal(aviso?.requerCiencia, true);
+    assert.equal(classificadas.bloqueios.some((issue) => issue.code === aviso?.code), false);
+  });
+
+  it("aviso confirmado deixa o item pronto e mudança de CFOP pede ciência novamente", () => {
+    const confirmado = itemMG({
+      cfop: "6404",
+      avisosFiscaisConfirmados: [
+        "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO",
+        "NFE_ST_RETIDA_POLITICA_UF",
+      ],
+    });
+    const semPendencias = validateAssistedItem(confirmado, setup, {
+      parceiroUf: "MG",
+      indFinal: 0,
+    });
+    assert.equal(classificarIssuesFiscais(semPendencias).pronto, true);
+
+    const alterado = aplicarAlteracoesComCienciaFiscal(confirmado, { cfop: "6403" });
+    const novasIssues = validateAssistedItem(alterado, setup, {
+      parceiroUf: "MG",
+      indFinal: 0,
+    });
+    const classificadas = classificarIssuesFiscais(novasIssues);
+
+    assert.deepEqual(alterado.avisosFiscaisConfirmados, []);
+    assert.equal(classificadas.avisos.some((issue) => issue.code === "NFE_ST_RETIDA_POLITICA_UF"), true);
+    assert.deepEqual(classificadas.bloqueios, []);
   });
 });
 
@@ -133,6 +190,48 @@ describe("tela assistida — campos acompanham o CST", () => {
     assert.equal(tela?.vBC, 11000);
     assert.equal(tela?.vICMS, 2200);
     assert.deepEqual(noServidor(item).nfeItem.icms, tela);
+  });
+
+  it("6404 + CST 10 incompleto não gera falso aviso e mostra cada pendência ST uma vez", () => {
+    const item = itemMG({
+      cfop: "6404",
+      cst: "10",
+      modBCST: "",
+      pMVAST: "",
+      vBCST: "",
+      pICMSST: "",
+      vICMSST: "",
+    });
+    const calculado = calcularIcmsDoItem(item, setup);
+    const issues = validateAssistedItem(item, setup, { parceiroUf: "MG", indFinal: 0 });
+    const pendenciasSt = issues.filter((issue) => issue.field.startsWith("icms.st."));
+
+    assert.equal(issues.some((issue) => issue.code.startsWith("NFE_CFOP_")), false);
+    assert.deepEqual(
+      pendenciasSt.map((issue) => issue.code).sort(),
+      ["NFE_ICMS_MODBCST_REQUIRED", "NFE_ICMS_PICMSST_REQUIRED", "NFE_ICMS_VBCST_REQUIRED"].sort(),
+    );
+    assert.equal(issues.some((issue) => issue.code === "NFE_ICMS_CAMPO_OBRIGATORIO"), false);
+    assert.equal(calculado.valores?.vBC, 11000);
+    assert.equal(calculado.valores?.vICMS, 2200);
+  });
+
+  it("6404 + CST 10 completo mantém ICMS próprio + ST e não gera aviso CFOP × CST", () => {
+    const item = itemMG({
+      cfop: "6404",
+      cst: "10",
+      modBCST: "4",
+      pMVAST: "40",
+      pICMSST: "18",
+    });
+    const calculado = calcularIcmsDoItem(item, setup);
+    const issues = validateAssistedItem(item, setup, { parceiroUf: "MG", indFinal: 0 });
+
+    assert.equal(issues.some((issue) => issue.code.startsWith("NFE_CFOP_")), false);
+    assert.equal(calculado.valores?.vBC, 11000);
+    assert.equal(calculado.valores?.vICMS, 2200);
+    assert.equal(calculado.valores?.vBCST, 15400);
+    assert.equal(calculado.valores?.vICMSST, 572);
   });
 
   it("CST 60 com ST retida manda só o bloco de ST retida", () => {

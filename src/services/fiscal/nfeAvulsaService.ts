@@ -529,7 +529,13 @@ export function prepararItemFiscal(
   );
   const avisos =
     resultado.tratamento && resultado.valores
-      ? validarCoerenciaCfopIcms({ cfop: nfeItem.cfop, tratamento: resultado.tratamento, valores: resultado.valores })
+      ? validarCoerenciaCfopIcms({
+          cfop: nfeItem.cfop,
+          tratamento: resultado.tratamento,
+          // No CST 90/CSOSN 900, a presença do grupo na entrada é a decisão
+          // explícita do emissor, mesmo antes de todos os campos estarem completos.
+          stAtivada: item.icms?.st != null,
+        })
       : [];
   if (resultado.valores) {
     const politica = validarPoliticaStRetida(resultado.valores, contexto);

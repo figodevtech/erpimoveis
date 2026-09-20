@@ -71,6 +71,19 @@ function moeda(valor: number | null | undefined) {
   return Number(valor ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function tituloDoAvisoFiscal(code: string, rotuloCodigo: string) {
+  if (code === "NFE_ST_RETIDA_POLITICA_UF") {
+    return "Confira os dados de ICMS-ST da operação";
+  }
+  if (code === "NFE_ICMS_EFETIVO_POLITICA_UF") {
+    return "Confira os dados de ICMS efetivo da operação";
+  }
+  if (code.startsWith("NFE_CFOP_")) {
+    return `Aviso fiscal — confira o CFOP e o ${rotuloCodigo}`;
+  }
+  return "Aviso fiscal — confirme a ciência";
+}
+
 type TrocaPendente = {
   patch: Partial<AssistedFiscalItem>;
   codigo: string;
@@ -326,9 +339,15 @@ export function NfeItemIcmsSection({ item, setup, contextoBase, procedencia, onC
           className="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100"
         >
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>CFOP e {rotuloCodigo} não combinam</AlertTitle>
+          <AlertTitle>{tituloDoAvisoFiscal(aviso.code, rotuloCodigo)}</AlertTitle>
           <AlertDescription className="min-w-0 space-y-2 [overflow-wrap:anywhere]">
             <p>{aviso.message}</p>
+            {aviso.code === "NFE_ST_RETIDA_POLITICA_UF" || aviso.code === "NFE_ICMS_EFETIVO_POLITICA_UF" ? (
+              <p>
+                Esses valores não devem ser estimados. Informe-os somente se tiver os dados da operação
+                ou do documento de origem e se forem aplicáveis.
+              </p>
+            ) : null}
             <div className="flex items-start gap-2">
               <Checkbox
                 id={`ciencia-${item.sourceItemId}-${aviso.code}`}
@@ -342,7 +361,7 @@ export function NfeItemIcmsSection({ item, setup, contextoBase, procedencia, onC
                 }
               />
               <Label htmlFor={`ciencia-${item.sourceItemId}-${aviso.code}`} className="text-xs font-normal leading-snug">
-                Estou ciente e quero emitir com este CFOP e este {rotuloCodigo}. A ciência fica registrada na nota.
+                Li este aviso e confirmo que os dados da operação foram conferidos.
               </Label>
             </div>
           </AlertDescription>

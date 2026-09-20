@@ -23,7 +23,7 @@ export {
   type DecisaoFreteNaBase,
 } from './baseCalculo';
 export { blocosPresentes, calcularIcmsItem, icmsVazio, numeroIcms } from './calculo';
-export { papelStDoCfop, validarCoerenciaCfopIcms } from './cfopSemantica';
+export { papelStDoCfop, papelStDoTratamento, validarCoerenciaCfopIcms } from './cfopSemantica';
 export { ORDEM_XSD_ICMS, serializarIcms, validarIcmsCanonico } from './serializacao';
 export {
   BLOCOS_ICMS,
@@ -125,7 +125,13 @@ export function icmsCanonicoDoItem(item: NFeItem, crt: CRT): IcmsCanonico {
 export function avisosSemanticosIcms(item: NFeItem, crt: CRT): IcmsIssue[] {
   const resultado = resolverIcmsDoItem(item, crt);
   if (!resultado.tratamento || !resultado.valores) return [];
-  return validarCoerenciaCfopIcms({ cfop: item.cfop, tratamento: resultado.tratamento, valores: resultado.valores });
+  return validarCoerenciaCfopIcms({
+    cfop: item.cfop,
+    tratamento: resultado.tratamento,
+    // Em itens já canônicos, a decisão persistida é preferível; a presença do
+    // bloco resolvido é o fallback para integrações anteriores ao snapshot.
+    stAtivada: item.icmsDecisao?.stOperacao ?? blocosPresentes(resultado.valores).includes('st'),
+  });
 }
 
 function explicar(resultado: ResultadoIcms): string {
