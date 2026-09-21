@@ -214,6 +214,7 @@ export function issuesBaseIbsCbs(rtc: NFeItem['rtc']): import('./icms/tipos').Ic
     ? [{
         code: 'NFE_IBSCBS_BASE_MANUAL',
         severidade: 'AVISO',
+        requerCiencia: true,
         field: 'baseRtc',
         message:
           `Base IBS/CBS informada (${base.baseCalculo.toFixed(2)}) difere da composição oficial ` +

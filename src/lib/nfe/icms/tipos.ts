@@ -198,11 +198,13 @@ export type EntradaIcms = {
   creditoSn?: { pCredSN?: Numero; vCredICMSSN?: Numero } | null;
 };
 
-export type SeveridadeIcms = 'BLOQUEIO' | 'AVISO';
+export type SeveridadeIcms = 'BLOQUEIO' | 'AVISO' | 'INFO';
 
 export type IcmsIssue = {
   code: string;
   severidade: SeveridadeIcms;
+  /** Somente divergências fiscais que dependem da decisão do operador. */
+  requerCiencia?: boolean;
   field: string;
   message: string;
 };
@@ -233,7 +235,7 @@ export type DecisaoIcms = {
   /** Blocos que efetivamente foram para o XML. */
   camposInformados: BlocoIcms[];
   camposIgnorados: CampoIgnorado[];
-  /** Avisos semânticos que o usuário confirmou antes de gerar a nota. */
+  /** Somente avisos semânticos que exigiram ciência antes de gerar a nota. */
   avisosConfirmados: Array<{ code: string; message: string }>;
   /** De onde saíram as bases: valor da operação, frete, seguro, outras despesas. */
   composicaoBase?: ComposicaoBaseIcms;

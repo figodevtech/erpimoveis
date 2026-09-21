@@ -28,6 +28,7 @@ import {
 import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
+import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
 import {
   calcularIcmsItem,
   montarDecisaoIcms,
@@ -684,11 +685,23 @@ export function calcularIcmsDoItem(
   setup: FiscalSetup,
   contexto: ContextoBaseIcms = {},
 ): ResultadoIcms & {
+  /** Divergências explícitas que impedem prontidão até a ciência. */
   avisos: IcmsIssue[];
+  /** Orientações opcionais que nunca exigem confirmação. */
+  informativos: IcmsIssue[];
 } {
   const crt = Number(setup.empresa?.crt ?? 0) as CRT;
   const tratamento = tratamentoIcmsDoItem(item, setup);
-  if (!tratamento) return { tratamento: null, valores: null, camposIgnorados: [], issues: [], avisos: [] };
+  if (!tratamento) {
+    return {
+      tratamento: null,
+      valores: null,
+      camposIgnorados: [],
+      issues: [],
+      avisos: [],
+      informativos: [],
+    };
+  }
   const valorTotal = Number((item.quantidade * item.valorUnitario).toFixed(2));
   const valorDesconto = Math.min(Math.max(0, item.valorDesconto || 0), valorTotal);
   const resultado = calcularIcmsItem({
@@ -705,7 +718,7 @@ export function calcularIcmsDoItem(
     procedenciaAliquota: item.procedenciaFiscal?.aliquotaicms ?? null,
     ...icmsInputDoItem(item, tratamento),
   });
-  const avisos =
+  const issuesComplementares =
     resultado.tratamento && resultado.valores
       ? validarCoerenciaCfopIcms({
           cfop: item.cfop,
@@ -717,11 +730,15 @@ export function calcularIcmsDoItem(
       : [];
   if (resultado.valores) {
     // Política de UF: bloqueia só quando cadastrada como obrigatória.
-    const politica = validarPoliticaStRetida(resultado.valores, contexto);
-    avisos.push(...politica.filter((issue) => issue.severidade === "AVISO"));
-    resultado.issues.push(...politica.filter((issue) => issue.severidade === "BLOQUEIO"));
+    issuesComplementares.push(...validarPoliticaStRetida(resultado.valores, contexto));
   }
-  return { ...resultado, avisos };
+  const classificadas = classificarIssuesFiscais(issuesComplementares);
+  resultado.issues.push(...classificadas.bloqueios);
+  return {
+    ...resultado,
+    avisos: classificadas.avisosComCiencia,
+    informativos: classificadas.informativos,
+  };
 }
 
 /** Motivos pelos quais algum valor da classificação não entrou no cálculo. */
@@ -953,13 +970,13 @@ export function validateAssistedItem(
       issues.push({ code: issue.code, field: issue.field, message: issue.message });
     }
     for (const issue of issuesBaseIbsCbs(taxItem.rtc)) {
-      if (issue.severidade === 'AVISO' && item.avisosFiscaisConfirmados.includes(issue.code)) continue;
+      if (issue.requerCiencia === true && item.avisosFiscaisConfirmados.includes(issue.code)) continue;
       issues.push({
         code: issue.code,
         field: issue.field,
         message: issue.message,
         severidade: issue.severidade,
-        requerCiencia: issue.severidade === 'AVISO',
+        requerCiencia: issue.requerCiencia,
       });
     }
     const bloqueiosIcms = icms.issues.filter((issue) => issue.severidade === "BLOQUEIO");
@@ -983,8 +1000,17 @@ export function validateAssistedItem(
         code: aviso.code,
         field: aviso.field,
         message: aviso.message,
-        severidade: "AVISO",
-        requerCiencia: true,
+        severidade: aviso.severidade,
+        requerCiencia: aviso.requerCiencia,
+      });
+    }
+    for (const informativo of icms.informativos) {
+      issues.push({
+        code: informativo.code,
+        field: informativo.field,
+        message: informativo.message,
+        severidade: informativo.severidade,
+        requerCiencia: false,
       });
     }
   } else {

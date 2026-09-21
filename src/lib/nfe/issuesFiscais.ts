@@ -11,6 +11,10 @@ export type ItemComCienciaFiscal = {
 };
 
 const CAMPOS_QUE_INVALIDAM_CIENCIA = ["cfop", "cst", "csosn"] as const;
+const CODIGOS_INFORMATIVOS_SEM_CIENCIA = new Set([
+  "NFE_ST_RETIDA_POLITICA_UF",
+  "NFE_ICMS_EFETIVO_POLITICA_UF",
+]);
 
 /**
  * Regra única de apresentação das issues fiscais.
@@ -23,7 +27,7 @@ export function classificarIssuesFiscais<T extends IssueFiscalClassificavel>(
   issues: readonly T[],
 ) {
   const bloqueios: T[] = [];
-  const avisos: T[] = [];
+  const avisosComCiencia: T[] = [];
   const informativos: T[] = [];
 
   for (const issue of issues) {
@@ -31,9 +35,9 @@ export function classificarIssuesFiscais<T extends IssueFiscalClassificavel>(
 
     if (severidade === "BLOQUEIO" || severidade === "ERRO") {
       bloqueios.push(issue);
-    } else if (severidade === "AVISO" || issue.requerCiencia === true) {
-      avisos.push(issue);
-    } else if (["INFO", "INFORMACAO", "INFORMAÇÃO", "INFORMATIVO"].includes(severidade)) {
+    } else if (issue.requerCiencia === true) {
+      avisosComCiencia.push(issue);
+    } else if (["AVISO", "INFO", "INFORMACAO", "INFORMAÇÃO", "INFORMATIVO"].includes(severidade)) {
       informativos.push(issue);
     } else {
       bloqueios.push(issue);
@@ -42,9 +46,11 @@ export function classificarIssuesFiscais<T extends IssueFiscalClassificavel>(
 
   return {
     bloqueios,
-    avisos,
+    avisosComCiencia,
+    /** Alias temporário para os consumidores existentes. Contém só ciência. */
+    avisos: avisosComCiencia,
     informativos,
-    pronto: bloqueios.length === 0 && avisos.length === 0,
+    pronto: bloqueios.length === 0 && avisosComCiencia.length === 0,
   };
 }
 
@@ -82,7 +88,7 @@ export function confirmarAvisosFiscais<T extends ItemComCienciaFiscal>(
       ...item.avisosFiscaisConfirmados,
       ...codigos.map((codigo) => String(codigo).trim()).filter(Boolean),
     ]),
-  ];
+  ].filter((codigo) => !CODIGOS_INFORMATIVOS_SEM_CIENCIA.has(codigo));
 
   if (
     confirmados.length === item.avisosFiscaisConfirmados.length &&

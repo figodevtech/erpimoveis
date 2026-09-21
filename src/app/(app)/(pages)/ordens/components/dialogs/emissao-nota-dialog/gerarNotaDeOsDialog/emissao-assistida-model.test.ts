@@ -131,38 +131,39 @@ describe("tela assistida — regressão da NF-e 136", () => {
     assert.deepEqual(noServidor(itemMG({ avisosFiscaisConfirmados: ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"] })).avisosPendentes, []);
   });
 
-  it("CST 60 + CFOP 6404 + indFinal=0 apresenta a política de ST retida como AVISO", () => {
-    const issues = validateAssistedItem(itemMG({ cfop: "6404" }), setup, {
+  it("CST 60 + indFinal=0 apresenta ST retida como INFO e mantém o item pronto", () => {
+    const issues = validateAssistedItem(itemMG({ cfop: "6411" }), setup, {
       parceiroUf: "MG",
       indFinal: 0,
     });
     const classificadas = classificarIssuesFiscais(issues);
-    const aviso = classificadas.avisos.find((issue) => issue.code === "NFE_ST_RETIDA_POLITICA_UF");
+    const informativo = classificadas.informativos.find((issue) => issue.code === "NFE_ST_RETIDA_POLITICA_UF");
 
-    assert.equal(aviso?.requerCiencia, true);
-    assert.equal(classificadas.bloqueios.some((issue) => issue.code === aviso?.code), false);
-    assert.equal(classificadas.pronto, false);
+    assert.equal(informativo?.severidade, "INFO");
+    assert.equal(informativo?.requerCiencia, false);
+    assert.deepEqual(classificadas.bloqueios, []);
+    assert.deepEqual(classificadas.avisosComCiencia, []);
+    assert.equal(classificadas.pronto, true);
   });
 
-  it("CST 60 + indFinal=1 apresenta a política de ICMS efetivo como AVISO", () => {
-    const issues = validateAssistedItem(itemMG({ cfop: "6404" }), setup, {
+  it("CST 60 + indFinal=1 apresenta ICMS efetivo como INFO sem ciência", () => {
+    const issues = validateAssistedItem(itemMG({ cfop: "6411" }), setup, {
       parceiroUf: "MG",
       indFinal: 1,
     });
     const classificadas = classificarIssuesFiscais(issues);
-    const aviso = classificadas.avisos.find((issue) => issue.code === "NFE_ICMS_EFETIVO_POLITICA_UF");
+    const informativo = classificadas.informativos.find((issue) => issue.code === "NFE_ICMS_EFETIVO_POLITICA_UF");
 
-    assert.equal(aviso?.requerCiencia, true);
-    assert.equal(classificadas.bloqueios.some((issue) => issue.code === aviso?.code), false);
+    assert.equal(informativo?.severidade, "INFO");
+    assert.equal(informativo?.requerCiencia, false);
+    assert.deepEqual(classificadas.avisosComCiencia, []);
+    assert.equal(classificadas.pronto, true);
   });
 
   it("aviso confirmado deixa o item pronto e mudança de CFOP pede ciência novamente", () => {
     const confirmado = itemMG({
       cfop: "6404",
-      avisosFiscaisConfirmados: [
-        "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO",
-        "NFE_ST_RETIDA_POLITICA_UF",
-      ],
+      avisosFiscaisConfirmados: ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"],
     });
     const semPendencias = validateAssistedItem(confirmado, setup, {
       parceiroUf: "MG",
@@ -178,7 +179,14 @@ describe("tela assistida — regressão da NF-e 136", () => {
     const classificadas = classificarIssuesFiscais(novasIssues);
 
     assert.deepEqual(alterado.avisosFiscaisConfirmados, []);
-    assert.equal(classificadas.avisos.some((issue) => issue.code === "NFE_ST_RETIDA_POLITICA_UF"), true);
+    assert.equal(
+      classificadas.avisos.some((issue) => issue.code === "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"),
+      true,
+    );
+    assert.equal(
+      classificadas.informativos.some((issue) => issue.code === "NFE_ST_RETIDA_POLITICA_UF"),
+      true,
+    );
     assert.deepEqual(classificadas.bloqueios, []);
   });
 });

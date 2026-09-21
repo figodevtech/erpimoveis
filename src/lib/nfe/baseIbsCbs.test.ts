@@ -168,6 +168,7 @@ describe('base IBS/CBS — lida do item já resolvido', () => {
     const [aviso] = issuesBaseIbsCbs(alvo.rtc);
     assert.equal(aviso.code, 'NFE_IBSCBS_BASE_MANUAL');
     assert.equal(aviso.severidade, 'AVISO');
+    assert.equal(aviso.requerCiencia, true);
     assert.match(aviso.message, /UB16-10/);
     assert.equal(baseRtcParaEdicao(alvo.rtc), '900');
   });

@@ -17,13 +17,14 @@ describe("classificação visual das issues fiscais", () => {
     assert.equal(resultado.pronto, false);
   });
 
-  it("separa AVISO não confirmado sem criar pendência", () => {
+  it("trata AVISO sem requerCiencia como informativo e mantém o item pronto", () => {
     const aviso = { code: "NFE_ST_RETIDA_POLITICA_UF", severidade: "AVISO" };
     const resultado = classificarIssuesFiscais([aviso]);
 
     assert.deepEqual(resultado.bloqueios, []);
-    assert.deepEqual(resultado.avisos, [aviso]);
-    assert.equal(resultado.pronto, false);
+    assert.deepEqual(resultado.avisosComCiencia, []);
+    assert.deepEqual(resultado.informativos, [aviso]);
+    assert.equal(resultado.pronto, true);
   });
 
   it("trata requerCiencia legado como aviso, não como erro", () => {
@@ -45,7 +46,7 @@ describe("classificação visual das issues fiscais", () => {
   it("separa um BLOQUEIO, dois AVISOS e uma INFO", () => {
     const issues = [
       { code: "B", severidade: "BLOQUEIO" },
-      { code: "A1", severidade: "AVISO" },
+      { code: "A1", severidade: "AVISO", requerCiencia: true },
       { code: "A2", requerCiencia: true },
       { code: "I", severidade: "INFO" },
     ];
@@ -55,6 +56,15 @@ describe("classificação visual das issues fiscais", () => {
     assert.deepEqual(resultado.avisos.map((issue) => issue.code), ["A1", "A2"]);
     assert.deepEqual(resultado.informativos.map((issue) => issue.code), ["I"]);
   });
+
+  it("INFO sozinho não bloqueia a prontidão", () => {
+    const resultado = classificarIssuesFiscais([
+      { code: "ORIENTACAO", severidade: "INFO", requerCiencia: false },
+    ]);
+
+    assert.equal(resultado.pronto, true);
+    assert.equal(resultado.informativos.length, 1);
+  });
 });
 
 describe("ciência de avisos fiscais", () => {
@@ -63,12 +73,12 @@ describe("ciência de avisos fiscais", () => {
     cst: "60",
     csosn: "",
     descricao: "Produto",
-    avisosFiscaisConfirmados: ["NFE_ST_RETIDA_POLITICA_UF"],
+    avisosFiscaisConfirmados: ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"],
   };
 
   it("preserva a ciência quando muda um campo não tributário", () => {
     const atualizado = aplicarAlteracoesComCienciaFiscal(item, { descricao: "Produto revisado" });
-    assert.deepEqual(atualizado.avisosFiscaisConfirmados, ["NFE_ST_RETIDA_POLITICA_UF"]);
+    assert.deepEqual(atualizado.avisosFiscaisConfirmados, ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"]);
   });
 
   it("invalida a ciência anterior quando muda CFOP ou CST", () => {
@@ -79,17 +89,14 @@ describe("ciência de avisos fiscais", () => {
     assert.deepEqual(novoCst.avisosFiscaisConfirmados, []);
   });
 
-  it("aceita em lote os avisos do fechamento sem duplicar ciências anteriores", () => {
+  it("aceita em lote somente avisos com ciência e remove códigos informativos legados", () => {
     const atualizado = confirmarAvisosFiscais(item, [
       "NFE_ST_RETIDA_POLITICA_UF",
       "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO",
       "",
     ]);
 
-    assert.deepEqual(atualizado.avisosFiscaisConfirmados, [
-      "NFE_ST_RETIDA_POLITICA_UF",
-      "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO",
-    ]);
+    assert.deepEqual(atualizado.avisosFiscaisConfirmados, ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"]);
     assert.equal(confirmarAvisosFiscais(atualizado, atualizado.avisosFiscaisConfirmados), atualizado);
   });
 });

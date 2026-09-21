@@ -112,6 +112,7 @@ export function validarCoerenciaCfopIcms(input: {
   const aviso = (code: string, message: string): IcmsIssue => ({
     code,
     severidade: 'AVISO',
+    requerCiencia: true,
     field: 'cfop',
     message: `${message} ${fonte}`,
   });

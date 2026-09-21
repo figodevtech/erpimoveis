@@ -12,6 +12,7 @@ import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
+import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
 import { calcularTotaisNFe, validarPisCofinsStSuportado } from "@/lib/nfe/fiscal";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { validarNfce } from "@/lib/nfe/nfce/validator";
@@ -487,6 +488,8 @@ export type ItemFiscalPreparado = {
   bloqueios: IcmsIssue[];
   /** Avisos de coerência que o usuário ainda não confirmou. */
   avisosPendentes: IcmsIssue[];
+  /** Orientações opcionais mantidas fora do gating e da auditoria de ciência. */
+  informativos: IcmsIssue[];
 };
 
 /**
@@ -527,7 +530,7 @@ export function prepararItemFiscal(
   const resultado = calcularIcmsItem(
     entradaIcmsDoInput(item, crt, valorOperacao, Number(nfeItem.valorFrete ?? 0), contexto.freteIntegraBaseIcms),
   );
-  const avisos =
+  const issuesComplementares =
     resultado.tratamento && resultado.valores
       ? validarCoerenciaCfopIcms({
           cfop: nfeItem.cfop,
@@ -538,9 +541,7 @@ export function prepararItemFiscal(
         })
       : [];
   if (resultado.valores) {
-    const politica = validarPoliticaStRetida(resultado.valores, contexto);
-    avisos.push(...politica.filter((issue) => issue.severidade === 'AVISO'));
-    resultado.issues.push(...politica.filter((issue) => issue.severidade === 'BLOQUEIO'));
+    issuesComplementares.push(...validarPoliticaStRetida(resultado.valores, contexto));
   }
   const confirmados = new Set((item.avisosFiscaisConfirmados ?? []).map((code) => cleanText(code)));
   if (resultado.valores) {
@@ -551,10 +552,6 @@ export function prepararItemFiscal(
       nfeItem.cstIcms = resultado.valores.cst;
     }
     if (resultado.valores.csosn) nfeItem.csosn = resultado.valores.csosn;
-    nfeItem.icmsDecisao = montarDecisaoIcms(
-      resultado,
-      avisos.filter((aviso) => confirmados.has(aviso.code)),
-    );
   }
   if (contexto.difal && contexto.ufEmitente && contexto.ufDestino) {
     nfeItem = resolverDifalDoItem(nfeItem, {
@@ -573,13 +570,20 @@ export function prepararItemFiscal(
     ibsMun: toOptionalDecimal(item.valorIbsMunicipio), cbs: toOptionalDecimal(item.valorCbs),
   });
   const issuesRtc = issuesBaseIbsCbs(nfeItem.rtc);
-  resultado.issues.push(...issuesRtc.filter((issue) => issue.severidade === 'BLOQUEIO'));
-  avisos.push(...issuesRtc.filter((issue) => issue.severidade === 'AVISO'));
-  if (nfeItem.icmsDecisao) nfeItem.icmsDecisao.avisosConfirmados = avisos.filter((aviso) => confirmados.has(aviso.code)).map(({ code, message }) => ({ code, message }));
+  issuesComplementares.push(...issuesRtc);
+  const classificadas = classificarIssuesFiscais([
+    ...resultado.issues,
+    ...issuesComplementares,
+  ]);
+  const avisosConfirmados = classificadas.avisosComCiencia.filter((aviso) => confirmados.has(aviso.code));
+  if (resultado.valores) {
+    nfeItem.icmsDecisao = montarDecisaoIcms(resultado, avisosConfirmados);
+  }
   return {
     nfeItem,
-    bloqueios: resultado.issues.filter((issue) => issue.severidade === "BLOQUEIO"),
-    avisosPendentes: avisos.filter((aviso) => !confirmados.has(aviso.code)),
+    bloqueios: classificadas.bloqueios,
+    avisosPendentes: classificadas.avisosComCiencia.filter((aviso) => !confirmados.has(aviso.code)),
+    informativos: classificadas.informativos,
   };
 }
 

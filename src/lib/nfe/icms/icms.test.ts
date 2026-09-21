@@ -310,6 +310,20 @@ describe('caso E — CST 60 com ST retida anteriormente', () => {
     assert.ok(codigos(calcular({ cst: '60', stRetida: { vBCSTRet: 800 } })).includes('NFE_ICMS_STRET_INCOMPLETO'));
   });
 
+  it('ICMS efetivo opcional, quando iniciado, precisa ficar completo', () => {
+    const incompleto = calcular({
+      cst: '60',
+      icmsEfetivo: { pRedBCEfet: 0, vBCEfet: 1000 },
+    });
+    assert.ok(codigos(incompleto).includes('NFE_ICMS_EFETIVO_INCOMPLETO'));
+
+    const completo = calcular({
+      cst: '60',
+      icmsEfetivo: { pRedBCEfet: 0, vBCEfet: 1000, pICMSEfet: 18, vICMSEfet: 180 },
+    });
+    assert.equal(codigos(completo).includes('NFE_ICMS_EFETIVO_INCOMPLETO'), false);
+  });
+
   it('o FCP-ST retido entra no total vFCPSTRet', () => {
     const resultado = semBloqueio(
       calcular({ cst: '60', stRetida, fcpStRetido: { vBCFCPSTRet: 800, pFCPSTRet: 2, vFCPSTRet: 16 } }),
@@ -486,11 +500,16 @@ describe('estrutura do canônico', () => {
 describe('coerência CFOP × CST (aviso, nunca troca)', () => {
   const aviso = (cfop: string, entrada: Partial<EntradaIcms>) => {
     const resultado = calcular({ valorOperacao: 1000, ...entrada });
-    return validarCoerenciaCfopIcms({
+    const issues = validarCoerenciaCfopIcms({
       cfop,
       tratamento: resultado.tratamento!,
       stAtivada: entrada.st != null,
-    }).map((issue) => issue.code);
+    });
+    for (const issue of issues) {
+      assert.equal(issue.severidade, 'AVISO');
+      assert.equal(issue.requerCiencia, true);
+    }
+    return issues.map((issue) => issue.code);
   };
   const st10 = { cst: '10', aliquotaIcms: 18, st: { pMVAST: 40, pICMSST: 18 } };
   const stOpcional = { modBCST: '4', vBCST: 1400, pICMSST: 18, vICMSST: 252 };
@@ -509,7 +528,14 @@ describe('coerência CFOP × CST (aviso, nunca troca)', () => {
   });
 
   it('NF-e 136: 6403 (substituto) com CST 60 pede ciência', () => {
-    assert.deepEqual(aviso('6403', { cst: '60' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
+    const resultado = calcular({ cst: '60' });
+    const [issue] = validarCoerenciaCfopIcms({
+      cfop: '6403',
+      tratamento: resultado.tratamento!,
+    });
+    assert.equal(issue.code, 'NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO');
+    assert.equal(issue.severidade, 'AVISO');
+    assert.equal(issue.requerCiencia, true);
   });
 
   it('6404 + CST 10 sem ST preenchida mantém o papel semântico e deixa a completude bloquear', () => {

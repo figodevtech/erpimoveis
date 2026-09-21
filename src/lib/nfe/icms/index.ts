@@ -181,7 +181,9 @@ export function montarDecisaoIcms(
     camposAplicaveis: BLOCOS_ICMS.filter((bloco) => tratamento.blocos[bloco] !== 'PROIBIDO'),
     camposInformados: presentes,
     camposIgnorados: resultado.camposIgnorados,
-    avisosConfirmados: avisosConfirmados.map((aviso) => ({ code: aviso.code, message: aviso.message })),
+    avisosConfirmados: avisosConfirmados
+      .filter((aviso) => aviso.severidade !== 'BLOQUEIO' && aviso.requerCiencia === true)
+      .map((aviso) => ({ code: aviso.code, message: aviso.message })),
     ...(resultado.composicaoBase ? { composicaoBase: resultado.composicaoBase } : {}),
     motivo: explicar(resultado),
   };

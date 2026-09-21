@@ -180,7 +180,7 @@ function itemDaTela(overrides: SemOrigem & { sourceItemId?: string } = {}): NFeA
     aliquotaIbsUf: "0.1",
     aliquotaIbsMunicipio: "0",
     aliquotaCbs: "0.9",
-    avisosFiscaisConfirmados: ["NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"],
+    avisosFiscaisConfirmados: [],
     procedenciaFiscal: { cst: "PRODUTO", aliquotaicms: "PRODUTO", cfop: "PRODUTO" },
     ...overrides,
   };
@@ -276,8 +276,6 @@ describe("VENDA — regressão da NF-e 136", () => {
       itens: [itemDaTela({
         avisosFiscaisConfirmados: [
           AVISO_6403_CST60,
-          "NFE_ST_RETIDA_POLITICA_UF",
-          "NFE_ICMS_EFETIVO_POLITICA_UF",
         ],
       })],
       configuracaoFiscal: configuracaoVenda,
@@ -307,7 +305,7 @@ describe("VENDA — regressão da NF-e 136", () => {
 
   it("com a ciência, grava ICMS60 sem ICMS próprio no banco, no XML e nos totais", async () => {
     const resultado = await salvarNFeDeOrigem("VENDA", 164, {
-      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })],
+      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
       configuracaoFiscal: configuracaoVenda,
     });
     assert.equal(resultado.ok, true, JSON.stringify(resultado.errors));
@@ -315,7 +313,7 @@ describe("VENDA — regressão da NF-e 136", () => {
     assertRegressao136(nota);
     assert.deepEqual(
       nota.itens[0].tributacao_snapshot.icmsDecisao.avisosConfirmados.map((aviso: { code: string }) => aviso.code),
-      [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF"],
+      [AVISO_6403_CST60],
     );
     assert.match(nota.xml, /<CFOP>6403<\/CFOP>/);
     assert.equal(nota.nfe.decisao_fiscal.icms[0].grupoXmlIcms, "ICMS60");
@@ -323,7 +321,7 @@ describe("VENDA — regressão da NF-e 136", () => {
 
   it("não presume consumidor final: sem destino a nota não é gerada", async () => {
     const resultado = await salvarNFeDeOrigem("VENDA", 164, {
-      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })],
+      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
       configuracaoFiscal: { ...configuracaoVenda, destinoMercadoria: null },
     });
     assert.equal(resultado.ok, false);
@@ -332,7 +330,7 @@ describe("VENDA — regressão da NF-e 136", () => {
 
   it("o indFinal sai do destino escolhido, não do tipo de origem", async () => {
     const revenda = await salvarNFeDeOrigem("VENDA", 164, {
-      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })],
+      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
       configuracaoFiscal: configuracaoVenda,
     });
     assert.ok(revenda.ok);
@@ -365,7 +363,7 @@ describe("OS — mesmo núcleo", () => {
 
   it("regressão da NF-e 136 pela OS", async () => {
     const resultado = await salvarNFeDeOrigem("OS", 50, {
-      itens: [itemOs({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })],
+      itens: [itemOs({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
       configuracaoFiscal: configuracaoVenda,
     });
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
@@ -527,7 +525,7 @@ describe("AVULSA — mesmo núcleo", () => {
   }
 
   it("regressão da NF-e 136 pela avulsa", async () => {
-    const resultado = await salvarNFeAvulsaDraft(draftAvulso([itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF", "NFE_ICMS_EFETIVO_POLITICA_UF"] })]));
+    const resultado = await salvarNFeAvulsaDraft(draftAvulso([itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })]));
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
     assertRegressao136(notaGravada(resultado.nfeId));
   });
@@ -538,8 +536,6 @@ describe("AVULSA — mesmo núcleo", () => {
       icms: { stRetida: { vBCSTRet: 13200, pST: 18, vICMSSTRet: 1656, vICMSSubstituto: 720 } },
       avisosFiscaisConfirmados: [
         AVISO_6403_CST60,
-        "NFE_ST_RETIDA_POLITICA_UF",
-        "NFE_ICMS_EFETIVO_POLITICA_UF",
       ],
     })]));
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
@@ -558,8 +554,6 @@ describe("AVULSA — mesmo núcleo", () => {
         cfop: "6404",
         avisosFiscaisConfirmados: [
           AVISO_6403_CST60,
-          "NFE_ST_RETIDA_POLITICA_UF",
-          "NFE_ICMS_EFETIVO_POLITICA_UF",
         ],
       }),
       itemDaTela({ cfop: "6102", cst: "00", valorUnitario: 1000 }),
@@ -662,7 +656,7 @@ describe("IBS/CBS — base pela composição oficial (UB16-10) nos fluxos", () =
 
   it("VENDA CST 60 da NF-e 136: sem ICMS próprio, a base é o valor da operação", async () => {
     const resultado = await salvarNFeDeOrigem("VENDA", 164, {
-      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60, "NFE_ST_RETIDA_POLITICA_UF"] })],
+      itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
       configuracaoFiscal: configuracaoVenda,
     });
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));

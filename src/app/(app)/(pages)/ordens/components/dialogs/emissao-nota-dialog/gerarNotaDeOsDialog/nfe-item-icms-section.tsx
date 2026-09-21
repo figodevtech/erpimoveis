@@ -72,16 +72,20 @@ function moeda(valor: number | null | undefined) {
 }
 
 function tituloDoAvisoFiscal(code: string, rotuloCodigo: string) {
-  if (code === "NFE_ST_RETIDA_POLITICA_UF") {
-    return "Confira os dados de ICMS-ST da operação";
-  }
-  if (code === "NFE_ICMS_EFETIVO_POLITICA_UF") {
-    return "Confira os dados de ICMS efetivo da operação";
-  }
   if (code.startsWith("NFE_CFOP_")) {
     return `Aviso fiscal — confira o CFOP e o ${rotuloCodigo}`;
   }
   return "Aviso fiscal — confirme a ciência";
+}
+
+function tituloDoInformativoFiscal(code: string) {
+  if (code === "NFE_ST_RETIDA_POLITICA_UF") {
+    return "Informações opcionais de ICMS-ST anteriormente retido";
+  }
+  if (code === "NFE_ICMS_EFETIVO_POLITICA_UF") {
+    return "Informações opcionais de ICMS efetivo";
+  }
+  return "Informação fiscal";
 }
 
 type TrocaPendente = {
@@ -268,10 +272,10 @@ export function NfeItemIcmsSection({ item, setup, contextoBase, procedencia, onC
 
       {regra && regra.stRetida !== "PROIBIDO" ? (
         <div className="min-w-0 space-y-2">
-          <p className="text-xs font-medium">ICMS-ST cobrado anteriormente</p>
+          <p className="text-xs font-medium">Informações opcionais de ICMS-ST anteriormente retido</p>
           <p className="text-[11px] text-muted-foreground">
-            Valores da NF-e de compra. O ERP não os calcula nem inventa: preencha quando tiver o documento,
-            ou deixe em branco. O {rotuloCodigo} não tem ICMS próprio.
+            Use os dados da operação ou do documento de origem quando forem aplicáveis. O ERP não calcula nem
+            estima esses valores; o grupo pode permanecer totalmente em branco.
           </p>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {numero("vBCSTRet", "BC ST retida (R$)")}
@@ -333,6 +337,16 @@ export function NfeItemIcmsSection({ item, setup, contextoBase, procedencia, onC
         </Alert>
       ) : null}
 
+      {calculo.informativos.map((informativo) => (
+        <Alert key={informativo.code}>
+          <Info className="h-4 w-4" />
+          <AlertTitle>{tituloDoInformativoFiscal(informativo.code)}</AlertTitle>
+          <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">
+            {informativo.message}
+          </AlertDescription>
+        </Alert>
+      ))}
+
       {calculo.avisos.map((aviso) => (
         <Alert
           key={aviso.code}
@@ -342,12 +356,6 @@ export function NfeItemIcmsSection({ item, setup, contextoBase, procedencia, onC
           <AlertTitle>{tituloDoAvisoFiscal(aviso.code, rotuloCodigo)}</AlertTitle>
           <AlertDescription className="min-w-0 space-y-2 [overflow-wrap:anywhere]">
             <p>{aviso.message}</p>
-            {aviso.code === "NFE_ST_RETIDA_POLITICA_UF" || aviso.code === "NFE_ICMS_EFETIVO_POLITICA_UF" ? (
-              <p>
-                Esses valores não devem ser estimados. Informe-os somente se tiver os dados da operação
-                ou do documento de origem e se forem aplicáveis.
-              </p>
-            ) : null}
             <div className="flex items-start gap-2">
               <Checkbox
                 id={`ciencia-${item.sourceItemId}-${aviso.code}`}

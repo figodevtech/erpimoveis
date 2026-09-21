@@ -27,7 +27,7 @@ export function resolverObrigatoriedadeStRetida(
   const politica = politicas.find((p) => p.regra === regra && p.ufEmitente === contexto.ufEmitente
     && (!p.ufDestino || p.ufDestino === contexto.ufDestino) && p.fonte.trim()
     && data && data >= p.inicio && (!p.fim || data <= p.fim));
-  return { regra, severidade: politica?.obrigatoria ? 'BLOQUEIO' as const : 'AVISO' as const,
+  return { regra, severidade: politica?.obrigatoria ? 'BLOQUEIO' as const : 'INFO' as const,
     fonte: politica?.fonte ?? 'MOC 7.0, N12-81/N12-82 e N12a-50/N12a-60; aplicação facultativa pela UF',
     contexto, politica: politica ?? null };
 }
@@ -40,9 +40,15 @@ export function validarPoliticaStRetida(icms: IcmsCanonico, contexto: ContextoSt
     : ['pRedBCEfet', 'vBCEfet', 'pICMSEfet', 'vICMSEfet'] as const;
   const faltantes = campos.filter((campo) => icms[campo] == null);
   if (!faltantes.length) return [];
+  const identificacao = `CST/CSOSN ${icms.cst ?? icms.csosn}, indFinal=${contexto.indFinal}`;
+  const orientacao = regra.regra === 'ST_RETIDA'
+    ? 'Dados de ICMS-ST cobrado anteriormente não informados. O grupo permite vBCSTRet, pST, vICMSSubstituto e vICMSSTRet. Preencha somente quando aplicável e com os dados da operação anterior.'
+    : 'ICMS efetivo não informado. O grupo permite pRedBCEfet, vBCEfet, pICMSEfet e vICMSEfet. Preencha somente quando aplicável e com dados fiscalmente comprovados.';
+  const obrigatoriedade = `Política estadual vigente exige o preenchimento de ${faltantes.join(', ')}.`;
   return [{ code: `NFE_${regra.regra}_POLITICA_UF`, severidade: regra.severidade,
+    requerCiencia: false,
     field: regra.regra === 'ST_RETIDA' ? 'icms.stRetida' : 'icms.icmsEfetivo',
-    message: `CST/CSOSN ${icms.cst ?? icms.csosn}, indFinal=${contexto.indFinal}: faltam ${faltantes.join(', ')}. `
-      + (regra.severidade === 'AVISO' ? 'Confira a exigência da UF; não há política estadual obrigatória configurada. ' : 'Política estadual vigente exige o preenchimento. ')
-      + `Não estimar valores da compra. Fonte: ${regra.fonte}.` }];
+    message: `${identificacao}: ${regra.severidade === 'BLOQUEIO' ? obrigatoriedade : orientacao} `
+      + (regra.severidade === 'INFO' ? 'Não há política estadual obrigatória configurada. ' : '')
+      + `O ERP não estima esses valores. Fonte: ${regra.fonte}.` }];
 }
