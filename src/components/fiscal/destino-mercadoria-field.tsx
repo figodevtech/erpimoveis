@@ -46,6 +46,10 @@ export function DestinoMercadoriaField({
   const indFinal = indFinalDoDestino(destino, consumidorFinal);
   const revendaBloqueada = Boolean(naoContribuinte);
   const opcaoSelecionada = DESTINO_MERCADORIA_OPCOES.find((opcao) => opcao.value === destino);
+  // O Radix alterna entre um portal interno e os filhos de SelectValue quando
+  // `children` muda de undefined para definido. Manter o filho presente desde
+  // o primeiro render evita a disputa pelo mesmo <span> ao selecionar a opção.
+  const rotuloSelecionado = opcaoSelecionada?.label ?? "";
   const resumoDestino = indFinal === null
     ? "Obrigatório: o ERP não presume consumidor final pelo tipo de venda nem pelo cadastro do cliente."
     : destino === "OUTRO"
@@ -75,7 +79,7 @@ export function DestinoMercadoriaField({
           aria-invalid={!destino}
         >
           <SelectValue placeholder="Selecione o que o destinatário fará com a mercadoria">
-            {opcaoSelecionada?.label}
+            {rotuloSelecionado}
           </SelectValue>
         </SelectTrigger>
         <SelectContent className="w-[calc(100vw-2rem)] max-w-[38rem]">

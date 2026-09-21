@@ -96,8 +96,10 @@ import {
 import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
+import { CfopCombobox } from "@/components/fiscal/cfop-combobox";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
 import { indFinalDoDestino, type DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
+import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import { freteNaBaseIcms, type IcmsCanonico } from "@/lib/nfe/icms";
 import {
   aplicarAlteracoesComCienciaFiscal,
@@ -3025,7 +3027,14 @@ export default function NFeAvulsaPage() {
                         </div>
                         <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">CFOP <RequiredMark /></Label>
-                          <Input value={item.cfop} onChange={(event) => updateItem(index, { cfop: onlyDigits(event.target.value) })} />
+                          <CfopCombobox
+                            value={item.cfop}
+                            modelo={MODELO_NFE}
+                            operation={draft.operacao.tipoOperacao}
+                            emitterUf={setup?.empresa?.uf}
+                            partnerUf={draft.destinatario.estado}
+                            onValueChange={(cfop) => updateItem(index, { cfop })}
+                          />
                         </div>
                         <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">Unidade <RequiredMark /></Label>
