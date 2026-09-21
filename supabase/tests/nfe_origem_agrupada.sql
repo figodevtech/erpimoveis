@@ -1,4 +1,4 @@
--- Vínculo de NF-e com várias OS / vendas (20260921120000).
+-- Vínculo de NF-e com várias OS / vendas (20260921140000).
 --
 -- Como rodar:
 --   npm run db:test:sql -- supabase/tests/nfe_origem_agrupada.sql

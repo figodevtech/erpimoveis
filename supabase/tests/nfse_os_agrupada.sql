@@ -1,4 +1,4 @@
--- Vínculo de NFS-e com serviços de várias OS (20260921130000).
+-- Vínculo de NFS-e com serviços de várias OS (20260921150000).
 --
 -- Como rodar:
 --   npm run db:test:sql -- supabase/tests/nfse_os_agrupada.sql
