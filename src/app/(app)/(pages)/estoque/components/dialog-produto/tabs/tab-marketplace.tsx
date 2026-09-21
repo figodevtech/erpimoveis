@@ -1,3 +1,4 @@
+import { DescricaoIA } from "./descricao-ia";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +44,6 @@ export function TabMarketplace({ produto, onChange }: Props) {
   const [integrationError, setIntegrationError] = useState<string | null>(null);
   const [editListingOpen, setEditListingOpen] = useState(false);
   const [createListingOpen, setCreateListingOpen] = useState(false);
-
   const loadIntegration = useCallback(() => {
     if (!produtoId) return;
     setLoadingIntegration(true);
@@ -138,6 +138,7 @@ export function TabMarketplace({ produto, onChange }: Props) {
               className="min-h-[104px] resize-y bg-background"
               maxLength={LIMITE_DESCRICAO}
             />
+            <DescricaoIA produto={produto} onChange={onChange} field="descricaoMarketplace" />
           </div>
         </div>
 

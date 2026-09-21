@@ -20,6 +20,7 @@ import {
 } from "@/lib/integrations/mercadolivre-listing-change";
 import { notifySalesUsers } from "@/lib/system-notifications";
 import { processTelegramMarketplaceNotifications } from "@/lib/integrations/telegram-marketplace-notifications";
+import { processPublicOffer } from "@/lib/integrations/mercadolivre-public-offers";
 
 
 type NotificationPayload = {
@@ -72,7 +73,27 @@ export async function receiveMercadoLivreNotification(
  */
 export async function maintainMercadoLivreNotificationQueue() {
   await ignoreOrphanedNotifications();
+  await requeuePreviouslyUnsupportedOffers();
   await purgeMercadoLivreOutboundTouches();
+}
+
+// Bounded recovery of events ignored before public_offers was supported.
+// Existing retries/leases process them; never reset an active or completed event.
+async function requeuePreviouslyUnsupportedOffers() {
+  const { data, error } = await supabaseAdmin.from("mercadolivre_notification")
+    .select("id")
+    .eq("topic", "public_offers").eq("status", "IGNORADA")
+    .eq("error", "Tópico sem processador configurado: public_offers.")
+    .not("account_id", "is", null)
+    .order("created_at", { ascending: true }).limit(30);
+  if (error) throw error;
+  if (!data?.length) return;
+  const { error: updateError } = await supabaseAdmin.from("mercadolivre_notification")
+    .update({ status: "RECEBIDA", error: null, processed_at: null, locked_at: null, next_retry_at: null, processing_attempts: 0 })
+    .in("id", data.map((row) => row.id))
+    .eq("status", "IGNORADA")
+    .eq("error", "Tópico sem processador configurado: public_offers.");
+  if (updateError) throw updateError;
 }
 
 export async function retryMercadoLivreNotifications(limit = 50) {
@@ -159,6 +180,10 @@ async function processNotification(notificationId: number, attempts: number) {
       notificationDetails = await processShipment(account, accessToken, resource);
     } else if (topic === "items" || topic === "items_prices") {
       notificationDetails = await processItem(account, accessToken, resource, notificationId, topic);
+    } else if (topic === "public_offers") {
+      notificationDetails = await processPublicOffer(resource,
+        (path) => mercadoLivreApiGet(accessToken, path),
+        (itemId, offer) => processItem(account, accessToken, `/items/${itemId}`, notificationId, topic, offer));
     } else if (topic === "user-products-families") {
       notificationDetails = await processUserProductFamily(account, accessToken, resource);
     } else if (topic === "stock-locations") {
@@ -362,6 +387,7 @@ async function processItem(
   resource: string,
   notificationId: number,
   topic: string,
+  offer?: Record<string, unknown>,
 ) {
   const itemId = extractItemId(resource);
   if (!itemId) throw new Error("Notificação de anúncio sem item_id.");
@@ -374,6 +400,10 @@ async function processItem(
       throw error;
     },
   );
+
+  if (offer && item && String(item.seller_id) !== String(account.ml_user_id)) {
+    throw new Error("O anúncio da oferta não pertence à conta da notificação.");
+  }
 
   const { data: links, error: linksError } = await supabaseAdmin
     .from("mercadolivre_product_link")
@@ -399,7 +429,7 @@ async function processItem(
     ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
     : null;
 
-  const priceState = await getMercadoLivrePriceState(accessToken, itemId, item);
+  const priceState = await getMercadoLivrePriceState(accessToken, itemId, item, { strict: Boolean(offer) });
   // O preço do anúncio no Mercado Livre é independente do cadastro de produtos do ERP:
   // é só lido e guardado no vínculo, nunca gravado em produto.precovenda.
 
@@ -416,7 +446,7 @@ async function processItem(
       catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
       user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
       item_tags: Array.isArray(item?.tags) ? item.tags : [],
-      raw_item: { ...(item ?? {}), ...(userProduct ? { _erp_user_product: userProduct } : {}), _erp_price_state: priceState },
+      raw_item: { ...(item ?? {}), ...(userProduct ? { _erp_user_product: userProduct } : {}), ...(offer ? { _erp_public_offer: offer } : {}), _erp_price_state: priceState },
       updated_at: new Date().toISOString(),
     })
     .eq("empresa_id", account.empresa_id)

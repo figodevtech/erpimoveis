@@ -17,6 +17,7 @@ import { GrupoFromApi } from "../hooks/use-grupo-produtos";
 import { TagInput } from "../tag-input";
 import { Info } from "lucide-react";
 import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
+import { DescricaoIA } from "./descricao-ia";
 import { ProdutoLoteCard } from "./produto-lote-card";
 
 type Props = {
@@ -161,6 +162,7 @@ export function TabGeral({
               placeholder="Descrição do produto"
               maxLength={LIMITE_DESCRICAO}
             />
+            <DescricaoIA produto={produto} onChange={onChange} />
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-6">

@@ -121,7 +121,7 @@ export function mercadoLivreSystemNotification(input: {
     };
   }
 
-  if (["items", "items_prices", "user-products-families"].includes(topic)) {
+  if (["items", "items_prices", "public_offers", "user-products-families"].includes(topic)) {
     const change = details.materialChange ?? details.familyChange;
     // O tópico dispara a cada campo alterado no anúncio. Sem mudança que alguém
     // precise ver, o dado é sincronizado em silêncio.

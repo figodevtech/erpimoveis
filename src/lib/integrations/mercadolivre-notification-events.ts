@@ -72,7 +72,7 @@ export function mercadoLivreNotificationEventForTopic(topic: string): MercadoLiv
   if (normalized === "messages" || normalized === "messaging") return "MENSAGEM";
   if (normalized.includes("claim") || normalized.includes("reclama")) return "RECLAMACAO";
   if (normalized === "items") return "ANUNCIO";
-  if (normalized === "items_prices") return "PRECO";
+  if (normalized === "items_prices" || normalized === "public_offers") return "PRECO";
   if (normalized === "stock-locations") return "ESTOQUE";
   if (normalized === "user-products-families") return "FAMILIA";
   return null;

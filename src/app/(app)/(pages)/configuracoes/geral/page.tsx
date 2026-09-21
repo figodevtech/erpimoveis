@@ -924,6 +924,7 @@ export default function ConfigGeralPage() {
         setoresResponse,
         nfeResponse,
         nfseResponse,
+        quotaResponse,
       ] = await Promise.all([
         fetch("/api/config", { cache: "no-store" }),
         fetch("/api/config/empresa", { cache: "no-store" }),
@@ -934,7 +935,10 @@ export default function ConfigGeralPage() {
         fetch("/api/tipos/setores", { cache: "no-store" }),
         fetch("/api/config/nfe", { cache: "no-store" }),
         fetch("/api/config/nfse", { cache: "no-store" }),
+        fetch("/api/veiculos/cota-placas", { cache: "no-store" }),
       ]);
+      const quotaData = await quotaResponse.json().catch(() => null);
+      setUsoConsultasPlaca(quotaResponse.ok ? quotaData : null);
       const data = await response.json();
       const empresaData = await empresaResponse.json().catch(() => ({}));
       const mercadoLivreData = await mercadoLivreResponse
@@ -962,13 +966,7 @@ export default function ConfigGeralPage() {
           nome: empresa.nomefantasia || empresa.razaosocial || "Empresa",
           cnpj: empresa.cnpj || "",
         });
-        setUsoConsultasPlaca({
-          limite: Number(empresa.placa_consulta_limite_mensal ?? 0),
-          usadas: Number(empresa.placa_consulta_qtd_mes ?? 0),
-          mes: empresa.placa_consulta_mes ?? "",
-        });
       } else {
-        setUsoConsultasPlaca(null);
         setEmpresaResumo(null);
       }
       setMercadoLivreAccount(
@@ -1475,7 +1473,7 @@ export default function ConfigGeralPage() {
               <Search className="h-5 w-5 text-primary" />
               <CardTitle>Consultas de placa</CardTitle>
             </div>
-            <CardDescription>Uso mensal da API de placas.</CardDescription>
+            <CardDescription>Cota mensal e consumo registrados na Central.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 py-6">
             <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
@@ -1523,8 +1521,7 @@ export default function ConfigGeralPage() {
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Ao virar o mes, o contador e reiniciado automaticamente na
-                proxima consulta.
+                A cota renova mensalmente em UTC. Falhas também consomem cota; o limite é gerenciado pela Central.
               </p>
             </div>
           </CardContent>
