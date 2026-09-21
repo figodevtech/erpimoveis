@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthenticated, requireAny, PERMS } from "@/app/api/_authz/perms";
 import { errorStatus } from "@/lib/empresa-context";
+import { reportErpDiagnostic } from "@/lib/monitoring/erp-diagnostic";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export async function GET(
   request: Request,
   ctx: { params: Promise<{ placa: string }> }
 ) {
+  const diagnosticStartedAt = Date.now();
   try {
     await requireAuthenticated();
     await requireAny([PERMS.VEICULOS_CRIAR, PERMS.VEICULOS_EDITAR, PERMS.DESMANCHE_CRIAR, PERMS.DESMANCHE_EDITAR]);
@@ -60,7 +62,8 @@ export async function GET(
       data,
       { status: 200, headers: { "Cache-Control": "no-store" } }
     );
-  } catch {
+  } catch (error) {
+    reportErpDiagnostic("/api/veiculos/consulta-placa/[placa]", "QUERY_PLATE_CENTRAL", diagnosticStartedAt, error);
     return NextResponse.json({ error: "Nao foi possivel consultar a placa na Central." }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }

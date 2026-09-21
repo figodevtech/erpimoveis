@@ -11,6 +11,7 @@ import { aplicarCamposDocumento, erroDeDocumento } from "./_lib/documento";
 import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "./_lib/bandeira";
 import { filtroDeBusca } from "./_lib/busca";
 import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
+import { reportErpDiagnostic } from "@/lib/monitoring/erp-diagnostic";
 
 const WRITABLE_FIELDS = new Set([
   "ordemservicoid",
@@ -227,6 +228,7 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
 }
 
 export async function GET(req: Request) {
+  const diagnosticStartedAt = Date.now();
   try {
     await requireFinanceirosAccess();
     const { searchParams } = new URL(req.url);
@@ -444,6 +446,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (error: any) {
+    reportErpDiagnostic("/api/transaction", "LIST_TRANSACTIONS", diagnosticStartedAt, error);
     return NextResponse.json({ error: error?.message || "Erro ao listar transações" }, { status: 500 });
   }
 }
