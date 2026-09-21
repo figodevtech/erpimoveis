@@ -1,5 +1,7 @@
 "use client";
 
+import { useId } from "react";
+
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -22,20 +24,37 @@ type Props = {
   naoContribuinte?: boolean;
   /** Aviso extra quando a escolha recalcula o DIFAL dos itens. */
   alertaDifal?: boolean;
+  /** Identifica o padrão aplicado somente a novas emissões de Venda/OS. */
+  destacarUsoConsumoComoPadrao?: boolean;
 };
 
 /**
- * Destino da mercadoria no destinatário. É dele que sai o indFinal da NF-e —
- * a origem (venda, OS, saída) e o cadastro do cliente não dizem se ele vai
- * revender ou consumir, então a escolha é obrigatória e não vem preenchida.
+ * Destino da mercadoria no destinatário. É dele que sai o indFinal da NF-e.
+ * Venda/OS podem abrir com um padrão operacional, mas a decisão permanece
+ * destacada e editável porque o cadastro do cliente não define a finalidade.
  */
-export function DestinoMercadoriaField({ destino, consumidorFinal, onChange, naoContribuinte, alertaDifal }: Props) {
+export function DestinoMercadoriaField({
+  destino,
+  consumidorFinal,
+  onChange,
+  naoContribuinte,
+  alertaDifal,
+  destacarUsoConsumoComoPadrao = false,
+}: Props) {
+  const campoId = useId();
+  const ajudaId = `${campoId}-ajuda`;
   const indFinal = indFinalDoDestino(destino, consumidorFinal);
   const revendaBloqueada = Boolean(naoContribuinte);
+  const opcaoSelecionada = DESTINO_MERCADORIA_OPCOES.find((opcao) => opcao.value === destino);
+  const resumoDestino = indFinal === null
+    ? "Obrigatório: o ERP não presume consumidor final pelo tipo de venda nem pelo cadastro do cliente."
+    : destino === "OUTRO"
+      ? `Definição manual: indFinal = ${indFinal} (${indFinal === 1 ? "consumidor final" : "não é consumidor final"}).`
+      : opcaoSelecionada?.descricao;
 
   return (
     <div className="min-w-0 space-y-1.5">
-      <Label>
+      <Label htmlFor={campoId}>
         Destino da mercadoria <span className="text-destructive">*</span>
       </Label>
       {alertaDifal ? (
@@ -49,21 +68,45 @@ export function DestinoMercadoriaField({ destino, consumidorFinal, onChange, nao
           onChange({ destino: value as DestinoMercadoria, consumidorFinal: value === "OUTRO" ? consumidorFinal : null })
         }
       >
-        <SelectTrigger className="w-full" aria-invalid={!destino}>
-          <SelectValue placeholder="Selecione o que o destinatário fará com a mercadoria" />
+        <SelectTrigger
+          id={campoId}
+          className="w-full"
+          aria-describedby={ajudaId}
+          aria-invalid={!destino}
+        >
+          <SelectValue placeholder="Selecione o que o destinatário fará com a mercadoria">
+            {opcaoSelecionada?.label}
+          </SelectValue>
         </SelectTrigger>
-        <SelectContent className="w-[calc(100vw-2rem)] max-w-[34rem]">
+        <SelectContent className="w-[calc(100vw-2rem)] max-w-[38rem]">
           {DESTINO_MERCADORIA_OPCOES.map((opcao) => {
             const desabilitada = revendaBloqueada && opcao.indFinal === 0;
             return (
               <SelectItem
                 key={opcao.value}
                 value={opcao.value}
+                textValue={opcao.label}
                 disabled={desabilitada}
-                className="break-words whitespace-normal py-2 [overflow-wrap:anywhere]"
+                className="items-start break-words whitespace-normal py-2.5 [overflow-wrap:anywhere]"
               >
-                {opcao.label}
-                {desabilitada ? " — não se aplica a não contribuinte" : ""}
+                <span className="flex min-w-0 flex-col items-start gap-0.5 pr-1">
+                  <span className="flex flex-wrap items-center gap-1.5 font-medium">
+                    {opcao.label}
+                    {destacarUsoConsumoComoPadrao && opcao.value === "USO_CONSUMO" ? (
+                      <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                        Padrão Venda/OS
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="text-xs font-normal leading-snug text-muted-foreground">
+                    {opcao.descricao}
+                  </span>
+                  {desabilitada ? (
+                    <span className="text-[11px] font-medium text-destructive">
+                      Não se aplica a destinatário não contribuinte.
+                    </span>
+                  ) : null}
+                </span>
               </SelectItem>
             );
           })}
@@ -85,10 +128,8 @@ export function DestinoMercadoriaField({ destino, consumidorFinal, onChange, nao
           </SelectContent>
         </Select>
       ) : null}
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        {indFinal === null
-          ? "Obrigatório: o ERP não presume consumidor final pelo tipo de venda nem pelo cadastro do cliente."
-          : `A NF-e sairá com indFinal ${indFinal} (${indFinal === 1 ? "consumidor final" : "não é consumidor final"}).`}
+      <p id={ajudaId} className="text-[11px] leading-snug text-muted-foreground">
+        {resumoDestino}
       </p>
     </div>
   );

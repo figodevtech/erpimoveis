@@ -76,8 +76,8 @@ import {
 import { isValidCnpj, isValidCpf, normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
 import {
+  destinoMercadoriaInicial,
   indFinalDoDestino,
-  normalizarDestinoMercadoria,
   type DestinoMercadoria,
 } from "@/lib/nfe/destinoMercadoria";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
@@ -233,7 +233,7 @@ type SaidaRelacionadaResponse = {
 };
 
 type AssistedFiscalConfig = {
-  /** Obrigatório na NF-e de saída; sai daqui o indFinal. Começa em branco. */
+  /** Obrigatório na NF-e de saída; Venda/OS abrem em uso e consumo. */
   destinoMercadoria: DestinoMercadoria | "";
   /** Só usado quando o destino é "OUTRO". */
   consumidorFinal: boolean | null;
@@ -620,8 +620,11 @@ export function GerarNotaDeOsDialog({
       setFiscalConfig({
         ...defaultFiscalConfig,
         ...productsJson.configuracao_fiscal,
-        // A origem não sugere destino: ele é decisão de quem emite.
-        destinoMercadoria: normalizarDestinoMercadoria(productsJson.configuracao_fiscal?.destinoMercadoria) ?? "",
+        // Um valor já gravado prevalece. Em nota nova, Venda/OS abrem no caso
+        // mais comum (uso próprio), sempre visível e editável no seletor.
+        destinoMercadoria: isNfce
+          ? ""
+          : destinoMercadoriaInicial(origin, productsJson.configuracao_fiscal?.destinoMercadoria),
         consumidorFinal: null,
         freteIntegraBaseIcms: null,
         pagamentos: ratearPagamentosParaTotal(
@@ -1877,6 +1880,7 @@ export function GerarNotaDeOsDialog({
                           consumidorFinal={fiscalConfig.consumidorFinal}
                           naoContribuinte={String(indicadorDoCliente(source?.cliente)) === "9"}
                           alertaDifal={difalAtivo}
+                          destacarUsoConsumoComoPadrao
                           onChange={({ destino, consumidorFinal }) =>
                             setFiscalConfig((current) => ({ ...current, destinoMercadoria: destino, consumidorFinal }))
                           }

@@ -2,8 +2,9 @@
 //
 // Venda e OS não dizem, sozinhas, se o comprador vai revender ou consumir. Ser
 // venda, ser OS, ter CNPJ ou ter IE também não dizem: contribuinte do ICMS pode
-// comprar para uso próprio. Por isso o indFinal da NF-e sai de uma escolha
-// explícita, feita na emissão, e nunca de inferência.
+// comprar para uso próprio. A tela abre Venda/OS em USO_CONSUMO por ser o caso
+// operacional mais comum, mas deixa a escolha visível e editável; o servidor
+// continua exigindo que o destino viaje expressamente no rascunho.
 //
 // A única regra estrutural é a do não contribuinte (indIEDest 9): ele é sempre
 // consumidor final, então revenda não é opção para ele.
@@ -23,25 +24,25 @@ export const DESTINO_MERCADORIA_OPCOES: Array<{
   {
     value: 'REVENDA_INDUSTRIALIZACAO',
     label: 'Revenda ou industrialização',
-    descricao: 'O destinatário vai revender a mercadoria ou usá-la na produção (indFinal 0).',
+    descricao: 'Vai revender ou usar como insumo/componente na produção. indFinal = 0.',
     indFinal: 0,
   },
   {
     value: 'USO_CONSUMO',
     label: 'Uso e consumo',
-    descricao: 'O destinatário vai consumir a mercadoria (indFinal 1).',
+    descricao: 'Vai usar na própria atividade, sem revender nem incorporar ao ativo. indFinal = 1.',
     indFinal: 1,
   },
   {
     value: 'ATIVO_IMOBILIZADO',
     label: 'Ativo imobilizado',
-    descricao: 'A mercadoria entra no ativo do destinatário (indFinal 1).',
+    descricao: 'Bem patrimonial de uso duradouro, como máquina, equipamento ou veículo. indFinal = 1.',
     indFinal: 1,
   },
   {
     value: 'OUTRO',
     label: 'Outro',
-    descricao: 'Informe se a operação é com consumidor final.',
+    descricao: 'Nenhuma opção acima; exige definir se o destinatário é consumidor final.',
     indFinal: null,
   },
 ];
@@ -51,6 +52,21 @@ export function normalizarDestinoMercadoria(value: unknown): DestinoMercadoria |
   return DESTINO_MERCADORIA_OPCOES.some((opcao) => opcao.value === texto)
     ? (texto as DestinoMercadoria)
     : null;
+}
+
+/**
+ * Valor inicial da tela assistida. Um destino já gravado sempre prevalece;
+ * somente uma nova NF-e de Venda/OS recebe o padrão operacional.
+ */
+export function destinoMercadoriaInicial(
+  origem: unknown,
+  destinoGravado?: unknown,
+): DestinoMercadoria | '' {
+  const gravado = normalizarDestinoMercadoria(destinoGravado);
+  if (gravado) return gravado;
+
+  const tipoOrigem = String(origem ?? '').trim().toUpperCase();
+  return tipoOrigem === 'VENDA' || tipoOrigem === 'OS' ? 'USO_CONSUMO' : '';
 }
 
 /**
