@@ -666,14 +666,36 @@ export async function GET(req: Request) {
     }
 
     if (ordemIds.length > 0) {
-      const { data: notasData, error: notasError } = await supabaseAdmin
-        .from("nfe")
-        .select("ordemservicoid, numero, createdat")
-        .in("ordemservicoid", ordemIds)
-        .not("ordemservicoid", "is", null)
-        .order("numero", { ascending: false });
+      /*
+       * Duas consultas, porque uma nota consolidada cobre várias OS e só a
+       * âncora aparece em `nfe.ordemservicoid`. Sem o vínculo, uma OS já
+       * faturada por nota agrupada mostraria a coluna "Nota" vazia e voltaria
+       * a ser oferecida para emissão — o erro só apareceria no fim do fluxo.
+       */
+      const [
+        { data: notasData, error: notasError },
+        { data: vinculosData, error: vinculosError },
+      ] = await Promise.all([
+        supabaseAdmin
+          .from("nfe")
+          .select("ordemservicoid, numero, createdat")
+          .in("ordemservicoid", ordemIds)
+          .not("ordemservicoid", "is", null)
+          .order("numero", { ascending: false }),
+        supabaseAdmin
+          .from("nfe_origem_vinculo")
+          .select("origem_id, nfe_id")
+          .eq("tipo", "OS")
+          .in("origem_id", ordemIds),
+      ]);
 
       if (notasError) throw notasError;
+      // O vínculo é enriquecimento, não requisito: se a migration ainda não
+      // foi aplicada neste banco, a listagem de OS continua funcionando com o
+      // que a coluna escalar sabe, em vez de quebrar a tela inteira.
+      if (vinculosError) {
+        console.warn("[GET /api/ordens] vínculo de origem indisponível:", vinculosError.message);
+      }
 
       const notaPorOrdem = new Map<number, number>();
 
@@ -685,6 +707,37 @@ export async function GET(req: Request) {
         if (notaPorOrdem.has(ordemId)) continue;
 
         notaPorOrdem.set(ordemId, numero);
+      }
+
+      // A âncora já entrou acima; aqui entram as OS agregadas. Os números vêm
+      // numa segunda consulta em vez de um embed: `nfe` é a tabela mais
+      // relacionada do schema, e um embed que não resolva derrubaria a
+      // listagem inteira de OS.
+      const idsDeNotasVinculadas = [
+        ...new Set((vinculosData ?? []).map((linha: any) => Number(linha.nfe_id))),
+      ].filter((id) => Number.isFinite(id));
+
+      if (idsDeNotasVinculadas.length > 0) {
+        const { data: numerosData, error: numerosError } = await supabaseAdmin
+          .from("nfe")
+          .select("id, numero")
+          .in("id", idsDeNotasVinculadas);
+
+        if (numerosError) throw numerosError;
+
+        const numeroPorNota = new Map<number, number>(
+          (numerosData ?? []).map((linha: any) => [Number(linha.id), Number(linha.numero)]),
+        );
+
+        for (const vinculo of vinculosData ?? []) {
+          const ordemId = Number((vinculo as any).origem_id);
+          const numero = numeroPorNota.get(Number((vinculo as any).nfe_id));
+
+          if (!Number.isFinite(ordemId) || !Number.isFinite(numero as number)) continue;
+          if (notaPorOrdem.has(ordemId)) continue;
+
+          notaPorOrdem.set(ordemId, numero as number);
+        }
       }
 
       items.forEach((item) => {

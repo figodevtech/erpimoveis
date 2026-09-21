@@ -18,6 +18,7 @@ import { toast } from "@/lib/toast";
 import { Loader2, Receipt, AlertCircle, CheckCircle2, XCircle, Info, X, Plus, RotateCw, Ellipsis, Download, Package, Paperclip, Wrench, Trash2, FileCode } from "lucide-react";
 import { AutorizarNfeButton } from "./autorizarNfe-button";
 import { GerarNotaDeOsDialog } from "./gerarNotaDeOsDialog/gerarNotaDeOsDialog";
+import { BadgeAgrupada, VinculosNota } from "@/components/fiscal/badges-nota";
 import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
 import {
   ehRejeicaoIeDestinatarioInativa,
@@ -62,6 +63,11 @@ type NfeResumo = {
   codigo_verificacao?: string;
   /** Só em NFS-e: qual estratégia da Focus emitiu a nota (município ou nacional). */
   modelo_emissao?: string | null;
+  /**
+   * Todas as origens que a nota documenta, inclusive as que estao fora da
+   * selecao atual. E o que permite dizer "esta nota tambem cobre a OS #99".
+   */
+  origens?: Array<{ tipo: "OS" | "VENDA" | "ENTRADA" | "SAIDA"; id: number; ancora: boolean }>;
 };
 
 type ListarNfeResponsePorOs = {
@@ -216,7 +222,9 @@ export function EmissaoNotaDialog({
   open,
   onOpenChange,
   osId,
+  osIds,
   vendaId,
+  vendaIds,
   entradaId,
   saidaId,
 }: {
@@ -226,8 +234,18 @@ export function EmissaoNotaDialog({
   /** opcional: uso na tela de OS */
   osId?: number | null;
 
+  /**
+   * O grupo de OS que a emissao deve cobrir, quando vem da selecao multipla.
+   * A primeira e a ancora e `osId` aponta para ela. Uma OS so equivale a um
+   * grupo de tamanho 1, entao as duas props convivem sem ramificar a tela.
+   */
+  osIds?: number[] | null;
+
   /** opcional: uso na tela de venda */
   vendaId?: number | null;
+
+  /** O grupo de vendas da emissao, quando vem da selecao multipla. */
+  vendaIds?: number[] | null;
 
   /** opcional: uso na tela de entrada */
   entradaId?: number | null;
@@ -288,6 +306,35 @@ export function EmissaoNotaDialog({
           : null;
   const origemId = osId ?? vendaId ?? entradaId ?? saidaId ?? null;
 
+  /**
+   * Todas as origens que esta emissao cobre. A ancora encabeca a lista: e ela
+   * que vai para a coluna escalar da nota e que a RPC de vinculo exige que
+   * permaneca no grupo.
+   */
+  const origensDoGrupo = useMemo(() => {
+    const lista = origem === "OS" ? osIds : origem === "VENDA" ? vendaIds : null;
+    const ids = (lista ?? [])
+      .map((valor) => Number(valor))
+      .filter((valor) => Number.isInteger(valor) && valor > 0);
+    if (!origemId) return ids;
+    return [origemId, ...ids.filter((valor) => valor !== origemId)];
+  }, [origem, osIds, vendaIds, origemId]);
+
+  const agrupado = origensDoGrupo.length > 1;
+
+  /**
+   * As notas vivas que ja cobrem alguma origem da selecao. Rascunho, cancelada
+   * e rejeitada ficam de fora: nenhuma delas impede uma emissao nova, e
+   * lista-las so faria ruido no aviso.
+   */
+  const notasDoGrupo = useMemo(() => {
+    if (!agrupado) return [] as NfeResumo[];
+    const ignorar = new Set(["RASCUNHO", "CANCELADA", "CANCELADO", "REJEITADA", "DENEGADA"]);
+    return (nfes ?? []).filter(
+      (nota) => !ignorar.has(String(nota.status ?? "").trim().toUpperCase()),
+    );
+  }, [agrupado, nfes]);
+
   const canFetch = open && canNotasFiscais && !!origem && !!origemId;
 
   useEffect(() => {
@@ -310,11 +357,16 @@ export function EmissaoNotaDialog({
 
   const endpointListar = useMemo(() => {
     if (!origem || !origemId) return null;
+    // Com grupo, uma chamada so: a uniao das notas de todas as origens é feita
+    // no servidor, que tambem devolve as origens de cada nota.
+    if (agrupado && (origem === "OS" || origem === "VENDA")) {
+      return `/api/nfe/por-origem?tipo=${origem}&ids=${origensDoGrupo.join(",")}`;
+    }
     if (origem === "OS") return `/api/nfe/por-os/${origemId}`;
     if (origem === "VENDA") return `/api/nfe/por-venda/${origemId}`;
     if (origem === "SAIDA") return `/api/nfe/por-saida/${origemId}`;
     return `/api/nfe/por-entrada/${origemId}`;
-  }, [origem, origemId]);
+  }, [origem, origemId, agrupado, origensDoGrupo]);
 
   /**
    * Emite a NFC-e offline depois de uma falha de comunicação.
@@ -575,6 +627,9 @@ export function EmissaoNotaDialog({
       let fetchedNfes = erroNfe ? [] : (json as any).nfes ?? [];
 
       if (origem === "OS" && osId) {
+        // Na emissao agrupada, as NFS-e de todas as OS do grupo. Uma chamada
+        // por OS: a rota e por OS e ja faz a uniao com o vinculo, entao o
+        // merge aqui e so a concatenacao com dedupe por id.
         const nfseRes = await fetch(`/api/nfse/por-os/${osId}`, { signal });
         const nfseJson = await nfseRes.json().catch(() => null);
         const erroNfse = !nfseRes.ok || !nfseJson?.ok
@@ -614,6 +669,9 @@ export function EmissaoNotaDialog({
           url_pdf: n.url_pdf,
           url_consulta: n.url_consulta,
           modelo_emissao: n.modelo_emissao ?? null,
+          // A rota ja devolve as OS que a nota cobre; e disso que vivem os
+          // badges de agrupamento e de origem.
+          origens: Array.isArray(n.origens) ? n.origens : undefined,
         }));
         fetchedNfes = [...fetchedNfes, ...mappedNfses].sort(
           (a, b) => new Date(b.createdat || 0).getTime() - new Date(a.createdat || 0).getTime(),
@@ -961,6 +1019,55 @@ export function EmissaoNotaDialog({
               <div className="mx-5 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{avisoListagem}</span>
+              </div>
+            )}
+
+            {/*
+              Emissão em lote: antes de gerar, mostra o que já existe para o
+              grupo. Sem isto o operador seleciona 5 OS sem saber que duas já
+              têm nota — e descobre no 422 do servidor, com o motivo escondido
+              atrás de uma mensagem técnica.
+            */}
+            {agrupado && (
+              <div className="mx-5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-800 dark:text-sky-200">
+                <div className="flex items-start gap-2">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="space-y-1">
+                    <div className="font-medium">
+                      Emissão agrupada: {origensDoGrupo.length}{" "}
+                      {origem === "OS" ? "OS" : "vendas"} nesta seleção
+                    </div>
+                    <div className="opacity-90">
+                      {origensDoGrupo
+                        .map((id) => `${origem === "OS" ? "OS" : "Venda"} #${id}`)
+                        .join(", ")}
+                      . Todas sairão numa nota só, com um único destinatário.
+                    </div>
+                    {notasDoGrupo.length > 0 ? (
+                      <div className="space-y-0.5 pt-1">
+                        <div className="font-medium">
+                          {notasDoGrupo.length} nota(s) já cobrem origens desta seleção:
+                        </div>
+                        {notasDoGrupo.map((nota) => {
+                          const fora = (nota.origens ?? []).filter(
+                            (o) => !origensDoGrupo.includes(o.id),
+                          );
+                          return (
+                            <div key={nota.id} className="opacity-90">
+                              • {nota.modelo === "NFSE" ? "NFS-e" : nota.modelo === "NFCE" ? "NFC-e" : "NF-e"}{" "}
+                              {nota.numero ?? "—"} ({String(nota.status ?? "").toLowerCase()})
+                              {fora.length > 0
+                                ? ` — também cobre ${fora
+                                    .map((o) => `${o.tipo === "OS" ? "OS" : o.tipo === "VENDA" ? "Venda" : o.tipo} #${o.id}`)
+                                    .join(", ")}, fora da seleção.`
+                                : ""}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1432,6 +1539,9 @@ export function EmissaoNotaDialog({
                                   {nfe.ambiente}
                                 </Badge>
                               )}
+
+                              <BadgeAgrupada origens={nfe.origens} />
+                              <VinculosNota origens={nfe.origens} destaque={origemId} />
                             </div>
 
                             <div className="text-xs text-muted-foreground space-y-0.5">
@@ -1551,6 +1661,7 @@ export function EmissaoNotaDialog({
             vendaId={vendaId ?? null}
             entradaId={entradaId ?? null}
             saidaId={saidaId ?? null}
+            origensAdicionais={origensDoGrupo.slice(1)}
             nfeId={nfeSaidaParaCorrigir}
             onAfterGenerate={() => fetchNfes()}
           />
@@ -1587,6 +1698,7 @@ export function EmissaoNotaDialog({
               if (!v) fetchNfes();
             }}
             osId={osId ?? null}
+            osIdsAdicionais={origensDoGrupo.slice(1)}
             onAfterGenerate={() => fetchNfes()}
           />
         )}

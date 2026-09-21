@@ -25,6 +25,9 @@ export async function GET(req: NextRequest) {
       viewMode: (getParam(req, "viewMode") as FiscalViewMode | undefined) ?? "TODAS",
       status: getParam(req, "status"),
       modelo: getParam(req, "modelo"),
+      origem: getParam(req, "origem"),
+      valorMin: getParam(req, "valorMin"),
+      valorMax: getParam(req, "valorMax"),
     });
 
     return NextResponse.json(data);

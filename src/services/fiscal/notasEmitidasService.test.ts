@@ -18,6 +18,10 @@ function mockNotas(nfes: Row[], nfses: Row[]) {
         rows = rows.filter((row) => row[key] === value);
         return query;
       },
+      in: (key: string, values: unknown[]) => {
+        rows = rows.filter((row) => values.includes(row[key]));
+        return query;
+      },
       gte: (key: string, value: string) => {
         rows = rows.filter((row) => row[key] >= value);
         return query;
@@ -94,4 +98,35 @@ test("não perde notas quando há mais de mil registros na origem", async () => 
   assert.equal(result.pagination.total, 1001);
   assert.equal(result.data.length, 1);
   assert.equal(result.data[0].id, 1);
+});
+
+test("filtra notas próprias por origem e faixa de valor antes da paginação", async () => {
+  mockNotas([
+    { ...nfe, id: 1, ordemservicoid: 10, total_nfe: 100 },
+    { ...nfe, id: 2, vendaid: 20, total_nfe: 200 },
+    { ...nfe, id: 3, entradaid: 30, total_nfe: 300 },
+    { ...nfe, id: 4, saidaid: 40, total_nfe: 400 },
+    { ...nfe, id: 5, total_nfe: 500 },
+  ], [nfse]);
+
+  const vendas = await listarNotasEmitidas({ origem: "VENDA", valorMin: "150", valorMax: "250" });
+  assert.equal(vendas.pagination.total, 1);
+  assert.equal(vendas.data[0].id, 2);
+
+  const avulsas = await listarNotasEmitidas({ origem: "AVULSA", valorMin: "250,00" });
+  assert.deepEqual(avulsas.data.map((nota) => nota.modelo), ["NFE"]);
+  assert.equal(avulsas.data[0].id, 5);
+});
+
+test("agrupa os status intermediários no filtro em processamento", async () => {
+  mockNotas([
+    { ...nfe, id: 1, status: "ASSINADA" },
+    { ...nfe, id: 2, status: "ENVIADA" },
+    { ...nfe, id: 3, status: "PENDENTE_ENVIO" },
+    { ...nfe, id: 4, status: "AUTORIZADA" },
+  ], []);
+
+  const result = await listarNotasEmitidas({ status: "PROCESSANDO" });
+  assert.equal(result.pagination.total, 3);
+  assert.deepEqual(result.data.map((nota) => nota.id), [3, 2, 1]);
 });

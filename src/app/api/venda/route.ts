@@ -500,15 +500,36 @@ export async function GET(req: Request) {
     }
 
     if (vendaIds.length > 0) {
-      const { data: notasData, error: notasError } = await supabaseAdmin
-        .from("nfe")
-        .select("vendaid, numero, createdat")
-        .in("vendaid", vendaIds)
-        .not("vendaid", "is", null)
-        .order("numero", { ascending: false });
+      /*
+       * Duas consultas, porque uma nota consolidada cobre várias vendas e só a
+       * âncora aparece em `nfe.vendaid`. Sem o vínculo, uma venda já faturada
+       * por nota agrupada mostraria a coluna "Nota" vazia e voltaria a ser
+       * oferecida para emissão.
+       */
+      const [
+        { data: notasData, error: notasError },
+        { data: vinculosData, error: vinculosError },
+      ] = await Promise.all([
+        supabaseAdmin
+          .from("nfe")
+          .select("vendaid, numero, createdat")
+          .in("vendaid", vendaIds)
+          .not("vendaid", "is", null)
+          .order("numero", { ascending: false }),
+        supabaseAdmin
+          .from("nfe_origem_vinculo")
+          .select("origem_id, nfe_id")
+          .eq("tipo", "VENDA")
+          .in("origem_id", vendaIds),
+      ]);
 
       if (notasError) {
         throw notasError;
+      }
+      // O vínculo é enriquecimento, não requisito: sem a migration aplicada,
+      // a listagem continua com o que a coluna escalar sabe.
+      if (vinculosError) {
+        console.warn("[GET /api/venda] vínculo de origem indisponível:", vinculosError.message);
       }
 
       const notaPorVenda = new Map<number, number>();
@@ -521,6 +542,36 @@ export async function GET(req: Request) {
         if (notaPorVenda.has(vendaId)) continue;
 
         notaPorVenda.set(vendaId, numero);
+      }
+
+      // A âncora já entrou acima; aqui entram as vendas agregadas.
+      const idsDeNotasVinculadas = [
+        ...new Set((vinculosData ?? []).map((linha: any) => Number(linha.nfe_id))),
+      ].filter((id) => Number.isFinite(id));
+
+      if (idsDeNotasVinculadas.length > 0) {
+        const { data: numerosData, error: numerosError } = await supabaseAdmin
+          .from("nfe")
+          .select("id, numero")
+          .in("id", idsDeNotasVinculadas);
+
+        if (numerosError) {
+          throw numerosError;
+        }
+
+        const numeroPorNota = new Map<number, number>(
+          (numerosData ?? []).map((linha: any) => [Number(linha.id), Number(linha.numero)]),
+        );
+
+        for (const vinculo of vinculosData ?? []) {
+          const vendaId = Number((vinculo as any).origem_id);
+          const numero = numeroPorNota.get(Number((vinculo as any).nfe_id));
+
+          if (!Number.isFinite(vendaId) || !Number.isFinite(numero as number)) continue;
+          if (notaPorVenda.has(vendaId)) continue;
+
+          notaPorVenda.set(vendaId, numero as number);
+        }
       }
 
       items.forEach((item: any) => {

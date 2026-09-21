@@ -1,6 +1,12 @@
 // src/app/api/nfe/por-os/[id]/route.ts
+//
+// Notas fiscais de uma OS. Delega a `listarNotasPorOrigem`, o mesmo serviço da
+// listagem em lote, para que a nota consolidada — cuja âncora é outra OS e que
+// portanto não aparece em `nfe.ordemservicoid` — também apareça aqui.
 import { NextResponse, type NextRequest } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+
+import { requireEmissaoFiscalAccess } from "@/app/api/_authz/perms";
+import { listarNotasPorOrigem } from "@/services/fiscal/notasPorOrigemService";
 
 export const runtime = "nodejs";
 
@@ -13,73 +19,30 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   const osId = Number(id);
 
   if (!Number.isFinite(osId) || osId <= 0) {
-    return NextResponse.json(
-      { ok: false, message: "ID da OS inválido." },
-      { status: 400 }
-    );
+    return NextResponse.json({ ok: false, message: "ID da OS inválido." }, { status: 400 });
   }
 
   try {
-    const { data, error } = await supabaseAdmin
-      .from("nfe")
-      .select(
-        [
-          "id",
-          "modelo",
-          "serie",
-          "numero",
-          "chave_acesso",
-          "ambiente",
-          "status",
-          "ordemservicoid",
-          "vendaid",
-          "clienteid",
-          "dataemissao",
-          "dataautorizacao",
-          "protocolo",
-          "total_produtos",
-          "total_servicos",
-          "total_nfe",
-          "justificativacancelamento",
-          "codigo_rejeicao",
-          "motivo_rejeicao",
-          "rejeitada_em",
-          "createdat",
-          "updatedat",
-          "empresaid",
-        ].join(", ")
-      )
-      .eq("ordemservicoid", osId)
-      .order("createdat", { ascending: false });
-
-    if (error) {
-      console.error("[GET /api/nfe/por-os]", error);
-      return NextResponse.json(
-        {
-          ok: false,
-          message: "Erro ao buscar NF-e vinculadas à OS.",
-          error: error.message,
-        },
-        { status: 500 }
-      );
-    }
+    await requireEmissaoFiscalAccess();
+    const nfes = await listarNotasPorOrigem("OS", [osId]);
 
     return NextResponse.json(
-      {
-        ok: true,
-        osId,
-        nfes: data ?? [],
-      },
-      { status: 200, headers: { "Cache-Control": "no-store" } }
+      { ok: true, osId, nfes },
+      { status: 200, headers: { "Cache-Control": "no-store" } },
     );
   } catch (e: any) {
-    console.error("[GET /api/nfe/por-os] exception", e);
+    const status = e?.statusCode === 403 ? 403 : 500;
+    console.error("[GET /api/nfe/por-os]", e);
     return NextResponse.json(
       {
         ok: false,
-        message: "Erro inesperado ao buscar NF-e da OS.",
+        message:
+          status === 403
+            ? "Você não tem permissão para consultar notas fiscais."
+            : "Erro ao buscar NF-e vinculadas à OS.",
+        error: e?.message ?? String(e),
       },
-      { status: 500 }
+      { status },
     );
   }
 }

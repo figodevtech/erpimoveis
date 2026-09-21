@@ -33,6 +33,11 @@ type ListDfeParams = {
   dateTo?: string;
   status?: string;
   modelo?: string;
+  manifestacao?: string;
+  xmlStatus?: string;
+  entradaStatus?: string;
+  valorMin?: string;
+  valorMax?: string;
 };
 
 type ConsultaChaveParams = {
@@ -112,6 +117,16 @@ function maskCnpj(value: unknown) {
 
 function normalizeText(value: unknown) {
   return String(value ?? "").trim();
+}
+
+function parseMoneyFilter(value: unknown) {
+  const normalized = normalizeText(value)
+    .replace(/\s/g, "")
+    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+    .replace(",", ".");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeNsu(value: unknown) {
@@ -1032,9 +1047,85 @@ function extractIdentificacaoNfe(chave: string, resumo: any) {
   };
 }
 
+type EntradaEstoqueFiscal = {
+  id: number;
+  destino: "ESTOQUE" | "USOCONSUMO" | "GERAL";
+};
+
+function chaveAgrupamentoDocumento(row: any) {
+  return onlyDigits(row.chave_acesso).length === 44
+    ? onlyDigits(row.chave_acesso)
+    : extractChaveAcessoFromXml(row.xml) ?? `id:${row.id}`;
+}
+
+async function buscarEntradasEstoquePorDocumento(documentos: any[], notasDaPagina: ReturnType<typeof mapDocumento>[]) {
+  if (!notasDaPagina.length) return new Map<string, EntradaEstoqueFiscal[]>();
+
+  const chavesDaPagina = new Set(notasDaPagina.map((nota) => nota.chave_acesso));
+  const documentosDaPagina = documentos.filter((documento) =>
+    chavesDaPagina.has(chaveAgrupamentoDocumento(documento)),
+  );
+  const documentoIds = documentosDaPagina.map((documento) => Number(documento.id));
+  if (!documentoIds.length) return new Map<string, EntradaEstoqueFiscal[]>();
+
+  const entradasProduto: any[] = [];
+  const entradasUsoConsumo: any[] = [];
+  const batchSize = 200;
+  for (let index = 0; index < documentoIds.length; index += batchSize) {
+    const batch = documentoIds.slice(index, index + batchSize);
+    const [entradasProdutoResult, entradasUsoConsumoResult] = await Promise.all([
+      supabaseAdmin
+        .from("entrada")
+        .select("id, fiscal_dfe_documento_id")
+        .in("fiscal_dfe_documento_id", batch)
+        .eq("status", "CONFIRMADA"),
+      supabaseAdmin
+        .from("usoconsumo_entrada")
+        .select("id, documento_fiscal_recebido_id, escopo")
+        .in("documento_fiscal_recebido_id", batch)
+        .eq("status", "CONFIRMADA"),
+    ]);
+
+    if (entradasProdutoResult.error) throw entradasProdutoResult.error;
+    if (entradasUsoConsumoResult.error) throw entradasUsoConsumoResult.error;
+    entradasProduto.push(...(entradasProdutoResult.data ?? []));
+    entradasUsoConsumo.push(...(entradasUsoConsumoResult.data ?? []));
+  }
+
+  const chavePorDocumentoId = new Map(
+    documentosDaPagina.map((documento) => [Number(documento.id), chaveAgrupamentoDocumento(documento)]),
+  );
+  const entradasPorChave = new Map<string, EntradaEstoqueFiscal[]>();
+  const adicionar = (documentoId: number, entrada: EntradaEstoqueFiscal) => {
+    const chave = chavePorDocumentoId.get(documentoId);
+    if (!chave) return;
+    const atuais = entradasPorChave.get(chave) ?? [];
+    if (!atuais.some((atual) => atual.id === entrada.id && atual.destino === entrada.destino)) {
+      atuais.push(entrada);
+      entradasPorChave.set(chave, atuais);
+    }
+  };
+
+  for (const entrada of entradasProduto) {
+    adicionar(Number(entrada.fiscal_dfe_documento_id), {
+      id: Number(entrada.id),
+      destino: "ESTOQUE",
+    });
+  }
+  for (const entrada of entradasUsoConsumo) {
+    adicionar(Number(entrada.documento_fiscal_recebido_id), {
+      id: Number(entrada.id),
+      destino: entrada.escopo === "GERAL" ? "GERAL" : "USOCONSUMO",
+    });
+  }
+
+  return entradasPorChave;
+}
+
 function mapDocumento(row: any) {
-  const chaveAcesso = onlyDigits(row.chave_acesso).length === 44
-    ? String(row.chave_acesso)
+  const chaveNormalizada = onlyDigits(row.chave_acesso);
+  const chaveAcesso = chaveNormalizada.length === 44
+    ? chaveNormalizada
     : extractChaveAcessoFromXml(row.xml) ?? String(row.chave_acesso ?? "");
   const statusRaw = String(row.status ?? row.tipo_documento ?? "");
   const xmlStatus = mapXmlStatusDfeRecebida(row);
@@ -1055,6 +1146,7 @@ function mapDocumento(row: any) {
     ordemservicoid: null,
     vendaid: null,
     entradaid: null,
+    saidaid: null,
     clienteid: null,
     fornecedorid: null,
     empresaid: Number(row.empresa_id),
@@ -1082,6 +1174,21 @@ function mapDocumento(row: any) {
         }
       : null,
   };
+}
+
+function matchesDfeAdvancedFilters(nota: ReturnType<typeof mapDocumento>, params: ListDfeParams) {
+  const manifestacao = normalizeText(params.manifestacao).toUpperCase();
+  const xmlStatus = normalizeText(params.xmlStatus).toUpperCase();
+  const valorMin = parseMoneyFilter(params.valorMin);
+  const valorMax = parseMoneyFilter(params.valorMax);
+  const manifestacaoAtual = normalizeText(nota.statusManifestacao).toUpperCase();
+
+  return (
+    (!manifestacao || (manifestacao === "PENDENTE" ? !manifestacaoAtual : manifestacaoAtual === manifestacao))
+    && (!xmlStatus || nota.xmlStatus === xmlStatus)
+    && (valorMin == null || nota.total_nfe >= valorMin)
+    && (valorMax == null || nota.total_nfe <= valorMax)
+  );
 }
 
 function applyDfeRecebidasFilters(query: any, params: ListDfeParams) {
@@ -1216,14 +1323,34 @@ export async function listarDfeRecebidas(params: ListDfeParams = {}) {
 
   const { data, error } = await query;
   if (error) throw error;
-  const mappedRows = ordenarPorDataEmissaoDesc(preferirXmlCompletoPorChave(data ?? []))
+  const documentos = data ?? [];
+  let mappedRows = ordenarPorDataEmissaoDesc(preferirXmlCompletoPorChave(documentos))
     .map(mapDocumento)
-    .filter((nota) => matchesFiscalNoteSearch(nota, params.search));
+    .filter((nota) => matchesFiscalNoteSearch(nota, params.search))
+    .filter((nota) => matchesDfeAdvancedFilters(nota, params));
+
+  const entradaStatus = normalizeText(params.entradaStatus).toUpperCase();
+  const filtraEntrada = ["COM_ENTRADA", "SEM_ENTRADA"].includes(entradaStatus);
+  let entradasPorChave = new Map<string, EntradaEstoqueFiscal[]>();
+  if (filtraEntrada) {
+    entradasPorChave = await buscarEntradasEstoquePorDocumento(documentos, mappedRows);
+    mappedRows = mappedRows.filter((nota) => {
+      const possuiEntrada = (entradasPorChave.get(nota.chave_acesso) ?? []).length > 0;
+      return entradaStatus === "COM_ENTRADA" ? possuiEntrada : !possuiEntrada;
+    });
+  }
+
   const rows = mappedRows.slice(from, from + limit);
+  if (!filtraEntrada) {
+    entradasPorChave = await buscarEntradasEstoquePorDocumento(documentos, rows);
+  }
   const kpiRows = mappedRows;
 
   return {
-    data: rows,
+    data: rows.map((nota) => ({
+      ...nota,
+      entradasEstoque: entradasPorChave.get(nota.chave_acesso) ?? [],
+    })),
     kpis: buildDfeRecebidasKpis(kpiRows),
     pagination: {
       total: mappedRows.length,

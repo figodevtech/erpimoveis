@@ -17,7 +17,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import FiscalCards from "./components/fiscal-cards";
 import FiscalTable from "./components/fiscal-table";
-import type { FiscalKpis, FiscalViewMode, NotaFiscal, Pagination } from "./types";
+import {
+  EMPTY_FISCAL_FILTERS,
+  type FiscalFilters,
+  type FiscalKpis,
+  type FiscalViewMode,
+  type NotaFiscal,
+  type Pagination,
+} from "./types";
 
 const initialPagination: Pagination = {
   total: 0,
@@ -36,15 +43,16 @@ export default function FiscalPage() {
   const [pagination, setPagination] = useState<Pagination>(initialPagination);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingKpis, setIsLoadingKpis] = useState(false);
-  const [search, setSearch] = useState(paramSearch);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [status, setStatus] = useState("");
-  const [modelo, setModelo] = useState("");
+  const [filters, setFilters] = useState<FiscalFilters>(() => ({
+    ...EMPTY_FISCAL_FILTERS,
+    search: paramSearch,
+  }));
   const [viewMode, setViewMode] = useState<FiscalViewMode>(paramViewMode || "EMITIDAS_POR_NOS");
 
   useEffect(() => {
-    if (paramSearch) setSearch(paramSearch);
+    setFilters((current) => current.search === paramSearch
+      ? current
+      : { ...current, search: paramSearch });
     if (paramViewMode) setViewMode(paramViewMode);
   }, [paramSearch, paramViewMode]);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -82,11 +90,17 @@ export default function FiscalPage() {
           params: {
             page,
             limit,
-            search: search || undefined,
-            dateFrom: dateFrom || undefined,
-            dateTo: dateTo || undefined,
-            status: status || undefined,
-            modelo: modelo || undefined,
+            search: filters.search || undefined,
+            dateFrom: filters.dateFrom || undefined,
+            dateTo: filters.dateTo || undefined,
+            status: filters.status || undefined,
+            modelo: filters.modelo || undefined,
+            origem: filters.origem || undefined,
+            manifestacao: filters.manifestacao || undefined,
+            xmlStatus: filters.xmlStatus || undefined,
+            entradaStatus: filters.entradaStatus || undefined,
+            valorMin: filters.valorMin || undefined,
+            valorMax: filters.valorMax || undefined,
             viewMode,
           },
         });
@@ -101,7 +115,7 @@ export default function FiscalPage() {
         setIsLoading(false);
       }
     },
-    [dateFrom, dateTo, modelo, pagination.limit, search, status, viewMode],
+    [filters, pagination.limit, viewMode],
   );
 
   const handleSyncTerceiros = useCallback(async (options?: {
@@ -172,17 +186,9 @@ export default function FiscalPage() {
         notas={notas}
         pagination={pagination}
         isLoading={isLoading}
-        search={search}
-        dateFrom={dateFrom}
-        dateTo={dateTo}
-        status={status}
-        modelo={modelo}
+        filters={filters}
         viewMode={viewMode}
-        setSearch={setSearch}
-        setDateFrom={setDateFrom}
-        setDateTo={setDateTo}
-        setStatus={setStatus}
-        setModelo={setModelo}
+        setFilters={setFilters}
         setViewMode={setViewMode}
         handleGetNotas={handleGetNotas}
         onSyncTerceiros={handleSyncTerceiros}

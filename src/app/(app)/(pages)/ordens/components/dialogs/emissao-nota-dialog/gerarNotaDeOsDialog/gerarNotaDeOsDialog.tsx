@@ -438,6 +438,12 @@ export interface GerarNotaDeOsDialogProps {
    * são reaproveitados.
    */
   nfeId?: number | null;
+  /**
+   * Outras OS/vendas que esta mesma nota deve documentar, alem da ancora.
+   * Vem da selecao multipla das listas de pagamento. Todas precisam ser do
+   * mesmo cliente — o servidor recusa o contrario.
+   */
+  origensAdicionais?: number[];
   onAfterGenerate?: (nfeId: number | null) => void;
 }
 
@@ -450,6 +456,7 @@ export function GerarNotaDeOsDialog({
   saidaId,
   modelo = MODELO_NFE,
   nfeId = null,
+  origensAdicionais,
   onAfterGenerate,
 }: GerarNotaDeOsDialogProps) {
   const corrigindoRejeitada = Boolean(nfeId);
@@ -607,13 +614,58 @@ export function GerarNotaDeOsDialog({
           modelo,
         }),
       );
+      // Emissao agrupada: os itens das demais origens entram na mesma lista.
+      // Cada rota unitaria ja devolve o `sourceItemId` com o id da origem
+      // embutido (`os:12:34`), entao a concatenacao nao colide e o servidor
+      // reconhece cada linha na hora de salvar. As regras de fusao — cliente
+      // unico, observacoes, presenca — continuam sendo aplicadas com
+      // autoridade no servidor.
+      const extras = (origensAdicionais ?? []).filter(
+        (id) => Number.isInteger(id) && id > 0 && id !== originId,
+      );
+      const itensExtras: typeof mapped = [];
+      if (extras.length > 0 && (origin === "OS" || origin === "VENDA")) {
+        const respostas = await Promise.all(
+          extras.map(async (id) => {
+            const rota =
+              origin === "OS"
+                ? `/api/ordens/${id}/produtos-para-nfe?modelo=${modelo}`
+                : `/api/venda/${id}/produtos-para-nfe?modelo=${modelo}`;
+            const resposta = await fetch(rota, { cache: "no-store", signal });
+            const json = (await resposta.json().catch(() => null)) as SourceResponse | null;
+            if (!resposta.ok || !json?.ok) {
+              throw new Error(
+                json?.message ||
+                  `Nao foi possivel carregar os produtos da ${origin === "OS" ? "OS" : "venda"} #${id}.`,
+              );
+            }
+            return json;
+          }),
+        );
+
+        for (const extra of respostas) {
+          for (const item of extra.itens) {
+            itensExtras.push(
+              createAssistedItem(item, fiscalSetup, {
+                tipoOperacao: extra.tipo_operacao ?? "SAIDA",
+                parceiroUf: parceiroUfCfop,
+                indFinal: modelo === MODELO_NFCE || String(indIEDest) === "9" ? 1 : 0,
+                indIEDest,
+                modelo,
+              }),
+            );
+          }
+        }
+      }
+
+      const todosOsItens = [...mapped, ...itensExtras];
       setSetup(fiscalSetup);
       setSource(productsJson);
-      setItems(mapped);
-      setSelectedIds(mapped.map((item) => item.sourceItemId));
+      setItems(todosOsItens);
+      setSelectedIds(todosOsItens.map((item) => item.sourceItemId));
       setEntrySupplier(productsJson.destinatario ?? emptyEntrySupplier);
       const valorFreteOrigem = Math.max(0, Number(productsJson.configuracao_fiscal?.valorFrete ?? 0));
-      const totalFiscalSugerido = mapped.reduce(
+      const totalFiscalSugerido = todosOsItens.reduce(
         (total, item) => total + Math.max(0, item.quantidade * item.valorUnitario - item.valorDesconto),
         valorFreteOrigem,
       );
@@ -1473,6 +1525,10 @@ export function GerarNotaDeOsDialog({
           // Corrigindo uma rejeitada: o servidor atualiza este rascunho em vez
           // de criar outro, preservando número e chave já alocados.
           ...(nfeId ? { nfeId } : {}),
+          // As demais origens do grupo. A âncora é a da rota; o servidor grava
+          // o vínculo de todas e recusa se alguma for de outro cliente ou já
+          // estiver ocupada por outra nota.
+          ...(origensAdicionais?.length ? { origensAdicionais } : {}),
           itens: itensParaGerar.map((item) => toApiItem(item, setup ?? undefined)),
           observacoesFiscais:
             includeObservations && observations.trim()

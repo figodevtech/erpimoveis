@@ -13,6 +13,9 @@ export type NotaFiscalListParams = {
   viewMode?: FiscalViewMode;
   status?: string;
   modelo?: string;
+  origem?: string;
+  valorMin?: string;
+  valorMax?: string;
 };
 
 type PessoaFiscal = {
@@ -40,6 +43,7 @@ export type NotaFiscalListItem = {
   ordemservicoid: number | null;
   vendaid: number | null;
   entradaid: number | null;
+  saidaid: number | null;
   clienteid: number | null;
   fornecedorid: number | null;
   empresaid: number;
@@ -83,6 +87,7 @@ const SELECT_NOTAS = `
   ordemservicoid,
   vendaid,
   entradaid,
+  saidaid,
   clienteid,
   fornecedorid,
   empresaid,
@@ -165,6 +170,35 @@ function normalizeText(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function parseMoneyFilter(value: unknown) {
+  const normalized = normalizeText(value)
+    .replace(/\s/g, "")
+    .replace(/\.(?=\d{3}(?:\D|$))/g, "")
+    .replace(",", ".");
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function matchesAdvancedFilters(nota: NotaFiscalListItem, params: NotaFiscalListParams) {
+  const origem = normalizeText(params.origem).toUpperCase();
+  const valorMin = parseMoneyFilter(params.valorMin);
+  const valorMax = parseMoneyFilter(params.valorMax);
+  const origemNota = nota.ordemservicoid != null
+    ? "OS"
+    : nota.vendaid != null
+      ? "VENDA"
+      : nota.entradaid != null
+        ? "ENTRADA"
+        : nota.saidaid != null
+          ? "SAIDA"
+          : "AVULSA";
+
+  return (!origem || origem === origemNota)
+    && (valorMin == null || nota.total_nfe >= valorMin)
+    && (valorMax == null || nota.total_nfe <= valorMax);
+}
+
 function notaDirecao(row: any): Exclude<FiscalViewMode, "TODAS"> {
   void row;
   return "EMITIDAS_POR_NOS";
@@ -191,6 +225,7 @@ function mapNotaFiscal(row: any): NotaFiscalListItem {
     ordemservicoid: row.ordemservicoid == null ? null : Number(row.ordemservicoid),
     vendaid: row.vendaid == null ? null : Number(row.vendaid),
     entradaid: row.entradaid == null ? null : Number(row.entradaid),
+    saidaid: row.saidaid == null ? null : Number(row.saidaid),
     clienteid: row.clienteid == null ? null : Number(row.clienteid),
     fornecedorid: row.fornecedorid == null ? null : Number(row.fornecedorid),
     empresaid: Number(row.empresaid),
@@ -242,7 +277,9 @@ function applyFilters(query: any, params: NotaFiscalListParams) {
     query = query.lte("dataemissao", endDate);
   }
 
-  if (status) {
+  if (status === "PROCESSANDO") {
+    query = query.in("status", ["ASSINADA", "ENVIADA", "PENDENTE_ENVIO"]);
+  } else if (status) {
     query = query.eq("status", status);
   }
 
@@ -307,6 +344,7 @@ export async function listarNotasEmitidas(params: NotaFiscalListParams) {
     ...nfses.map(mapNfse).filter((nota) => matchesNfseFilters(nota, params)),
   ]
     .filter((nota) => matchesFiscalNoteSearch(nota, params.search))
+    .filter((nota) => matchesAdvancedFilters(nota, params))
     .sort((a, b) => {
       const dateA = new Date(a.dataemissao).getTime() || 0;
       const dateB = new Date(b.dataemissao).getTime() || 0;

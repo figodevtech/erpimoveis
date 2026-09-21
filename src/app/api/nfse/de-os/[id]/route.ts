@@ -29,6 +29,11 @@ type ItemServicoBanco = {
   servicoid: number;
   quantidade: number | string | null;
   precounitario: number | string | null;
+  /**
+   * Valor da linha já com o desconto do item. Na OS âncora quem manda é o
+   * valor que a tela enviou; nas OS agregadas, que entram inteiras, é este.
+   */
+  subtotal?: number | string | null;
   /** Texto livre da linha da OS, que entra na discriminação abaixo do item. */
   descricao?: string | null;
   servico?: {
@@ -103,7 +108,83 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         valor: requisitado.valor,
         descricaoItem: item.descricao,
         servico: item.servico,
+        ordemServicoId: osId,
       });
+    }
+
+    /*
+     * Emissao agrupada: outras OS do MESMO cliente entram na mesma nota.
+     *
+     * Da ancora vem a selecao de servicos que a tela montou; das agregadas
+     * entram todos os servicos, porque o gesto que as trouxe foi marcar a OS
+     * inteira na lista de pagamentos. O tomador e unico — `nfse.clienteid` e
+     * uma coluna so —, entao cliente diferente e erro de emissao, nao algo a
+     * conciliar.
+     */
+    const osIdsAdicionais = [
+      ...new Set(
+        (Array.isArray(body?.osIdsAdicionais) ? body!.osIdsAdicionais : [])
+          .map((valor) => Number(valor))
+          .filter((valor) => Number.isInteger(valor) && valor > 0 && valor !== osId),
+      ),
+    ];
+    const osDoGrupo: any[] = [os];
+
+    if (osIdsAdicionais.length > 0) {
+      const { data: outras, error: outrasError } = await supabaseAdmin
+        .from("ordemservico")
+        .select(`*, cliente (*), osservico (*, servico (*))`)
+        .in("id", osIdsAdicionais);
+
+      if (outrasError) {
+        console.error("[POST /api/nfse/de-os] Erro ao buscar as OS agrupadas", outrasError);
+        return NextResponse.json(
+          { ok: false, message: "Nao foi possivel carregar as OS agrupadas." },
+          { status: 500 },
+        );
+      }
+
+      const encontradas = new Map<number, any>((outras ?? []).map((linha: any) => [Number(linha.id), linha]));
+      for (const idAdicional of osIdsAdicionais) {
+        const outra = encontradas.get(idAdicional);
+        if (!outra) {
+          return NextResponse.json(
+            { ok: false, message: `A OS ${idAdicional} nao foi encontrada.` },
+            { status: 404 },
+          );
+        }
+        if (Number(outra.cliente?.id) !== Number(os.cliente.id)) {
+          return NextResponse.json(
+            {
+              ok: false,
+              message:
+                `A OS ${idAdicional} pertence a outro cliente. ` +
+                "Uma NFS-e tem um unico tomador — emita uma nota para cada cliente.",
+            },
+            { status: 400 },
+          );
+        }
+
+        const servicosDaOutra = (Array.isArray(outra.osservico) ? outra.osservico : []) as ItemServicoBanco[];
+        if (servicosDaOutra.length === 0) {
+          return NextResponse.json(
+            { ok: false, message: `A OS ${idAdicional} nao tem servicos para faturar.` },
+            { status: 400 },
+          );
+        }
+
+        for (const item of servicosDaOutra) {
+          itensSelecionados.push({
+            servicoid: Number(item.servicoid),
+            quantidade: Number(item.quantidade),
+            valor: Number(item.subtotal ?? 0),
+            descricaoItem: item.descricao,
+            servico: item.servico,
+            ordemServicoId: idAdicional,
+          });
+        }
+        osDoGrupo.push(outra);
+      }
     }
 
     const { data: empresa, error: empresaError } = await supabaseAdmin
@@ -175,28 +256,53 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ ok: false, message: validacaoFiscal.message }, { status: 400 });
     }
 
-    const servicoIds = itensSelecionados.map((item) => item.servicoid);
-    const { data: notasAtivas, error: notasAtivasError } = await supabaseAdmin
-      .from("nfse")
-      .select("id, referencia, status")
-      .eq("ordemservicoid", osId)
-      .overlaps("servico_ids", servicoIds)
-      .in("status", STATUS_ATIVOS)
-      .limit(1);
+    const servicoIds = [...new Set(itensSelecionados.map((item) => item.servicoid))];
 
-    if (notasAtivasError) {
-      console.error("[POST /api/nfse/de-os] Erro ao verificar duplicidade", notasAtivasError);
-      return NextResponse.json(
-        { ok: false, message: "Não foi possível validar emissões existentes. Confirme se a migration de NFS-e foi aplicada." },
-        { status: 500 },
-      );
-    }
+    /*
+     * Duplicidade: nenhuma linha de servico do grupo pode estar em outra nota
+     * viva. A checagem roda por OS porque o mesmo `servicoid` pode existir em
+     * duas ordens diferentes, e `servico_ids` sozinho nao distingue as duas.
+     *
+     * Continua sendo leitura seguida de escrita, portanto sujeita a corrida —
+     * a garantia de verdade e o indice unico de nfse_os_servico_vinculo, que
+     * e aplicado mais abaixo, ANTES do envio a Focus. Esta checagem existe
+     * para devolver uma mensagem boa no caso comum.
+     */
+    for (const ordem of osDoGrupo) {
+      const idDaOrdem = Number(ordem.id);
+      const servicosDaOrdem = itensSelecionados
+        .filter((item) => Number(item.ordemServicoId) === idDaOrdem)
+        .map((item) => item.servicoid);
+      if (servicosDaOrdem.length === 0) continue;
 
-    if (notasAtivas?.length) {
-      return NextResponse.json(
-        { ok: false, message: "Um dos serviços selecionados já possui uma NFS-e ativa ou em processamento." },
-        { status: 409 },
-      );
+      const { data: notasAtivas, error: notasAtivasError } = await supabaseAdmin
+        .from("nfse")
+        .select("id, referencia, status")
+        .eq("ordemservicoid", idDaOrdem)
+        .overlaps("servico_ids", servicosDaOrdem)
+        .in("status", STATUS_ATIVOS)
+        .limit(1);
+
+      if (notasAtivasError) {
+        console.error("[POST /api/nfse/de-os] Erro ao verificar duplicidade", notasAtivasError);
+        return NextResponse.json(
+          { ok: false, message: "Não foi possível validar emissões existentes. Confirme se a migration de NFS-e foi aplicada." },
+          { status: 500 },
+        );
+      }
+
+      if (notasAtivas?.length) {
+        return NextResponse.json(
+          {
+            ok: false,
+            message:
+              osDoGrupo.length > 1
+                ? `Um servico da OS ${idDaOrdem} ja possui uma NFS-e ativa ou em processamento.`
+                : "Um dos serviços selecionados já possui uma NFS-e ativa ou em processamento.",
+          },
+          { status: 409 },
+        );
+      }
     }
 
     const nfseService = new NFSeService();
@@ -254,6 +360,38 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
     registroId = Number(registro.id);
+
+    /*
+     * O vinculo vai ANTES do envio, e essa ordem e o ponto inteiro do desenho.
+     *
+     * A NFS-e nao tem rascunho: o que sai daqui para a Focus e irreversivel.
+     * Gravando o vinculo primeiro, uma corrida por um servico ja tomado falha
+     * no indice unico enquanto nada saiu do ERP — resta apagar o registro e
+     * devolver o erro. Se a ordem fosse a inversa, a nota ja estaria emitida
+     * quando o conflito aparecesse.
+     */
+    const { error: vinculoError } = await supabaseAdmin.rpc("vincular_nfse_os", {
+      p_nfse_id: registroId,
+      p_itens: itensSelecionados.map((item) => ({
+        ordemservico_id: Number(item.ordemServicoId ?? osId),
+        servico_id: item.servicoid,
+      })),
+    });
+
+    if (vinculoError) {
+      await supabaseAdmin.from("nfse").delete().eq("id", registroId).eq("status", "PROCESSANDO");
+      registroId = null;
+      console.error("[POST /api/nfse/de-os] Erro ao vincular servicos", vinculoError);
+      return NextResponse.json(
+        {
+          ok: false,
+          message: String(vinculoError.message ?? "").includes("duplicate key")
+            ? "Um dos servicos selecionados foi usado por outra NFS-e durante a emissao. Refaca a selecao."
+            : vinculoError.message || "Nao foi possivel vincular os servicos a NFS-e.",
+        },
+        { status: 409 },
+      );
+    }
 
     const resultado = parametrosNacionais
       ? await nfseService.emitirNacional(parametrosNacionais)

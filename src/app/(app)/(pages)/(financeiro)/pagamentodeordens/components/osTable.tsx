@@ -45,8 +45,20 @@ import { TotalPago } from "../../components/total-pago";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Split } from "lucide-react";
 import TransactionDialog from "../../fluxodecaixa/components/transactionDialog/transactionDialog";
-import { PagamentoMultiploFooter } from "../../components/pagamento-multiplo-footer";
-import type { DocumentoSelecionavel } from "../../components/pagamento-multiplo";
+import { SelecaoMultiplaFooter } from "../../components/selecao-multipla-footer";
+import {
+  clienteUnicoDoPagamento,
+  somarSaldos,
+  type DocumentoSelecionavel,
+} from "../../components/pagamento-multiplo";
+import { useSelecaoMultipla } from "../../components/useSelecaoMultipla";
+import {
+  motivoForaDaEmissaoEmLote,
+  osPodeEmitirNota,
+  podeEntrarNaEmissaoEmLote,
+} from "@/lib/nfe/elegibilidadeEmissao";
+import { useSession } from "next-auth/react";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { calcularResumoFinanceiroOs, podeRegistrarPagamentoOs } from "@/lib/ordens/financeiro";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
@@ -106,12 +118,20 @@ function alvoDoReparo(ordem: Ordem) {
 export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading, search }: OsTableProps) {
   // ID estável para o Select de "itens por página"
   const config = useConfig();
+  const { data: session } = useSession();
+  const podeNotasFiscais = permissionSetHas(
+    (session?.user as { permissoes?: unknown } | undefined)?.permissoes,
+    PERMS.FINANCEIRO_NOTAS_FISCAIS,
+  );
   const statusAberto: StatusOS = config?.habilitar_faturamento_os ? "FATURAMENTO" : "PAGAMENTO";
   const [concluidas, setConcluidas] = useState(false);
   const selectedStatus: StatusOS = concluidas ? "CONCLUIDO" : statusAberto;
   const limitUid = React.useId();
   const [openEmissao, setOpenEmissao] = useState(false);
-  const [emissaoId, setEmissaoId] = useState<number | undefined>(undefined);
+  // A emissão passa a aceitar um grupo: a primeira OS é a âncora (a que vai
+  // para a coluna escalar da nota) e as demais são agregadas. Uma OS só é o
+  // caso de um grupo de tamanho 1.
+  const [emissaoIds, setEmissaoIds] = useState<number[]>([]);
   const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [detalhesId, setDetalhesId] = useState<number | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -123,8 +143,8 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
   const [responsaveis, setResponsaveis] = useState<Array<{ value: string; label: string }>>([]);
   const { options: metodosPagamento } = usePaymentMethodOptions();
   const limitListboxId = `${limitUid}-os-limit-listbox`;
-  const [modoPagamentoMultiplo, setModoPagamentoMultiplo] = useState(false);
-  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
+  const selecao = useSelecaoMultipla(`${selectedStatus}|${pagination.page}`);
+  const { selecionadas } = selecao;
   const [dialogPagamentoAberto, setDialogPagamentoAberto] = useState(false);
   const hasActiveFilters = Boolean(
     filters.cliente.trim() ||
@@ -192,8 +212,18 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
       transacoes: (ordem.transacoes ?? []) as never[],
     }).saldoDisponivelParaLancamento;
 
+  // A elegibilidade depende da ação: pagamento quer saldo em aberto; emissão
+  // quer a OS num status que aceita nota e ainda sem nota emitida.
   const podeSelecionar = (ordem: Ordem) =>
-    podeRegistrarPagamentoOs(ordem.status, config?.habilitar_faturamento_os) && saldoDaOrdem(ordem) > 0;
+    selecao.ehNota
+      ? podeEntrarNaEmissaoEmLote(ordem, config, "OS")
+      : podeRegistrarPagamentoOs(ordem.status, config?.habilitar_faturamento_os) &&
+        saldoDaOrdem(ordem) > 0;
+
+  const motivoNaoSelecionavel = (ordem: Ordem) =>
+    selecao.ehNota
+      ? motivoForaDaEmissaoEmLote(ordem, config, "OS")
+      : "Sem saldo em aberto ou status que não aceita pagamento.";
 
   const documentosSelecionados: DocumentoSelecionavel[] = ordens
     .filter((ordem) => selecionadas.has(ordem.id))
@@ -207,29 +237,18 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
 
   const selecionaveis = ordens.filter(podeSelecionar);
 
-  const alternarSelecao = (id: number) =>
-    setSelecionadas((atual) => {
-      const proximo = new Set(atual);
-      if (proximo.has(id)) proximo.delete(id);
-      else proximo.add(id);
-      return proximo;
-    });
+  // Uma NF-e tem um único destinatário, então a emissão em lote só sai com
+  // tudo do mesmo cliente.
+  const clienteDaEmissao = clienteUnicoDoPagamento(documentosSelecionados);
+  const clientesNaSelecao = new Set(
+    documentosSelecionados
+      .map((documento) => documento.clienteId)
+      .filter((id): id is number => typeof id === "number" && id > 0),
+  ).size;
+  const emissaoBloqueada = documentosSelecionados.length === 0 || clienteDaEmissao === null;
 
-  const sairDoModo = () => {
-    setModoPagamentoMultiplo(false);
-    setSelecionadas(new Set());
-  };
-
-  // Trocar de aba ou de página troca a lista debaixo da seleção; manter ids de
-  // linhas que sumiram da tela faria o rodapé somar o que ninguém está vendo.
-  // Ajuste durante o render, e não em efeito: o efeito só rodaria depois de uma
-  // pintura com a seleção velha, e ainda custaria um render a mais.
-  const chaveDaLista = `${selectedStatus}|${pagination.page}`;
-  const [chaveAnterior, setChaveAnterior] = useState(chaveDaLista);
-  if (chaveAnterior !== chaveDaLista) {
-    setChaveAnterior(chaveDaLista);
-    setSelecionadas(new Set());
-  }
+  const alternarSelecao = (id: number) => selecao.alternar(id);
+  const sairDoModo = () => selecao.sair();
 
   useEffect(() => {
     handleGetOrdens(selectedStatus, 1, pagination.limit, search, filters);
@@ -300,17 +319,27 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
               Minhas OS
             </Button>
             <Button
-              variant={modoPagamentoMultiplo ? "secondary" : "ghost"}
+              variant={selecao.ehPagamento ? "secondary" : "ghost"}
               size="sm"
               className="hover:cursor-pointer"
-              aria-pressed={modoPagamentoMultiplo}
-              onClick={() =>
-                modoPagamentoMultiplo ? sairDoModo() : setModoPagamentoMultiplo(true)
-              }
+              aria-pressed={selecao.ehPagamento}
+              onClick={() => (selecao.ehPagamento ? sairDoModo() : selecao.entrar("PAGAMENTO"))}
             >
               <Split className="h-4 w-4" aria-hidden />
               Pagamento múltiplo
             </Button>
+            {config?.habilitar_emissao_nfe && podeNotasFiscais && (
+              <Button
+                variant={selecao.ehNota ? "secondary" : "ghost"}
+                size="sm"
+                className="hover:cursor-pointer"
+                aria-pressed={selecao.ehNota}
+                onClick={() => (selecao.ehNota ? sairDoModo() : selecao.entrar("NOTA"))}
+              >
+                <FileText className="h-4 w-4" aria-hidden />
+                Emitir nota fiscal
+              </Button>
+            )}
             {hasActiveFilters && (
               <Button
                 variant="ghost"
@@ -435,9 +464,20 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
 
       <CardContent className="min-h-[300px] -mt-[24px] px-4 pb-4 pt-0 relative flex flex-col justify-between">
         <EmissaoNotaDialog
-          onOpenChange={setOpenEmissao}
+          onOpenChange={(aberto) => {
+            setOpenEmissao(aberto);
+            if (!aberto) {
+              setEmissaoIds([]);
+              // Sair do modo depois de emitir evita o usuário voltar para uma
+              // seleção cujas OS já têm nota. A lista é recarregada para o
+              // número da nota aparecer na coluna.
+              if (selecao.ehNota) sairDoModo();
+              handleGetOrdens(selectedStatus, pagination.page, pagination.limit, search, filters);
+            }
+          }}
           open={openEmissao}
-          osId={emissaoId}
+          osId={emissaoIds[0]}
+          osIds={emissaoIds}
         />
         <OSDetalhesDialog
           open={detalhesOpen}
@@ -465,7 +505,7 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
         <Table className="text-xs mt-6">
           <TableHeader>
             <TableRow>
-              {modoPagamentoMultiplo && (
+              {selecao.modo && (
                 <TableHead className="w-10">
                   <Checkbox
                     aria-label="Selecionar todas as ordens elegíveis desta página"
@@ -474,9 +514,9 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                       selecionaveis.every((ordem) => selecionadas.has(ordem.id))
                     }
                     onCheckedChange={(marcado) =>
-                      setSelecionadas(
-                        marcado ? new Set(selecionaveis.map((ordem) => ordem.id)) : new Set(),
-                      )
+                      marcado
+                        ? selecao.marcarTodos(selecionaveis.map((ordem) => ordem.id))
+                        : selecao.limpar()
                     }
                   />
                 </TableHead>
@@ -514,17 +554,13 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
 
                 return (
                   <TableRow key={o.id} className="hover:cursor-pointer">
-                    {modoPagamentoMultiplo && (
+                    {selecao.modo && (
                       <TableCell>
                         <Checkbox
                           aria-label={`Selecionar OS ${o.id}`}
                           checked={selecionadas.has(o.id)}
                           disabled={!podeSelecionar(o)}
-                          title={
-                            podeSelecionar(o)
-                              ? undefined
-                              : "Sem saldo em aberto ou status que não aceita pagamento."
-                          }
+                          title={podeSelecionar(o) ? undefined : motivoNaoSelecionavel(o)}
                           onCheckedChange={() => alternarSelecao(o.id)}
                         />
                       </TableCell>
@@ -617,12 +653,10 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
                             </DropdownMenuItem>
                           </OsFinancialDialog>
                           {
-                            config?.habilitar_emissao_nfe &&
-                            (config?.emissao_nf_ordens_nao_pagas ? o.status === "PAGAMENTO" ||
-                              o.status === "FATURAMENTO" || o.status === "CONCLUIDO" : o.status === "CONCLUIDO") && (
+                            osPodeEmitirNota(o.status, config) && (
                               <DropdownMenuItem
                                 onClick={() => {
-                                  setEmissaoId(o.id);
+                                  setEmissaoIds([o.id]);
                                   setOpenEmissao(true);
                                 }}
                               >
@@ -717,34 +751,98 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
           </div>
         </div>
 
-        {modoPagamentoMultiplo && (
+        {selecao.modo && (
           <>
             {/* Espaçador: sem ele o rodapé fixo cobre a última linha da tabela. */}
             <div aria-hidden className="h-24" />
-            <PagamentoMultiploFooter
-              documentos={documentosSelecionados}
+            <SelecaoMultiplaFooter
+              titulo={selecao.ehNota ? "Emissão de nota em lote" : "Pagamento múltiplo"}
+              selecionados={documentosSelecionados.length}
               totalNaPagina={selecionaveis.length}
+              vazioLabel={
+                selecao.ehNota
+                  ? "Marque as OS que sairão na mesma nota fiscal."
+                  : "Marque os documentos que serão pagos juntos."
+              }
+              resumo={
+                selecao.ehNota ? (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Total a faturar
+                    </p>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {formatarEmReal(
+                        documentosSelecionados.reduce(
+                          (total, documento) =>
+                            total +
+                            (ordens.find((ordem) => ordem.id === documento.id)?.orcamentototal ?? 0),
+                          0,
+                        ),
+                      )}
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Total em aberto
+                    </p>
+                    <p className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {formatarEmReal(somarSaldos(documentosSelecionados))}
+                    </p>
+                  </div>
+                )
+              }
+              aviso={
+                clientesNaSelecao > 1 ? (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    {selecao.ehNota
+                      ? `Seleção com ${clientesNaSelecao} clientes diferentes. Uma NF-e tem um único destinatário — separe a emissão por cliente.`
+                      : `${clientesNaSelecao} clientes diferentes nesta seleção.`}
+                  </p>
+                ) : null
+              }
               processando={false}
               onCancelar={sairDoModo}
-            >
-              <TransactionDialog
-                open={dialogPagamentoAberto}
-                setOpen={setDialogPagamentoAberto}
-                handleGetTransactions={() =>
-                  handleGetOrdens(selectedStatus, pagination.page, pagination.limit, search, filters)
-                }
-                pagamentoMultiplo={{
-                  tipoDocumento: "OS",
-                  documentos: documentosSelecionados,
-                  onConcluido: sairDoModo,
-                }}
-              >
-                <Button size="sm" className="h-9 hover:cursor-pointer">
-                  <Split className="h-4 w-4" aria-hidden />
-                  Registrar pagamento ({documentosSelecionados.length})
-                </Button>
-              </TransactionDialog>
-            </PagamentoMultiploFooter>
+              acoes={
+                selecao.ehNota ? (
+                  <Button
+                    size="sm"
+                    className="h-9 hover:cursor-pointer"
+                    disabled={emissaoBloqueada}
+                    onClick={() => {
+                      setEmissaoIds(documentosSelecionados.map((documento) => documento.id));
+                      setOpenEmissao(true);
+                    }}
+                  >
+                    <FileText className="h-4 w-4" aria-hidden />
+                    Emitir nota ({documentosSelecionados.length})
+                  </Button>
+                ) : documentosSelecionados.length === 0 ? (
+                  <Button size="sm" className="h-9" disabled>
+                    <Split className="h-4 w-4" aria-hidden />
+                    Registrar pagamento
+                  </Button>
+                ) : (
+                  <TransactionDialog
+                    open={dialogPagamentoAberto}
+                    setOpen={setDialogPagamentoAberto}
+                    handleGetTransactions={() =>
+                      handleGetOrdens(selectedStatus, pagination.page, pagination.limit, search, filters)
+                    }
+                    pagamentoMultiplo={{
+                      tipoDocumento: "OS",
+                      documentos: documentosSelecionados,
+                      onConcluido: sairDoModo,
+                    }}
+                  >
+                    <Button size="sm" className="h-9 hover:cursor-pointer">
+                      <Split className="h-4 w-4" aria-hidden />
+                      Registrar pagamento ({documentosSelecionados.length})
+                    </Button>
+                  </TransactionDialog>
+                )
+              }
+            />
           </>
         )}
       </CardContent>

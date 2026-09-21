@@ -21,6 +21,11 @@ export async function GET(req: NextRequest) {
       dateTo: getParam(req, "dateTo"),
       status: getParam(req, "status"),
       modelo: getParam(req, "modelo"),
+      manifestacao: getParam(req, "manifestacao"),
+      xmlStatus: getParam(req, "xmlStatus"),
+      entradaStatus: getParam(req, "entradaStatus"),
+      valorMin: getParam(req, "valorMin"),
+      valorMax: getParam(req, "valorMax"),
     });
 
     return NextResponse.json(data);

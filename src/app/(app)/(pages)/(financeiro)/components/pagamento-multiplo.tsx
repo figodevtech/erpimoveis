@@ -63,12 +63,20 @@ export function somarSaldos(documentos: DocumentoSelecionavel[]) {
  * seria atribuir a alguém um pagamento que não é todo dele.
  */
 export function clienteUnicoDoPagamento(documentos: DocumentoSelecionavel[]) {
+  if (documentos.length === 0) return null;
   const ids = new Set(
     documentos
       .map((documento) => documento.clienteId)
       .filter((id): id is number => typeof id === "number" && id > 0),
   );
-  return ids.size === 1 && ids.size === documentos.length ? [...ids][0] : null;
+  // Um único cliente E nenhum documento sem cliente. Comparar `ids.size` com o
+  // total de documentos — como era antes — dava falso para dois documentos do
+  // mesmo cliente (1 !== 2), e o pagador nunca era proposto fora do caso de um
+  // documento só.
+  const todosIdentificados = ids.size === 1 && documentos.every(
+    (documento) => typeof documento.clienteId === "number" && documento.clienteId > 0,
+  );
+  return todosIdentificados ? [...ids][0] : null;
 }
 
 /** Categoria fixa do pagamento múltiplo: ele sempre quita OS ou venda. */

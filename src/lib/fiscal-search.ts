@@ -12,6 +12,7 @@ type FiscalSearchNote = {
   ordemservicoid?: unknown;
   vendaid?: unknown;
   entradaid?: unknown;
+  saidaid?: unknown;
   nsu?: unknown;
   tipoDocumento?: unknown;
   statusManifestacao?: unknown;
@@ -54,6 +55,7 @@ export function matchesFiscalNoteSearch(note: FiscalSearchNote, query: unknown) 
     note.ordemservicoid,
     note.vendaid,
     note.entradaid,
+    note.saidaid,
     note.nsu,
     note.tipoDocumento,
     note.statusManifestacao,

@@ -61,20 +61,58 @@ async function buscarNotaAtivaDaOrigem(
   tipo: NFeOrigemTipo,
   origemId: number,
   modelo: ModeloDocumentoFiscal,
+  ignorarNfeId?: number | null,
 ) {
-  const { data, error } = await supabaseAdmin
+  type NotaAtiva = { id: number; numero: number; serie: number; status: string };
+
+  const colunas = "id, numero, serie, status";
+
+  // A junção primeiro: é ela que enxerga a origem agregada, que nunca aparece
+  // na coluna escalar da nota. Entrada e NFC-e não têm junção e caem direto no
+  // caminho legado.
+  if (tipo !== "ENTRADA" && modelo !== MODELO_NFCE) {
+    const { data: vinculo, error: vinculoError } = await supabaseAdmin
+      .from("nfe_origem_vinculo")
+      .select("nfe_id")
+      .eq("tipo", tipo)
+      .eq("origem_id", origemId)
+      .eq("modelo", modeloParaDb(modelo))
+      .eq("ativo", true)
+      .order("nfe_id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (vinculoError) throw vinculoError;
+
+    if (vinculo?.nfe_id && Number(vinculo.nfe_id) !== Number(ignorarNfeId ?? 0)) {
+      const { data, error } = await supabaseAdmin
+        .from("nfe")
+        .select(colunas)
+        .eq("id", Number(vinculo.nfe_id))
+        .maybeSingle();
+      if (error) throw error;
+      if (data) return data as NotaAtiva;
+    }
+  }
+
+  // Fallback legado: notas emitidas antes da junção existir só têm a coluna
+  // escalar preenchida.
+  let query = supabaseAdmin
     .from("nfe")
-    .select("id, numero, serie, status")
+    .select(colunas)
     .eq(COLUNA_ORIGEM[tipo], origemId)
     .eq("modelo", modeloParaDb(modelo))
     .eq("is_deleted", false)
-    .in("status", STATUS_OCUPAM_ORIGEM)
+    .in("status", STATUS_OCUPAM_ORIGEM);
+
+  if (ignorarNfeId) query = query.neq("id", Number(ignorarNfeId));
+
+  const { data, error } = await query
     .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (error) throw error;
-  return data as { id: number; numero: number; serie: number; status: string } | null;
+  return data as NotaAtiva | null;
 }
 
 export type NFeOrigemItemInput = NFeAvulsaItemInput & {
@@ -84,6 +122,12 @@ export type NFeOrigemItemInput = NFeAvulsaItemInput & {
 export type NFeOrigemDraftInput = {
   /** Preenchido ao reabrir um rascunho já criado desta origem. */
   nfeId?: number | null;
+  /**
+   * Outras OS/vendas que esta mesma nota documenta, além da âncora que abriu a
+   * emissão. Todas precisam ser do mesmo cliente: a NF-e tem um único
+   * destinatário. Só vale para NF-e 55 de OS ou de venda.
+   */
+  origensAdicionais?: number[];
   itens: NFeOrigemItemInput[];
   observacoesFiscais?: string | null;
   /** Desconto geral confirmado na tela; já chega rateado nos itens. */
@@ -167,6 +211,21 @@ type LoadedSource = {
   transporte: NFeAvulsaDraftInput["transporte"];
   itens: SourceItem[];
 };
+
+/**
+ * Uma das origens que a nota documenta. Guarda o texto fiscal de cada uma
+ * porque, na nota agrupada, observações e garantia precisam ser compostas
+ * origem a origem — não dá para ler só as da âncora.
+ */
+type OrigemDoGrupo = {
+  tipo: NFeOrigemTipo;
+  id: number;
+  observacoesFiscais: string | null;
+  garantia: string | null;
+};
+
+/** `LoadedSource` já resolvido para uma ou mais origens. */
+type LoadedGroup = LoadedSource & { origens: OrigemDoGrupo[] };
 
 function normalizeRelation<T>(value: T | T[] | null): T | null {
   if (!value) return null;
@@ -514,10 +573,174 @@ async function loadEntrada(entradaId: number): Promise<LoadedSource> {
   };
 }
 
-async function loadSource(tipo: NFeOrigemTipo, origemId: number) {
-  if (tipo === "OS") return loadOs(origemId);
-  if (tipo === "VENDA") return loadVenda(origemId);
-  return loadEntrada(origemId);
+async function loadSource(tipo: NFeOrigemTipo, origemId: number): Promise<LoadedGroup> {
+  const source =
+    tipo === "OS"
+      ? await loadOs(origemId)
+      : tipo === "VENDA"
+        ? await loadVenda(origemId)
+        : await loadEntrada(origemId);
+
+  return {
+    ...source,
+    origens: [
+      {
+        tipo,
+        id: origemId,
+        observacoesFiscais: source.observacoesFiscais,
+        garantia: source.garantia,
+      },
+    ],
+  };
+}
+
+/**
+ * Carrega várias origens e funde numa só, para a nota consolidada.
+ *
+ * A fusão tem uma invariante dura e algumas conciliações. A dura é o cliente:
+ * uma NF-e tem um único destinatário e `nfe.clienteid` é NOT NULL, então
+ * origens de clientes diferentes não cabem na mesma nota e o erro é de
+ * emissão, não de conserto automático. As conciliações — presença, frete —
+ * viram aviso, porque têm um valor neutro defensável e a tela deixa corrigir.
+ */
+async function loadSourceGrupo(
+  tipo: NFeOrigemTipo,
+  ids: number[],
+): Promise<
+  | { ok: true; source: LoadedGroup; avisos: string[] }
+  | { ok: false; errors: Array<{ step: string; field?: string; message: string }> }
+> {
+  const fontes: LoadedGroup[] = [];
+  for (const id of ids) {
+    fontes.push(await loadSource(tipo, id));
+  }
+
+  const [principal, ...demais] = fontes;
+  if (demais.length === 0) return { ok: true, source: principal, avisos: [] };
+
+  const rotulo = tipo === "OS" ? "OS" : "venda";
+  const avisos: string[] = [];
+
+  const divergentes = fontes.filter((fonte) => fonte.clienteId !== principal.clienteId);
+  if (divergentes.length > 0) {
+    const detalhe = fontes
+      .map((fonte, index) => `${rotulo} #${ids[index]} (cliente ${fonte.clienteId ?? "sem cadastro"})`)
+      .join(", ");
+    return {
+      ok: false,
+      errors: [{
+        step: "recipient",
+        field: "destinatario",
+        message:
+          `Uma NF-e tem um único destinatário, e a seleção mistura clientes: ${detalhe}. ` +
+          "Emita uma nota para cada cliente.",
+      }],
+    };
+  }
+
+  // Hoje estes três são constantes por tipo de origem. A checagem existe para
+  // que, no dia em que deixarem de ser, a nota não saia com a natureza de uma
+  // origem e os itens de outra.
+  const heterogeneo = fontes.find(
+    (fonte) =>
+      fonte.tipoOperacao !== principal.tipoOperacao ||
+      fonte.naturezaOperacao !== principal.naturezaOperacao ||
+      fonte.finalidade !== principal.finalidade,
+  );
+  if (heterogeneo) {
+    return {
+      ok: false,
+      errors: [{
+        step: "operation",
+        message:
+          `Todas as ${rotulo === "OS" ? "OS" : "vendas"} agrupadas precisam ter a mesma natureza de operação e finalidade.`,
+      }],
+    };
+  }
+
+  // O indicador de presença da venda vem do canal, então duas vendas de canais
+  // diferentes divergem de verdade. "9 — Outros" é o neutro do leiaute, e a
+  // tela mostra o campo para o operador corrigir antes de transmitir.
+  const presencas = [...new Set(fontes.map((fonte) => fonte.indicadorPresenca))];
+  const indicadorPresenca = presencas.length === 1 ? presencas[0] : "9";
+  if (presencas.length > 1) {
+    avisos.push(
+      "As origens selecionadas têm indicadores de presença diferentes. " +
+        'A nota saiu com "9 — Outros"; confira antes de transmitir.',
+    );
+  }
+
+  const itens = fontes.flatMap((fonte) => fonte.itens);
+  const freteTotal = itens.reduce((total, item) => total + Math.max(0, toNumber(item.valorFrete)), 0);
+  const modFretes = [...new Set(fontes.map((fonte) => String(fonte.transporte?.modFrete ?? "9")))];
+  if (modFretes.length > 1) {
+    avisos.push(
+      "Só parte das origens selecionadas tem frete. O frete das que têm foi somado na nota.",
+    );
+  }
+
+  return {
+    ok: true,
+    avisos,
+    source: {
+      ...principal,
+      indicadorPresenca,
+      transporte: { ...principal.transporte, modFrete: freteTotal > 0 ? "0" : "9" },
+      itens,
+      origens: fontes.flatMap((fonte) => fonte.origens),
+    },
+  };
+}
+
+/**
+ * Grava o leque de origens da nota.
+ *
+ * Espelha `vincularResultadoAsSaidas`: o vínculo é gravado DEPOIS do rascunho,
+ * e não na mesma transação. Se o índice da junção recusar — porque outra
+ * emissão levou uma das origens no meio do caminho — o rascunho recém-criado
+ * não pode ficar órfão. Ele ainda não foi transmitido, então apagá-lo é
+ * seguro; um rascunho que já existia antes (reabertura) é preservado.
+ */
+async function vincularResultadoAsOrigens(
+  resultado: Awaited<ReturnType<typeof salvarNFeAvulsaDraft>>,
+  tipo: NFeOrigemTipo,
+  origens: number[],
+  reabrindo: boolean,
+  modelo: ModeloDocumentoFiscal,
+) {
+  if (!resultado.ok) return resultado;
+  // A entrada não entra na junção: ela documenta uma compra, não tem cliente
+  // e nunca é agrupada.
+  if (tipo === "ENTRADA") return resultado;
+  // A NFC-e também fica de fora. Ela nunca é agrupada e o destinatário pode ser
+  // o consumidor que se identificou no caixa, diferente do cliente da venda —
+  // a junção exige que os dois sejam o mesmo e recusaria a emissão.
+  if (modelo === MODELO_NFCE) return resultado;
+
+  const { error } = await supabaseAdmin.rpc("vincular_nfe_origens", {
+    p_nfe_id: resultado.nfeId,
+    p_origens: origens.map((id) => ({ tipo, origem_id: id })),
+  });
+  if (!error) return resultado;
+
+  if (!reabrindo) {
+    await supabaseAdmin
+      .from("nfe")
+      .delete()
+      .eq("id", resultado.nfeId)
+      .eq("status", "RASCUNHO");
+  }
+
+  const rotulo = tipo === "OS" ? "Uma das OS" : "Uma das vendas";
+  return {
+    ok: false as const,
+    errors: [{
+      step: "operation",
+      message: error.message?.includes("duplicate key")
+        ? `${rotulo} foi usada por outra NF-e durante a emissão. Refaça a seleção.`
+        : error.message || `${rotulo} não pôde ser vinculada à NF-e.`,
+    }],
+  };
 }
 
 export async function salvarNFeDeOrigem(
@@ -550,19 +773,47 @@ export async function salvarNFeDeOrigem(
     };
   }
 
+  // A âncora encabeça o grupo: é ela que vai para a coluna escalar da nota e
+  // para `dados_avulsos.origem`, e é ela que a RPC exige que permaneça.
+  const origensAdicionais = [
+    ...new Set(
+      (input.origensAdicionais ?? [])
+        .map((valor) => Number(valor))
+        .filter((valor) => Number.isInteger(valor) && valor > 0 && valor !== origemId),
+    ),
+  ];
+  const origens = [origemId, ...origensAdicionais];
+
+  if (origensAdicionais.length > 0 && (isNfce || tipo === "ENTRADA")) {
+    return {
+      ok: false as const,
+      errors: [{
+        step: "operation",
+        message: isNfce
+          ? "NFC-e documenta uma venda de balcão por vez e não pode agrupar origens."
+          : "Entrada de mercadoria não pode ser agrupada com outras origens.",
+      }],
+    };
+  }
+
   // Idempotência: uma origem não pode ter duas notas do mesmo modelo em curso.
   // Sem isso, o duplo clique em "Emitir" abre dois rascunhos, cada um reserva
   // seu número na transmissão. Uma nota já AUTORIZADA não entra nesta trava:
   // o usuário pode iniciar outra emissão deliberadamente para a mesma origem.
-  if (!input.nfeId) {
-    const emAndamento = await buscarNotaAtivaDaOrigem(tipo, origemId, modelo);
+  //
+  // Vale para todas as origens do grupo, não só para a âncora — uma OS
+  // agregada ocupada bloqueia a emissão inteira.
+  for (const candidata of origens) {
+    const emAndamento = await buscarNotaAtivaDaOrigem(tipo, candidata, modelo, input.nfeId);
     if (emAndamento) {
+      const rotuloOrigem =
+        tipo === "OS" ? "ordem de serviço" : tipo === "VENDA" ? "venda" : "entrada";
       return {
         ok: false as const,
         errors: [{
           step: "operation",
           message:
-            `Esta ${tipo === "OS" ? "ordem de serviço" : tipo === "VENDA" ? "venda" : "entrada"} já tem ` +
+            `A ${rotuloOrigem} #${candidata} já tem ` +
             `${rotuloModelo(modelo)} ${emAndamento.status.toLowerCase()} (nº ${emAndamento.numero}). ` +
             "Cancele ou exclua a nota existente antes de emitir outra.",
         }],
@@ -570,18 +821,38 @@ export async function salvarNFeDeOrigem(
     }
   }
 
-  const source = await loadSource(tipo, origemId);
+  const grupo = await loadSourceGrupo(tipo, origens);
+  if (!grupo.ok) return grupo;
+  const source = grupo.source;
   const fiscalConfig = await buscarFiscalConfig(modelo);
-  const observacoesFiscaisOrigem = comporObservacoesComGarantia({
-    observacoes: source.observacoesFiscais,
-    garantia: source.garantia,
-    incluir:
-      tipo === "OS"
-        ? Boolean(fiscalConfig?.incluir_garantia_os)
-        : tipo === "VENDA"
-          ? Boolean(fiscalConfig?.incluir_garantia_venda)
-          : false,
-  });
+  const incluirGarantia =
+    tipo === "OS"
+      ? Boolean(fiscalConfig?.incluir_garantia_os)
+      : tipo === "VENDA"
+        ? Boolean(fiscalConfig?.incluir_garantia_venda)
+        : false;
+  // Cada origem traz seu texto fiscal e sua garantia. Com uma só, o resultado
+  // é exatamente o de sempre; com várias, cada bloco é rotulado, senão o
+  // destinatário lê observações de três OS emendadas sem saber de qual é qual.
+  const blocosPorOrigem = source.origens.map((origem) =>
+    comporObservacoesComGarantia({
+      observacoes: origem.observacoesFiscais,
+      garantia: origem.garantia,
+      incluir: incluirGarantia,
+    }),
+  );
+  const observacoesFiscaisOrigem =
+    source.origens.length === 1
+      ? blocosPorOrigem[0]
+      : blocosPorOrigem
+          .map((bloco, index) => {
+            const texto = String(bloco ?? "").trim();
+            if (!texto) return "";
+            const origem = source.origens[index];
+            return `${origem.tipo === "OS" ? "OS" : "Venda"} #${origem.id}: ${texto}`;
+          })
+          .filter(Boolean)
+          .join("\n") || null;
   // Na NFC-e quem manda é a tela: o operador decide se o consumidor se
   // identifica. Sem bloco de destinatário na requisição, a nota sai sem
   // consumidor identificado — que é o caso normal do balcão. O cadastro do
@@ -781,7 +1052,7 @@ export async function salvarNFeDeOrigem(
 
   if (errors.length > 0) return { ok: false as const, errors };
 
-  return salvarNFeAvulsaDraft({
+  const resultado = await salvarNFeAvulsaDraft({
     nfeId: input.nfeId ?? null,
     modelo,
     origem: {
@@ -815,4 +1086,17 @@ export async function salvarNFeDeOrigem(
     destinatario,
     itens: itensDaNota,
   });
+
+  // O vínculo é gravado sempre, inclusive na emissão de uma origem só: é o que
+  // faz a leitura e a listagem não precisarem distinguir nota agrupada de nota
+  // simples.
+  const vinculado = await vincularResultadoAsOrigens(
+    resultado,
+    tipo,
+    origens,
+    Boolean(input.nfeId),
+    modelo,
+  );
+  if (!vinculado.ok) return vinculado;
+  return { ...vinculado, avisos: grupo.avisos };
 }

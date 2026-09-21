@@ -44,8 +44,20 @@ import { TotalPago } from "../../components/total-pago";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Split, UserRound } from "lucide-react";
 import TransactionDialog from "../../fluxodecaixa/components/transactionDialog/transactionDialog";
-import { PagamentoMultiploFooter } from "../../components/pagamento-multiplo-footer";
-import type { DocumentoSelecionavel } from "../../components/pagamento-multiplo";
+import { SelecaoMultiplaFooter } from "../../components/selecao-multipla-footer";
+import { useSelecaoMultipla } from "../../components/useSelecaoMultipla";
+import {
+  motivoForaDaEmissaoEmLote,
+  podeEntrarNaEmissaoEmLote,
+  vendaPodeEmitirNota,
+} from "@/lib/nfe/elegibilidadeEmissao";
+import { useSession } from "next-auth/react";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import {
+  clienteUnicoDoPagamento,
+  somarSaldos,
+  type DocumentoSelecionavel,
+} from "../../components/pagamento-multiplo";
 import { calcularResumoFinanceiroOs } from "@/lib/ordens/financeiro";
 import { Label } from "@/components/ui/label";
 
@@ -68,7 +80,9 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
   const [selectedStatus, setSelectedStatus] = useState<vendaStatus>(vendaStatus.PAGAMENTO);
   const [open, setOpen] = useState(false);
   const [openEmissao, setOpenEmissao] = useState(false);
-  const [emissaoId, setEmissaoId] = useState<number | undefined>(undefined);
+  // A emissão aceita um grupo: a primeira venda é a âncora, as demais são
+  // agregadas. Uma venda só é um grupo de tamanho 1.
+  const [emissaoIds, setEmissaoIds] = useState<number[]>([]);
   const [detalhesOpen, setDetalhesOpen] = useState(false);
   const [detalhesId, setDetalhesId] = useState<number | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -80,9 +94,15 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
   const [vendedores, setVendedores] = useState<Array<{ value: string; label: string }>>([]);
   const limitUid = React.useId();
   const limitListboxId = `${limitUid}-os-limit-listbox`;
-  const [modoPagamentoMultiplo, setModoPagamentoMultiplo] = useState(false);
-  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
+  const selecao = useSelecaoMultipla(`${selectedStatus}|${pagination.page}`);
+  const { selecionadas } = selecao;
   const [dialogPagamentoAberto, setDialogPagamentoAberto] = useState(false);
+  const config = useConfig();
+  const { data: session } = useSession();
+  const podeNotasFiscais = permissionSetHas(
+    (session?.user as { permissoes?: unknown } | undefined)?.permissoes,
+    PERMS.FINANCEIRO_NOTAS_FISCAIS,
+  );
   const hasActiveFilters = Boolean(
     filters.cliente.trim() ||
       filters.notaNumero.trim() ||
@@ -142,9 +162,18 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
       transacoes: (venda.transacoes ?? []) as never[],
     }).saldoDisponivelParaLancamento;
 
+  // A elegibilidade depende da ação: pagamento quer saldo em aberto; emissão
+  // quer a venda num status que aceita nota e ainda sem nota emitida.
   const podeSelecionar = (venda: VendaComItens) =>
-    ["PAGAMENTO", "ABERTA"].includes(String(venda.status).toUpperCase()) &&
-    saldoDaVenda(venda) > 0;
+    selecao.ehNota
+      ? podeEntrarNaEmissaoEmLote(venda, config, "VENDA")
+      : ["PAGAMENTO", "ABERTA"].includes(String(venda.status).toUpperCase()) &&
+        saldoDaVenda(venda) > 0;
+
+  const motivoNaoSelecionavel = (venda: VendaComItens) =>
+    selecao.ehNota
+      ? motivoForaDaEmissaoEmLote(venda, config, "VENDA")
+      : "Sem saldo em aberto ou status que não aceita pagamento.";
 
   const documentosSelecionados: DocumentoSelecionavel[] = vendas
     .filter((venda) => selecionadas.has(venda.id))
@@ -158,34 +187,22 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
 
   const selecionaveis = vendas.filter(podeSelecionar);
 
-  const alternarSelecao = (id: number) =>
-    setSelecionadas((atual) => {
-      const proximo = new Set(atual);
-      if (proximo.has(id)) proximo.delete(id);
-      else proximo.add(id);
-      return proximo;
-    });
+  // Uma NF-e tem um único destinatário, então a emissão em lote só sai com
+  // tudo do mesmo cliente.
+  const clienteDaEmissao = clienteUnicoDoPagamento(documentosSelecionados);
+  const clientesNaSelecao = new Set(
+    documentosSelecionados
+      .map((documento) => documento.clienteId)
+      .filter((id): id is number => typeof id === "number" && id > 0),
+  ).size;
+  const emissaoBloqueada = documentosSelecionados.length === 0 || clienteDaEmissao === null;
 
-  const sairDoModo = () => {
-    setModoPagamentoMultiplo(false);
-    setSelecionadas(new Set());
-  };
-
-  // Trocar de aba ou de página troca a lista debaixo da seleção; manter ids de
-  // linhas que sumiram da tela faria o rodapé somar o que ninguém está vendo.
-  // Ajuste durante o render, e não em efeito: o efeito só rodaria depois de uma
-  // pintura com a seleção velha, e ainda custaria um render a mais.
-  const chaveDaLista = `${selectedStatus}|${pagination.page}`;
-  const [chaveAnterior, setChaveAnterior] = useState(chaveDaLista);
-  if (chaveAnterior !== chaveDaLista) {
-    setChaveAnterior(chaveDaLista);
-    setSelecionadas(new Set());
-  }
+  const alternarSelecao = (id: number) => selecao.alternar(id);
+  const sairDoModo = () => selecao.sair();
 
   useEffect(() => {
     handleGetVendas(selectedStatus, 1, pagination.limit, search, filters);
   }, [selectedStatus]);
-  const config = useConfig();
 
   return (
     <Card className="bg-card">
@@ -251,17 +268,27 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
               Minhas vendas
             </Button>
             <Button
-              variant={modoPagamentoMultiplo ? "secondary" : "ghost"}
+              variant={selecao.ehPagamento ? "secondary" : "ghost"}
               size="sm"
               className="hover:cursor-pointer"
-              aria-pressed={modoPagamentoMultiplo}
-              onClick={() =>
-                modoPagamentoMultiplo ? sairDoModo() : setModoPagamentoMultiplo(true)
-              }
+              aria-pressed={selecao.ehPagamento}
+              onClick={() => (selecao.ehPagamento ? sairDoModo() : selecao.entrar("PAGAMENTO"))}
             >
               <Split className="h-4 w-4" aria-hidden />
               Pagamento múltiplo
             </Button>
+            {config?.habilitar_emissao_nfe && podeNotasFiscais && (
+              <Button
+                variant={selecao.ehNota ? "secondary" : "ghost"}
+                size="sm"
+                className="hover:cursor-pointer"
+                aria-pressed={selecao.ehNota}
+                onClick={() => (selecao.ehNota ? sairDoModo() : selecao.entrar("NOTA"))}
+              >
+                <FileText className="h-4 w-4" aria-hidden />
+                Emitir nota fiscal
+              </Button>
+            )}
             {hasActiveFilters && (
               <Button
                 variant="ghost"
@@ -360,9 +387,20 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
           />
         </div>
         <EmissaoNotaDialog
-          onOpenChange={setOpenEmissao}
+          onOpenChange={(aberto) => {
+            setOpenEmissao(aberto);
+            if (!aberto) {
+              setEmissaoIds([]);
+              // Sair do modo depois de emitir evita voltar para uma seleção
+              // cujas vendas já têm nota. A lista recarrega para o número
+              // aparecer na coluna.
+              if (selecao.ehNota) sairDoModo();
+              handleGetVendas(selectedStatus, pagination.page, pagination.limit, search, filters);
+            }
+          }}
           open={openEmissao}
-          vendaId={emissaoId}
+          vendaId={emissaoIds[0]}
+          vendaIds={emissaoIds}
         />
         <VendaDetailsDialog
           open={detalhesOpen}
@@ -378,7 +416,7 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
         <Table className="text-xs mt-6">
           <TableHeader>
             <TableRow className="font-bold">
-              {modoPagamentoMultiplo && (
+              {selecao.modo && (
                 <TableCell className="w-10">
                   <Checkbox
                     aria-label="Selecionar todas as vendas elegíveis desta página"
@@ -387,9 +425,9 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                       selecionaveis.every((venda) => selecionadas.has(venda.id))
                     }
                     onCheckedChange={(marcado) =>
-                      setSelecionadas(
-                        marcado ? new Set(selecionaveis.map((venda) => venda.id)) : new Set(),
-                      )
+                      marcado
+                        ? selecao.marcarTodos(selecionaveis.map((venda) => venda.id))
+                        : selecao.limpar()
                     }
                   />
                 </TableCell>
@@ -422,17 +460,13 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
 
                 return (
                   <TableRow key={v.id} className="hover:cursor-pointer">
-                    {modoPagamentoMultiplo && (
+                    {selecao.modo && (
                       <TableCell>
                         <Checkbox
                           aria-label={`Selecionar venda ${v.id}`}
                           checked={selecionadas.has(v.id)}
                           disabled={!podeSelecionar(v)}
-                          title={
-                            podeSelecionar(v)
-                              ? undefined
-                              : "Sem saldo em aberto ou status que não aceita pagamento."
-                          }
+                          title={podeSelecionar(v) ? undefined : motivoNaoSelecionavel(v)}
                           onCheckedChange={() => alternarSelecao(v.id)}
                         />
                       </TableCell>
@@ -527,12 +561,10 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                             </DropdownMenuItem>
                           </VendasFinancialDialog>
                           {
-                            config?.habilitar_emissao_nfe &&
-                            (config?.emissao_nf_vendas_nao_pagas ? v.status === "PAGAMENTO" ||
-                              v.status === "FINALIZADA" : v.status === "FINALIZADA") && (
+                            vendaPodeEmitirNota(v.status, config) && (
                               <DropdownMenuItem
                                 onClick={() => {
-                                  setEmissaoId(v.id);
+                                  setEmissaoIds([v.id]);
                                   setOpenEmissao(true);
                                 }}
                               >
@@ -626,34 +658,98 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
           </div>
         </div>
 
-        {modoPagamentoMultiplo && (
+        {selecao.modo && (
           <>
             {/* Espaçador: sem ele o rodapé fixo cobre a última linha da tabela. */}
             <div aria-hidden className="h-24" />
-            <PagamentoMultiploFooter
-              documentos={documentosSelecionados}
+            <SelecaoMultiplaFooter
+              titulo={selecao.ehNota ? "Emissão de nota em lote" : "Pagamento múltiplo"}
+              selecionados={documentosSelecionados.length}
               totalNaPagina={selecionaveis.length}
+              vazioLabel={
+                selecao.ehNota
+                  ? "Marque as vendas que sairão na mesma nota fiscal."
+                  : "Marque os documentos que serão pagos juntos."
+              }
+              resumo={
+                selecao.ehNota ? (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Total a faturar
+                    </p>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {formatarEmReal(
+                        documentosSelecionados.reduce(
+                          (total, documento) =>
+                            total +
+                            Number(vendas.find((venda) => venda.id === documento.id)?.valortotal ?? 0),
+                          0,
+                        ),
+                      )}
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Total em aberto
+                    </p>
+                    <p className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {formatarEmReal(somarSaldos(documentosSelecionados))}
+                    </p>
+                  </div>
+                )
+              }
+              aviso={
+                clientesNaSelecao > 1 ? (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    {selecao.ehNota
+                      ? `Seleção com ${clientesNaSelecao} clientes diferentes. Uma NF-e tem um único destinatário — separe a emissão por cliente.`
+                      : `${clientesNaSelecao} clientes diferentes nesta seleção.`}
+                  </p>
+                ) : null
+              }
               processando={false}
               onCancelar={sairDoModo}
-            >
-              <TransactionDialog
-                open={dialogPagamentoAberto}
-                setOpen={setDialogPagamentoAberto}
-                handleGetTransactions={() =>
-                  handleGetVendas(selectedStatus, pagination.page, pagination.limit, search, filters)
-                }
-                pagamentoMultiplo={{
-                  tipoDocumento: "VENDA",
-                  documentos: documentosSelecionados,
-                  onConcluido: sairDoModo,
-                }}
-              >
-                <Button size="sm" className="h-9 hover:cursor-pointer">
-                  <Split className="h-4 w-4" aria-hidden />
-                  Registrar pagamento ({documentosSelecionados.length})
-                </Button>
-              </TransactionDialog>
-            </PagamentoMultiploFooter>
+              acoes={
+                selecao.ehNota ? (
+                  <Button
+                    size="sm"
+                    className="h-9 hover:cursor-pointer"
+                    disabled={emissaoBloqueada}
+                    onClick={() => {
+                      setEmissaoIds(documentosSelecionados.map((documento) => documento.id));
+                      setOpenEmissao(true);
+                    }}
+                  >
+                    <FileText className="h-4 w-4" aria-hidden />
+                    Emitir nota ({documentosSelecionados.length})
+                  </Button>
+                ) : documentosSelecionados.length === 0 ? (
+                  <Button size="sm" className="h-9" disabled>
+                    <Split className="h-4 w-4" aria-hidden />
+                    Registrar pagamento
+                  </Button>
+                ) : (
+                  <TransactionDialog
+                    open={dialogPagamentoAberto}
+                    setOpen={setDialogPagamentoAberto}
+                    handleGetTransactions={() =>
+                      handleGetVendas(selectedStatus, pagination.page, pagination.limit, search, filters)
+                    }
+                    pagamentoMultiplo={{
+                      tipoDocumento: "VENDA",
+                      documentos: documentosSelecionados,
+                      onConcluido: sairDoModo,
+                    }}
+                  >
+                    <Button size="sm" className="h-9 hover:cursor-pointer">
+                      <Split className="h-4 w-4" aria-hidden />
+                      Registrar pagamento ({documentosSelecionados.length})
+                    </Button>
+                  </TransactionDialog>
+                )
+              }
+            />
           </>
         )}
       </CardContent>

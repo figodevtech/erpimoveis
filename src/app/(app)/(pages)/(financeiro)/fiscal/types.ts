@@ -1,9 +1,42 @@
 export type FiscalViewMode = "TODAS" | "EMITIDAS_POR_NOS" | "EMITIDAS_TERCEIROS";
 
+export interface FiscalFilters {
+  search: string;
+  dateFrom: string;
+  dateTo: string;
+  status: string;
+  modelo: string;
+  origem: string;
+  manifestacao: string;
+  xmlStatus: string;
+  entradaStatus: string;
+  valorMin: string;
+  valorMax: string;
+}
+
+export const EMPTY_FISCAL_FILTERS: FiscalFilters = {
+  search: "",
+  dateFrom: "",
+  dateTo: "",
+  status: "",
+  modelo: "",
+  origem: "",
+  manifestacao: "",
+  xmlStatus: "",
+  entradaStatus: "",
+  valorMin: "",
+  valorMax: "",
+};
+
 export interface FiscalPessoa {
   id: number;
   nomerazaosocial: string | null;
   cpfcnpj: string | null;
+}
+
+export interface EntradaEstoqueFiscal {
+  id: number;
+  destino: "ESTOQUE" | "USOCONSUMO" | "GERAL";
 }
 
 export interface NotaFiscal {
@@ -25,6 +58,7 @@ export interface NotaFiscal {
   ordemservicoid: number | null;
   vendaid: number | null;
   entradaid: number | null;
+  saidaid: number | null;
   clienteid: number | null;
   fornecedorid: number | null;
   empresaid: number;
@@ -35,6 +69,7 @@ export interface NotaFiscal {
   statusManifestacao?: string | null;
   xmlStatus?: "XML_COMPLETO" | "AGUARDANDO_XML" | "AGUARDANDO_MANIFESTACAO" | "NAO_AUTORIZADO" | string;
   xmlStatusLabel?: string | null;
+  entradasEstoque?: EntradaEstoqueFiscal[];
   destinatarioOuEmitente: FiscalPessoa | null;
   empresa: {
     id: number;

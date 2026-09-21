@@ -22,6 +22,7 @@ import {
   PackagePlus,
   Pencil,
   RefreshCw,
+  Search,
   Send,
   SlidersHorizontal,
   UploadCloud,
@@ -72,34 +73,89 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
 import { EntradaFiscalDialog } from "@/components/entrada-fiscal/entrada-fiscal-dialog";
 
-import type { FiscalViewMode, NotaFiscal, Pagination } from "../types";
+import {
+  EMPTY_FISCAL_FILTERS,
+  type FiscalFilters,
+  type FiscalViewMode,
+  type NotaFiscal,
+  type Pagination,
+} from "../types";
 
 type FiscalTableProps = {
   notas: NotaFiscal[];
   pagination: Pagination;
   isLoading: boolean;
-  search: string;
-  dateFrom: string;
-  dateTo: string;
-  status: string;
-  modelo: string;
+  filters: FiscalFilters;
   viewMode: FiscalViewMode;
-  setSearch: (value: string) => void;
-  setDateFrom: (value: string) => void;
-  setDateTo: (value: string) => void;
-  setStatus: (value: string) => void;
-  setModelo: (value: string) => void;
+  setFilters: React.Dispatch<React.SetStateAction<FiscalFilters>>;
   setViewMode: (value: FiscalViewMode) => void;
   handleGetNotas: (page?: number, limit?: number) => Promise<void>;
   onSyncTerceiros: () => Promise<void>;
   isSyncing: boolean;
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  RASCUNHO: "Rascunho",
+  PROCESSANDO: "Em processamento",
+  AUTORIZADA: "Autorizada",
+  CANCELADA: "Cancelada",
+  REJEITADA: "Rejeitada",
+  DENEGADA: "Denegada",
+  CONTINGENCIA: "Em contingência",
+  RESULTADO_INCERTO: "Resultado incerto",
+};
+
+const ORIGEM_LABELS: Record<string, string> = {
+  OS: "Ordem de serviço",
+  VENDA: "Venda",
+  ENTRADA: "Entrada de estoque",
+  SAIDA: "Saída de estoque",
+  AVULSA: "Nota avulsa",
+};
+
+const MANIFESTACAO_LABELS: Record<string, string> = {
+  PENDENTE: "Manifestação pendente",
+  CIENCIA: "Ciência da operação",
+  CONFIRMACAO: "Operação confirmada",
+  DESCONHECIMENTO: "Operação desconhecida",
+  OPERACAO_NAO_REALIZADA: "Operação não realizada",
+};
+
+const XML_STATUS_LABELS: Record<string, string> = {
+  XML_COMPLETO: "XML completo",
+  AGUARDANDO_MANIFESTACAO: "Aguardando manifestação",
+  AGUARDANDO_XML: "Aguardando XML",
+  NAO_AUTORIZADO: "XML não autorizado",
+};
+
+function civilDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatFilterDate(value: string) {
+  if (!value) return "";
+  const [year, month, day] = value.split("-");
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
+function periodoRapido(tipo: "HOJE" | "7_DIAS" | "30_DIAS" | "MES_ATUAL") {
+  const today = new Date();
+  const from = new Date(today);
+  if (tipo === "7_DIAS") from.setDate(today.getDate() - 6);
+  if (tipo === "30_DIAS") from.setDate(today.getDate() - 29);
+  if (tipo === "MES_ATUAL") from.setDate(1);
+  return { dateFrom: civilDate(from), dateTo: civilDate(today) };
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -177,21 +233,50 @@ function formatManifestacao(status?: string | null) {
   return labels[value] ?? (value.replace(/_/g, " ") || "-");
 }
 
+function EntradaRealizadaBadge({ nota }: { nota: NotaFiscal }) {
+  const entradas = nota.entradasEstoque ?? [];
+  if (entradas.length === 0) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          tabIndex={0}
+          className="cursor-help border-blue-500/40 bg-blue-500/10 text-blue-700"
+        >
+          Entrada realizada
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={6} className="max-w-[280px] text-left">
+        <p className="mb-1 font-medium">Entradas vinculadas</p>
+        <ul className="space-y-0.5">
+          {entradas.map((entrada) => {
+            const destino = entrada.destino === "ESTOQUE"
+              ? "Estoque"
+              : entrada.destino === "GERAL"
+                ? "Estoque geral"
+                : "Uso/consumo";
+
+            return (
+              <li key={`${entrada.destino}-${entrada.id}`}>
+                {destino}: entrada #{entrada.id}
+              </li>
+            );
+          })}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export default function FiscalTable({
   notas,
   pagination,
   isLoading,
-  search,
-  dateFrom,
-  dateTo,
-  status,
-  modelo,
+  filters,
   viewMode,
-  setSearch,
-  setDateFrom,
-  setDateTo,
-  setStatus,
-  setModelo,
+  setFilters,
   setViewMode,
   handleGetNotas,
   onSyncTerceiros,
@@ -215,6 +300,79 @@ export default function FiscalTable({
   const [notaForcarXml, setNotaForcarXml] = React.useState<NotaFiscal | null>(null);
   const [forcandoXml, setForcandoXml] = React.useState(false);
   const [filtrosAbertos, setFiltrosAbertos] = React.useState(false);
+  const [draftFilters, setDraftFilters] = React.useState<FiscalFilters>(filters);
+
+  const isTerceiros = viewMode === "EMITIDAS_TERCEIROS";
+  const activeFilterCount = [
+    filters.search,
+    filters.dateFrom || filters.dateTo,
+    filters.status,
+    !isTerceiros && filters.modelo,
+    !isTerceiros && filters.origem,
+    isTerceiros && filters.manifestacao,
+    isTerceiros && filters.xmlStatus,
+    isTerceiros && filters.entradaStatus,
+    filters.valorMin || filters.valorMax,
+  ].filter(Boolean).length;
+
+  const activeFilterChips = React.useMemo(() => {
+    const chips: Array<{ key: string; label: string; clear: Partial<FiscalFilters> }> = [];
+    if (filters.dateFrom || filters.dateTo) {
+      const intervalo = filters.dateFrom && filters.dateTo
+        ? `${formatFilterDate(filters.dateFrom)} a ${formatFilterDate(filters.dateTo)}`
+        : filters.dateFrom
+          ? `A partir de ${formatFilterDate(filters.dateFrom)}`
+          : `Até ${formatFilterDate(filters.dateTo)}`;
+      chips.push({ key: "periodo", label: intervalo, clear: { dateFrom: "", dateTo: "" } });
+    }
+    if (filters.status) {
+      chips.push({
+        key: "status",
+        label: STATUS_LABELS[filters.status] ?? filters.status,
+        clear: { status: "" },
+      });
+    }
+    if (!isTerceiros && filters.modelo) {
+      chips.push({
+        key: "modelo",
+        label: ({ NFE: "NF-e", NFCE: "NFC-e", NFSE: "NFS-e" } as Record<string, string>)[filters.modelo] ?? filters.modelo,
+        clear: { modelo: "" },
+      });
+    }
+    if (!isTerceiros && filters.origem) {
+      chips.push({ key: "origem", label: ORIGEM_LABELS[filters.origem] ?? filters.origem, clear: { origem: "" } });
+    }
+    if (isTerceiros && filters.manifestacao) {
+      chips.push({
+        key: "manifestacao",
+        label: MANIFESTACAO_LABELS[filters.manifestacao] ?? filters.manifestacao,
+        clear: { manifestacao: "" },
+      });
+    }
+    if (isTerceiros && filters.xmlStatus) {
+      chips.push({
+        key: "xmlStatus",
+        label: XML_STATUS_LABELS[filters.xmlStatus] ?? filters.xmlStatus,
+        clear: { xmlStatus: "" },
+      });
+    }
+    if (isTerceiros && filters.entradaStatus) {
+      chips.push({
+        key: "entradaStatus",
+        label: filters.entradaStatus === "COM_ENTRADA" ? "Com entrada realizada" : "Sem entrada realizada",
+        clear: { entradaStatus: "" },
+      });
+    }
+    if (filters.valorMin || filters.valorMax) {
+      const label = filters.valorMin && filters.valorMax
+        ? `Valor de ${filters.valorMin} até ${filters.valorMax}`
+        : filters.valorMin
+          ? `Valor mínimo ${filters.valorMin}`
+          : `Valor máximo ${filters.valorMax}`;
+      chips.push({ key: "valor", label, clear: { valorMin: "", valorMax: "" } });
+    }
+    return chips;
+  }, [filters, isTerceiros]);
 
   const title =
     viewMode === "EMITIDAS_POR_NOS"
@@ -521,12 +679,60 @@ export default function FiscalTable({
     }
   }
 
+  function parseValorFiltro(value: string) {
+    const normalized = value.trim().replace(/\s/g, "").replace(/\.(?=\d{3}(?:\D|$))/g, "").replace(",", ".");
+    if (!normalized) return null;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : Number.NaN;
+  }
+
+  function aplicarFiltros() {
+    const min = parseValorFiltro(draftFilters.valorMin);
+    const max = parseValorFiltro(draftFilters.valorMax);
+    if (draftFilters.dateFrom && draftFilters.dateTo && draftFilters.dateFrom > draftFilters.dateTo) {
+      toast.error("A data inicial não pode ser posterior à data final.");
+      return;
+    }
+    if (Number.isNaN(min) || Number.isNaN(max)) {
+      toast.error("Informe valores válidos nos filtros de valor.");
+      return;
+    }
+    if (min != null && max != null && min > max) {
+      toast.error("O valor mínimo não pode ser maior que o valor máximo.");
+      return;
+    }
+
+    setFilters(draftFilters);
+    setFiltrosAbertos(false);
+  }
+
   function limparFiltros() {
-    setSearch("");
-    setDateFrom("");
-    setDateTo("");
-    setStatus("");
-    setModelo("");
+    const empty = { ...EMPTY_FISCAL_FILTERS };
+    setDraftFilters(empty);
+    setFilters(empty);
+  }
+
+  function selecionarModo(nextMode: Exclude<FiscalViewMode, "TODAS">) {
+    setViewMode(nextMode);
+    setFilters((current) => nextMode === "EMITIDAS_TERCEIROS"
+      ? {
+          ...current,
+          status: "",
+          modelo: "",
+          origem: "",
+        }
+      : {
+          ...current,
+          status: "",
+          manifestacao: "",
+          xmlStatus: "",
+          entradaStatus: "",
+        });
+  }
+
+  function onFiltrosOpenChange(open: boolean) {
+    if (open) setDraftFilters(filters);
+    setFiltrosAbertos(open);
   }
 
   return (
@@ -537,6 +743,8 @@ export default function FiscalTable({
           <div className="min-w-0">
             <CardTitle>{title}</CardTitle>
             <CardDescription className="flex items-center gap-2">
+              <span>{pagination.total} {pagination.total === 1 ? "nota" : "notas"}</span>
+              <span aria-hidden="true">·</span>
               <button
                 type="button"
                 onClick={() => handleGetNotas(pagination.page, pagination.limit)}
@@ -552,7 +760,8 @@ export default function FiscalTable({
             <div className="inline-flex h-auto items-center justify-center gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
               <button
                 type="button"
-                onClick={() => setViewMode("EMITIDAS_POR_NOS")}
+                onClick={() => selecionarModo("EMITIDAS_POR_NOS")}
+                aria-pressed={viewMode === "EMITIDAS_POR_NOS"}
                 className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${
                   viewMode === "EMITIDAS_POR_NOS"
                     ? "bg-primary text-primary-foreground shadow-sm"
@@ -563,10 +772,8 @@ export default function FiscalTable({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (modelo === "NFSE") setModelo("");
-                  setViewMode("EMITIDAS_TERCEIROS");
-                }}
+                onClick={() => selecionarModo("EMITIDAS_TERCEIROS")}
+                aria-pressed={viewMode === "EMITIDAS_TERCEIROS"}
                 className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${
                   viewMode === "EMITIDAS_TERCEIROS"
                     ? "bg-primary text-primary-foreground shadow-sm"
@@ -600,51 +807,276 @@ export default function FiscalTable({
                 Emitir NF-e
               </Link>
             </Button>
-            <Sheet open={filtrosAbertos} onOpenChange={setFiltrosAbertos}>
+            <Sheet open={filtrosAbertos} onOpenChange={onFiltrosOpenChange}>
               <SheetTrigger asChild>
                 <Button type="button" variant="outline" size="sm" className="gap-1">
                   <SlidersHorizontal className="h-4 w-4" />
                   Filtros
-                  {[search, dateFrom, dateTo, status, modelo].filter(Boolean).length > 0 ? (
+                  {activeFilterCount > 0 ? (
                     <Badge variant="secondary" className="ml-1 h-5 min-w-5 justify-center px-1 text-[10px]">
-                      {[search, dateFrom, dateTo, status, modelo].filter(Boolean).length}
+                      {activeFilterCount}
                     </Badge>
                   ) : null}
                 </Button>
               </SheetTrigger>
-              <SheetContent className="p-4">
-                <SheetHeader><SheetTitle>Filtros fiscais</SheetTitle></SheetHeader>
-                <div className="grid flex-1 px-4 p-4 bg-card rounded-2xl ">
-                  <div className="space-y-3 ">
-                    <p className="text-xs font-medium text-muted-foreground">Busca</p>
+              <SheetContent className="flex w-full flex-col overflow-y-auto p-4 sm:max-w-md">
+                <SheetHeader>
+                  <SheetTitle>{isTerceiros ? "Filtros de notas de terceiros" : "Filtros de notas próprias"}</SheetTitle>
+                </SheetHeader>
+
+                <div className="flex-1 space-y-5 py-5">
+                  <section className="space-y-3">
+                    <div>
+                      <p className="text-sm font-medium">Período de emissão</p>
+                      <p className="text-xs text-muted-foreground">Use um atalho ou informe as datas.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        ["HOJE", "Hoje"],
+                        ["7_DIAS", "7 dias"],
+                        ["30_DIAS", "30 dias"],
+                        ["MES_ATUAL", "Mês atual"],
+                      ] as const).map(([value, label]) => (
+                        <Button
+                          key={value}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setDraftFilters((current) => ({ ...current, ...periodoRapido(value) }))}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Data inicial</p>
+                        <DatePicker
+                          value={draftFilters.dateFrom}
+                          onChange={(dateFrom) => setDraftFilters((current) => ({ ...current, dateFrom }))}
+                          placeholder="Selecione"
+                          className="min-w-0"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground">Data final</p>
+                        <DatePicker
+                          value={draftFilters.dateTo}
+                          onChange={(dateTo) => setDraftFilters((current) => ({ ...current, dateTo }))}
+                          placeholder="Selecione"
+                          className="min-w-0"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-3 border-t pt-5">
+                    <p className="text-sm font-medium">Documento fiscal</p>
                     <div className="space-y-1">
-                      <p className="text-[11px] text-muted-foreground">Nota, chave, pessoa, documento ou protocolo</p>
-                      <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar informações da nota" className="h-9 w-full" />
+                      <p className="text-xs text-muted-foreground">Status</p>
+                      <Select
+                        value={draftFilters.status || "TODOS"}
+                        onValueChange={(value) => setDraftFilters((current) => ({
+                          ...current,
+                          status: value === "TODOS" ? "" : value,
+                        }))}
+                      >
+                        <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="TODOS">Todos os status</SelectItem>
+                          {!isTerceiros ? <SelectItem value="RASCUNHO">Rascunho</SelectItem> : null}
+                          {!isTerceiros ? <SelectItem value="PROCESSANDO">Em processamento</SelectItem> : null}
+                          <SelectItem value="AUTORIZADA">Autorizada</SelectItem>
+                          <SelectItem value="CANCELADA">Cancelada</SelectItem>
+                          {!isTerceiros ? <SelectItem value="REJEITADA">Rejeitada</SelectItem> : null}
+                          <SelectItem value="DENEGADA">Denegada</SelectItem>
+                          {!isTerceiros ? <SelectItem value="CONTINGENCIA">Em contingência</SelectItem> : null}
+                          {!isTerceiros ? <SelectItem value="RESULTADO_INCERTO">Resultado incerto</SelectItem> : null}
+                        </SelectContent>
+                      </Select>
                     </div>
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-xs font-medium text-muted-foreground">Intervalo de datas</p>
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <div className="flex-1 space-y-1"><p className="text-[11px] text-muted-foreground">Data inicial</p><DatePicker value={dateFrom} onChange={setDateFrom} placeholder="Selecione" className="min-w-0" /></div>
-                      <div className="flex-1 space-y-1"><p className="text-[11px] text-muted-foreground">Data final</p><DatePicker value={dateTo} onChange={setDateTo} placeholder="Selecione" className="min-w-0" /></div>
+
+                    {!isTerceiros ? (
+                      <>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Modelo</p>
+                          <Select
+                            value={draftFilters.modelo || "TODOS"}
+                            onValueChange={(value) => setDraftFilters((current) => ({
+                              ...current,
+                              modelo: value === "TODOS" ? "" : value,
+                            }))}
+                          >
+                            <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="TODOS">Todos os modelos</SelectItem>
+                              <SelectItem value="NFE">NF-e</SelectItem>
+                              <SelectItem value="NFCE">NFC-e</SelectItem>
+                              <SelectItem value="NFSE">NFS-e</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Origem da nota</p>
+                          <Select
+                            value={draftFilters.origem || "TODAS"}
+                            onValueChange={(value) => setDraftFilters((current) => ({
+                              ...current,
+                              origem: value === "TODAS" ? "" : value,
+                            }))}
+                          >
+                            <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="TODAS">Todas as origens</SelectItem>
+                              <SelectItem value="OS">Ordem de serviço</SelectItem>
+                              <SelectItem value="VENDA">Venda</SelectItem>
+                              <SelectItem value="ENTRADA">Entrada de estoque</SelectItem>
+                              <SelectItem value="SAIDA">Saída de estoque</SelectItem>
+                              <SelectItem value="AVULSA">Nota avulsa</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Manifestação do destinatário</p>
+                          <Select
+                            value={draftFilters.manifestacao || "TODAS"}
+                            onValueChange={(value) => setDraftFilters((current) => ({
+                              ...current,
+                              manifestacao: value === "TODAS" ? "" : value,
+                            }))}
+                          >
+                            <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="TODAS">Todas as manifestações</SelectItem>
+                              <SelectItem value="PENDENTE">Pendente</SelectItem>
+                              <SelectItem value="CIENCIA">Ciência da operação</SelectItem>
+                              <SelectItem value="CONFIRMACAO">Operação confirmada</SelectItem>
+                              <SelectItem value="DESCONHECIMENTO">Operação desconhecida</SelectItem>
+                              <SelectItem value="OPERACAO_NAO_REALIZADA">Operação não realizada</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Disponibilidade do XML</p>
+                          <Select
+                            value={draftFilters.xmlStatus || "TODOS"}
+                            onValueChange={(value) => setDraftFilters((current) => ({
+                              ...current,
+                              xmlStatus: value === "TODOS" ? "" : value,
+                            }))}
+                          >
+                            <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="TODOS">Todas as situações</SelectItem>
+                              <SelectItem value="XML_COMPLETO">XML completo</SelectItem>
+                              <SelectItem value="AGUARDANDO_MANIFESTACAO">Aguardando manifestação</SelectItem>
+                              <SelectItem value="AGUARDANDO_XML">Aguardando XML</SelectItem>
+                              <SelectItem value="NAO_AUTORIZADO">Não autorizado</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Entrada de estoque</p>
+                          <Select
+                            value={draftFilters.entradaStatus || "TODAS"}
+                            onValueChange={(value) => setDraftFilters((current) => ({
+                              ...current,
+                              entradaStatus: value === "TODAS" ? "" : value,
+                            }))}
+                          >
+                            <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="TODAS">Todas as notas</SelectItem>
+                              <SelectItem value="COM_ENTRADA">Com entrada realizada</SelectItem>
+                              <SelectItem value="SEM_ENTRADA">Sem entrada realizada</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </>
+                    )}
+                  </section>
+
+                  <section className="space-y-3 border-t pt-5">
+                    <div>
+                      <p className="text-sm font-medium">Faixa de valor</p>
+                      <p className="text-xs text-muted-foreground">Valores totais da nota, em reais.</p>
                     </div>
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-xs font-medium text-muted-foreground">Documento fiscal</p>
-                    <div className="space-y-3">
-                      <div className="space-y-1"><p className="text-[11px] text-muted-foreground">Status</p><Select value={status || "TODOS"} onValueChange={(value) => setStatus(value === "TODOS" ? "" : value)}><SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos status</SelectItem><SelectItem value="RASCUNHO">Rascunho</SelectItem><SelectItem value="AUTORIZADA">Autorizada</SelectItem><SelectItem value="CANCELADA">Cancelada</SelectItem><SelectItem value="REJEITADA">Rejeitada</SelectItem><SelectItem value="DENEGADA">Denegada</SelectItem><SelectItem value="PROCESSANDO">Processando</SelectItem></SelectContent></Select></div>
-                      <div className="space-y-1"><p className="text-[11px] text-muted-foreground">Modelo</p><Select value={modelo || "TODOS"} onValueChange={(value) => setModelo(value === "TODOS" ? "" : value)}><SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todos modelos</SelectItem><SelectItem value="NFE">NF-e</SelectItem><SelectItem value="NFCE">NFC-e</SelectItem>{viewMode !== "EMITIDAS_TERCEIROS" ? <SelectItem value="NFSE">NFS-e</SelectItem> : null}</SelectContent></Select></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Input
+                        value={draftFilters.valorMin}
+                        onChange={(event) => setDraftFilters((current) => ({ ...current, valorMin: event.target.value }))}
+                        inputMode="decimal"
+                        placeholder="Mínimo"
+                        aria-label="Valor mínimo"
+                      />
+                      <Input
+                        value={draftFilters.valorMax}
+                        onChange={(event) => setDraftFilters((current) => ({ ...current, valorMax: event.target.value }))}
+                        inputMode="decimal"
+                        placeholder="Máximo"
+                        aria-label="Valor máximo"
+                      />
                     </div>
-                  </div>
+                  </section>
                 </div>
-                  <div className="mt-2 flex justify-between gap-2">
-                    <Button type="button" variant="outline" onClick={limparFiltros} disabled={!search && !dateFrom && !dateTo && !status && !modelo}><XCircle className="h-4 w-4" />Limpar filtros</Button>
-                    <SheetClose asChild><Button type="button" onClick={() => handleGetNotas(1, pagination.limit)}>Aplicar filtros</Button></SheetClose>
-                  </div>
+
+                <div className="sticky bottom-0 flex justify-between gap-2 border-t bg-background pt-4">
+                  <Button type="button" variant="outline" onClick={limparFiltros}>
+                    <XCircle className="h-4 w-4" />Limpar tudo
+                  </Button>
+                  <Button type="button" onClick={aplicarFiltros}>Aplicar filtros</Button>
+                </div>
               </SheetContent>
             </Sheet>
             
           </div>
+        </div>
+
+        <div className="mt-3 space-y-2">
+          <div className="relative max-w-2xl">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={filters.search}
+              onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
+              placeholder={isTerceiros
+                ? "Buscar por número, chave, fornecedor, CNPJ, protocolo ou NSU"
+                : "Buscar por número, chave, cliente, OS, venda ou protocolo"}
+              className="h-9 pl-9 pr-9"
+              aria-label="Buscar notas fiscais"
+            />
+            {filters.search ? (
+              <button
+                type="button"
+                onClick={() => setFilters((current) => ({ ...current, search: "" }))}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Limpar busca"
+              >
+                <XCircle className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+
+          {activeFilterChips.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5" aria-label="Filtros ativos">
+              <span className="mr-1 text-xs text-muted-foreground">Filtros ativos:</span>
+              {activeFilterChips.map((chip) => (
+                <Badge key={chip.key} variant="secondary" className="gap-1 pr-1">
+                  {chip.label}
+                  <button
+                    type="button"
+                    onClick={() => setFilters((current) => ({ ...current, ...chip.clear }))}
+                    className="rounded-sm p-0.5 hover:bg-background/70"
+                    aria-label={`Remover filtro ${chip.label}`}
+                  >
+                    <XCircle className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          ) : null}
         </div>
 
       </CardHeader>
@@ -679,7 +1111,9 @@ export default function FiscalTable({
             {notas.length === 0 && !isLoading ? (
               <TableRow>
                 <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  Nenhuma nota fiscal encontrada.
+                  {activeFilterCount > 0
+                    ? "Nenhuma nota corresponde aos filtros aplicados."
+                    : "Nenhuma nota fiscal encontrada."}
                 </TableCell>
               </TableRow>
             ) : null}
@@ -738,6 +1172,7 @@ export default function FiscalTable({
                           </span>
                         ) : null}
                         {nota.serie ? <Badge variant="outline">Série {nota.serie}</Badge> : null}
+                        <EntradaRealizadaBadge nota={nota} />
                         {nota.xmlStatusLabel ? (
                           <Badge variant="outline" className={xmlStatusClass(nota.xmlStatus)}>
                             {nota.xmlStatusLabel}
@@ -1111,6 +1546,7 @@ export default function FiscalTable({
         if (!open) setNotaGerarEntrada(null);
       }}
       notaFiscalRecebidaId={notaGerarEntrada?.id}
+      onSaved={() => handleGetNotas(pagination.page, pagination.limit)}
     />
     </>
   );

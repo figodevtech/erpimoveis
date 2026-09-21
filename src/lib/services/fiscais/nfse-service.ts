@@ -75,6 +75,12 @@ export type NFSeItemEmissao = {
   servicoid: number;
   quantidade: number;
   valor: number;
+  /**
+   * A OS de onde esta linha de servico veio. So e preenchido na emissao
+   * agrupada; sozinho, o item pertence a OS ancora e a discriminacao sai
+   * exatamente como sempre saiu.
+   */
+  ordemServicoId?: number | null;
   /** Texto livre da linha da OS (`osservico.descricao`), não o nome do cadastro. */
   descricaoItem?: string | null;
   servico?: {
@@ -402,22 +408,46 @@ export function descricaoComplementarDoItem(
   return complemento;
 }
 
-function montarDiscriminacaoServicos(
+/**
+ * Exportada porque e ela que decide o texto que vai para o documento do
+ * tomador, e porque o limite de caracteres (1.000 no padrao Nacional) e o
+ * gargalo real do agrupamento: e o que decide quantas OS cabem numa nota.
+ */
+export function montarDiscriminacaoServicos(
   osId: number,
   itens: NFSeItemEmissao[],
   informacoesComplementares?: string,
   limiteCaracteres = 2000,
 ) {
   validarItensEmissao(itens);
-  const linhas = itens.flatMap((item, index) => {
+
+  // Uma nota pode cobrir servicos de varias OS. Cada uma ganha seu cabecalho e
+  // a numeracao recomeca dentro dela — sem isso o tomador le uma lista corrida
+  // e nao sabe qual servico veio de qual ordem. Com uma OS so, o resultado e
+  // identico ao de sempre.
+  const grupos = new Map<number, NFSeItemEmissao[]>();
+  for (const item of itens) {
+    const chave = Number(item.ordemServicoId ?? osId);
+    const atuais = grupos.get(chave) ?? [];
+    atuais.push(item);
+    grupos.set(chave, atuais);
+  }
+
+  const linhaDoItem = (item: NFSeItemEmissao, index: number) => {
     const descricao = textoObrigatorio(item.servico?.descricao);
     const quantidade = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 4 }).format(item.quantidade);
     const valor = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(item.valor);
     const complemento = descricaoComplementarDoItem(item.descricaoItem, descricao);
-    const linhaDoItem = `${index + 1}. ${descricao} — ${quantidade} un. — ${valor}`;
-    return complemento ? [linhaDoItem, `   ${complemento}`] : [linhaDoItem];
-  });
-  const blocos = [`OS #${osId}`, ...linhas];
+    const linha = `${index + 1}. ${descricao} — ${quantidade} un. — ${valor}`;
+    return complemento ? [linha, `   ${complemento}`] : [linha];
+  };
+
+  const blocos = [...grupos.entries()]
+    .sort(([a], [b]) => a - b)
+    .flatMap(([ordemId, itensDaOrdem]) => [
+      `OS #${ordemId}`,
+      ...itensDaOrdem.flatMap((item, index) => linhaDoItem(item, index)),
+    ]);
   if (informacoesComplementares) {
     blocos.push(`Informações complementares: ${informacoesComplementares}`);
   }

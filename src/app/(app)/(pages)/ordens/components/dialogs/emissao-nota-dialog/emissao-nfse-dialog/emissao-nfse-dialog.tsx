@@ -50,6 +50,12 @@ type EmissaoNfseDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   osId: number | null;
+  /**
+   * Outras OS do MESMO cliente que esta nota tambem documenta, vindas da
+   * selecao multipla. Delas entram todos os servicos; a selecao fina de
+   * servicos vale para a OS ancora.
+   */
+  osIdsAdicionais?: number[];
   onAfterGenerate?: () => void;
 };
 
@@ -183,7 +189,13 @@ function ServiceListSkeleton() {
   );
 }
 
-export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }: EmissaoNfseDialogProps) {
+export function EmissaoNfseDialog({
+  open,
+  onOpenChange,
+  osId,
+  osIdsAdicionais,
+  onAfterGenerate,
+}: EmissaoNfseDialogProps) {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [servicos, setServicos] = useState<ServicoOS[]>([]);
@@ -358,6 +370,7 @@ export function EmissaoNfseDialog({ open, onOpenChange, osId, onAfterGenerate }:
             osservicoId: servico.servicoid,
             valor: numero(valores[servico.servicoid]),
           })),
+          ...(osIdsAdicionais?.length ? { osIdsAdicionais } : {}),
           codigosFiscais: {
             item_lista_servico: codigosFiscais.itemListaServico,
             codigo_cnae: codigosFiscais.codigoCnae,
