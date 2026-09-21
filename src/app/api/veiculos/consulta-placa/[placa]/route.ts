@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import axios from "axios";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireAuthenticated, requireAny, PERMS } from "@/app/api/_authz/perms";
+import { errorStatus } from "@/lib/empresa-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,18 +9,16 @@ function normalizarPlaca(valor: string) {
   return valor.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
-type LimiteConsultaPlaca = {
-  permitido: boolean;
-  empresa_id: number;
-  limite: number;
-  usadas: number;
-  mes: string;
-};
-
 export async function GET(
   request: Request,
   ctx: { params: Promise<{ placa: string }> }
 ) {
+  try {
+    await requireAuthenticated();
+    await requireAny([PERMS.VEICULOS_CRIAR, PERMS.VEICULOS_EDITAR, PERMS.DESMANCHE_CRIAR, PERMS.DESMANCHE_EDITAR]);
+  } catch (error) {
+    return NextResponse.json({ error: "Acesso não autorizado para consultar placas." }, { status: errorStatus(error, 401) });
+  }
   const { placa } = await ctx.params;
   const placaNormalizada = normalizarPlaca(placa || "");
 
@@ -38,76 +36,31 @@ export async function GET(
     );
   }
 
-  const token = process.env.API_PLACAS_TOKEN;
+  const centralUrl = process.env.PLATFORM_API_URL?.trim().replace(/\/$/, "");
+  const installationId = process.env.PLATFORM_INSTALLATION_ID?.trim();
+  const secret = process.env.PLATFORM_API_SECRET?.trim();
 
-  if (!token) {
+  if (!centralUrl || !installationId || !secret) {
     return NextResponse.json(
-      { error: "Token de API nao configurado" },
+      { error: "Configure a conexao desta instalacao com a Central para consultar placas" },
       { status: 500 }
     );
   }
 
   try {
-    const { data: limiteRaw, error: limiteError } = await supabaseAdmin
-      .rpc("registrar_consulta_placa_empresa", { p_empresa_id: null })
-      .maybeSingle();
-    const limite = limiteRaw as LimiteConsultaPlaca | null;
-
-    if (limiteError) {
-      console.error("Erro ao registrar consulta de placa:", limiteError);
-      return NextResponse.json(
-        { error: "Falha ao verificar limite mensal de consultas de placa" },
-        { status: 500 }
-      );
-    }
-
-    if (!limite) {
-      return NextResponse.json(
-        { error: "Empresa nao configurada para controle de consultas de placa" },
-        { status: 500 }
-      );
-    }
-
-    if (!limite.permitido) {
-      return NextResponse.json(
-        {
-          error: `Limite mensal de consultas de placa atingido (${limite.usadas}/${limite.limite}).`,
-          limiteConsultasPlaca: {
-            limite: limite.limite,
-            usadas: limite.usadas,
-            mes: limite.mes,
-          },
-        },
-        { status: 429 }
-      );
-    }
-
-    const url = `https://wdapi2.com.br/consulta/${placaNormalizada}/${token}`;
-    const response = await axios.get(url);
+    const response = await fetch(`${centralUrl}/api/v1/placas/consulta`, {
+      method: "POST", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(30000),
+      headers: { "Content-Type": "application/json", "X-Installation-Id": installationId, Authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ placa: placaNormalizada, requestId: crypto.randomUUID() }),
+    });
+    const data = await response.json();
+    if (!response.ok) return NextResponse.json({ error: typeof data?.error === "string" ? data.error : "Falha na consulta da Central.", limiteConsultasPlaca: data?.limiteConsultasPlaca }, { status: response.status, headers: { "Cache-Control": "no-store" } });
 
     return NextResponse.json(
-      {
-        ...response.data,
-        limiteConsultasPlaca: {
-          limite: limite.limite,
-          usadas: limite.usadas,
-          mes: limite.mes,
-        },
-      },
-      { status: 200 }
+      data,
+      { status: 200, headers: { "Cache-Control": "no-store" } }
     );
-  } catch (error: any) {
-    console.error("Erro ao consultar API de placas:", error.message);
-    if (axios.isAxiosError(error) && error.response) {
-      return NextResponse.json(
-        { error: error.response.data?.message || "Erro na consulta da placa" },
-        { status: error.response.status }
-      );
-    }
-
-    return NextResponse.json(
-      { error: "Erro interno no servidor" },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: "Nao foi possivel consultar a placa na Central." }, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 }

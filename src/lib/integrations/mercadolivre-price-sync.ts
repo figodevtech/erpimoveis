@@ -18,11 +18,16 @@ export async function getMercadoLivrePriceState(
   accessToken: string,
   itemId: string,
   currentItem?: any,
+  options: { strict?: boolean } = {},
 ): Promise<MercadoLivrePriceState> {
   const encodedItemId = encodeURIComponent(itemId);
+  const handleReadError = (error: unknown) => {
+    if (options.strict) throw error;
+    return null;
+  };
   const [prices, salePrice] = await Promise.all([
-    mercadoLivreApiGet<any>(accessToken, `/items/${encodedItemId}/prices`).catch(() => null),
-    mercadoLivreApiGet<any>(accessToken, `/items/${encodedItemId}/sale_price?context=channel_marketplace`).catch(() => null),
+    mercadoLivreApiGet<any>(accessToken, `/items/${encodedItemId}/prices`).catch(handleReadError),
+    mercadoLivreApiGet<any>(accessToken, `/items/${encodedItemId}/sale_price?context=channel_marketplace`).catch(handleReadError),
   ]);
   const entries = Array.isArray(prices?.prices) ? prices.prices : Array.isArray(prices) ? prices : [];
   const standard = entries.find((entry: any) => String(entry?.type ?? "").toLowerCase() === "standard");

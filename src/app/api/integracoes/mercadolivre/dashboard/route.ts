@@ -36,6 +36,7 @@ export async function GET() {
       { data: syncRuns, error: syncRunsError },
       { data: priceSyncLogs, error: priceSyncLogsError },
       { data: operationalOrders, error: operationalOrdersError },
+      { data: latestJobRuns, error: latestJobRunsError },
     ] =
       await Promise.all([
         accountIds.length
@@ -101,6 +102,7 @@ export async function GET() {
               .order("created_at", { ascending: false })
               .limit(200)
           : Promise.resolve({ data: [], error: null }),
+        supabaseAdmin.rpc("mercadolivre_latest_sync_runs"),
       ]);
 
     if (ordersError) throw ordersError;
@@ -112,6 +114,7 @@ export async function GET() {
     if (syncRunsError) throw syncRunsError;
     if (priceSyncLogsError) throw priceSyncLogsError;
     if (operationalOrdersError) throw operationalOrdersError;
+    if (latestJobRunsError) throw latestJobRunsError;
 
     let sellerProfile = null;
     let shippingAddress = null;
@@ -138,7 +141,7 @@ export async function GET() {
       accounts: accounts ?? [],
       notifications: notifications ?? [],
       stockSync,
-      syncRuns: syncRuns ?? [],
+      syncRuns: latestJobRuns?.length ? latestJobRuns : syncRuns ?? [],
       orders: operationalOrders ?? [],
       listings: listingTotals ?? [],
     });
