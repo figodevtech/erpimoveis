@@ -5,6 +5,7 @@ import {
   competenceFromCivilDate,
   dataCivilDeHoje,
   dataCivilDoInstante,
+  isValidCivilDate,
   endOfCompetence,
   formatEfdDate,
   parseCompetence,
@@ -71,4 +72,16 @@ test("fuso inválido cai no padrão em vez de quebrar a emissão", () => {
 
 test("data civil de hoje tem o formato AAAA-MM-DD", () => {
   assert.match(dataCivilDeHoje(), /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("data com formato certo e calendário errado é recusada", () => {
+  // As rotas fiscais recebem `data` do cliente. Conferir só o formato deixaria
+  // 2026-99-99 passar e recortar vigência por uma data que não existe.
+  assert.equal(isValidCivilDate("2026-99-99"), false);
+  assert.equal(isValidCivilDate("2026-02-30"), false);
+  assert.equal(isValidCivilDate("2026-13-01"), false);
+  assert.equal(isValidCivilDate("2026-00-10"), false);
+  assert.equal(isValidCivilDate("2026-09-22"), true);
+  assert.equal(isValidCivilDate("2024-02-29"), true, "ano bissexto existe");
+  assert.equal(isValidCivilDate("2026-02-29"), false, "2026 não é bissexto");
 });

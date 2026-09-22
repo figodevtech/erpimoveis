@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { PERMS, requireAny } from "@/app/api/_authz/perms";
-import { dataCivilDeHoje } from "@/lib/fiscal-date";
+import { dataCivilDeHoje, isValidCivilDate } from "@/lib/fiscal-date";
 import {
   buscarNcms,
   buscarNcmsPorCodigos,
@@ -29,7 +29,9 @@ export const runtime = "nodejs";
 
 function dataFiscal(valor: unknown): string {
   const texto = String(valor ?? "").trim().slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
+  // `isValidCivilDate` confere o calendário, não só o formato: 2026-99-99 e
+  // 2026-02-30 passam na regex e não existem.
+  if (isValidCivilDate(texto)) return texto;
   // Sem data válida, a de hoje no fuso do emitente — não a do UTC, que depois
   // das 21h já é o dia seguinte e mudaria o recorte de vigência.
   return dataCivilDeHoje();

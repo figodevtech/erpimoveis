@@ -119,6 +119,7 @@ import {
 } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/emissao-assistida-model";
 import { NfeItemIcmsSection } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/nfe-item-icms-section";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
+import { dataCivilDeHoje } from "@/lib/fiscal-date";
 
 type ClienteSetup = {
   id: number;
@@ -1190,6 +1191,12 @@ export default function NFeAvulsaPage() {
   }, [errors]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+
+  // Data fiscal da nota, uma só para a tela inteira. A avulsa é emitida agora,
+  // e o servidor carimba a data na gravação; aqui ela serve para o catálogo de
+  // NCM recortar a vigência pelo mesmo dia que o emitente enxerga — não pelo
+  // dia em UTC, que das 21h à meia-noite já é o seguinte.
+  const dataEmissaoFiscal = React.useMemo(() => dataCivilDeHoje(), []);
 
   // DIFAL: reavalia sempre que emitente, destino, consumidor final ou o
   // indicador de IE mudarem. Preserva o que o usuário já digitou.
@@ -3029,6 +3036,7 @@ export default function NFeAvulsaPage() {
                           <NcmCombobox
                             value={item.ncm}
                             onValueChange={(ncm) => updateItem(index, { ncm })}
+                            dataFiscal={dataEmissaoFiscal}
                           />
                         </div>
                         <div className="md:col-span-2">
