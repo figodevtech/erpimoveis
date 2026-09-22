@@ -598,6 +598,9 @@ export function buildNFePreviewXml(
       }
       return item;
     }
+    // CRT e modelo entram no contexto porque entram na incidência (NA01-20,
+    // exceção 12, e NA01-10). O snapshot do item guarda os dois; omiti-los aqui
+    // faria toda nota recém-resolvida parecer decidida em outro contexto.
     validarDifalCanonicoDoItem(item, {
       ufEmitente: empresaUf,
       ufDestinatario: ufDestino,
@@ -606,6 +609,8 @@ export function buildNFePreviewXml(
       tpNF: ide.tpNF ?? 1,
       finNFe: ide.finNFe,
       ufEntrega: options?.entrega?.endereco?.uf,
+      crt,
+      modelo,
     });
     return item;
   });

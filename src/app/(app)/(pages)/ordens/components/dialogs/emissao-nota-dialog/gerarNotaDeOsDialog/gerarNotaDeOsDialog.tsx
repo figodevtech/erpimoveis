@@ -100,6 +100,7 @@ import {
   aplicarCamposFiscais,
   aplicarSugestaoDifal,
   createAssistedItem,
+  resolverDifalDosItens,
   type AssistedFiscalItem,
   type AssistedItemIssue,
   type DifalContexto,
@@ -517,6 +518,10 @@ export function GerarNotaDeOsDialog({
       // regra estrutural: não contribuinte é sempre consumidor final.
       indFinal: indFinalEscolhido ?? (String(indIEDest) === "9" ? 1 : 0),
       indIEDest,
+      // CRT e modelo entram na incidência: a NA01-20 dispensa o grupo para
+      // Simples Nacional e MEI (exceção 12) e a NA01-10 o proíbe na NFC-e.
+      crt: setup?.empresa?.crt ?? null,
+      modelo,
     } satisfies DifalContexto;
   }, [
     isNfce,
@@ -525,6 +530,8 @@ export function GerarNotaDeOsDialog({
     source?.cliente,
     source?.tipo_operacao,
     indFinalEscolhido,
+    setup?.empresa?.crt,
+    modelo,
   ]);
 
   useEffect(() => {
@@ -606,15 +613,8 @@ export function GerarNotaDeOsDialog({
       const parceiro = productsJson.fornecedor ?? productsJson.cliente;
       const parceiroUfCfop = modelo === MODELO_NFCE ? fiscalSetup.empresa?.uf : parceiro?.uf;
       const indIEDest = indicadorDoCliente(productsJson.cliente);
-      const mapped = productsJson.itens.map((item) =>
-        createAssistedItem(item, fiscalSetup, {
-          tipoOperacao: productsJson.tipo_operacao ?? "SAIDA",
-          parceiroUf: parceiroUfCfop,
-          indFinal: modelo === MODELO_NFCE || String(indIEDest) === "9" ? 1 : 0,
-          indIEDest,
-          modelo,
-        }),
-      );
+      const indFinal = modelo === MODELO_NFCE || String(indIEDest) === "9" ? 1 : 0;
+
       // Emissao agrupada: os itens das demais origens entram na mesma lista.
       // Cada rota unitaria ja devolve o `sourceItemId` com o id da origem
       // embutido (`os:12:34`), entao a concatenacao nao colide e o servidor
@@ -624,42 +624,58 @@ export function GerarNotaDeOsDialog({
       const extras = (origensAdicionais ?? []).filter(
         (id) => Number.isInteger(id) && id > 0 && id !== originId,
       );
-      const itensExtras: typeof mapped = [];
-      if (extras.length > 0 && (origin === "OS" || origin === "VENDA")) {
-        const respostas = await Promise.all(
-          extras.map(async (id) => {
-            const rota =
-              origin === "OS"
-                ? `/api/ordens/${id}/produtos-para-nfe?modelo=${modelo}`
-                : `/api/venda/${id}/produtos-para-nfe?modelo=${modelo}`;
-            const resposta = await fetch(rota, { cache: "no-store", signal });
-            const json = (await resposta.json().catch(() => null)) as SourceResponse | null;
-            if (!resposta.ok || !json?.ok) {
-              throw new Error(
-                json?.message ||
-                  `Nao foi possivel carregar os produtos da ${origin === "OS" ? "OS" : "venda"} #${id}.`,
-              );
-            }
-            return json;
-          }),
-        );
-
-        for (const extra of respostas) {
-          for (const item of extra.itens) {
-            itensExtras.push(
-              createAssistedItem(item, fiscalSetup, {
-                tipoOperacao: extra.tipo_operacao ?? "SAIDA",
-                parceiroUf: parceiroUfCfop,
-                indFinal: modelo === MODELO_NFCE || String(indIEDest) === "9" ? 1 : 0,
-                indIEDest,
-                modelo,
+      const respostasExtras =
+        extras.length > 0 && (origin === "OS" || origin === "VENDA")
+          ? await Promise.all(
+              extras.map(async (id) => {
+                const rota =
+                  origin === "OS"
+                    ? `/api/ordens/${id}/produtos-para-nfe?modelo=${modelo}`
+                    : `/api/venda/${id}/produtos-para-nfe?modelo=${modelo}`;
+                const resposta = await fetch(rota, { cache: "no-store", signal });
+                const json = (await resposta.json().catch(() => null)) as SourceResponse | null;
+                if (!resposta.ok || !json?.ok) {
+                  throw new Error(
+                    json?.message ||
+                      `Nao foi possivel carregar os produtos da ${origin === "OS" ? "OS" : "venda"} #${id}.`,
+                  );
+                }
+                return json;
               }),
-            );
-          }
-        }
-      }
+            )
+          : [];
 
-      const todosOsItens = [...mapped, ...itensExtras];
+      // Todos os itens da nota, de todas as origens, antes de qualquer montagem:
+      // o DIFAL é resolvido de uma vez só, para a tela já abrir preenchida.
+      const origensDosItens = [
+        { tipoOperacao: productsJson.tipo_operacao ?? "SAIDA", itens: productsJson.itens },
+        ...respostasExtras.map((extra) => ({
+          tipoOperacao: extra.tipo_operacao ?? "SAIDA",
+          itens: extra.itens,
+        })),
+      ];
+
+      const resolucoesDifal = await resolverDifalDosItens({
+        modelo,
+        ufDestino: parceiroUfCfop,
+        indFinal,
+        indIEDest,
+        itens: origensDosItens.flatMap((origemItens) => origemItens.itens),
+        signal,
+      });
+
+      const todosOsItens = origensDosItens.flatMap((origemItens) =>
+        origemItens.itens.map((item) =>
+          createAssistedItem(item, fiscalSetup, {
+            tipoOperacao: origemItens.tipoOperacao,
+            parceiroUf: parceiroUfCfop,
+            indFinal,
+            indIEDest,
+            modelo,
+            resolucaoDifal: resolucoesDifal.get(item.sourceItemId) ?? null,
+          }),
+        ),
+      );
       setSetup(fiscalSetup);
       setSource(productsJson);
       setItems(todosOsItens);
@@ -723,7 +739,7 @@ export function GerarNotaDeOsDialog({
               operacaoGravada?.exigeDocumentoReferenciado,
           ),
           chaveAcessoReferenciada: contexto?.chave_acesso_referenciada ?? "",
-          itens: mapped.map((item) => {
+          itens: todosOsItens.map((item) => {
             // `sourceItemId` é "saida:{saidaId}:{itemId}" — o último segmento é
             // a linha da saída, que é a chave do contexto fiscal.
             const saidaItemId = Number(item.sourceItemId.split(":").at(-1));

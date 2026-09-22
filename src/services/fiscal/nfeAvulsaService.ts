@@ -1,4 +1,6 @@
 import { issuesDifalDoItem, resolverDifalDoItem } from "@/lib/nfe/difal";
+import type { RegraDifal } from "@/lib/nfe/difalRegras";
+import { carregarRegrasDifalPorUf } from "@/services/fiscal/difal/repositorioDifal";
 import { resolverRtcDoItem, issuesBaseIbsCbs } from "@/lib/nfe/baseIbsCbs";
 import { validarPoliticaStRetida } from "@/lib/nfe/icms/politicaStRetida";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -520,6 +522,13 @@ export function prepararItemFiscal(
       finNFe?: number;
       ufEntrega?: string | null;
     } | null;
+    /**
+     * Regras de DIFAL da UF de destino, já carregadas pelo chamador. Vêm de
+     * fora porque esta função é síncrona e porque uma nota inteira compartilha
+     * a mesma carga — nenhum item vai ao banco por conta própria.
+     */
+    regrasDifal?: RegraDifal[];
+    modelo?: ModeloDocumentoFiscal;
   } = {},
 ): ItemFiscalPreparado {
   let nfeItem = mapInputToTaxItem(item, index);
@@ -554,15 +563,22 @@ export function prepararItemFiscal(
     if (resultado.valores.csosn) nfeItem.csosn = resultado.valores.csosn;
   }
   if (contexto.difal && contexto.ufEmitente && contexto.ufDestino) {
-    nfeItem = resolverDifalDoItem(nfeItem, {
-      ufEmitente: contexto.ufEmitente,
-      ufDestinatario: contexto.ufDestino,
-      indFinal: contexto.indFinal ?? 0,
-      indIEDest: contexto.difal.indIEDest,
-      tpNF: contexto.difal.tpNF,
-      finNFe: contexto.difal.finNFe,
-      ufEntrega: contexto.difal.ufEntrega,
-    });
+    nfeItem = resolverDifalDoItem(
+      nfeItem,
+      {
+        ufEmitente: contexto.ufEmitente,
+        ufDestinatario: contexto.ufDestino,
+        indFinal: contexto.indFinal ?? 0,
+        indIEDest: contexto.difal.indIEDest,
+        tpNF: contexto.difal.tpNF,
+        finNFe: contexto.difal.finNFe,
+        ufEntrega: contexto.difal.ufEntrega,
+        crt,
+        modelo: contexto.modelo,
+        dataEmissao: contexto.dataEmissao,
+      },
+      { regras: contexto.regrasDifal },
+    );
     resultado.issues.push(...issuesDifalDoItem(nfeItem));
   }
   resolverRtcDoItem(nfeItem, contexto, {
@@ -1753,11 +1769,17 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
 
   // `validarDraftAvulso` já barrou frete sem decisão; aqui ela só é aplicada.
   const freteNaBase = decisaoFreteDoDraft(input);
+  // Uma carga de regras para a nota inteira. Fora do caminho da NFC-e, que não
+  // tem ICMSUFDest, e de qualquer emissão sem UF de destino.
+  const regrasDifal = !isNfce && destinatarioUf
+    ? await carregarRegrasDifalPorUf(destinatarioUf)
+    : [];
   const preparados = input.itens.map((item, index) =>
     prepararItemFiscal(item, index, crt, {
       freteIntegraBaseIcms: freteNaBase.integra, modFrete: freteNaBase.modFrete,
       ufEmitente: empresaUf, ufDestino: destinatarioUf,
       indFinal: resolverIndFinalDaOperacao(input), dataEmissao: issueDate.toISOString(),
+      regrasDifal, modelo: isNfce ? MODELO_NFCE : MODELO_NFE,
       // NFC-e é operação interna: nunca gera ICMSUFDest.
       difal: isNfce ? null : {
         indIEDest: input.destinatario.indicadorIe ?? '9',

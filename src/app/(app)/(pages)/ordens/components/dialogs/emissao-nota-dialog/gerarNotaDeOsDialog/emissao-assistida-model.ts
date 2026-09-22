@@ -25,7 +25,7 @@ import {
   type CfopResolution,
   type NFeOperationDirection,
 } from "@/lib/nfe/cfopOperation";
-import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
+import { MODELO_NFCE, MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
@@ -41,6 +41,47 @@ import {
   type ResultadoIcms,
   type TratamentoIcms,
 } from "@/lib/nfe/icms";
+
+/**
+ * Resposta de `POST /api/fiscal/difal/resolver` para um item. Espelha
+ * `SaidaResolucaoDifal` do servidor; a tela não recalcula nada a partir dela,
+ * só preenche e explica.
+ */
+export type ResolucaoDifalTela = {
+  exigeDifal: boolean;
+  aliquotaInterna: number | null;
+  aliquotaInterestadual: number | null;
+  aliquotaFcp: number | null;
+  percentualPartilha: number | null;
+  reducaoBase: number | null;
+  origemAliquotaInterna: string;
+  origemFcp: string;
+  regraAliquotaInterna: RegraResolvidaTela | null;
+  regraFcp: RegraResolvidaTela | null;
+  conflitos: Array<{ campo: string; regras: Array<{ id: number; descricao: string; valor: number }> }>;
+  pendencias: string[];
+  resolvidoAutomaticamente: boolean;
+};
+
+export type RegraResolvidaTela = {
+  valor: number;
+  origem: string;
+  regraId: number;
+  regraDescricao: string;
+  vigenciaInicio: string;
+  vigenciaFim: string | null;
+  fonte: string;
+  fonteUrl: string | null;
+  fundamentoLegal: string | null;
+  dataFonte: string | null;
+};
+
+export type DifalCampoManual =
+  | "aliquotaInterna"
+  | "aliquotaFcp"
+  | "aliquotaInterestadual"
+  | "percentualPartilha"
+  | "baseFcp";
 
 export type FiscalSetup = {
   empresa: {
@@ -205,6 +246,18 @@ export type AssistedFiscalItem = {
   difalPercentualPartilha: string;
   difalBaseFcp: string;
   /**
+   * O que o motor fiscal resolveu para este item, com a regra, a vigência e a
+   * fonte de cada campo. É o que a tela mostra como "determinado
+   * automaticamente" e o que explica um bloqueio sem o usuário adivinhar.
+   */
+  difalResolucao: ResolucaoDifalTela | null;
+  /**
+   * Campos do DIFAL que o usuário editou por cima do valor resolvido. Depois de
+   * editar, o campo deixa de ser apresentado como automático e a proveniência
+   * gravada na nota passa a ser MANUAL.
+   */
+  difalCamposManuais: DifalCampoManual[];
+  /**
    * Procedência de cada campo fiscal como o servidor a montou, chaveada pelo
    * nome de coluna (`csosn`, `cst_pis`, …). Serve só para a tela avisar o que
    * veio do padrão de Configurações e o que veio do cadastro do produto — não
@@ -264,6 +317,92 @@ function optionalDecimal(value: unknown) {
     : parseDecimal(value);
 }
 
+/**
+ * Número resolvido para o texto do input. Zero vira "0", não "" — é a diferença
+ * entre "a regra diz que não há FCP" e "ninguém informou o FCP", e ela tem de
+ * sobreviver à ida para a tela.
+ */
+function textoDeDecimal(valor: number | null | undefined): string {
+  return valor === null || valor === undefined || !Number.isFinite(valor) ? "" : String(valor);
+}
+
+/**
+ * Pede ao motor fiscal a resolução do DIFAL dos itens antes de a tela montá-los.
+ *
+ * Roda no carregamento, não na geração do rascunho: o requisito é o operador
+ * encontrar o bloco de DIFAL já preenchido. A UF do emitente e o CRT ficam no
+ * servidor; daqui vai só o que descreve a mercadoria e o destino.
+ *
+ * Falha de rede não inventa alíquota: devolve mapa vazio, os campos nascem
+ * vazios e o bloqueio de sempre segura a emissão.
+ */
+export async function resolverDifalDosItens(params: {
+  modelo: ModeloDocumentoFiscal;
+  ufDestino?: string | null;
+  indFinal: number | string;
+  indIEDest: number | string;
+  itens: SourceProduct[];
+  dataEmissao?: string;
+  signal?: AbortSignal;
+}): Promise<Map<string, ResolucaoDifalTela>> {
+  const vazio = new Map<string, ResolucaoDifalTela>();
+  // NFC-e é operação interna e não leva ICMSUFDest (NA01-10).
+  if (params.modelo === MODELO_NFCE) return vazio;
+  if (!params.ufDestino || params.itens.length === 0) return vazio;
+
+  try {
+    const resposta = await fetch("/api/fiscal/difal/resolver", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: params.signal,
+      body: JSON.stringify({
+        ufDestino: params.ufDestino,
+        dataEmissao: params.dataEmissao ?? new Date().toISOString().slice(0, 10),
+        modelo: params.modelo,
+        indFinal: params.indFinal,
+        indIEDest: params.indIEDest,
+        tpNF: 1,
+        itens: params.itens.map((item) => ({
+          id: item.sourceItemId,
+          ncm: item.ncm,
+          cest: item.cest,
+          origemMercadoria: item.origem_mercadoria,
+          cfop: item.cfop,
+          cst: item.cst,
+          csosn: item.csosn,
+        })),
+      }),
+    });
+
+    const json = (await resposta.json().catch(() => null)) as
+      | { ok?: boolean; resolucoes?: Record<string, ResolucaoDifalTela> }
+      | null;
+    if (!resposta.ok || !json?.ok || !json.resolucoes) return vazio;
+
+    return new Map(Object.entries(json.resolucoes));
+  } catch {
+    return vazio;
+  }
+}
+
+/** Lista de campos editados à mão vira o formato que o item fiscal grava. */
+export function overrideDifalDaTela(campos: DifalCampoManual[] | undefined) {
+  if (!campos?.length) return undefined;
+  const marcado: Record<string, boolean> = {};
+  for (const campo of campos) marcado[campo] = true;
+  return marcado as NFeItem["overrideDifalManual"];
+}
+
+/** Marca um campo como editado à mão, sem duplicar. */
+export function marcarDifalManual(
+  atuais: DifalCampoManual[] | undefined,
+  campo: DifalCampoManual,
+): DifalCampoManual[] {
+  const lista = atuais ?? [];
+  return lista.includes(campo) ? lista : [...lista, campo];
+}
+
 export function inferPisCofinsMode(
   cst: unknown,
   rate?: unknown,
@@ -285,9 +424,12 @@ export function createAssistedItem(
     indFinal?: number | string;
     indIEDest?: number | string;
     modelo?: ModeloDocumentoFiscal;
+    /** Resolução do motor fiscal para este item, vinda do servidor. */
+    resolucaoDifal?: ResolucaoDifalTela | null;
   },
 ): AssistedFiscalItem {
   const crt = Number(setup.empresa?.crt ?? 0);
+  const resolucao = context?.resolucaoDifal ?? null;
 
   // Sugestão de DIFAL: só liga quando a operação realmente exige o grupo.
   // Os valores abaixo são ponto de partida — o usuário confirma ou corrige.
@@ -305,17 +447,23 @@ export function createAssistedItem(
     emitterUf: setup.empresa?.uf,
     partnerUf: context?.parceiroUf,
   });
-  const exigeDifal =
-    tipoOperacao === "SAIDA" &&
-    Boolean(ufEmitente && ufDestino) &&
-    deveGerarICMSUFDest({
-      ufEmitente,
-      ufDestinatario: ufDestino,
-      indFinal: context?.indFinal ?? 1,
-      indIEDest: context?.indIEDest ?? 9,
-      tpNF: 1,
-      cfop: cfopResolution.cfop,
-    });
+  // Quem decide a incidência é o servidor, que conhece o CRT do emitente — a
+  // NA01-20 dispensa o grupo para Simples Nacional e MEI. Sem resolução (rede
+  // fora, item recriado offline), a tela repete a mesma regra com o que tem.
+  const exigeDifal = resolucao
+    ? resolucao.exigeDifal
+    : tipoOperacao === "SAIDA" &&
+      Boolean(ufEmitente && ufDestino) &&
+      deveGerarICMSUFDest({
+        ufEmitente,
+        ufDestinatario: ufDestino,
+        indFinal: context?.indFinal ?? 1,
+        indIEDest: context?.indIEDest ?? 9,
+        tpNF: 1,
+        cfop: cfopResolution.cfop,
+        crt: setup.empresa?.crt,
+        modelo,
+      });
   const modoPis = source.modo_pis || inferPisCofinsMode(source.cst_pis, source.aliquota_pis);
   const modoCofins =
     source.modo_cofins || inferPisCofinsMode(source.cst_cofins, source.aliquota_cofins);
@@ -402,17 +550,28 @@ export function createAssistedItem(
     aliquotaCbs: source.aliquota_cbs == null ? "" : String(source.aliquota_cbs),
     valorCbs: "",
     difalHabilitado: exigeDifal,
-    // Interna vem da tabela de referência; vazia se a UF não estiver mapeada,
-    // para o usuário pesquisar e preencher em vez de emitir com valor errado.
-    difalAliquotaInterna: "",
-    // Interestadual é a única com regra objetiva (Resolução 13/2012 + origem),
-    // mas segue editável.
+    // Cada campo nasce com o que o motor fiscal resolveu para este item. Vazio
+    // só quando nenhuma regra vigente determinou o valor — aí a tela bloqueia e
+    // diz o que falta, em vez de o usuário digitar no escuro.
+    //
+    // O zero do FCP é preenchido quando veio de regra: "a UF de destino não
+    // cobra FCP nesta mercadoria" é resposta fiscal, não campo em branco.
+    difalAliquotaInterna: exigeDifal ? textoDeDecimal(resolucao?.aliquotaInterna) : "",
+    // Interestadual sai da origem da mercadoria e da geografia (Resolução 13/2012
+    // e NA09-30); o motor devolve a mesma coisa que o cálculo local faria.
     difalAliquotaInterestadual: exigeDifal
-      ? String(aliquotaInterestadual(ufEmitente, ufDestino, source.origem_mercadoria))
+      ? textoDeDecimal(
+          resolucao?.aliquotaInterestadual ??
+            aliquotaInterestadual(ufEmitente, ufDestino, source.origem_mercadoria),
+        )
       : "",
-    difalAliquotaFcp: "",
-    difalPercentualPartilha: exigeDifal ? "100" : "",
+    difalAliquotaFcp: exigeDifal ? textoDeDecimal(resolucao?.aliquotaFcp) : "",
+    difalPercentualPartilha: exigeDifal
+      ? textoDeDecimal(resolucao?.percentualPartilha ?? 100)
+      : "",
     difalBaseFcp: "",
+    difalResolucao: exigeDifal ? resolucao ?? null : null,
+    difalCamposManuais: [],
     procedenciaFiscal: source.procedenciaFiscal ?? {},
   };
 }
@@ -807,6 +966,7 @@ export function toNFeItem(
           aliquotaFcpDestino: optionalDecimal(item.difalAliquotaFcp),
           percentualPartilhaDestino: optionalDecimal(item.difalPercentualPartilha),
           baseCalculoFcpDestino: optionalDecimal(item.difalBaseFcp),
+          overrideDifalManual: overrideDifalDaTela(item.difalCamposManuais),
         }
       : {}),
     descricao: item.descricao,
@@ -1101,11 +1261,17 @@ export function toApiItem(item: AssistedFiscalItem, setup?: FiscalSetup) {
     valorCbs: item.valorCbs || null,
     // DIFAL confirmado pelo usuário. Sem isso o servidor recalcularia com os
     // padrões e descartaria o que foi digitado na tela.
+    // `|| null` só converte string vazia: "0" é truthy e chega ao servidor como
+    // "0", virando 0 em toOptionalDecimal. É essa cadeia que mantém de pé a
+    // diferença entre FCP zero e FCP não informado.
     aliquotaInternaDestino: item.difalHabilitado ? item.difalAliquotaInterna || null : null,
     aliquotaInterestadual: item.difalHabilitado ? item.difalAliquotaInterestadual || null : null,
     aliquotaFcpDestino: item.difalHabilitado ? item.difalAliquotaFcp || null : null,
     percentualPartilhaDestino: item.difalHabilitado ? item.difalPercentualPartilha || null : null,
     baseCalculoFcpDestino: item.difalHabilitado ? item.difalBaseFcp || null : null,
+    overrideDifalManual: item.difalHabilitado
+      ? overrideDifalDaTela(item.difalCamposManuais)
+      : undefined,
     // Não entra no XML: fica no snapshot do item para uma nota antiga poder ser
     // explicada depois — se um campo veio do padrão de Configurações, corrigir
     // o produto não basta, tem de corrigir o padrão.

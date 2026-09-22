@@ -703,10 +703,20 @@ describe("AVULSA — DIFAL antes do IBS/CBS", () => {
     itens: [itemDaTela({ cfop: "6102", cst: "00", aliquotaIcms: "12", ...item, sourceItemId: item.sourceItemId ?? undefined })],
   });
 
-  it("sem alíquota interna e FCP configurados, a nota não é gerada (a tabela por UF é só referência)", async () => {
+  it("sem regra fiscal cadastrada e sem FCP informado, a nota não é gerada", async () => {
     const resultado = await salvarNFeAvulsaDraft(draft({}));
     assert.equal(resultado.ok, false);
-    assert.ok(resultado.errors.some((erro) => (erro as { code?: string }).code === "NFE_DIFAL_CONFIGURACAO_REQUIRED"));
+    const codigos = resultado.errors.map((erro) => (erro as { code?: string }).code);
+    // Cada pendência tem código próprio: antes um bloqueio genérico não dizia
+    // se faltava a alíquota interna, o FCP, ou se havia conflito de regra.
+    assert.ok(
+      codigos.includes("NFE_DIFAL_ALIQUOTA_INTERNA_SEM_REGRA"),
+      `esperava o bloqueio do fallback de tabela; veio ${JSON.stringify(codigos)}`,
+    );
+    assert.ok(
+      codigos.includes("NFE_DIFAL_FCP_NAO_DETERMINADO"),
+      `esperava o bloqueio do FCP indeterminado; veio ${JSON.stringify(codigos)}`,
+    );
   });
 
   it("com DIFAL configurado, a base do IBS/CBS desconta vICMSUFDest e vFCPUFDest", async () => {

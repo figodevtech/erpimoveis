@@ -51,6 +51,9 @@ export const PERMS = {
   FINANCEIRO_VER_TODAS_TRANSACOES: "financeiro:ver_todas_transacoes",
   FISCAL_SPED: "fiscal:sped",
   FISCAL_SPED_GERENCIAR: "fiscal:sped_gerenciar",
+  // Regras de DIFAL/FCP por UF: alterar uma muda o imposto de toda nota futura.
+  FISCAL_DIFAL: "fiscal:difal",
+  FISCAL_DIFAL_GERENCIAR: "fiscal:difal_gerenciar",
 
   RELATORIOS: "relatorios:visualizar",
 
@@ -112,6 +115,7 @@ export function normalizePermission(perm: unknown) {
 
 const IMPLIED_PERMISSIONS: Record<string, Permission[]> = {
   [normalizePermission(PERMS.FISCAL_SPED_GERENCIAR)]: [PERMS.FISCAL_SPED],
+  [normalizePermission(PERMS.FISCAL_DIFAL_GERENCIAR)]: [PERMS.FISCAL_DIFAL],
   [normalizePermission(PERMS.FINANCEIRO_NOTAS_FISCAIS)]: [PERMS.FINANCEIRO],
   [normalizePermission(PERMS.ESTOQUE)]: [PERMS.USOCONSUMO],
   [normalizePermission(PERMS.ESTOQUE_CRIAR)]: [PERMS.USOCONSUMO_CRIAR, PERMS.USOCONSUMO_ENTRADA],

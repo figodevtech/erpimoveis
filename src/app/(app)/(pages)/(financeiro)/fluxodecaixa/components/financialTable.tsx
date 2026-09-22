@@ -543,15 +543,16 @@ export default function FinancialTable({
               </button>
               {/*
                 Uma lista recortada sem aviso vira chamado de suporte: a pessoa
-                procura um lançamento que existe e não acha. O tooltip explica o
-                que entra, incluindo o histórico sem dono.
+                procura um lançamento que existe e não acha. O ícone sozinho é o
+                bastante para levantar a pergunta; quem a faz acha a resposta no
+                tooltip, com o histórico sem dono incluído.
               */}
               {listaRecortada ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="inline-flex cursor-default items-center gap-1 rounded-sm border border-sky-600/40 bg-sky-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-sky-700 dark:text-sky-400">
-                      <User className="h-3 w-3" />
-                      Somente as minhas
+                    <span className="inline-flex cursor-default items-center text-muted-foreground">
+                      <User className="h-3.5 w-3.5" />
+                      <span className="sr-only">Mostrando somente as minhas transações</span>
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" align="start" className="max-w-[320px] text-pretty">

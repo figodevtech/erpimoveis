@@ -1006,6 +1006,10 @@ function itemAssistidoDaAvulsa(item: DraftItem, index: number): AssistedFiscalIt
     sourceItemId: item.sourceItemId ?? `avulsa:${index}`,
     produtoId: item.produtoId ?? 0,
     titulo: item.descricao,
+    // A avulsa monta o DIFAL no próprio formulário; a resolução automática dela
+    // vem do servidor no rascunho, não deste adaptador.
+    difalResolucao: null,
+    difalCamposManuais: [],
     quantidade,
     valorUnitario,
     subtotal: Number((quantidade * valorUnitario).toFixed(2)),
@@ -1188,6 +1192,8 @@ export default function NFeAvulsaPage() {
         indFinalDoDestino(draft.operacao.destinoMercadoria, draft.operacao.consumidorFinal) ??
         ((draft.destinatario.indicadorIe || "9") === "9" ? 1 : 0),
       indIEDest: draft.destinatario.indicadorIe || "9",
+      // NA01-20, exceção 12: emitente do Simples Nacional não leva o grupo.
+      crt: setup?.empresa?.regimetributario ?? null,
     }),
     [
       setup?.empresa?.uf,
@@ -1195,6 +1201,7 @@ export default function NFeAvulsaPage() {
       draft.destinatario.indicadorIe,
       draft.operacao.destinoMercadoria,
       draft.operacao.consumidorFinal,
+      setup?.empresa?.regimetributario,
     ],
   );
 
