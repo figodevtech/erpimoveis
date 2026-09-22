@@ -11,6 +11,7 @@ import { aplicarCamposDocumento, erroDeDocumento } from "./_lib/documento";
 import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "./_lib/bandeira";
 import { filtroDeBusca } from "./_lib/busca";
 import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
+import { reportErpDiagnostic } from "@/lib/monitoring/erp-diagnostic";
 
 const WRITABLE_FIELDS = new Set([
   "ordemservicoid",
@@ -227,6 +228,8 @@ function sanitizeTransacaoPayload(body: any, { strict }: { strict: boolean }) {
 }
 
 export async function GET(req: Request) {
+  const diagnosticStartedAt = Date.now();
+  let diagnosticStage: "QUERY_TRANSACTIONS" | undefined;
   try {
     await requireFinanceirosAccess();
     const { searchParams } = new URL(req.url);
@@ -401,8 +404,10 @@ export async function GET(req: Request) {
       query = query.is("ordemservicoid", null).is("vendaid", null).is("evento_financeiro_id", null);
     }
 
+    diagnosticStage = "QUERY_TRANSACTIONS";
     const { data, error, count } = await query;
     if (error) throw error;
+    diagnosticStage = undefined;
 
     const items = data ?? [];
     const total = count ?? 0;
@@ -444,6 +449,7 @@ export async function GET(req: Request) {
       },
     });
   } catch (error: any) {
+    reportErpDiagnostic("/api/transaction", "LIST_TRANSACTIONS", diagnosticStartedAt, error, diagnosticStage);
     return NextResponse.json({ error: error?.message || "Erro ao listar transações" }, { status: 500 });
   }
 }
