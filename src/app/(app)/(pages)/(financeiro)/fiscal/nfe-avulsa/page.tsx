@@ -96,6 +96,7 @@ import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 import { CfopCombobox } from "@/components/fiscal/cfop-combobox";
+import { NcmCombobox } from "@/components/fiscal/ncm-combobox";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
 import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import { indFinalDoDestino, type DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
@@ -3025,7 +3026,10 @@ export default function NFeAvulsaPage() {
                         </div>
                         <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">NCM <RequiredMark /></Label>
-                          <Input value={item.ncm} onChange={(event) => updateItem(index, { ncm: onlyDigits(event.target.value) })} />
+                          <NcmCombobox
+                            value={item.ncm}
+                            onValueChange={(ncm) => updateItem(index, { ncm })}
+                          />
                         </div>
                         <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">CFOP <RequiredMark /></Label>

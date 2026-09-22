@@ -3,6 +3,7 @@
 import { AlertCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { CfopCombobox } from "@/components/fiscal/cfop-combobox";
+import { NcmCombobox } from "@/components/fiscal/ncm-combobox";
 import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -522,11 +523,14 @@ export function NfeItemFiscalEditor({
               <Input value={item.descricao} disabled />
             </Field>
             <Field label="NCM" required className="lg:col-span-2">
-              <Input
+              {/* Trocar o NCM muda a assinatura fiscal do item, e o diálogo
+                  refaz a resolução do DIFAL — o mesmo caminho de sempre, sem
+                  um segundo motor. */}
+              <NcmCombobox
                 value={item.ncm}
-                maxLength={8}
-                inputMode="numeric"
-                onChange={(event) => onChange({ ncm: onlyDigits(event.target.value) })}
+                onValueChange={(ncm) => onChange({ ncm })}
+                dataFiscal={contextoBase?.dataEmissao}
+                mostrarProveniencia
               />
             </Field>
             <Field label="CFOP" required origem={proc.cfop} className="lg:col-span-2">

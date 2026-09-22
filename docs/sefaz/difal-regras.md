@@ -33,6 +33,7 @@ bloqueando — e diz exatamente o que falta.
 | API | [`src/app/api/fiscal/difal/resolver/route.ts`](../../src/app/api/fiscal/difal/resolver/route.ts) | `POST` para a tela preencher antes de montar o item |
 | Sincronização | [`scripts/fiscal/sincronizar-difal.ts`](../../scripts/fiscal/sincronizar-difal.ts) | Diff entre o arquivo curado e o banco; grava só com `--aplicar` |
 | Catálogo NCM | [`supabase/migrations/20260922170000_fiscal_ncm_catalogo.sql`](../../supabase/migrations/20260922170000_fiscal_ncm_catalogo.sql) + [`scripts/fiscal/importar-ncm.ts`](../../scripts/fiscal/importar-ncm.ts) | Confere se o NCM do item existe de verdade |
+| Busca de NCM | [`src/lib/fiscal/ncm.ts`](../../src/lib/fiscal/ncm.ts), [`src/services/fiscal/ncm/repositorioNcm.ts`](../../src/services/fiscal/ncm/repositorioNcm.ts), [`GET /api/fiscal/ncm`](../../src/app/api/fiscal/ncm/route.ts) | Alimenta o seletor de NCM das telas |
 
 A UF do emitente e o CRT **nunca** vêm do navegador: a rota os lê do banco. São
 eles que decidem incidência e alíquota interestadual.
@@ -307,6 +308,33 @@ preenchidas, um NCM inexistente barra a geração do rascunho. A tela repassa a
 pendência que recebeu para `toNFeItem`, de modo que a validação local acuse a
 mesma coisa e o item não fique "pronto" na lista.
 
+### Seletor de NCM nas telas
+
+O mesmo catálogo alimenta o `NcmCombobox`
+([`src/components/fiscal/ncm-combobox.tsx`](../../src/components/fiscal/ncm-combobox.tsx)),
+usado no cadastro de produto, na emissão assistida e na NF-e avulsa. O usuário
+pesquisa por código (`90328925`, `9032.89.25`, `903289`) ou por texto
+(`injeção`, `controlador`) e escolhe da lista, em vez de digitar de cabeça.
+
+A busca é sempre do servidor, por `GET /api/fiscal/ncm`, e sempre limitada — os
+10.515 códigos nunca vão para o navegador. A rota é a única porta: `fiscal_ncm`
+continua com RLS fechada para anon e authenticated.
+
+Estratégia de consulta, da mais barata para a mais cara:
+
+| Termo | Consulta | Índice |
+| --- | --- | --- |
+| `90328925` | `codigo = ...`, exato primeiro | PK |
+| `903289` | `codigo LIKE '903289%'` | PK (prefixo) |
+| `injeção` | `descricao_busca LIKE '%injecao%'` | GIN de trigrama |
+
+Código de 8 dígitos que não existe não devolve "nenhum resultado": devolve os
+vizinhos da subposição de 6 dígitos do Sistema Harmonizado, que é família de
+verdade — não semelhança adivinhada a partir do nome do produto.
+
+O que é gravado continua sendo só o código. A descrição é exibição, resolvida
+por `produto.ncm -> fiscal_ncm.codigo`, e por isso não é duplicada em `produto`.
+
 A tabela nasce **vazia** e é carregada por `npm run fiscal:ncm -- <banco> --aplicar`.
 Enquanto estiver vazia — ou se a consulta falhar, por exemplo com a migration
 ainda pendente — a checagem de existência se desliga e vale só o formato, com um
@@ -369,6 +397,9 @@ emissão escolher sozinha.
 ```bash
 npx tsx --test src/lib/nfe/difalRegras.test.ts   # 62 casos do motor
 npx tsx --test src/lib/fiscal-date/index.test.ts # data civil do emitente
+npx tsx --test src/lib/fiscal/ncm.test.ts        # normalização e busca de NCM
+npx tsx --test src/components/fiscal/ncm-combobox.test.tsx
+npm run db:test:ncm -- demir                     # busca, vigência e RLS, em rollback
 npx tsx --test src/lib/nfe/difal.test.ts         # 30 casos de cálculo e incidência
 npm run db:test:difal -- demir                   # migration, constraints e RLS, em rollback
 npm run test:negocio                             # suíte completa

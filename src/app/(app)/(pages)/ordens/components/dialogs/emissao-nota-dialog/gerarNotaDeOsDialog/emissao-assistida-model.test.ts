@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { getNFeFiscalFieldRules } from "@/lib/nfe/taxRules";
+import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import {
   aplicarAlteracoesComCienciaFiscal,
   classificarIssuesFiscais,
@@ -15,6 +16,7 @@ import {
 import { prepararItemFiscal } from "@/services/fiscal/nfeAvulsaService";
 
 import {
+  assinaturaDifalDe,
   calcularIcmsDoItem,
   createAssistedItem,
   toApiItem,
@@ -300,5 +302,54 @@ describe("tela assistida — frete na base do ICMS", () => {
     const tela = toNFeItem(item, 0, setup, { valorFrete: 500, freteIntegraBaseIcms: false }).icms;
     assert.equal(tela?.vBC, 11000);
     assert.equal(tela?.vBCST, 16100);
+  });
+});
+
+describe("seletor de NCM × motor de DIFAL", () => {
+  const base = {
+    ufDestino: "PI",
+    indFinal: 1,
+    indIEDest: 9,
+    crt: 3,
+    modelo: MODELO_NFE,
+  };
+  const item = (ncm: string) => [{ sourceItemId: "venda:180:203", ncm, cest: "0199900", cfop: "6108", cst: "60", orig: "0" }];
+
+  it("trocar o NCM muda a assinatura fiscal, que é o gatilho da nova resolução", () => {
+    // É esta mudança que faz o diálogo chamar /api/fiscal/difal/resolver de
+    // novo. Sem ela, o combobox trocaria o código e o DIFAL continuaria o da
+    // mercadoria anterior.
+    const antes = assinaturaDifalDe({ ...base, itens: item("90328921") });
+    const depois = assinaturaDifalDe({ ...base, itens: item("90328925") });
+
+    assert.notEqual(antes, depois);
+  });
+
+  it("o mesmo NCM com pontuação não refaz a resolução à toa", () => {
+    assert.equal(
+      assinaturaDifalDe({ ...base, itens: item("90328925") }),
+      assinaturaDifalDe({ ...base, itens: item("9032.89.25") }),
+    );
+  });
+
+  it("mexer em campo que não é fiscal não dispara resolução", () => {
+    const comum = { sourceItemId: "venda:180:203", ncm: "90328925", cest: "0199900", cfop: "6108", cst: "60", orig: "0" };
+    assert.equal(
+      assinaturaDifalDe({ ...base, itens: [comum] }),
+      assinaturaDifalDe({ ...base, itens: [{ ...comum }] }),
+    );
+  });
+
+  it("o item guarda só o código do NCM, nunca o rótulo", () => {
+    const assistido = createAssistedItem({ ...produto136, ncm: "90328925" }, setup, {
+      tipoOperacao: "SAIDA",
+      parceiroUf: "PI",
+      indFinal: 1,
+      indIEDest: 9,
+    });
+
+    assert.equal(assistido.ncm, "90328925");
+    assert.ok(!assistido.ncm.includes("—"));
+    assert.equal(toApiItem(assistido).ncm, "90328925");
   });
 });

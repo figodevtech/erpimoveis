@@ -41,6 +41,7 @@
     "db:test:sped-fiscal": "tsx scripts/db/test-sped-fiscal-migration.ts",
     "db:test:nfe-icms": "tsx scripts/db/test-nfe-icms-canonico-migration.ts",
     "db:test:difal": "tsx scripts/db/test-difal-regra-migration.ts",
+    "db:test:ncm": "tsx scripts/db/test-ncm-busca-migration.ts",
     "nfe:auditar-icms": "tsx scripts/nfe/auditar-icms-emitidas.ts",
     "db:migrar:plano-contas": "tsx scripts/db/migrar-classificacao-plano-contas.ts",
     "db:deploy": "tsx scripts/db/deploy.ts",

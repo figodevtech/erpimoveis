@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TabsContent } from "@/components/ui/tabs";
+import { NcmCombobox } from "@/components/fiscal/ncm-combobox";
 import { getRequiredPisCofinsMode } from "@/lib/nfe/taxRules";
 
 import { Produto } from "../../../types";
@@ -131,8 +132,14 @@ export function TabFiscal({ produto, onChange, ncmObrigatorio = false }: Props) 
               </SelectContent>
             </Select>
           </Field>
-          <Field label="NCM" required={ncmObrigatorio}>
-            <Input value={produto.ncm || ""} maxLength={8} inputMode="numeric" placeholder="00000000" onChange={(event) => onChange("ncm", onlyDigits(event.target.value))} />
+          <Field label="NCM" required={ncmObrigatorio} className="lg:col-span-2">
+            {/* Só o código é gravado em produto.ncm; a descrição vem do
+                catálogo na hora de exibir, e por isso não é duplicada aqui. */}
+            <NcmCombobox
+              value={produto.ncm || ""}
+              onValueChange={(codigo) => onChange("ncm", codigo)}
+              mostrarProveniencia
+            />
           </Field>
           <Field label="CFOP padrão">
             <Input value={produto.cfop || ""} maxLength={4} inputMode="numeric" placeholder="5102" onChange={(event) => onChange("cfop", onlyDigits(event.target.value))} />
