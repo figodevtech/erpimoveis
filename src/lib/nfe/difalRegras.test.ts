@@ -532,6 +532,39 @@ describe("17. mudança de contexto exige nova resolução", () => {
   });
 });
 
+describe("contexto sem data: a regressão da validação local", () => {
+  it("sem data de emissão não há vigência para comparar, e o motor bloqueia", () => {
+    const { dataEmissao, ...semData } = CONTEXTO_ITEM;
+    void dataEmissao;
+    const item = resolverDifalDoItem(itemDifal(), semData, { regras: [PI_GERAL_ATUAL] });
+
+    assert.ok(item.difalDecisao?.pendencias.includes("CONTEXTO_INCOMPLETO"));
+    assert.equal(item.difalDecisao?.aliquotaInterna, 22.5, "cai na tabela de referência");
+    assert.equal(item.difalDecisao?.origemAliquotaInterna, "TABELA_REFERENCIA");
+  });
+
+  it("o bloqueio diz qual peça falta, em vez de 'a UF ou a data'", () => {
+    const { dataEmissao, ...semData } = CONTEXTO_ITEM;
+    void dataEmissao;
+    const item = resolverDifalDoItem(itemDifal(), semData, { regras: [PI_GERAL_ATUAL] });
+    const issue = issuesDifalDoItem(item).find(
+      (i) => i.code === "NFE_DIFAL_CONTEXTO_INCOMPLETO",
+    );
+
+    assert.ok(issue);
+    assert.match(issue.message, /Falta a data de emissão\./);
+    assert.ok(!/UF de destino/.test(issue.message), "a UF está presente, não pode ser citada");
+  });
+
+  it("com a mesma data que o servidor usou, a validação local fecha sem pendência", () => {
+    const item = resolverDifalDoItem(itemDifal(), CONTEXTO_ITEM, { regras: [PI_GERAL_ATUAL] });
+
+    assert.deepEqual(item.difalDecisao?.pendencias, []);
+    assert.equal(item.difalDecisao?.origemAliquotaInterna, "REGRA_UF");
+    assert.deepEqual(issuesDifalDoItem(item), []);
+  });
+});
+
 describe("18. ausência de regra não vira chute", () => {
   it("UF sem nenhuma regra cadastrada bloqueia em vez de inventar alíquota", () => {
     const saida = resolverRegraDifalComRegras({ ...CONTEXTO_DEMIR, ufDestino: "MA" }, []);

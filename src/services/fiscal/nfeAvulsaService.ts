@@ -39,6 +39,7 @@ import {
   normalizeFiscalRecipient,
 } from "@/lib/nfe/recipientNormalization";
 import { truncateNfeXNome } from "@/lib/nfe/xmlUtils";
+import { dataCivilDeHoje, dataCivilDoInstante } from "@/lib/fiscal-date";
 import { isValidCnpj as isValidCanonicalCnpj, normalizeCnpj, normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import {
   calcularIcmsItem,
@@ -1495,7 +1496,8 @@ export async function getNFeAvulsaSetup(modelo: ModeloDocumentoFiscal = MODELO_N
 
   if (produtosError) throw produtosError;
 
-  const today = new Date().toISOString().slice(0, 10);
+  // Vigência das classificações é comparada com a data civil do emitente.
+  const today = dataCivilDeHoje();
   const { data: classificacoesRtc, error: classificacoesError } = await supabaseAdmin
     .from("fiscal_nfe_classificacao_tributaria")
     .select("codigo, cst, nome, descricao, percentual_reducao_ibs, percentual_reducao_cbs, inicio_vigencia, fim_vigencia, permite_nfe, indicadores, versao_fonte")
@@ -1746,11 +1748,13 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
 
   const crt = Number(empresa.regimetributario) as CRT;
   const issueDate = new Date();
+  // Dia que consta no documento, no fuso do emitente. `toISOString()` daria a
+  // data em UTC e, das 21h à meia-noite, escolheria a vigência do dia seguinte.
+  const issueDay = dataCivilDoInstante(issueDate);
   const selectedClassCodes = Array.from(new Set(input.itens.map((item) => cleanText(item.cClassTrib)).filter(Boolean)));
   let classificationsByCode = new Map<string, ClassificacaoTributariaRtc>();
   let validStandardRtcCsts = new Set<string>();
   if (selectedClassCodes.length > 0) {
-    const issueDay = issueDate.toISOString().slice(0, 10);
     const { data: rows, error: classError } = await supabaseAdmin
       .from("fiscal_nfe_classificacao_tributaria")
       .select("codigo, cst, nome, descricao, percentual_reducao_ibs, percentual_reducao_cbs, inicio_vigencia, fim_vigencia, permite_nfe, indicadores, versao_fonte")
@@ -1798,7 +1802,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     prepararItemFiscal(item, index, crt, {
       freteIntegraBaseIcms: freteNaBase.integra, modFrete: freteNaBase.modFrete,
       ufEmitente: empresaUf, ufDestino: destinatarioUf,
-      indFinal: resolverIndFinalDaOperacao(input), dataEmissao: issueDate.toISOString(),
+      indFinal: resolverIndFinalDaOperacao(input), dataEmissao: issueDay,
       regrasDifal, ncmsConhecidos, modelo: isNfce ? MODELO_NFCE : MODELO_NFE,
       // NFC-e é operação interna: nunca gera ICMSUFDest.
       difal: isNfce ? null : {

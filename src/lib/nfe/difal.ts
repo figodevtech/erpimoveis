@@ -595,8 +595,7 @@ const MENSAGEM_PENDENCIA: Record<DifalPendencia, { code: string; field: string; 
   CONTEXTO_INCOMPLETO: {
     code: 'NFE_DIFAL_CONTEXTO_INCOMPLETO',
     field: 'aliquotaInternaDestino',
-    message:
-      'Contexto fiscal incompleto para resolver o DIFAL: faltam a UF de destino ou a data de emissão.',
+    message: 'Contexto fiscal incompleto para resolver o DIFAL.',
   },
   NCM_INVALIDO: {
     code: 'NFE_DIFAL_NCM_INVALIDO',
@@ -656,15 +655,20 @@ export function issuesDifalDoItem(item: NFeItem): Array<{
 
   return decisao.pendencias.map((pendencia) => {
     const base = MENSAGEM_PENDENCIA[pendencia];
-    const detalhe =
-      pendencia === 'REGRA_CONFLITANTE' && decisao.conflitos?.length
-        ? ` Em disputa: ${decisao.conflitos
-            .map(
-              (c) =>
-                `${c.campo} (${c.regras.map((r) => `#${r.id} = ${r.valor}%`).join(' x ')})`,
-            )
-            .join('; ')}.`
-        : '';
+    let detalhe = '';
+    if (pendencia === 'REGRA_CONFLITANTE' && decisao.conflitos?.length) {
+      detalhe = ` Em disputa: ${decisao.conflitos
+        .map((c) => `${c.campo} (${c.regras.map((r) => `#${r.id} = ${r.valor}%`).join(' x ')})`)
+        .join('; ')}.`;
+    }
+    if (pendencia === 'CONTEXTO_INCOMPLETO') {
+      // Dizer "faltam a UF ou a data" obriga quem lê a descobrir qual das duas.
+      const faltando = [
+        !decisao.ufDestino ? 'a UF de destino' : null,
+        !decisao.dataResolucao ? 'a data de emissão' : null,
+      ].filter(Boolean);
+      if (faltando.length) detalhe = ` Falta ${faltando.join(' e ')}.`;
+    }
     return {
       code: base.code,
       severidade: 'BLOQUEIO' as const,

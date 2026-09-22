@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { PERMS, requireAny } from "@/app/api/_authz/perms";
 import { buscarEmpresaAtual } from "@/services/fiscal/empresaAtual";
 import { resolverRegraDifalEmLote } from "@/services/fiscal/difal/resolverRegraDifal";
+import { dataCivilDeHoje } from "@/lib/fiscal-date";
 
 export const runtime = "nodejs";
 
@@ -33,8 +34,9 @@ function texto(valor: unknown): string | null {
 function dataFiscal(valor: unknown): string {
   const t = String(valor ?? "").trim().slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-  // Sem data válida, a do servidor: a regra vigente é a de hoje, não a mais nova.
-  return new Date().toISOString().slice(0, 10);
+  // Sem data válida, a de hoje no fuso do emitente — não a do UTC, que depois
+  // das 21h já é o dia seguinte e escolheria outra vigência.
+  return dataCivilDeHoje();
 }
 
 export async function POST(req: NextRequest) {

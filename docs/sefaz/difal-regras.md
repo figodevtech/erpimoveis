@@ -25,6 +25,7 @@ bloqueando — e diz exatamente o que falta.
 | --- | --- | --- |
 | Dado curado | [`data/fiscal/difal/aliquotas-uf.json`](../../data/fiscal/difal/aliquotas-uf.json) | O que foi lido da fonte oficial, com a nota de curadoria de cada linha |
 | Banco | [`supabase/migrations/20260922160000_fiscal_difal_regra.sql`](../../supabase/migrations/20260922160000_fiscal_difal_regra.sql) | Tabela, constraints, RLS, permissões e carga inicial |
+| Data fiscal | [`src/lib/fiscal-date/index.ts`](../../src/lib/fiscal-date/index.ts) | `dataCivilDeHoje` e `dataCivilDoInstante`: a data do emitente, não a do UTC |
 | Casamento | [`src/lib/nfe/difalRegras.ts`](../../src/lib/nfe/difalRegras.ts) | Núcleo puro: qual regra vence, campo a campo, e quando há conflito |
 | Incidência e snapshot | [`src/lib/nfe/difal.ts`](../../src/lib/nfe/difal.ts) | `deveGerarICMSUFDest`, `resolverDifalDoItem`, `issuesDifalDoItem` |
 | Repositório | [`src/services/fiscal/difal/repositorioDifal.ts`](../../src/services/fiscal/difal/repositorioDifal.ts) | Lê as regras da UF (cache de 60s) |
@@ -72,6 +73,34 @@ guarda a sua própria origem — é o que a tela mostra e o que a auditoria lê.
 empatam em tipo, comprimento de prefixo e `prioridade` e discordam do valor, o
 motor não escolhe: devolve `NFE_DIFAL_REGRA_CONFLITANTE` e a emissão para. Para
 desempatar de propósito, use a coluna `prioridade` (maior vence).
+
+## A data fiscal da nota
+
+A regra é escolhida pela data do documento, então essa data precisa ser **uma
+só** e precisa ser a do emitente:
+
+```
+dataCivilDeHoje()  (src/lib/fiscal-date)
+   ↓
+tela: dataEmissaoFiscal, memorizada uma vez por emissão
+   ↓
+resolver da tela  →  validação local (contextoBaseDoItem.dataEmissao)
+   ↓
+servidor: issueDay = dataCivilDoInstante(issueDate)
+   ↓
+snapshot (difalDecisao.dataResolucao)  →  XML
+```
+
+`new Date().toISOString().slice(0, 10)` devolve a data em **UTC**. Em João
+Pessoa (UTC-3), das 21h à meia-noite o UTC já é o dia seguinte: uma nota emitida
+às 22h30 de 31/03/2025 seria resolvida com as regras de 01/04 e sairia com 22,5%
+em vez dos 21% que valiam naquele dia. Toda data fiscal derivada do relógio
+passa por `dataCivilDeHoje` / `dataCivilDoInstante`, que também cobrem as
+consultas de vigência da classificação RTC e do catálogo de CFOP.
+
+Um contexto sem data não resolve nada: sem vigência para comparar, nenhuma regra
+casa e o motor devolve `NFE_DIFAL_CONTEXTO_INCOMPLETO`, dizendo qual peça falta
+(a UF, a data, ou as duas).
 
 ## Vigência
 
@@ -338,7 +367,8 @@ emissão escolher sozinha.
 ## Testes
 
 ```bash
-npx tsx --test src/lib/nfe/difalRegras.test.ts   # 59 casos do motor
+npx tsx --test src/lib/nfe/difalRegras.test.ts   # 62 casos do motor
+npx tsx --test src/lib/fiscal-date/index.test.ts # data civil do emitente
 npx tsx --test src/lib/nfe/difal.test.ts         # 30 casos de cálculo e incidência
 npm run db:test:difal -- demir                   # migration, constraints e RLS, em rollback
 npm run test:negocio                             # suíte completa

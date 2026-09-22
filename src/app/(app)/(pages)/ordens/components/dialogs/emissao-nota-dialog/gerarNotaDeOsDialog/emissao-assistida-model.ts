@@ -28,6 +28,7 @@ import {
 import { MODELO_NFCE, MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
+import { dataCivilDeHoje } from "@/lib/fiscal-date";
 import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
 import {
   calcularIcmsItem,
@@ -370,7 +371,7 @@ export async function resolverDifalDosItens(params: {
       signal: params.signal,
       body: JSON.stringify({
         ufDestino: params.ufDestino,
-        dataEmissao: params.dataEmissao ?? new Date().toISOString().slice(0, 10),
+        dataEmissao: params.dataEmissao ?? dataCivilDeHoje(),
         modelo: params.modelo,
         indFinal: params.indFinal,
         indIEDest: params.indIEDest,
@@ -1151,6 +1152,13 @@ export function toNFeItem(
         tpNF: contexto.difal.tpNF,
         finNFe: contexto.difal.finNFe,
         ufEntrega: contexto.difal.ufEntrega,
+        // Sem a data, o casamento de regras não tem vigência para comparar e a
+        // validação local acusava "contexto fiscal incompleto" numa nota que o
+        // servidor tinha acabado de resolver. Sem o CRT, a validação local não
+        // aplicaria a dispensa do Simples Nacional (NA01-20, exceção 12) e
+        // exigiria DIFAL onde o servidor não exige.
+        dataEmissao: contexto.dataEmissao,
+        crt: setup?.empresa?.crt,
       },
       {
         // A tela não consulta o catálogo de NCM; ela repassa o que o servidor

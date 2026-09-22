@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { dataCivilDeHoje } from "@/lib/fiscal-date";
 import {
   AlertCircle,
   CheckCircle2,
@@ -509,6 +511,12 @@ export function GerarNotaDeOsDialog({
   const indFinalEscolhido = isNfce
     ? 1
     : indFinalDoDestino(fiscalConfig.destinoMercadoria, fiscalConfig.consumidorFinal);
+  // Data fiscal da nota: uma só, usada pelo resolver da tela, pela validação
+  // local e enviada ao servidor. `new Date().toISOString()` daria a data em
+  // UTC — em João Pessoa, das 21h à meia-noite, o dia seguinte — e numa virada
+  // de vigência escolheria a alíquota errada.
+  const dataEmissaoFiscal = useMemo(() => dataCivilDeHoje(), []);
+
   const difalContexto = useMemo(() => {
     const parceiro = source?.fornecedor ?? source?.cliente;
     const indIEDest = indicadorDoCliente(source?.cliente);
@@ -577,6 +585,7 @@ export function GerarNotaDeOsDialog({
         indFinal: difalContexto.indFinal ?? 1,
         indIEDest: difalContexto.indIEDest ?? 9,
         itens: items,
+        dataEmissao: dataEmissaoFiscal,
         signal: controle.signal,
       });
       if (controle.signal.aborted) return;
@@ -708,6 +717,7 @@ export function GerarNotaDeOsDialog({
         indFinal,
         indIEDest,
         itens: origensDosItens.flatMap((origemItens) => origemItens.itens),
+        dataEmissao: dataEmissaoFiscal,
         signal,
       });
 
@@ -900,6 +910,10 @@ export function GerarNotaDeOsDialog({
     (sourceItemId: string) => ({
       modFrete: fiscalConfig.modFrete,
       indFinal: indFinalEscolhido,
+      // Sem a data aqui, a reconstrução local do item ficava sem vigência para
+      // casar a regra e acusava "contexto fiscal incompleto" numa nota que o
+      // servidor tinha acabado de resolver.
+      dataEmissao: dataEmissaoFiscal,
       valorFrete: fretePorItem.get(sourceItemId) ?? 0,
       freteIntegraBaseIcms: freteNaBase.integra ?? false,
       ufEmitente: setup?.empresa?.uf ?? undefined,
@@ -929,6 +943,7 @@ export function GerarNotaDeOsDialog({
       freteNaBase.integra,
       fiscalConfig.modFrete,
       indFinalEscolhido,
+      dataEmissaoFiscal,
       setup?.empresa?.uf,
       usesEditableRecipient,
       entrySupplier.estado,

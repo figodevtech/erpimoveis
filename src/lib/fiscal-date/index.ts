@@ -107,3 +107,51 @@ export function endOfCompetence(competence: string): string {
   const day = new Date(Date.UTC(year, month, 0)).getUTCDate();
   return `${competence}-${String(day).padStart(2, "0")}`;
 }
+
+/**
+ * Fuso do emitente para efeito de data civil. O Brasil não tem horário de
+ * verão desde 2019, então toda a faixa UTC-3 (São Paulo, Recife, João Pessoa)
+ * é equivalente; o nome é só o âmbito da regra.
+ */
+export const FUSO_FISCAL_PADRAO = "America/Sao_Paulo";
+
+/**
+ * A data civil de hoje no fuso do emitente, em AAAA-MM-DD.
+ *
+ * `new Date().toISOString().slice(0, 10)` devolve a data em UTC. Em João
+ * Pessoa (UTC-3), das 21h à meia-noite o UTC já virou o dia seguinte — uma nota
+ * emitida às 22h30 de 31/03 seria resolvida com as regras de 01/04. Na virada
+ * de vigência de alíquota isso troca o imposto da nota.
+ *
+ * Toda data fiscal derivada do relógio passa por aqui.
+ */
+export function dataCivilDeHoje(
+  timezoneIana: string = FUSO_FISCAL_PADRAO,
+  agora: Date = new Date(),
+): string {
+  const fuso = isValidIanaTimezone(timezoneIana) ? timezoneIana : FUSO_FISCAL_PADRAO;
+  // en-CA formata como AAAA-MM-DD; as partes evitam depender do separador.
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: fuso,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(agora);
+
+  const parte = (tipo: Intl.DateTimeFormatPartTypes) =>
+    partes.find((p) => p.type === tipo)?.value ?? "";
+
+  return `${parte("year")}-${parte("month")}-${parte("day")}`;
+}
+
+/**
+ * Data civil de um instante conhecido, no fuso do emitente. Use quando a nota
+ * já tem um `Date` (a hora da emissão, por exemplo) e você precisa do dia que
+ * consta no documento.
+ */
+export function dataCivilDoInstante(
+  instante: Date,
+  timezoneIana: string = FUSO_FISCAL_PADRAO,
+): string {
+  return dataCivilDeHoje(timezoneIana, instante);
+}
