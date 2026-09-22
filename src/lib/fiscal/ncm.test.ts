@@ -19,6 +19,8 @@ import {
 const INJECAO: NcmItem = {
   codigo: "90328925",
   descricao: "De sistemas de injeção",
+  caminho:
+    "Instrumentos e aparelhos para regulação ou controle, automáticos › Controladores eletrônicos do tipo utilizado em veículos automóveis",
   vigenciaInicio: "2022-04-01",
   vigenciaFim: null,
   ato: "Resolução Gecex nº 926/2026",

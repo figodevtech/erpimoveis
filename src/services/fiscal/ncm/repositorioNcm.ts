@@ -14,7 +14,8 @@ import {
  * rota que chamou.
  */
 
-const COLUNAS = "codigo, descricao, vigencia_inicio, vigencia_fim, ato, fonte, fonte_url";
+const COLUNAS =
+  "codigo, descricao, caminho, vigencia_inicio, vigencia_fim, ato, fonte, fonte_url";
 
 /** Teto do que uma busca devolve. 10.515 linhas nunca vão para o navegador. */
 export const LIMITE_PADRAO_NCM = 20;
@@ -23,6 +24,7 @@ export const LIMITE_MAXIMO_NCM = 50;
 type NcmRow = {
   codigo: string;
   descricao: string;
+  caminho: string | null;
   vigencia_inicio: string | null;
   vigencia_fim: string | null;
   ato: string | null;
@@ -35,6 +37,7 @@ function paraItem(row: NcmRow): NcmItem {
     // char(8) do Postgres pode vir com espaço à direita.
     codigo: String(row.codigo).trim(),
     descricao: limparDescricaoNcm(row.descricao),
+    caminho: row.caminho ? limparDescricaoNcm(row.caminho) : null,
     vigenciaInicio: row.vigencia_inicio ? String(row.vigencia_inicio).slice(0, 10) : null,
     vigenciaFim: row.vigencia_fim ? String(row.vigencia_fim).slice(0, 10) : null,
     ato: row.ato,

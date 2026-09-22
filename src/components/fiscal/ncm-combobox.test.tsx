@@ -15,6 +15,8 @@ import {
 const INJECAO: NcmItem = {
   codigo: "90328925",
   descricao: "De sistemas de injeção",
+  caminho:
+    "Instrumentos e aparelhos para regulação ou controle, automáticos › Controladores eletrônicos do tipo utilizado em veículos automóveis",
   vigenciaInicio: "2022-04-01",
   vigenciaFim: null,
   ato: "Resolução Gecex nº 926/2026",
@@ -65,12 +67,52 @@ describe("13. exibição do valor selecionado", () => {
   });
 });
 
-describe("14. fonte e vigência", () => {
-  it("mostra a proveniência quando pedida", () => {
+describe("família do NCM", () => {
+  it("a descrição vem acompanhada do caminho na lista", () => {
+    const estado = interpretarRespostaNcm(true, { ok: true, items: [INJECAO] });
+    assert.equal(estado.tipo, "RESULTADOS");
+    if (estado.tipo === "RESULTADOS") {
+      assert.match(estado.itens[0].caminho ?? "", /Controladores eletrônicos/);
+    }
+  });
+
+  it('um código "Outros" só faz sentido com a família junto', () => {
+    // 9032.89.29 é publicado como "Outros". Sozinho não classifica nada.
+    const outros: NcmItem = {
+      ...INJECAO,
+      codigo: "90328929",
+      descricao: "Outros",
+    };
+    semearCacheNcm([outros]);
+    const html = render(<NcmCombobox value="90328929" onValueChange={() => {}} />);
+
+    // No tooltip, não abaixo do campo: a coluna do NCM divide a linha com CFOP
+    // e unidade, e um parágrafo ali quebrava o formulário inteiro.
+    assert.ok(html.includes("title="), "o campo precisa ter tooltip");
+    assert.ok(html.includes("Controladores eletr"), "a família tem de estar no tooltip");
+  });
+
+  it("a família não ocupa espaço abaixo do campo", () => {
     semearCacheNcm([INJECAO]);
-    const html = render(
-      <NcmCombobox value="90328925" onValueChange={() => {}} mostrarProveniencia />,
-    );
+    const html = render(<NcmCombobox value="90328925" onValueChange={() => {}} />);
+
+    // Só o botão pode citar a família; nenhum parágrafo solto embaixo dele.
+    const depoisDoBotao = html.slice(html.indexOf("</button>"));
+    assert.ok(!depoisDoBotao.includes("Controladores"), depoisDoBotao.slice(0, 200));
+  });
+
+  it("sem caminho, a tela não inventa contexto", () => {
+    semearCacheNcm([{ ...INJECAO, codigo: "90328926", caminho: null }]);
+    const html = render(<NcmCombobox value="90328926" onValueChange={() => {}} />);
+
+    assert.ok(!html.includes("›"));
+  });
+});
+
+describe("14. fonte e vigência", () => {
+  it("fonte e vigência ficam no tooltip do campo", () => {
+    semearCacheNcm([INJECAO]);
+    const html = render(<NcmCombobox value="90328925" onValueChange={() => {}} />);
 
     assert.ok(html.includes("Portal Único Siscomex"));
     assert.ok(html.includes("Vigente desde 01/04/2022"));
@@ -78,16 +120,13 @@ describe("14. fonte e vigência", () => {
 
   it("com vigência encerrada, mostra o intervalo", () => {
     semearCacheNcm([{ ...INJECAO, vigenciaFim: "2027-03-31" }]);
-    const html = render(
-      <NcmCombobox value="90328925" onValueChange={() => {}} mostrarProveniencia />,
-    );
+    const html = render(<NcmCombobox value="90328925" onValueChange={() => {}} />);
 
     assert.ok(html.includes("Vigência: 01/04/2022 a 31/03/2027"));
   });
 
-  it("sem pedir proveniência, não polui o campo", () => {
-    semearCacheNcm([INJECAO]);
-    const html = render(<NcmCombobox value="90328925" onValueChange={() => {}} />);
+  it("sem NCM escolhido não há tooltip para mostrar", () => {
+    const html = render(<NcmCombobox value="" onValueChange={() => {}} />);
     assert.ok(!html.includes("Portal Único Siscomex"));
   });
 });

@@ -39,6 +39,7 @@ import {
   normalizeFiscalRecipient,
 } from "@/lib/nfe/recipientNormalization";
 import { truncateNfeXNome } from "@/lib/nfe/xmlUtils";
+import { LIMITE_XPROD } from "@/lib/nfe/limites";
 import { dataCivilDeHoje, dataCivilDoInstante } from "@/lib/fiscal-date";
 import { isValidCnpj as isValidCanonicalCnpj, normalizeCnpj, normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import {
@@ -1108,6 +1109,16 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
   input.itens?.forEach((item, index) => {
     if (!cleanText(item.descricao)) {
       errors.push({ step: "products", itemIndex: index, field: "descricao", message: "Descrição obrigatória." });
+    } else if (cleanText(item.descricao).length > LIMITE_XPROD) {
+      // xProd tem 120 caracteres no leiaute 4.00. Antes a descrição vinha
+      // sempre do cadastro do produto, que já é limitado; agora ela pode ser
+      // digitada na emissão, e passar do teto seria rejeição na SEFAZ.
+      errors.push({
+        step: "products",
+        itemIndex: index,
+        field: "descricao",
+        message: `Descrição deve ter no máximo ${LIMITE_XPROD} caracteres.`,
+      });
     }
     if (onlyDigits(item.ncm).length !== 8) {
       errors.push({ step: "products", itemIndex: index, field: "ncm", message: "NCM deve ter 8 dígitos." });

@@ -138,7 +138,6 @@ export function TabFiscal({ produto, onChange, ncmObrigatorio = false }: Props) 
             <NcmCombobox
               value={produto.ncm || ""}
               onValueChange={(codigo) => onChange("ncm", codigo)}
-              mostrarProveniencia
             />
           </Field>
           <Field label="CFOP padrão">

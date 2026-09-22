@@ -120,8 +120,6 @@ type Props = {
   dataFiscal?: string;
   disabled?: boolean;
   className?: string;
-  /** Mostra fonte e vigência sob o campo depois da seleção. */
-  mostrarProveniencia?: boolean;
   "aria-label"?: string;
 };
 
@@ -145,7 +143,6 @@ export function NcmCombobox({
   dataFiscal,
   disabled,
   className,
-  mostrarProveniencia = false,
   "aria-label": ariaLabel,
 }: Props) {
   const [aberto, setAberto] = useState(false);
@@ -223,6 +220,30 @@ export function NcmCombobox({
     return descricao ? `${value} — ${descricao}` : value;
   }, [itemSelecionado, value]);
 
+  /**
+   * Família, fonte e vigência no tooltip do campo, não abaixo dele.
+   *
+   * O campo divide a linha com CFOP e unidade: um parágrafo ali quebrava em
+   * seis linhas e empurrava o resto do formulário. A família continua visível
+   * onde ela serve para escolher — em cada linha da lista, que ocupa a largura
+   * do popover.
+   */
+  const detalheDoCampo = useMemo(() => {
+    if (!itemSelecionado) return undefined;
+    const vigencia = itemSelecionado.vigenciaFim
+      ? `Vigência: ${dataBr(itemSelecionado.vigenciaInicio)} a ${dataBr(itemSelecionado.vigenciaFim)}.`
+      : itemSelecionado.vigenciaInicio
+        ? `Vigente desde ${dataBr(itemSelecionado.vigenciaInicio)}.`
+        : "";
+    return [
+      itemSelecionado.caminho,
+      itemSelecionado.fonte ? `Fonte: ${itemSelecionado.fonte}.` : "",
+      vigencia,
+    ]
+      .filter(Boolean)
+      .join(" — ") || undefined;
+  }, [itemSelecionado]);
+
   const linha = (item: NcmItem) => (
     <CommandItem
       key={item.codigo}
@@ -237,10 +258,15 @@ export function NcmCombobox({
         )}
       />
       <span className="min-w-0">
-        <span className="block font-medium tabular-nums">{item.codigo}</span>
-        <span className="block text-xs text-muted-foreground">
-          {limparDescricaoNcm(item.descricao)}
-        </span>
+        <span className="block font-bold tabular-nums">{item.codigo}</span>
+        <span className="block text-xs">{limparDescricaoNcm(item.descricao)}</span>
+        {/* Sem a família, "De sistemas de injeção" não diz injeção de quê — e
+            um código "Outros" não diz absolutamente nada. */}
+        {item.caminho ? (
+          <span className="block text-[11px] leading-snug text-muted-foreground">
+            {item.caminho}
+          </span>
+        ) : null}
       </span>
     </CommandItem>
   );
@@ -255,6 +281,7 @@ export function NcmCombobox({
             role="combobox"
             aria-expanded={aberto}
             aria-label={ariaLabel ?? "Selecionar NCM"}
+            title={detalheDoCampo}
             disabled={disabled}
             className="w-full justify-between px-3 text-left font-normal"
           >
@@ -323,16 +350,6 @@ export function NcmCombobox({
         </PopoverContent>
       </Popover>
 
-      {mostrarProveniencia && itemSelecionado ? (
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          {itemSelecionado.fonte ? `Fonte: ${itemSelecionado.fonte}. ` : ""}
-          {itemSelecionado.vigenciaFim
-            ? `Vigência: ${dataBr(itemSelecionado.vigenciaInicio)} a ${dataBr(itemSelecionado.vigenciaFim)}.`
-            : itemSelecionado.vigenciaInicio
-              ? `Vigente desde ${dataBr(itemSelecionado.vigenciaInicio)}.`
-              : ""}
-        </p>
-      ) : null}
     </div>
   );
 }

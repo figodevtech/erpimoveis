@@ -58,6 +58,41 @@ BEGIN
   RAISE NOTICE 'busca por código, por texto e coluna gerada: ok';
 END $$;
 
+-- 8b. Família: a hierarquia é o que dá sentido à descrição publicada.
+DO $$
+DECLARE
+  v_caminho text;
+  v_n integer;
+BEGIN
+  UPDATE public.fiscal_ncm
+     SET caminho = 'Instrumentos e aparelhos para regulação ou controle, automáticos › Controladores eletrônicos do tipo utilizado em veículos automóveis'
+   WHERE codigo IN ('90328925', '90328929');
+
+  SELECT caminho INTO v_caminho FROM public.fiscal_ncm WHERE codigo = '90328925';
+  IF v_caminho IS NULL OR v_caminho NOT LIKE '%Controladores eletrônicos%' THEN
+    RAISE EXCEPTION 'caminho do 90328925 não foi gravado: %', v_caminho;
+  END IF;
+
+  -- O caminho entra na busca: "controlador" tem de achar o 9032.89.25, cuja
+  -- descrição própria ("De sistemas de injeção") não tem essa palavra.
+  SELECT count(*) INTO v_n
+    FROM public.fiscal_ncm
+   WHERE descricao_busca LIKE '%controlador%' AND codigo = '90328925';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION '"controlador" deveria achar o 90328925 pelo caminho';
+  END IF;
+
+  -- E um código "Outros" fica pesquisável pela família.
+  SELECT count(*) INTO v_n
+    FROM public.fiscal_ncm
+   WHERE descricao_busca LIKE '%veiculos automoveis%' AND codigo = '90328929';
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'o código "Outros" deveria ser achado pela família';
+  END IF;
+
+  RAISE NOTICE 'família na busca: ok';
+END $$;
+
 -- 9. Vigência: o recorte que a API aplica.
 DO $$
 DECLARE

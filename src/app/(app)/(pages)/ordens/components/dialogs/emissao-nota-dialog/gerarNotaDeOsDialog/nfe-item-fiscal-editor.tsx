@@ -30,6 +30,7 @@ import ValueInput from "@/components/ui/value-input";
 import type { NFeOperationDirection } from "@/lib/nfe/cfopOperation";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
+import { LIMITE_XPROD } from "@/lib/nfe/limites";
 import {
   getRequiredPisCofinsMode,
   PIS_COFINS_CST_OPTIONS,
@@ -520,7 +521,14 @@ export function NfeItemFiscalEditor({
           <h3 className="text-sm font-semibold">Produto</h3>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-12">
             <Field label="Descrição" required className="lg:col-span-5">
-              <Input value={item.descricao} disabled />
+              {/* É o xProd da nota. Editar aqui vale só para este documento: o
+                  cadastro do produto não é alterado, e a próxima nota volta a
+                  nascer com o título dele. */}
+              <Input
+                value={item.descricao}
+                maxLength={LIMITE_XPROD}
+                onChange={(event) => onChange({ descricao: event.target.value })}
+              />
             </Field>
             <Field label="NCM" required className="lg:col-span-2">
               {/* Trocar o NCM muda a assinatura fiscal do item, e o diálogo
@@ -530,7 +538,6 @@ export function NfeItemFiscalEditor({
                 value={item.ncm}
                 onValueChange={(ncm) => onChange({ ncm })}
                 dataFiscal={contextoBase?.dataEmissao}
-                mostrarProveniencia
               />
             </Field>
             <Field label="CFOP" required origem={proc.cfop} className="lg:col-span-2">

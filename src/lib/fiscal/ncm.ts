@@ -9,6 +9,14 @@
 export type NcmItem = {
   codigo: string;
   descricao: string;
+  /**
+   * Descrições dos níveis superiores, separadas por " › ".
+   *
+   * A NCM é hierárquica: "De sistemas de injeção" só classifica alguma coisa
+   * lido junto de "Controladores eletrônicos do tipo utilizado em veículos
+   * automóveis". Sem isso, um código "Outros" não diz nada.
+   */
+  caminho: string | null;
   vigenciaInicio: string | null;
   vigenciaFim: string | null;
   ato: string | null;

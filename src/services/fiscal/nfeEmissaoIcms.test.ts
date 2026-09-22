@@ -732,3 +732,60 @@ describe("AVULSA — DIFAL antes do IBS/CBS", () => {
     assert.equal(nota.itens[0].tributacao_snapshot.difalDecisao.origemAliquotaInterna, "ITEM");
   });
 });
+
+describe("descrição do item é o xProd da nota", () => {
+  const draftComDescricao = (descricao: string) => ({
+    operacao: {
+      tipoOperacao: "SAIDA" as const,
+      naturezaOperacao: "VENDA",
+      finalidade: "NORMAL" as const,
+      destinoMercadoria: "USO_CONSUMO" as const,
+      indicadorPresenca: "1",
+    },
+    destinatario: {
+      clienteId: null, tipoPessoa: "FISICA" as const, cpfCnpj: "12345678909",
+      nomeRazaoSocial: "CONSUMIDOR PB", indicadorIe: "9", endereco: "RUA", numero: "1",
+      bairro: "CENTRO", cidade: "JOAO PESSOA", estado: "PB", cep: "58000000",
+      codigoMunicipio: "2507507",
+    },
+    pagamentos: [{ meio: "01", valor: 11000, tipoIntegracao: "2" }],
+    transporte: { modFrete: "9" },
+    itens: [itemDaTela({ cfop: "5102", cst: "00", aliquotaIcms: "12", descricao })],
+  });
+
+  it("o texto ajustado na emissão vai para o XML, sem alterar o produto", async () => {
+    // O cadastro continua "UNIDADE DE CONTROLE VALVULA APM"; a nota sai com o
+    // texto que o operador escreveu para este documento.
+    const ajustada = "MODULO INJECAO VOLVO FH 6792 - RECONDICIONADO";
+    const resultado = await salvarNFeAvulsaDraft(draftComDescricao(ajustada));
+
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    const nota = notaGravada(resultado.nfeId);
+    assert.match(nota.xml, new RegExp(`<xProd>${ajustada}</xProd>`));
+    assert.notEqual(ajustada, produto.titulo);
+  });
+
+  it("descrição vazia não gera nota", async () => {
+    const resultado = await salvarNFeAvulsaDraft(draftComDescricao("   "));
+    assert.equal(resultado.ok, false);
+    assert.ok(
+      resultado.errors.some((erro) => (erro as { field?: string }).field === "descricao"),
+    );
+  });
+
+  it("descrição acima do limite do leiaute é recusada antes da SEFAZ", async () => {
+    // xProd tem 120 caracteres. Enquanto a descrição vinha do cadastro isso
+    // nunca acontecia; digitada na emissão, passa a ser possível.
+    const resultado = await salvarNFeAvulsaDraft(draftComDescricao("A".repeat(121)));
+
+    assert.equal(resultado.ok, false);
+    const erro = resultado.errors.find((e) => (e as { field?: string }).field === "descricao");
+    assert.ok(erro, JSON.stringify(resultado.errors));
+    assert.match((erro as { message: string }).message, /120 caracteres/);
+  });
+
+  it("exatamente no limite é aceita", async () => {
+    const resultado = await salvarNFeAvulsaDraft(draftComDescricao("A".repeat(120)));
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+  });
+});

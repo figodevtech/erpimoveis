@@ -24,6 +24,8 @@ import { connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } f
 type NcmCurado = {
   codigo: string;
   descricao: string;
+  /** Descrições dos níveis superiores, separadas por " › ". */
+  caminho?: string | null;
   inicio?: string | null;
   fim?: string | null;
 };
@@ -68,15 +70,17 @@ async function main() {
   console.log(`Banco: ${database.label}\n`);
 
   try {
-    const { rows } = await client.query<{ codigo: string; descricao: string }>(
-      "SELECT codigo, descricao FROM public.fiscal_ncm",
+    const { rows } = await client.query<{ codigo: string; descricao: string; caminho: string | null }>(
+      "SELECT codigo, descricao, caminho FROM public.fiscal_ncm",
     );
-    const noBanco = new Map(rows.map((r) => [r.codigo, r.descricao]));
+    const noBanco = new Map(rows.map((r) => [r.codigo, r]));
 
     const novos = curado.ncms.filter((n) => !noBanco.has(n.codigo));
-    const redescritos = curado.ncms.filter(
-      (n) => noBanco.has(n.codigo) && noBanco.get(n.codigo) !== n.descricao,
-    );
+    const redescritos = curado.ncms.filter((n) => {
+      const atual = noBanco.get(n.codigo);
+      if (!atual) return false;
+      return atual.descricao !== n.descricao || (atual.caminho ?? "") !== (n.caminho ?? "");
+    });
     const doArquivo = new Set(curado.ncms.map((n) => n.codigo));
     const saiuDaNcm = rows.filter((r) => !doArquivo.has(r.codigo));
 
@@ -95,10 +99,11 @@ async function main() {
       const lote = curado.ncms.slice(i, i + LOTE);
       const valores: unknown[] = [];
       const linhas = lote.map((n, indice) => {
-        const base = indice * 8;
+        const base = indice * 9;
         valores.push(
           n.codigo,
           n.descricao,
+          n.caminho ?? null,
           paraIso(n.inicio),
           paraIso(n.fim),
           curado.ato,
@@ -106,14 +111,15 @@ async function main() {
           curado.fonteUrl,
           curado.capturadoEm,
         );
-        return `($${base + 1},$${base + 2},$${base + 3}::date,$${base + 4}::date,$${base + 5},$${base + 6},$${base + 7},$${base + 8}::date)`;
+        return `($${base + 1},$${base + 2},$${base + 3},$${base + 4}::date,$${base + 5}::date,$${base + 6},$${base + 7},$${base + 8},$${base + 9}::date)`;
       });
       await client.query(
         `INSERT INTO public.fiscal_ncm
-           (codigo, descricao, vigencia_inicio, vigencia_fim, ato, fonte, fonte_url, importado_em)
+           (codigo, descricao, caminho, vigencia_inicio, vigencia_fim, ato, fonte, fonte_url, importado_em)
          VALUES ${linhas.join(",")}
          ON CONFLICT (codigo) DO UPDATE SET
            descricao = EXCLUDED.descricao,
+           caminho = EXCLUDED.caminho,
            vigencia_inicio = EXCLUDED.vigencia_inicio,
            vigencia_fim = EXCLUDED.vigencia_fim,
            ato = EXCLUDED.ato,

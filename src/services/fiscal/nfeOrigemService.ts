@@ -907,7 +907,11 @@ export async function salvarNFeDeOrigem(
       ...item,
       produtoId: sourceItem.produtoId,
       codigo: sourceItem.codigo,
-      descricao: sourceItem.descricao,
+      // A descrição é o xProd da nota, e pode ser ajustada só para ela — do
+      // mesmo jeito que quantidade, valor e desconto logo abaixo. Vazia, vale
+      // a da origem. Identidade (produtoId e codigo) continua fixada aqui: o
+      // navegador ajusta o texto do documento, nunca de qual produto ele é.
+      descricao: String(item.descricao ?? "").trim() || sourceItem.descricao,
       unidade: item.unidade || sourceItem.unidade,
       // Em OS e venda, quantidade, valor e desconto podem ser ajustados
       // exclusivamente para a NF-e — o desconto rateado da origem é só uma
