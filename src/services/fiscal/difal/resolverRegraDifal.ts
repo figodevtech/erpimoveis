@@ -25,6 +25,11 @@ async function carregarRegras(uf: string) {
   return carregarRegrasDifalPorUf(uf);
 }
 
+async function conferirNcms(codigos: string[]) {
+  const { conferirNcmsConhecidos } = await import("./repositorioDifal");
+  return conferirNcmsConhecidos(codigos);
+}
+
 /**
  * Ponto único de resolução do DIFAL. Venda, OS, saída e NF-e avulsa chegam aqui;
  * nenhuma tela reimplementa a decisão.
@@ -108,6 +113,13 @@ function semDifal(): SaidaResolucaoDifal {
 export function resolverRegraDifalComRegras(
   entrada: EntradaResolucaoDifal,
   regras: RegraDifal[],
+  opcoes?: {
+    /**
+     * O NCM existe na NCM oficial? `undefined` = catálogo não consultado
+     * (tabela fiscal_ncm vazia), e aí vale só a conferência de formato.
+     */
+    ncmConhecido?: boolean;
+  },
 ): SaidaResolucaoDifal {
   const ufDestino = normalizarUf(entrada.ufDestino);
   const ufEmitente = normalizarUf(entrada.ufEmitente);
@@ -143,6 +155,7 @@ export function resolverRegraDifalComRegras(
 
   if (!ufDestino || !dataEmissao) pendencias.push("CONTEXTO_INCOMPLETO");
   if (!ncm) pendencias.push("NCM_INVALIDO");
+  else if (opcoes?.ncmConhecido === false) pendencias.push("NCM_INEXISTENTE");
   if (casamento.conflitos.length > 0) pendencias.push("REGRA_CONFLITANTE");
   if (!casamento.aliquotaInterna) pendencias.push("ALIQUOTA_INTERNA_NAO_DETERMINADA");
   if (!casamento.aliquotaFcp) pendencias.push("FCP_NAO_DETERMINADO");
@@ -175,7 +188,11 @@ export async function resolverRegraDifal(
   const ufDestino = normalizarUf(entrada.ufDestino);
   if (!ufDestino) return semDifal();
   const regras = await carregarRegras(ufDestino);
-  return resolverRegraDifalComRegras(entrada, regras);
+  const ncm = normalizarNcm(entrada.ncm);
+  const conhecidos = ncm ? await conferirNcms([ncm]) : null;
+  return resolverRegraDifalComRegras(entrada, regras, {
+    ncmConhecido: conhecidos && ncm ? conhecidos.has(ncm) : undefined,
+  });
 }
 
 /**
@@ -191,8 +208,16 @@ export async function resolverRegraDifalEmLote<T extends { id: string }>(
   const ufDestino = normalizarUf(comum.ufDestino);
   const regras = ufDestino ? await carregarRegras(ufDestino) : [];
 
+  // Uma consulta ao catálogo para a nota inteira. `null` = catálogo vazio, e a
+  // checagem de existência fica desligada.
+  const ncmsDosItens = itens
+    .map((item) => normalizarNcm(item.ncm))
+    .filter((ncm): ncm is string => ncm !== null);
+  const conhecidos = ncmsDosItens.length ? await conferirNcms(ncmsDosItens) : null;
+
   const resultado = new Map<string, SaidaResolucaoDifal>();
   for (const item of itens) {
+    const ncm = normalizarNcm(item.ncm);
     resultado.set(
       item.id,
       resolverRegraDifalComRegras(
@@ -206,6 +231,7 @@ export async function resolverRegraDifalEmLote<T extends { id: string }>(
           csosn: item.csosn,
         },
         regras,
+        { ncmConhecido: conhecidos && ncm ? conhecidos.has(ncm) : undefined },
       ),
     );
   }

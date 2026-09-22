@@ -429,13 +429,46 @@ describe("15. override manual vence a regra automática", () => {
     assert.deepEqual(issuesDifalDoItem(item), []);
   });
 
-  it("sem marca de override, o valor do item é proveniência ITEM e também não bloqueia", () => {
+  it("valor sem marca de override NÃO vence a regra: o servidor reresolve e guarda a proveniência", () => {
+    // A tela resolve o DIFAL no carregamento e devolve os mesmos números no
+    // payload. Se o valor do item ganhasse, o snapshot registraria "veio do
+    // ITEM" para um número que veio da regra, perdendo regraId, vigência,
+    // fonte e fundamento — e o navegador passaria a ditar alíquota.
     const item = resolverDifalDoItem(
-      itemDifal({ aliquotaInternaDestino: 20, aliquotaFcpDestino: 0 }),
+      itemDifal({ aliquotaInternaDestino: 22.5, aliquotaFcpDestino: 0 }),
       CONTEXTO_ITEM,
       { regras: [PI_GERAL_ATUAL] },
     );
 
+    assert.equal(item.difalDecisao?.origemAliquotaInterna, "REGRA_UF");
+    assert.equal(item.difalDecisao?.regraAliquotaInterna?.regraId, 1);
+    assert.equal(item.difalDecisao?.origemFcp, "REGRA_UF");
+    assert.equal(item.difalDecisao?.regraFcp?.fundamentoLegal, "Lei nº 8.558/2024");
+    assert.deepEqual(issuesDifalDoItem(item), []);
+  });
+
+  it("valor divergente enviado pelo navegador é descartado em favor da regra", () => {
+    const item = resolverDifalDoItem(
+      itemDifal({ aliquotaInternaDestino: 5, aliquotaFcpDestino: 9 }),
+      CONTEXTO_ITEM,
+      { regras: [PI_GERAL_ATUAL] },
+    );
+
+    assert.equal(item.difalDecisao?.aliquotaInterna, 22.5);
+    assert.equal(item.difalDecisao?.aliquotaFcp, 0);
+    assert.equal(item.icmsUfDest?.pICMSUFDest, 22.5);
+    assert.equal(item.icmsUfDest?.pFCPUFDest, 0);
+  });
+
+  it("sem nenhuma regra na UF, o valor do item ainda serve de último recurso", () => {
+    // É o caminho da NF-e avulsa numa UF que ainda não tem regra cadastrada.
+    const item = resolverDifalDoItem(
+      itemDifal({ aliquotaInternaDestino: 20, aliquotaFcpDestino: 0 }),
+      CONTEXTO_ITEM,
+      { regras: [] },
+    );
+
+    assert.equal(item.difalDecisao?.aliquotaInterna, 20);
     assert.equal(item.difalDecisao?.origemAliquotaInterna, "ITEM");
     assert.equal(item.difalDecisao?.aliquotaFcp, 0);
     assert.equal(item.difalDecisao?.origemFcp, "ITEM");
@@ -522,6 +555,49 @@ describe("18. ausência de regra não vira chute", () => {
     const semNcm = resolverRegraDifalComRegras({ ...CONTEXTO_DEMIR, ncm: "PC-4471" }, [PI_GERAL_ATUAL]);
     assert.ok(semNcm.pendencias.includes("NCM_INVALIDO"));
     assert.equal(semNcm.resolvidoAutomaticamente, false);
+  });
+
+  it("NCM com 8 dígitos que não existe na NCM oficial bloqueia", () => {
+    // 22346792 é o que está no cadastro do "MÓDULO VOLVO 6792" da venda #180:
+    // o final é o código da peça. Passa no formato e não existe na NCM.
+    const inexistente = resolverRegraDifalComRegras(
+      { ...CONTEXTO_DEMIR, ncm: "22346792" },
+      [PI_GERAL_ATUAL],
+      { ncmConhecido: false },
+    );
+
+    assert.ok(inexistente.pendencias.includes("NCM_INEXISTENTE"));
+    assert.equal(inexistente.resolvidoAutomaticamente, false);
+  });
+
+  it("NCM existente no catálogo não levanta pendência", () => {
+    const valido = resolverRegraDifalComRegras(CONTEXTO_DEMIR, [PI_GERAL_ATUAL], {
+      ncmConhecido: true,
+    });
+
+    assert.ok(!valido.pendencias.includes("NCM_INEXISTENTE"));
+    assert.equal(valido.resolvidoAutomaticamente, true);
+  });
+
+  it("catálogo não importado desliga a checagem em vez de travar toda emissão", () => {
+    const semCatalogo = resolverRegraDifalComRegras({ ...CONTEXTO_DEMIR, ncm: "22346792" }, [
+      PI_GERAL_ATUAL,
+    ]);
+
+    assert.ok(!semCatalogo.pendencias.includes("NCM_INEXISTENTE"));
+    assert.equal(semCatalogo.resolvidoAutomaticamente, true);
+  });
+
+  it("o bloqueio do NCM inexistente chega ao item com mensagem própria", () => {
+    const item = resolverDifalDoItem(itemDifal({ ncm: "22346792" }), CONTEXTO_ITEM, {
+      regras: [PI_GERAL_ATUAL],
+      ncmConhecido: false,
+    });
+    const issue = issuesDifalDoItem(item).find((i) => i.code === "NFE_DIFAL_NCM_INEXISTENTE");
+
+    assert.ok(issue);
+    assert.equal(issue.field, "ncm");
+    assert.equal(issue.severidade, "BLOQUEIO");
   });
 
   it("o fallback da tabela genérica é marcado e continua bloqueando", () => {

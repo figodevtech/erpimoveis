@@ -114,7 +114,34 @@ BEGIN
   END;
 END $$;
 
--- 6. A tabela é configuração fiscal: sem privilégio para anon/authenticated e
+-- 6. Catálogo de NCM: o que sustenta a checagem de existência do código.
+DO $$
+DECLARE
+  v_existe integer;
+BEGIN
+  INSERT INTO public.fiscal_ncm (codigo, descricao, fonte)
+  VALUES ('87089990', 'Outros', 'teste'), ('84212300', 'Para filtrar carburantes', 'teste');
+
+  SELECT count(*) INTO v_existe FROM public.fiscal_ncm WHERE codigo = '87089990';
+  IF v_existe <> 1 THEN RAISE EXCEPTION 'NCM válido não foi gravado'; END IF;
+
+  -- O código do "MÓDULO VOLVO 6792" da venda 180 não está na NCM: é justamente
+  -- o caso que a checagem de existência tem de pegar.
+  SELECT count(*) INTO v_existe FROM public.fiscal_ncm WHERE codigo = '22346792';
+  IF v_existe <> 0 THEN RAISE EXCEPTION 'NCM inexistente apareceu no catálogo'; END IF;
+
+  BEGIN
+    INSERT INTO public.fiscal_ncm (codigo, descricao, fonte) VALUES ('8708', 'curto', 'teste');
+    RAISE EXCEPTION 'o banco aceitou NCM com menos de 8 dígitos';
+  EXCEPTION
+    WHEN check_violation THEN NULL;
+    WHEN string_data_right_truncation THEN NULL;
+  END;
+
+  RAISE NOTICE 'catálogo de NCM: ok';
+END $$;
+
+-- 7. A tabela é configuração fiscal: sem privilégio para anon/authenticated e
 -- com RLS ligada. Quem lê é o servidor, com service_role.
 DO $$
 DECLARE
@@ -134,6 +161,17 @@ BEGIN
 
   IF NOT EXISTS (SELECT 1 FROM public.permissao WHERE nome = 'fiscal:difal_gerenciar') THEN
     RAISE EXCEPTION 'permissão fiscal:difal_gerenciar não foi criada';
+  END IF;
+
+  SELECT relrowsecurity INTO v_rls FROM pg_class WHERE oid = 'public.fiscal_ncm'::regclass;
+  IF NOT v_rls THEN RAISE EXCEPTION 'RLS não está ligada em fiscal_ncm'; END IF;
+
+  SELECT count(*) INTO v_privs
+    FROM information_schema.role_table_grants
+   WHERE table_schema = 'public' AND table_name = 'fiscal_ncm'
+     AND grantee IN ('anon', 'authenticated', 'PUBLIC');
+  IF v_privs <> 0 THEN
+    RAISE EXCEPTION 'anon/authenticated têm % privilégio(s) em fiscal_ncm', v_privs;
   END IF;
   RAISE NOTICE 'RLS, privilégios e permissões: ok';
 END $$;

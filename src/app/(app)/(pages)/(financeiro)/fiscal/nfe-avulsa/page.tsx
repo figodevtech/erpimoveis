@@ -110,7 +110,10 @@ import {
   toNFeItem,
   icmsInputDoItem,
   tratamentoIcmsDoItem,
+  marcarDifalManual,
+  overrideDifalDaTela,
   type AssistedFiscalItem,
+  type DifalCampoManual,
   type FiscalSetup,
 } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/emissao-assistida-model";
 import { NfeItemIcmsSection } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/nfe-item-icms-section";
@@ -301,6 +304,13 @@ type DraftItem = {
   difalAliquotaFcp: string;
   difalPercentualPartilha: string;
   difalBaseFcp: string;
+  /**
+   * Campos de DIFAL digitados aqui. Na avulsa a alíquota interna e o FCP não
+   * são sugeridos por ninguém, então tudo que estiver preenchido veio da
+   * pessoa — e o servidor precisa saber disso para a regra fiscal não
+   * sobrepor a decisão dela.
+   */
+  difalCamposManuais: DifalCampoManual[];
 };
 
 type DraftTransporte = {
@@ -637,6 +647,7 @@ const emptyItem: DraftItem = {
   difalAliquotaFcp: "",
   difalPercentualPartilha: "",
   difalBaseFcp: "",
+  difalCamposManuais: [],
 };
 
 const initialDraft: DraftPayload = {
@@ -1009,7 +1020,7 @@ function itemAssistidoDaAvulsa(item: DraftItem, index: number): AssistedFiscalIt
     // A avulsa monta o DIFAL no próprio formulário; a resolução automática dela
     // vem do servidor no rascunho, não deste adaptador.
     difalResolucao: null,
-    difalCamposManuais: [],
+    difalCamposManuais: item.difalCamposManuais ?? [],
     quantidade,
     valorUnitario,
     subtotal: Number((quantidade * valorUnitario).toFixed(2)),
@@ -1545,6 +1556,9 @@ export default function NFeAvulsaPage() {
         aliquotaFcpDestino: item.difalHabilitado ? item.difalAliquotaFcp || null : null,
         percentualPartilhaDestino: item.difalHabilitado ? item.difalPercentualPartilha || null : null,
         baseCalculoFcpDestino: item.difalHabilitado ? item.difalBaseFcp || null : null,
+        overrideDifalManual: item.difalHabilitado
+          ? overrideDifalDaTela(item.difalCamposManuais)
+          : undefined,
       })),
     };
   }
@@ -3116,33 +3130,58 @@ export default function NFeAvulsaPage() {
                                 <Input
                                   placeholder="Pesquise a alíquota"
                                   value={item.difalAliquotaInterna}
-                                  onChange={(event) => updateItem(index, { difalAliquotaInterna: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalAliquotaInterna: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "aliquotaInterna"),
+                                    })
+                                  }
                                 />
                               </Field>
                               <Field label="% interestadual" required>
                                 <Input
                                   value={item.difalAliquotaInterestadual}
-                                  onChange={(event) => updateItem(index, { difalAliquotaInterestadual: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalAliquotaInterestadual: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "aliquotaInterestadual"),
+                                    })
+                                  }
                                 />
                               </Field>
                               <Field label="% partilha destino">
                                 <Input
                                   value={item.difalPercentualPartilha}
-                                  onChange={(event) => updateItem(index, { difalPercentualPartilha: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalPercentualPartilha: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "percentualPartilha"),
+                                    })
+                                  }
                                 />
                               </Field>
-                              <Field label="% FCP">
+                              <Field label="% FCP" required>
                                 <Input
-                                  placeholder="0"
+                                  placeholder="Informe 0 se não devido"
                                   value={item.difalAliquotaFcp}
-                                  onChange={(event) => updateItem(index, { difalAliquotaFcp: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalAliquotaFcp: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "aliquotaFcp"),
+                                    })
+                                  }
                                 />
                               </Field>
                               <Field label="Base FCP (R$)">
                                 <Input
                                   placeholder="Mesma do DIFAL"
                                   value={item.difalBaseFcp}
-                                  onChange={(event) => updateItem(index, { difalBaseFcp: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalBaseFcp: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "baseFcp"),
+                                    })
+                                  }
                                 />
                               </Field>
                             </div>

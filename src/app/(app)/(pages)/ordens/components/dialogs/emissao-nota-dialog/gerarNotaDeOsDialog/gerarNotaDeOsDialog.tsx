@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -99,6 +99,8 @@ import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import {
   aplicarCamposFiscais,
   aplicarSugestaoDifal,
+  aplicarResolucaoDifal,
+  assinaturaDifalDe,
   createAssistedItem,
   resolverDifalDosItens,
   type AssistedFiscalItem,
@@ -542,6 +544,51 @@ export function GerarNotaDeOsDialog({
     });
   }, [difalContexto]);
 
+  // Tudo que muda a decisão do motor fiscal. `aplicarSugestaoDifal` acima só
+  // refaz o que se deduz sem cadastro (interestadual e partilha); a alíquota
+  // interna e o FCP vêm do banco e precisam de uma volta ao servidor.
+  //
+  // Sem isto, trocar o destinatário de PI para RJ deixaria na tela os 22,5% e
+  // o FCP 0 do PI, e a pessoa confirmaria números de outra UF.
+  const assinaturaDifal = useMemo(
+    () =>
+      assinaturaDifalDe({
+        ufDestino: difalContexto.ufDestinatario,
+        indFinal: difalContexto.indFinal,
+        indIEDest: difalContexto.indIEDest,
+        crt: difalContexto.crt,
+        modelo,
+        itens: items,
+      }),
+    [difalContexto, items, modelo],
+  );
+  const assinaturaDifalResolvida = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!items.length) return;
+    if (assinaturaDifalResolvida.current === assinaturaDifal) return;
+    assinaturaDifalResolvida.current = assinaturaDifal;
+
+    const controle = new AbortController();
+    void (async () => {
+      const resolucoes = await resolverDifalDosItens({
+        modelo,
+        ufDestino: difalContexto.ufDestinatario,
+        indFinal: difalContexto.indFinal ?? 1,
+        indIEDest: difalContexto.indIEDest ?? 9,
+        itens: items,
+        signal: controle.signal,
+      });
+      if (controle.signal.aborted) return;
+      setItems((current) => aplicarResolucaoDifal(current, resolucoes));
+    })();
+
+    return () => controle.abort();
+    // A assinatura já contém tudo que muda a decisão. Declarar `items` aqui faria
+    // o efeito reagir à própria resposta que ele acabou de aplicar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assinaturaDifal]);
+
   const difalAtivo = items.some((item) => item.difalHabilitado);
 
   const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : saidaId ? "SAIDA" : null;
@@ -678,6 +725,16 @@ export function GerarNotaDeOsDialog({
       );
       setSetup(fiscalSetup);
       setSource(productsJson);
+      // A carga já resolveu o DIFAL destes itens: registrar a assinatura evita
+      // que o efeito de re-resolução repita a chamada assim que a tela abre.
+      assinaturaDifalResolvida.current = assinaturaDifalDe({
+        ufDestino: parceiroUfCfop,
+        indFinal,
+        indIEDest,
+        crt: fiscalSetup.empresa?.crt,
+        modelo,
+        itens: todosOsItens,
+      });
       setItems(todosOsItens);
       setSelectedIds(todosOsItens.map((item) => item.sourceItemId));
       setEntrySupplier(productsJson.destinatario ?? emptyEntrySupplier);

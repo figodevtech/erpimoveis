@@ -441,13 +441,19 @@ export function validarDifalCanonicoDoItem(item: NFeItem, contexto: ContextoDifa
 }
 
 /**
- * Resolve um campo do DIFAL na ordem: override manual do usuário, valor do
- * cadastro do item, regra fiscal versionada, tabela de referência.
+ * Resolve um campo do DIFAL na ordem: override manual explícito, regra fiscal
+ * versionada, valor que veio no item, tabela de referência.
  *
- * O valor do item vem antes da regra de propósito: quem digitou uma alíquota na
- * aba fiscal do produto está descrevendo aquela mercadoria, e o motor não
- * sobrepõe decisão de quem conhece o item. A tabela de referência vem por
- * último e nunca autoriza a emissão sozinha.
+ * A regra vem ANTES do valor do item de propósito. A tela resolve o DIFAL no
+ * carregamento e devolve os mesmos números no payload; se o valor do item
+ * ganhasse, o servidor gravaria "22,5 veio do ITEM" para um número que veio da
+ * regra do PI — e o snapshot perderia regraId, vigência, fonte e fundamento,
+ * que são justamente o que responde "por que esta nota usou 22,5%?". Pior: o
+ * navegador passaria a ditar alíquota sem deixar rastro.
+ *
+ * O valor do item só vence quando vem marcado como override manual, e aí a
+ * proveniência diz isso. Sem marca e sem regra, ele ainda serve de último
+ * recurso — é o caso da NF-e avulsa numa UF que ainda não tem regra cadastrada.
  */
 function resolverCampoDifal(params: {
   valorDoItem: number | null | undefined;
@@ -457,11 +463,11 @@ function resolverCampoDifal(params: {
   if (params.valorDoItem != null && params.overrideManual) {
     return { valor: Number(params.valorDoItem), origem: 'MANUAL', regra: null };
   }
-  if (params.valorDoItem != null) {
-    return { valor: Number(params.valorDoItem), origem: 'ITEM', regra: null };
-  }
   if (params.daRegra) {
     return { valor: params.daRegra.valor, origem: params.daRegra.origem, regra: params.daRegra };
+  }
+  if (params.valorDoItem != null) {
+    return { valor: Number(params.valorDoItem), origem: 'ITEM', regra: null };
   }
   return { valor: null, origem: 'NAO_CONFIGURADO', regra: null };
 }
@@ -477,7 +483,15 @@ function resolverCampoDifal(params: {
 export function resolverDifalDoItem(
   item: NFeItem,
   contexto: ContextoDifal,
-  opcoes?: { regras?: RegraDifal[] },
+  opcoes?: {
+    regras?: RegraDifal[];
+    /**
+     * O NCM do item existe na NCM oficial? `undefined` quer dizer que o
+     * catálogo não foi consultado (tabela fiscal_ncm ainda vazia) — nesse caso
+     * a checagem de existência fica desligada e vale só o formato.
+     */
+    ncmConhecido?: boolean;
+  },
 ): NFeItem {
   if (!deveGerarICMSUFDest({ ...contexto, cfop: item.cfop, cst: item.cstIcms ?? item.cst, csosn: item.csosn })) return item;
 
@@ -521,6 +535,8 @@ export function resolverDifalDoItem(
   }
   if (!ncmNormalizado) {
     pendencias.push('NCM_INVALIDO');
+  } else if (opcoes?.ncmConhecido === false) {
+    pendencias.push('NCM_INEXISTENTE');
   }
   if (casamento.conflitos.length > 0) {
     pendencias.push('REGRA_CONFLITANTE');
@@ -569,6 +585,7 @@ export function resolverDifalDoItem(
 export type DifalPendencia =
   | 'CONTEXTO_INCOMPLETO'
   | 'NCM_INVALIDO'
+  | 'NCM_INEXISTENTE'
   | 'REGRA_CONFLITANTE'
   | 'ALIQUOTA_INTERNA_NAO_DETERMINADA'
   | 'ALIQUOTA_INTERNA_SEM_REGRA'
@@ -586,6 +603,12 @@ const MENSAGEM_PENDENCIA: Record<DifalPendencia, { code: string; field: string; 
     field: 'ncm',
     message:
       'NCM ausente ou inválido (são 8 dígitos). Sem ele não dá para saber se a mercadoria tem regra própria de alíquota ou de FCP na UF de destino, e o motor não escolhe por semelhança.',
+  },
+  NCM_INEXISTENTE: {
+    code: 'NFE_DIFAL_NCM_INEXISTENTE',
+    field: 'ncm',
+    message:
+      'O NCM informado tem 8 dígitos mas não existe na Nomenclatura Comum do Mercosul. Um código inexistente nunca casa com regra por mercadoria e cairia na regra geral da UF, tributando errado sem avisar. Corrija o NCM no cadastro do produto.',
   },
   REGRA_CONFLITANTE: {
     code: 'NFE_DIFAL_REGRA_CONFLITANTE',

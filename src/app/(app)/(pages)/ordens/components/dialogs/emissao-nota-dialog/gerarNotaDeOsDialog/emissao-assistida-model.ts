@@ -336,12 +336,24 @@ function textoDeDecimal(valor: number | null | undefined): string {
  * Falha de rede não inventa alíquota: devolve mapa vazio, os campos nascem
  * vazios e o bloqueio de sempre segura a emissão.
  */
+export type ItemParaResolverDifal = {
+  sourceItemId: string;
+  ncm?: string | null;
+  cest?: string | null;
+  cfop?: string | null;
+  cst?: string | null;
+  csosn?: string | null;
+  /** Produto da origem traz `origem_mercadoria`; o item da tela traz `orig`. */
+  origem_mercadoria?: string | null;
+  orig?: string | null;
+};
+
 export async function resolverDifalDosItens(params: {
   modelo: ModeloDocumentoFiscal;
   ufDestino?: string | null;
   indFinal: number | string;
   indIEDest: number | string;
-  itens: SourceProduct[];
+  itens: ItemParaResolverDifal[];
   dataEmissao?: string;
   signal?: AbortSignal;
 }): Promise<Map<string, ResolucaoDifalTela>> {
@@ -367,7 +379,7 @@ export async function resolverDifalDosItens(params: {
           id: item.sourceItemId,
           ncm: item.ncm,
           cest: item.cest,
-          origemMercadoria: item.origem_mercadoria,
+          origemMercadoria: item.origem_mercadoria ?? item.orig,
           cfop: item.cfop,
           cst: item.cst,
           csosn: item.csosn,
@@ -384,6 +396,107 @@ export async function resolverDifalDosItens(params: {
   } catch {
     return vazio;
   }
+}
+
+/**
+ * Assinatura do que muda a decisão do DIFAL: contexto da nota mais os campos
+ * de cada item que entram no casamento de regras.
+ *
+ * Serve para a tela saber quando precisa voltar ao servidor. De propósito ela
+ * NÃO inclui as alíquotas resolvidas — se incluísse, aplicar a resposta mudaria
+ * a assinatura e o efeito se chamaria para sempre.
+ */
+export function assinaturaDifalDe(params: {
+  ufDestino?: string | null;
+  indFinal?: number | string | null;
+  indIEDest?: number | string | null;
+  crt?: number | string | null;
+  modelo: ModeloDocumentoFiscal;
+  itens: ItemParaResolverDifal[];
+}): string {
+  return JSON.stringify([
+    String(params.ufDestino ?? "").trim().toUpperCase(),
+    String(params.indFinal ?? ""),
+    String(params.indIEDest ?? ""),
+    String(params.crt ?? ""),
+    String(params.modelo),
+    params.itens.map((item) => [
+      item.sourceItemId,
+      onlyDigits(item.ncm ?? ""),
+      onlyDigits(item.cest ?? ""),
+      onlyDigits(item.cfop ?? ""),
+      String(item.cst ?? ""),
+      String(item.csosn ?? ""),
+      String(item.origem_mercadoria ?? item.orig ?? ""),
+    ]),
+  ]);
+}
+
+/**
+ * Aplica uma nova resolução do motor sobre os itens da tela.
+ *
+ * Campo marcado como manual é preservado — a pessoa decidiu. Os demais passam
+ * a valer o que o servidor respondeu.
+ *
+ * Item que exige DIFAL e ficou sem resposta (rede fora, servidor em erro) tem
+ * os campos automáticos LIMPOS, não mantidos: guardar os 22,5% do PI numa nota
+ * que agora vai para o RJ é pior do que o campo vazio, porque o vazio bloqueia
+ * e o número errado não.
+ */
+export function aplicarResolucaoDifal(
+  itens: AssistedFiscalItem[],
+  resolucoes: Map<string, ResolucaoDifalTela>,
+): AssistedFiscalItem[] {
+  let mudou = false;
+  const proximos = itens.map((item) => {
+    const resolucao = resolucoes.get(item.sourceItemId) ?? null;
+    const manuais = item.difalCamposManuais ?? [];
+    const manual = (campo: DifalCampoManual) => manuais.includes(campo);
+
+    const habilitado = resolucao ? resolucao.exigeDifal : item.difalHabilitado;
+    const automatico = (campo: DifalCampoManual, valor: number | null | undefined, atual: string) =>
+      manual(campo) ? atual : textoDeDecimal(valor ?? null);
+
+    const proximo: AssistedFiscalItem = {
+      ...item,
+      difalHabilitado: habilitado,
+      difalResolucao: habilitado ? resolucao : null,
+      difalAliquotaInterna: habilitado
+        ? automatico("aliquotaInterna", resolucao?.aliquotaInterna, item.difalAliquotaInterna)
+        : item.difalAliquotaInterna,
+      difalAliquotaInterestadual: habilitado
+        ? automatico(
+            "aliquotaInterestadual",
+            resolucao?.aliquotaInterestadual,
+            item.difalAliquotaInterestadual,
+          )
+        : item.difalAliquotaInterestadual,
+      difalAliquotaFcp: habilitado
+        ? automatico("aliquotaFcp", resolucao?.aliquotaFcp, item.difalAliquotaFcp)
+        : item.difalAliquotaFcp,
+      difalPercentualPartilha: habilitado
+        ? automatico(
+            "percentualPartilha",
+            resolucao?.percentualPartilha,
+            item.difalPercentualPartilha,
+          )
+        : item.difalPercentualPartilha,
+    };
+
+    const igual =
+      proximo.difalHabilitado === item.difalHabilitado &&
+      proximo.difalResolucao === item.difalResolucao &&
+      proximo.difalAliquotaInterna === item.difalAliquotaInterna &&
+      proximo.difalAliquotaInterestadual === item.difalAliquotaInterestadual &&
+      proximo.difalAliquotaFcp === item.difalAliquotaFcp &&
+      proximo.difalPercentualPartilha === item.difalPercentualPartilha;
+
+    if (igual) return item;
+    mudou = true;
+    return proximo;
+  });
+
+  return mudou ? proximos : itens;
 }
 
 /** Lista de campos editados à mão vira o formato que o item fiscal grava. */

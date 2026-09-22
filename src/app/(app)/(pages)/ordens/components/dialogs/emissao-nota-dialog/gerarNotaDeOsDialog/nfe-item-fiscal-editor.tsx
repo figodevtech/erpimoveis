@@ -227,6 +227,69 @@ function ProvenienciaDifal({
   );
 }
 
+const MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const PERCENTUAL = new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/**
+ * Resumo do que o DIFAL vai valer neste item, em reais.
+ *
+ * As alíquotas sozinhas não dizem quanto a nota vai pagar, e o campo "Base do
+ * FCP" fica de propósito em branco — vazio ali significa "mesma base do DIFAL",
+ * e preencher com um número o congelaria: mudar o desconto do item depois
+ * deixaria a base do FCP defasada. Então o valor aparece aqui, calculado,
+ * em vez de virar um campo editável que ninguém lembra de reconferir.
+ */
+function ResumoDifal({ item }: { item: AssistedFiscalItem }) {
+  const numero = (texto: string) => {
+    const valor = Number(String(texto).replace(",", "."));
+    return Number.isFinite(valor) ? valor : null;
+  };
+
+  const interna = numero(item.difalAliquotaInterna);
+  const interestadual = numero(item.difalAliquotaInterestadual);
+  const fcp = numero(item.difalAliquotaFcp);
+  const partilha = numero(item.difalPercentualPartilha) ?? 100;
+
+  // Mesma base do motor: valor da operação menos desconto, mais frete.
+  const base = Number(
+    (item.quantidade * item.valorUnitario - (item.valorDesconto ?? 0)).toFixed(2),
+  );
+  const baseFcp = numero(item.difalBaseFcp) ?? base;
+
+  if (interna === null || interestadual === null || base <= 0) return null;
+
+  const diferenca = Math.max(0, interna - interestadual);
+  const valorDifal = Number(((base * (diferenca / 100) * partilha) / 100).toFixed(2));
+  const valorFcp = fcp === null ? null : Number((baseFcp * (fcp / 100)).toFixed(2));
+
+  const linha = (rotulo: string, valor: string) => (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-muted-foreground">{rotulo}</span>
+      <span className="font-medium tabular-nums">{valor}</span>
+    </div>
+  );
+
+  return (
+    <div className="grid gap-x-6 gap-y-1 rounded-md border bg-muted/40 p-3 text-xs sm:grid-cols-2">
+      {linha("Base do DIFAL", MOEDA.format(base))}
+      {linha("Valor do DIFAL", MOEDA.format(valorDifal))}
+      {linha("Base do FCP", MOEDA.format(baseFcp))}
+      {linha(
+        "Valor do FCP",
+        valorFcp === null ? "—" : MOEDA.format(valorFcp),
+      )}
+      {linha("Partilha ao destino", `${PERCENTUAL.format(partilha)}%`)}
+      {linha(
+        "Diferença de alíquota",
+        `${PERCENTUAL.format(diferenca)}%`,
+      )}
+    </div>
+  );
+}
+
 /** O que falta para o DIFAL fechar, com a causa nomeada. */
 function PendenciasDifal({ item }: { item: AssistedFiscalItem }) {
   const resolucao = item.difalResolucao;
@@ -676,6 +739,7 @@ export function NfeItemFiscalEditor({
                 />
               </Field>
             </div>
+            <ResumoDifal item={item} />
             <PendenciasDifal item={item} />
           </section>
         ) : null}

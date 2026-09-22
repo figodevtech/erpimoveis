@@ -32,6 +32,7 @@
     "db:simular:comissao-criacao": "tsx scripts/db/simular-comissao-criacao.ts",
     "db:test:sql": "tsx scripts/db/test-sql.ts",
     "fiscal:difal": "tsx scripts/fiscal/sincronizar-difal.ts",
+    "fiscal:ncm": "tsx scripts/fiscal/importar-ncm.ts",
     "db:inventario:dre": "tsx scripts/db/inventario-plano-contas-dre.ts",
     "db:simular:plano-contas": "tsx scripts/db/simular-classificacao-plano-contas.ts",
     "db:test:classificacao-resultado": "tsx scripts/db/test-classificacao-resultado-migration.ts",

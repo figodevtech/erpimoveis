@@ -75,7 +75,11 @@ const cache = new Map<string, { em: number; regras: RegraDifal[] }>();
 
 export function limparCacheRegrasDifal() {
   cache.clear();
+  catalogoVazio = null;
 }
+
+/** Catálogo vazio: lembrado por pouco tempo para não contar a tabela a cada item. */
+let catalogoVazio: { em: number; vazio: boolean } | null = null;
 
 /**
  * Traz todas as regras da UF, inclusive as inativas e as de vigência encerrada:
@@ -100,4 +104,58 @@ export async function carregarRegrasDifalPorUf(uf: string): Promise<RegraDifal[]
   const regras = (data ?? []).map((row) => paraRegra(row as RegraRow));
   cache.set(chave, { em: Date.now(), regras });
   return regras;
+}
+
+/**
+ * Quais destes NCMs existem na NCM oficial.
+ *
+ * Devolve `null` quando o catálogo ainda não foi importado (tabela vazia): aí
+ * o motor desliga a checagem de existência e volta a conferir só o formato,
+ * em vez de bloquear toda emissão por causa de uma carga que não rodou.
+ */
+export async function conferirNcmsConhecidos(codigos: string[]): Promise<Set<string> | null> {
+  const unicos = [...new Set(codigos.filter((c) => /^\d{8}$/.test(c)))];
+  if (unicos.length === 0) return null;
+
+  if (catalogoVazio !== null && Date.now() - catalogoVazio.em < CACHE_MS && catalogoVazio.vazio) {
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("fiscal_ncm")
+      .select("codigo")
+      .in("codigo", unicos);
+
+    if (error) throw error;
+
+    const achados = new Set((data ?? []).map((row) => String((row as { codigo: string }).codigo)));
+    if (achados.size === 0) {
+      // Nenhum dos códigos existe. Pode ser catálogo vazio ou oito dígitos
+      // inventados — só uma contagem distingue os dois, e a resposta errada
+      // aqui ou trava tudo ou não trava nada.
+      const { count, error: erroContagem } = await supabaseAdmin
+        .from("fiscal_ncm")
+        .select("codigo", { count: "exact", head: true });
+      if (erroContagem) throw erroContagem;
+      catalogoVazio = { em: Date.now(), vazio: (count ?? 0) === 0 };
+      if (catalogoVazio.vazio) return null;
+    } else {
+      catalogoVazio = { em: Date.now(), vazio: false };
+    }
+
+    return achados;
+  } catch (erro) {
+    // A conferência de NCM é uma camada a mais sobre a conferência de formato,
+    // não o motor do DIFAL. Se a tabela ainda não foi criada (migration
+    // pendente) ou a consulta falhar, o certo é voltar ao comportamento
+    // anterior e seguir — derrubar a emissão inteira por causa dela seria
+    // transformar uma melhoria em indisponibilidade.
+    catalogoVazio = { em: Date.now(), vazio: true };
+    console.warn(
+      "[difal] catálogo de NCM indisponível; conferindo só o formato.",
+      erro instanceof Error ? erro.message : erro,
+    );
+    return null;
+  }
 }

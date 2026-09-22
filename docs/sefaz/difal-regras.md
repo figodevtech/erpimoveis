@@ -31,6 +31,7 @@ bloqueando — e diz exatamente o que falta.
 | Resolver | [`src/services/fiscal/difal/resolverRegraDifal.ts`](../../src/services/fiscal/difal/resolverRegraDifal.ts) | Entrada única: incidência + regras + interestadual |
 | API | [`src/app/api/fiscal/difal/resolver/route.ts`](../../src/app/api/fiscal/difal/resolver/route.ts) | `POST` para a tela preencher antes de montar o item |
 | Sincronização | [`scripts/fiscal/sincronizar-difal.ts`](../../scripts/fiscal/sincronizar-difal.ts) | Diff entre o arquivo curado e o banco; grava só com `--aplicar` |
+| Catálogo NCM | [`supabase/migrations/20260922170000_fiscal_ncm_catalogo.sql`](../../supabase/migrations/20260922170000_fiscal_ncm_catalogo.sql) + [`scripts/fiscal/importar-ncm.ts`](../../scripts/fiscal/importar-ncm.ts) | Confere se o NCM do item existe de verdade |
 
 A UF do emitente e o CRT **nunca** vêm do navegador: a rota os lê do banco. São
 eles que decidem incidência e alíquota interestadual.
@@ -159,6 +160,7 @@ Cada pendência tem código próprio. O que cada um quer dizer:
 | `NFE_DIFAL_ALIQUOTA_INTERNA_SEM_REGRA` | Valor veio da tabela genérica `ALIQUOTA_INTERNA_POR_UF` | Cadastrar a regra da UF; o fallback não autoriza emissão |
 | `NFE_DIFAL_REGRA_CONFLITANTE` | Duas regras de mesma especificidade discordam | Ajustar vigência ou `prioridade` de uma delas |
 | `NFE_DIFAL_NCM_INVALIDO` | NCM do item não tem 8 dígitos | Corrigir o cadastro do produto |
+| `NFE_DIFAL_NCM_INEXISTENTE` | NCM tem 8 dígitos mas não existe na NCM oficial | Corrigir o cadastro do produto |
 | `NFE_DIFAL_CONTEXTO_INCOMPLETO` | Falta UF de destino ou data de emissão | Completar o destinatário |
 
 Para ver o que o motor enxergou, chame a rota direto:
@@ -169,6 +171,26 @@ curl -X POST http://localhost:3000/api/fiscal/difal/resolver \
   -d '{"ufDestino":"PI","dataEmissao":"2026-09-22","modelo":55,
        "itens":[{"id":"1","ncm":"87089990","origemMercadoria":"0","cfop":"6108","cst":"00"}]}'
 ```
+
+## Precedência dos valores
+
+Para cada campo, nesta ordem:
+
+1. **Override manual explícito** (`overrideDifalManual`) — proveniência `MANUAL`;
+2. **Regra fiscal versionada** — proveniência `REGRA_*`, com regraId, vigência,
+   fonte e fundamento;
+3. **Valor que veio no item sem marca de manual** — proveniência `ITEM`;
+4. **Tabela de referência** `ALIQUOTA_INTERNA_POR_UF` — `TABELA_REFERENCIA`, bloqueia;
+5. nada — bloqueia.
+
+A regra vem **antes** do valor do item de propósito. A tela resolve o DIFAL no
+carregamento e devolve os mesmos números no payload; se o valor do item
+vencesse, o servidor gravaria "22,5 veio do ITEM" para um número que veio da
+regra do PI, e o snapshot perderia justamente o que responde "por que esta nota
+usou 22,5%?". Pior: o navegador passaria a ditar alíquota sem deixar rastro.
+
+Por isso toda tela que deixa digitar num campo de DIFAL marca o campo em
+`difalCamposManuais` — vale para a emissão assistida e para a NF-e avulsa.
 
 ## Override manual
 
@@ -185,6 +207,16 @@ Valor que veio do cadastro fiscal do próprio produto (sem edição na tela) tem
 proveniência `ITEM` e também vence a regra: quem cadastrou aquele produto está
 descrevendo aquela mercadoria.
 
+## Base do FCP e os valores na tela
+
+O campo **Base do FCP** continua em branco de propósito: vazio significa "mesma
+base do DIFAL", e preenchê-lo com um número o congelaria — mudar o desconto do
+item depois deixaria a base do FCP defasada.
+
+Para a pessoa não ficar sem os números, a seção mostra um resumo calculado
+(base do DIFAL, valor do DIFAL, base do FCP, valor do FCP, partilha e diferença
+de alíquota), em reais, ao lado dos campos editáveis.
+
 ## Reprodutibilidade histórica
 
 `resolverDifalDoItem` grava em `difalDecisao` o valor de cada campo, a regra que
@@ -192,6 +224,14 @@ respondeu (id, descrição, vigência, fonte, fundamento), o contexto fiscal do
 momento e as pendências. **Mudar uma regra em `fiscal_difal_regra` não altera
 nenhuma NF-e já decidida** — o builder serializa o snapshot e nunca reconsulta
 as regras.
+
+A tela refaz a resolução sozinha quando muda algo que altera a decisão: UF de
+destino, `indFinal`, `indIEDest`, CRT, modelo e, por item, NCM, CEST, CFOP,
+CST/CSOSN e origem da mercadoria. É o `assinaturaDifalDe` que detecta a
+mudança; `aplicarResolucaoDifal` aplica a resposta preservando os campos
+marcados como manuais. Item que exige DIFAL e fica sem resposta tem os campos
+automáticos **limpos**, não mantidos — guardar os 22,5% do PI numa nota que
+passou a ir para o RJ é pior que o campo vazio, porque o vazio bloqueia.
 
 O que dispara nova resolução é mudança de contexto (UF de destino, NCM, CEST,
 CRT, modelo, finalidade). `validarDifalCanonicoDoItem` compara o contexto
@@ -201,6 +241,34 @@ gravado com o atual e recusa emitir com um snapshot decidido noutro contexto
 Snapshots gravados antes deste motor não têm `crt` nem `modelo`; a comparação
 trata a ausência como "não sei", não como divergência, para não invalidar
 rascunho correto.
+
+## Catálogo de NCM
+
+`normalizarNcm` confere o formato; a existência do código é conferida contra
+`public.fiscal_ncm`, carregada do Portal Único Siscomex.
+
+Sem isso, um código de oito dígitos que não existe na NCM passaria batido — é o
+caso do "MÓDULO VOLVO 6792" da venda #180, cadastrado com `22346792`, em que os
+quatro últimos dígitos são o número da peça. Com regra geral da UF o resultado
+não muda; no dia em que houver regra por NCM, o código inexistente não casa com
+nenhuma, cai na geral e tributa errado sem avisar.
+
+A tabela nasce **vazia** e é carregada por `npm run fiscal:ncm -- <banco> --aplicar`.
+Enquanto estiver vazia — ou se a consulta falhar, por exemplo com a migration
+ainda pendente — a checagem de existência se desliga e vale só o formato, com um
+aviso no log do servidor. Uma camada a mais não pode virar indisponibilidade.
+
+Para atualizar quando sair nova Resolução Gecex:
+
+```bash
+curl -sSL https://portalunico.siscomex.gov.br/classif/api/publico/nomenclatura/download/json
+# regravar data/fiscal/ncm/ncm-siscomex.json no mesmo formato
+npm run fiscal:ncm -- demir              # diff
+npm run fiscal:ncm -- demir --aplicar    # grava
+```
+
+Código que sai da NCM recebe `vigencia_fim` em vez de ser apagado: nota antiga
+referencia o NCM que valia na época.
 
 ## Estado da carga inicial
 
@@ -230,10 +298,6 @@ emissão escolher sozinha.
 
 ## Limitações conhecidas
 
-- **O NCM é validado só no formato.** Oito dígitos passam, existam ou não na
-  tabela NCM. O produto "MÓDULO VOLVO 6792" da venda #180 tem NCM `22346792` —
-  o final é o código da peça. Validar existência exigiria importar a tabela NCM
-  da Receita, que não está no ERP hoje.
 - **`ALIQUOTA_INTERNA_POR_UF` ainda existe** como fallback técnico, marcado como
   `TABELA_REFERENCIA` e sempre bloqueando. Some quando as 27 UFs tiverem regra
   ativa conferida.
@@ -249,7 +313,7 @@ emissão escolher sozinha.
 ## Testes
 
 ```bash
-npx tsx --test src/lib/nfe/difalRegras.test.ts   # 51 casos do motor
+npx tsx --test src/lib/nfe/difalRegras.test.ts   # 57 casos do motor
 npx tsx --test src/lib/nfe/difal.test.ts         # 30 casos de cálculo e incidência
 npm run db:test:difal -- demir                   # migration, constraints e RLS, em rollback
 npm run test:negocio                             # suíte completa
