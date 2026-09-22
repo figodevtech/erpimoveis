@@ -5,10 +5,15 @@ import type {
   NFeItem,
   TributoPisCofins,
 } from './types';
-import { NFE_ICMS_RULE_VERSION, resolverIcmsDoItem } from './icms';
+import { NFE_ICMS_RULE_VERSION, VERSAO_REGRA_CFOP_ST, resolverIcmsDoItem } from './icms';
 
+// NT 2025.002 v1.51 (04/08/2026): muda o cronograma da UB12-10 (Imposto
+// Seletivo) e regras que o ERP não implementa (ZFM, monofásico, devolução). A
+// UB16-10 segue "implementação futura", com o mesmo texto da v1.50.
+// A troca de versão faz rascunhos antigos serem gerados de novo antes da
+// autorização (`rascunhoPrecisaSerRegerado`), e com eles a ciência dos avisos.
 export const NFE_FISCAL_RULE_VERSION =
-  `regras_nfe@2026-09-18|NT-2025.002-v1.50|IT-2025.002-v1.60|PL-010b-v1.30|${NFE_ICMS_RULE_VERSION}`;
+  `regras_nfe@2026-09-22|NT-2025.002-v1.51|IT-2025.002-v1.60|PL-010b-v1.30|${NFE_ICMS_RULE_VERSION}|${VERSAO_REGRA_CFOP_ST}`;
 export const RTC_REGULAR_REQUIRED_FROM = '2026-08-03';
 
 /**

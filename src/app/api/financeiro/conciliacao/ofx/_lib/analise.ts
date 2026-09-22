@@ -6,6 +6,7 @@ import { normalizarTexto } from "@/lib/financeiro/ofx/normalize";
 import { calcularFingerprints, hashDoArquivo } from "@/lib/financeiro/ofx/fingerprint";
 import {
   analisarMovimento,
+  desfazerDisputas,
   type AnaliseDeMovimento,
   type CandidatoTransacao,
 } from "@/lib/financeiro/ofx/matcher";
@@ -253,20 +254,33 @@ export async function analisarExtrato(
   const jaConciliadas = await carregarTransacoesConciliadas(bancoId);
   const disponiveis = candidatos.filter((candidato) => !jaConciliadas.has(candidato.id));
 
+  const gravados = fingerprints.map((fingerprint) => jaImportados.get(fingerprint) ?? null);
+  const analises = extrato.movimentos.map((movimento) =>
+    analisarMovimento(movimento, disponiveis, bancoId),
+  );
+  // Linha já conciliada ou ignorada não disputa lançamento com as pendentes.
+  const semDisputa = desfazerDisputas(
+    analises.map((analise, indice) => (estaResolvido(gravados[indice]?.status) ? null : analise)),
+  );
+
   return extrato.movimentos.map((movimento, indice) => {
     const fingerprint = fingerprints[indice];
-    const gravado = jaImportados.get(fingerprint) ?? null;
+    const gravado = gravados[indice];
 
     return {
       ...movimento,
       fingerprint,
-      analise: analisarMovimento(movimento, disponiveis, bancoId),
+      analise: semDisputa[indice] ?? analises[indice],
       metodoSugerido: sugerirMetodoPagamento(movimento, metodos),
       jaImportado: gravado != null,
       movimentoId: gravado?.id ?? null,
       statusGravado: gravado?.status ?? null,
     };
   });
+}
+
+function estaResolvido(status: string | undefined): boolean {
+  return status === "CONCILIADO" || status === "IGNORADO";
 }
 
 /** Transações desta conta que já respondem por algum movimento de extrato. */
@@ -394,8 +408,15 @@ export async function reanalisarMovimentosGravados(
     getPaymentMethodValues(),
   ]);
   const disponiveis = candidatos.filter((candidato) => !conciliadas.has(candidato.id));
+  const analises = desfazerDisputas(
+    linhas.map((linha) =>
+      linha.status === "PENDENTE"
+        ? analisarMovimento(comoMovimentoDoArquivo(linha), disponiveis, bancoId)
+        : null,
+    ),
+  );
 
-  return linhas.map((linha) => {
+  return linhas.map((linha, indice) => {
     if (linha.status !== "PENDENTE") {
       return {
         ...linha,
@@ -413,7 +434,7 @@ export async function reanalisarMovimentosGravados(
     const movimento = comoMovimentoDoArquivo(linha);
     return {
       ...linha,
-      analise: analisarMovimento(movimento, disponiveis, bancoId),
+      analise: analises[indice]!,
       metodoSugerido: sugerirMetodoPagamento(movimento, metodos),
     };
   });

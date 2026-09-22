@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { describe, it } from "node:test";
+
+import { CFOP_CATALOG, CFOP_CATALOG_SOURCE } from "./cfopCatalog.generated";
+import { CFOPS_PERMITIDOS_NFCE } from "./cfopCatalog";
 
 import { MODELO_NFCE, MODELO_NFE } from "./modeloDocumento";
 import {
@@ -151,4 +154,39 @@ test("a busca da interface nunca oferece 6405", () => {
   assert.ok(options.some((entry) => entry.codigo === "6401"));
   assert.ok(options.some((entry) => entry.codigo === "6102"));
   assert.ok(!options.some((entry) => entry.codigo === "6405"));
+});
+
+describe("catálogo CFOP — IT 2023.002 v2.10 (04/09/2026)", () => {
+  it("registra a fonte oficial reproduzível", () => {
+    assert.equal(CFOP_CATALOG_SOURCE.versao, "IT-2023.002-v2.10");
+    assert.equal(CFOP_CATALOG_SOURCE.vigencia, "2026-09-04");
+    assert.equal(CFOP_CATALOG_SOURCE.sha256, "C95C91ED1644FDD1C2E6ADA24498D8B68B1897F9C9A0665E07EF5EED6A75FF6F");
+    assert.equal(CFOP_CATALOG.length, 619);
+  });
+
+  it("usa o título oficial da tabela, com as correções da v2.10", () => {
+    assert.equal(
+      CFOP_CATALOG.find((entry) => entry.codigo === "5605")?.descricao,
+      "Transferência de saldo devedor de ICMS para outro estabelecimento da mesma empresa.",
+    );
+    assert.equal(
+      CFOP_CATALOG.find((entry) => entry.codigo === "1255")?.descricao,
+      "Compra de energia elétrica por estabelecimento prestador de serviço de comunicação.",
+    );
+  });
+
+  it("traz o indicador indExcIBSCBS da tabela oficial", () => {
+    assert.equal(CFOP_CATALOG.find((entry) => entry.codigo === "5915")?.indExcIBSCBS, true);
+    assert.equal(CFOP_CATALOG.find((entry) => entry.codigo === "5102")?.indExcIBSCBS, false);
+  });
+
+  it("direção, geografia e CFOP da NFC-e continuam resolvendo", () => {
+    assert.equal(validateCfopForEmission({ value: "5102", modelo: MODELO_NFE, operation: "SAIDA", emitterUf: "PB", partnerUf: "PB" }).valid, true);
+    assert.equal(validateCfopForEmission({ value: "6102", modelo: MODELO_NFE, operation: "SAIDA", emitterUf: "PB", partnerUf: "MG" }).valid, true);
+    assert.equal(validateCfopForEmission({ value: "6102", modelo: MODELO_NFE, operation: "SAIDA", emitterUf: "PB", partnerUf: "PB" }).valid, false);
+    assert.equal(validateCfopForEmission({ value: "1102", modelo: MODELO_NFE, operation: "SAIDA", emitterUf: "PB", partnerUf: "PB" }).valid, false);
+    for (const cfop of CFOPS_PERMITIDOS_NFCE) {
+      assert.equal(validateCfopForEmission({ value: cfop, modelo: MODELO_NFCE, operation: "SAIDA", emitterUf: "PB", partnerUf: "PB" }).valid, true, cfop);
+    }
+  });
 });

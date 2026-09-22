@@ -13,6 +13,8 @@ export type CfopCatalogEntry = {
   indAnula: boolean;
   indRemes: boolean;
   indComb: boolean;
+  /** Indicador oficial desde o IT 2023.002 v2.00. Só catalogado: nenhuma regra do ERP o lê ainda. */
+  indExcIBSCBS: boolean;
 };
 
 export type CfopValidationCode =

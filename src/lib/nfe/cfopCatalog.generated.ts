@@ -1,16 +1,16 @@
 // Arquivo gerado por scripts/nfe/generate-cfop-catalog.mjs. Não edite manualmente.
-// Fonte de existência/indicadores: Portal Nacional da NF-e, Tabela CFOP vigente desde 24/04/2023.
-// Descrições: CONFAZ, Código Fiscal de Operações e Prestações consolidado.
+// Fonte: Portal Nacional da NF-e, Tabela CFOP (Informe Técnico 2023.002-v2.10), publicada em 2026-09-04.
+// Descrição: coluna "Título do CFOP" da própria tabela oficial.
 
 import type { CfopCatalogEntry } from "./cfopTypes";
 
 export const CFOP_CATALOG_SOURCE = {
-  "versao": "IT-2023.002-v1.00",
-  "vigencia": "2023-04-24",
-  "arquivo": "IT 2023.002-v1.00_Tabela_CFOP_Vigência_20230424.xlsx",
-  "sha256": "3C338C180AB1ED3802BBBB33AE9313CE6D426F4D5291816E7385642983D411DA",
+  "versao": "IT-2023.002-v2.10",
+  "vigencia": "2026-09-04",
+  "arquivo": "IT_2023_002_v2_10_Tabela_CFOP_Descrição.xlsx",
+  "sha256": "C95C91ED1644FDD1C2E6ADA24498D8B68B1897F9C9A0665E07EF5EED6A75FF6F",
   "url": "https://www.nfe.fazenda.gov.br/portal/listaConteudo.aspx?tipoConteudo=%2FNJarYc9nus%3D",
-  "descricaoUrl": "https://www.confaz.fazenda.gov.br/legislacao/ajustes/sinief/cfop_cvsn_1-6.24"
+  "descricao": "Tabela CFOP oficial, coluna \"Título do CFOP\""
 } as const;
 
 export const CFOP_CATALOG = [
@@ -26,7 +26,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1102",
@@ -40,7 +41,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1111",
@@ -54,7 +56,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1113",
@@ -68,7 +71,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1116",
@@ -82,7 +86,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1117",
@@ -96,7 +101,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1118",
@@ -110,7 +116,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1120",
@@ -124,7 +131,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1121",
@@ -138,7 +146,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1122",
@@ -152,7 +161,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1124",
@@ -166,7 +176,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1125",
@@ -180,7 +191,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1126",
@@ -194,7 +206,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1128",
@@ -208,7 +221,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1131",
@@ -222,7 +236,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1132",
@@ -236,7 +251,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1135",
@@ -250,7 +266,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1151",
@@ -264,7 +281,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1152",
@@ -278,7 +296,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1153",
@@ -292,7 +311,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1154",
@@ -306,7 +326,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1159",
@@ -320,7 +341,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1201",
@@ -334,7 +356,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1202",
@@ -348,7 +371,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1203",
@@ -362,7 +386,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1204",
@@ -376,7 +401,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1205",
@@ -390,7 +416,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1206",
@@ -404,7 +431,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1207",
@@ -418,7 +446,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1208",
@@ -432,7 +461,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1209",
@@ -446,7 +476,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1212",
@@ -460,7 +491,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1213",
@@ -474,7 +506,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1214",
@@ -488,7 +521,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1215",
@@ -502,7 +536,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1216",
@@ -516,7 +551,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1251",
@@ -530,7 +566,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1252",
@@ -544,7 +581,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1253",
@@ -558,7 +596,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1254",
@@ -572,11 +611,12 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1255",
-    "descricao": "Compra de energia elétrica por estabelecimento prestador de serviço de comunicação. Classificam-se neste código as compras de energia elétrica utilizada por estabelecimento prestador de serviços de comunicação.",
+    "descricao": "Compra de energia elétrica por estabelecimento prestador de serviço de comunicação.",
     "inicioVigencia": "2006-01-01",
     "fimVigencia": null,
     "indNFe": true,
@@ -586,7 +626,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1256",
@@ -600,7 +641,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1257",
@@ -614,7 +656,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1301",
@@ -628,7 +671,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1302",
@@ -642,7 +686,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1303",
@@ -656,7 +701,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1304",
@@ -670,7 +716,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1305",
@@ -684,7 +731,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1306",
@@ -698,7 +746,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1351",
@@ -712,7 +761,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1352",
@@ -726,7 +776,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1353",
@@ -740,7 +791,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1354",
@@ -754,7 +806,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1355",
@@ -768,7 +821,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1356",
@@ -782,7 +836,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1360",
@@ -796,7 +851,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1401",
@@ -810,7 +866,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1403",
@@ -824,7 +881,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1406",
@@ -838,7 +896,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1407",
@@ -852,7 +911,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1408",
@@ -866,7 +926,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1409",
@@ -880,7 +941,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1410",
@@ -894,7 +956,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1411",
@@ -908,7 +971,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1414",
@@ -922,7 +986,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1415",
@@ -936,7 +1001,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1451",
@@ -950,7 +1016,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1452",
@@ -964,7 +1031,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1453",
@@ -978,7 +1046,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1454",
@@ -992,7 +1061,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1455",
@@ -1006,7 +1076,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1456",
@@ -1020,7 +1091,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1501",
@@ -1034,7 +1106,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1503",
@@ -1048,7 +1121,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1504",
@@ -1062,7 +1136,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1505",
@@ -1076,7 +1151,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1506",
@@ -1090,7 +1166,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1551",
@@ -1104,7 +1181,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1552",
@@ -1118,7 +1196,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1553",
@@ -1132,7 +1211,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1554",
@@ -1146,7 +1226,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1555",
@@ -1160,7 +1241,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1556",
@@ -1174,7 +1256,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1557",
@@ -1188,7 +1271,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1601",
@@ -1202,7 +1286,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1602",
@@ -1216,7 +1301,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1603",
@@ -1230,7 +1316,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1604",
@@ -1244,7 +1331,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1605",
@@ -1258,7 +1346,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1651",
@@ -1272,7 +1361,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1652",
@@ -1286,7 +1376,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1653",
@@ -1300,7 +1391,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1657",
@@ -1314,7 +1406,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1658",
@@ -1328,7 +1421,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1659",
@@ -1342,7 +1436,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1660",
@@ -1356,7 +1451,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1661",
@@ -1370,7 +1466,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1662",
@@ -1384,7 +1481,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1663",
@@ -1398,7 +1496,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1664",
@@ -1412,7 +1511,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1901",
@@ -1426,7 +1526,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1902",
@@ -1440,7 +1541,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1903",
@@ -1454,7 +1556,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1904",
@@ -1468,11 +1571,12 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1905",
-    "descricao": "Entrada de mercadoria recebida para depósito em depósito fechado, armazém geral ou outro estabelecimentoda mesma empresa ou de terceiro.",
+    "descricao": "Entrada de mercadoria recebida para depósito em depósito fechado, armazém geral ou outro estabelecimento da mesma empresa ou de terceiro.",
     "inicioVigencia": "2006-01-01",
     "fimVigencia": null,
     "indNFe": true,
@@ -1482,7 +1586,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1906",
@@ -1496,7 +1601,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1907",
@@ -1510,7 +1616,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1908",
@@ -1524,7 +1631,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1909",
@@ -1538,7 +1646,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1910",
@@ -1552,7 +1661,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1911",
@@ -1566,7 +1676,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1912",
@@ -1580,7 +1691,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1913",
@@ -1594,7 +1706,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1914",
@@ -1608,7 +1721,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1915",
@@ -1622,7 +1736,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1916",
@@ -1636,7 +1751,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1917",
@@ -1650,7 +1766,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1918",
@@ -1664,7 +1781,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1919",
@@ -1678,7 +1796,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1920",
@@ -1692,7 +1811,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1921",
@@ -1706,7 +1826,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "1922",
@@ -1720,7 +1841,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1923",
@@ -1734,7 +1856,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1924",
@@ -1748,7 +1871,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1925",
@@ -1762,7 +1886,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1926",
@@ -1776,7 +1901,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1931",
@@ -1790,7 +1916,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1932",
@@ -1804,7 +1931,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1933",
@@ -1818,7 +1946,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1934",
@@ -1832,7 +1961,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "1949",
@@ -1846,7 +1976,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2101",
@@ -1860,7 +1991,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2102",
@@ -1874,7 +2006,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2111",
@@ -1888,7 +2021,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2113",
@@ -1902,7 +2036,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2116",
@@ -1916,7 +2051,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2117",
@@ -1930,7 +2066,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2118",
@@ -1944,7 +2081,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2120",
@@ -1958,7 +2096,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2121",
@@ -1972,7 +2111,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2122",
@@ -1986,7 +2126,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2124",
@@ -2000,7 +2141,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2125",
@@ -2014,7 +2156,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2126",
@@ -2028,7 +2171,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2128",
@@ -2042,7 +2186,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2131",
@@ -2056,7 +2201,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2132",
@@ -2070,7 +2216,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2135",
@@ -2084,7 +2231,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2151",
@@ -2098,7 +2246,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2152",
@@ -2112,7 +2261,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2153",
@@ -2126,7 +2276,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2154",
@@ -2140,7 +2291,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2159",
@@ -2154,7 +2306,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2201",
@@ -2168,7 +2321,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2202",
@@ -2182,7 +2336,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2203",
@@ -2196,7 +2351,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2204",
@@ -2210,7 +2366,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2205",
@@ -2224,7 +2381,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2206",
@@ -2238,7 +2396,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2207",
@@ -2252,7 +2411,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2208",
@@ -2266,7 +2426,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2209",
@@ -2280,7 +2441,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2212",
@@ -2294,7 +2456,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2213",
@@ -2308,7 +2471,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2214",
@@ -2322,7 +2486,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2215",
@@ -2336,7 +2501,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2216",
@@ -2350,7 +2516,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2251",
@@ -2364,7 +2531,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2252",
@@ -2378,7 +2546,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2253",
@@ -2392,7 +2561,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2254",
@@ -2406,7 +2576,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2255",
@@ -2420,7 +2591,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2256",
@@ -2434,7 +2606,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2257",
@@ -2448,7 +2621,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2301",
@@ -2462,7 +2636,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2302",
@@ -2476,7 +2651,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2303",
@@ -2490,7 +2666,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2304",
@@ -2504,7 +2681,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2305",
@@ -2518,7 +2696,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2306",
@@ -2532,7 +2711,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2351",
@@ -2546,7 +2726,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2352",
@@ -2560,7 +2741,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2353",
@@ -2574,7 +2756,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2354",
@@ -2588,7 +2771,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2355",
@@ -2602,7 +2786,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2356",
@@ -2616,7 +2801,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2401",
@@ -2630,7 +2816,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2403",
@@ -2644,7 +2831,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2406",
@@ -2658,7 +2846,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2407",
@@ -2672,7 +2861,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2408",
@@ -2686,7 +2876,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2409",
@@ -2700,7 +2891,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2410",
@@ -2714,7 +2906,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2411",
@@ -2728,7 +2921,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2414",
@@ -2742,7 +2936,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2415",
@@ -2756,7 +2951,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2451",
@@ -2770,7 +2966,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2452",
@@ -2784,7 +2981,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2453",
@@ -2798,7 +2996,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2454",
@@ -2812,7 +3011,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2455",
@@ -2826,7 +3026,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2456",
@@ -2840,7 +3041,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2501",
@@ -2854,7 +3056,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2503",
@@ -2868,7 +3071,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2504",
@@ -2882,7 +3086,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2505",
@@ -2896,7 +3101,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2506",
@@ -2910,7 +3116,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2551",
@@ -2924,7 +3131,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2552",
@@ -2938,7 +3146,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2553",
@@ -2952,7 +3161,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2554",
@@ -2966,7 +3176,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2555",
@@ -2980,7 +3191,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2556",
@@ -2994,7 +3206,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2557",
@@ -3008,7 +3221,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2603",
@@ -3022,7 +3236,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2651",
@@ -3036,7 +3251,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2652",
@@ -3050,7 +3266,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2653",
@@ -3064,7 +3281,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2657",
@@ -3078,7 +3296,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2658",
@@ -3092,7 +3311,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2659",
@@ -3106,7 +3326,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2660",
@@ -3120,7 +3341,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2661",
@@ -3134,7 +3356,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2662",
@@ -3148,7 +3371,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2663",
@@ -3162,7 +3386,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2664",
@@ -3176,7 +3401,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2901",
@@ -3190,7 +3416,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2902",
@@ -3204,7 +3431,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2903",
@@ -3218,7 +3446,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2904",
@@ -3232,7 +3461,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2905",
@@ -3246,7 +3476,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2906",
@@ -3260,7 +3491,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2907",
@@ -3274,7 +3506,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2908",
@@ -3288,7 +3521,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2909",
@@ -3302,7 +3536,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2910",
@@ -3316,7 +3551,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2911",
@@ -3330,7 +3566,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2912",
@@ -3344,7 +3581,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2913",
@@ -3358,7 +3596,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2914",
@@ -3372,7 +3611,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2915",
@@ -3386,7 +3626,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2916",
@@ -3400,7 +3641,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2917",
@@ -3414,7 +3656,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2918",
@@ -3428,7 +3671,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2919",
@@ -3442,7 +3686,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2920",
@@ -3456,7 +3701,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2921",
@@ -3470,7 +3716,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "2922",
@@ -3484,7 +3731,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2923",
@@ -3498,7 +3746,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2924",
@@ -3512,7 +3761,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2925",
@@ -3526,7 +3776,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2931",
@@ -3540,7 +3791,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2932",
@@ -3554,7 +3806,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2933",
@@ -3568,7 +3821,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2934",
@@ -3582,7 +3836,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "2949",
@@ -3596,7 +3851,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3101",
@@ -3610,7 +3866,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3102",
@@ -3624,7 +3881,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3126",
@@ -3638,7 +3896,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "3127",
@@ -3652,7 +3911,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "3128",
@@ -3666,7 +3926,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "3129",
@@ -3680,7 +3941,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3201",
@@ -3694,7 +3956,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3202",
@@ -3708,7 +3971,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3205",
@@ -3722,7 +3986,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3206",
@@ -3736,7 +4001,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3207",
@@ -3750,7 +4016,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3211",
@@ -3764,7 +4031,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3212",
@@ -3778,7 +4046,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3251",
@@ -3792,7 +4061,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3301",
@@ -3806,7 +4076,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3351",
@@ -3820,7 +4091,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3352",
@@ -3834,7 +4106,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3353",
@@ -3848,7 +4121,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3354",
@@ -3862,7 +4136,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3355",
@@ -3876,7 +4151,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3356",
@@ -3890,7 +4166,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3503",
@@ -3904,7 +4181,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3551",
@@ -3918,7 +4196,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "3552",
@@ -3932,7 +4211,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3553",
@@ -3946,7 +4226,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "3556",
@@ -3960,7 +4241,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "3651",
@@ -3974,7 +4256,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3652",
@@ -3988,7 +4271,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3653",
@@ -4002,7 +4286,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "3667",
@@ -4016,7 +4301,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3930",
@@ -4030,7 +4316,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "3949",
@@ -4044,7 +4331,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5101",
@@ -4058,7 +4346,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5102",
@@ -4072,7 +4361,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5103",
@@ -4086,7 +4376,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5104",
@@ -4100,7 +4391,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5105",
@@ -4114,7 +4406,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5106",
@@ -4128,7 +4421,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5109",
@@ -4142,7 +4436,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5110",
@@ -4156,7 +4451,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5111",
@@ -4170,7 +4466,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5112",
@@ -4184,7 +4481,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5113",
@@ -4198,7 +4496,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5114",
@@ -4212,7 +4511,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5115",
@@ -4226,7 +4526,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5116",
@@ -4240,7 +4541,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5117",
@@ -4254,7 +4556,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5118",
@@ -4268,7 +4571,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5119",
@@ -4282,7 +4586,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5120",
@@ -4296,7 +4601,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5122",
@@ -4310,7 +4616,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5123",
@@ -4324,7 +4631,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5124",
@@ -4338,7 +4646,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5125",
@@ -4352,7 +4661,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5129",
@@ -4366,7 +4676,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5131",
@@ -4380,7 +4691,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5132",
@@ -4394,7 +4706,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5151",
@@ -4408,7 +4721,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5152",
@@ -4422,7 +4736,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5153",
@@ -4436,7 +4751,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5155",
@@ -4450,7 +4766,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5156",
@@ -4464,7 +4781,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5159",
@@ -4478,7 +4796,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5160",
@@ -4492,7 +4811,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5201",
@@ -4506,7 +4826,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5202",
@@ -4520,7 +4841,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5205",
@@ -4534,7 +4856,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5206",
@@ -4548,7 +4871,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5207",
@@ -4562,7 +4886,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5208",
@@ -4576,7 +4901,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5209",
@@ -4590,7 +4916,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5210",
@@ -4604,7 +4931,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5213",
@@ -4618,7 +4946,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5214",
@@ -4632,7 +4961,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5215",
@@ -4646,7 +4976,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5216",
@@ -4660,7 +4991,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5251",
@@ -4674,7 +5006,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5252",
@@ -4688,7 +5021,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5253",
@@ -4702,7 +5036,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5254",
@@ -4716,7 +5051,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5255",
@@ -4730,7 +5066,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5256",
@@ -4744,7 +5081,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5257",
@@ -4758,7 +5096,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5258",
@@ -4772,7 +5111,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5301",
@@ -4786,7 +5126,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5302",
@@ -4800,7 +5141,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5303",
@@ -4814,7 +5156,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5304",
@@ -4828,7 +5171,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5305",
@@ -4842,7 +5186,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5306",
@@ -4856,7 +5201,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5307",
@@ -4870,7 +5216,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5351",
@@ -4884,7 +5231,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5352",
@@ -4898,7 +5246,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5353",
@@ -4912,7 +5261,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5354",
@@ -4926,7 +5276,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5355",
@@ -4940,7 +5291,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5356",
@@ -4954,7 +5306,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5357",
@@ -4968,7 +5321,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5359",
@@ -4982,7 +5336,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5360",
@@ -4996,7 +5351,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5401",
@@ -5010,7 +5366,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5402",
@@ -5024,7 +5381,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5403",
@@ -5038,7 +5396,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5405",
@@ -5052,7 +5411,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5408",
@@ -5066,7 +5426,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5409",
@@ -5080,7 +5441,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5410",
@@ -5094,7 +5456,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5411",
@@ -5108,7 +5471,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5412",
@@ -5122,7 +5486,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5413",
@@ -5136,7 +5501,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5414",
@@ -5150,7 +5516,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5415",
@@ -5164,7 +5531,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5451",
@@ -5178,7 +5546,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5452",
@@ -5192,7 +5561,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5453",
@@ -5206,7 +5576,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5454",
@@ -5220,7 +5591,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5455",
@@ -5234,7 +5606,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5456",
@@ -5248,7 +5621,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5501",
@@ -5262,7 +5636,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5502",
@@ -5276,7 +5651,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5503",
@@ -5290,7 +5666,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5504",
@@ -5304,7 +5681,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5505",
@@ -5318,7 +5696,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5551",
@@ -5332,7 +5711,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5552",
@@ -5346,7 +5726,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5553",
@@ -5360,7 +5741,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5554",
@@ -5374,7 +5756,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5555",
@@ -5388,7 +5771,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5556",
@@ -5402,7 +5786,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5557",
@@ -5416,7 +5801,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5601",
@@ -5430,7 +5816,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5602",
@@ -5444,7 +5831,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5603",
@@ -5458,11 +5846,12 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5605",
-    "descricao": "Transferência de saldo devedor de ICMS de outro estabelecimento da mesma empresa.",
+    "descricao": "Transferência de saldo devedor de ICMS para outro estabelecimento da mesma empresa.",
     "inicioVigencia": "2006-01-01",
     "fimVigencia": null,
     "indNFe": true,
@@ -5472,7 +5861,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5606",
@@ -5486,7 +5876,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5651",
@@ -5500,7 +5891,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5652",
@@ -5514,7 +5906,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5653",
@@ -5528,7 +5921,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5654",
@@ -5542,7 +5936,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5655",
@@ -5556,7 +5951,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5656",
@@ -5570,7 +5966,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5657",
@@ -5584,7 +5981,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5658",
@@ -5598,11 +5996,12 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5659",
-    "descricao": "Transferência de combustíveis ou lubrificantes adquiridos ou recebidos de terceiro.",
+    "descricao": "Transferência de combustíveis ou lubrificantes adquiridos ou recebidos de terceiros.",
     "inicioVigencia": "2006-01-01",
     "fimVigencia": null,
     "indNFe": true,
@@ -5612,7 +6011,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5660",
@@ -5626,7 +6026,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5661",
@@ -5640,7 +6041,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5662",
@@ -5654,7 +6056,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5663",
@@ -5668,7 +6071,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5664",
@@ -5682,7 +6086,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5665",
@@ -5696,7 +6101,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5666",
@@ -5710,7 +6116,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5667",
@@ -5724,7 +6131,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5901",
@@ -5738,7 +6146,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5902",
@@ -5752,7 +6161,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5903",
@@ -5766,7 +6176,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5904",
@@ -5780,7 +6191,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5905",
@@ -5794,7 +6206,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5906",
@@ -5808,7 +6221,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5907",
@@ -5822,7 +6236,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5908",
@@ -5836,7 +6251,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5909",
@@ -5850,7 +6266,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5910",
@@ -5864,7 +6281,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5911",
@@ -5878,7 +6296,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5912",
@@ -5892,7 +6311,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5913",
@@ -5906,7 +6326,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5914",
@@ -5920,7 +6341,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5915",
@@ -5934,7 +6356,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5916",
@@ -5948,7 +6371,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5917",
@@ -5962,7 +6386,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5918",
@@ -5976,7 +6401,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5919",
@@ -5990,7 +6416,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5920",
@@ -6004,7 +6431,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5921",
@@ -6018,7 +6446,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "5922",
@@ -6032,7 +6461,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5923",
@@ -6046,7 +6476,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5924",
@@ -6060,7 +6491,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5925",
@@ -6074,7 +6506,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5926",
@@ -6088,7 +6521,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5927",
@@ -6102,7 +6536,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5928",
@@ -6116,7 +6551,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5929",
@@ -6130,7 +6566,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5931",
@@ -6144,7 +6581,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5932",
@@ -6158,7 +6596,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5933",
@@ -6172,7 +6611,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5934",
@@ -6186,7 +6626,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "5949",
@@ -6200,7 +6641,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6101",
@@ -6214,7 +6656,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6102",
@@ -6228,7 +6671,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6103",
@@ -6242,7 +6686,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6104",
@@ -6256,7 +6701,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6105",
@@ -6270,7 +6716,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6106",
@@ -6284,7 +6731,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6107",
@@ -6298,7 +6746,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6108",
@@ -6312,7 +6761,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6109",
@@ -6326,7 +6776,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6110",
@@ -6340,7 +6791,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6111",
@@ -6354,11 +6806,12 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6112",
-    "descricao": "Venda de mercadoria adquirida ou recebida de Terceiros remetida anteriormente em consignação industrial.",
+    "descricao": "Venda de mercadoria adquirida ou recebida de terceiros remetida anteriormente em consignação industrial.",
     "inicioVigencia": "2006-01-01",
     "fimVigencia": null,
     "indNFe": true,
@@ -6368,7 +6821,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6113",
@@ -6382,7 +6836,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6114",
@@ -6396,7 +6851,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6115",
@@ -6410,7 +6866,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6116",
@@ -6424,7 +6881,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6117",
@@ -6438,7 +6896,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6118",
@@ -6452,7 +6911,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6119",
@@ -6466,7 +6926,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6120",
@@ -6480,7 +6941,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6122",
@@ -6494,7 +6956,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6123",
@@ -6508,7 +6971,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6124",
@@ -6522,7 +6986,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6125",
@@ -6536,7 +7001,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6129",
@@ -6550,7 +7016,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6131",
@@ -6564,7 +7031,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6132",
@@ -6578,7 +7046,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6151",
@@ -6592,7 +7061,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6152",
@@ -6606,7 +7076,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6153",
@@ -6620,7 +7091,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6155",
@@ -6634,7 +7106,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6156",
@@ -6648,7 +7121,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6159",
@@ -6662,7 +7136,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6160",
@@ -6676,7 +7151,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6201",
@@ -6690,7 +7166,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6202",
@@ -6704,7 +7181,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6205",
@@ -6718,7 +7196,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6206",
@@ -6732,7 +7211,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6207",
@@ -6746,7 +7226,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6208",
@@ -6760,7 +7241,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6209",
@@ -6774,7 +7256,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6210",
@@ -6788,7 +7271,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6213",
@@ -6802,7 +7286,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6214",
@@ -6816,7 +7301,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6215",
@@ -6830,7 +7316,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6216",
@@ -6844,7 +7331,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6251",
@@ -6858,7 +7346,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6252",
@@ -6872,7 +7361,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6253",
@@ -6886,7 +7376,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6254",
@@ -6900,7 +7391,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6255",
@@ -6914,7 +7406,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6256",
@@ -6928,7 +7421,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6257",
@@ -6942,7 +7436,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6258",
@@ -6956,7 +7451,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6301",
@@ -6970,7 +7466,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6302",
@@ -6984,7 +7481,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6303",
@@ -6998,7 +7496,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6304",
@@ -7012,7 +7511,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6305",
@@ -7026,7 +7526,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6306",
@@ -7040,7 +7541,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6307",
@@ -7054,7 +7556,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6351",
@@ -7068,7 +7571,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6352",
@@ -7082,7 +7586,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6353",
@@ -7096,7 +7601,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6354",
@@ -7110,7 +7616,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6355",
@@ -7124,7 +7631,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6356",
@@ -7138,7 +7646,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6357",
@@ -7152,7 +7661,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6359",
@@ -7166,7 +7676,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6360",
@@ -7180,7 +7691,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6401",
@@ -7194,7 +7706,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6402",
@@ -7208,7 +7721,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6403",
@@ -7222,7 +7736,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6404",
@@ -7236,7 +7751,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6408",
@@ -7250,7 +7766,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6409",
@@ -7264,7 +7781,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6410",
@@ -7278,7 +7796,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6411",
@@ -7292,7 +7811,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6412",
@@ -7306,7 +7826,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6413",
@@ -7320,7 +7841,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6414",
@@ -7334,7 +7856,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6415",
@@ -7348,7 +7871,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6451",
@@ -7362,7 +7886,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6452",
@@ -7376,7 +7901,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6453",
@@ -7390,7 +7916,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6454",
@@ -7404,7 +7931,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6455",
@@ -7418,7 +7946,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6456",
@@ -7432,7 +7961,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6501",
@@ -7446,7 +7976,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6502",
@@ -7460,7 +7991,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6503",
@@ -7474,7 +8006,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6504",
@@ -7488,7 +8021,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6505",
@@ -7502,7 +8036,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6551",
@@ -7516,7 +8051,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6552",
@@ -7530,7 +8066,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6553",
@@ -7544,7 +8081,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6554",
@@ -7558,7 +8096,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6555",
@@ -7572,7 +8111,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6556",
@@ -7586,7 +8126,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6557",
@@ -7600,7 +8141,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6603",
@@ -7614,7 +8156,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6651",
@@ -7628,7 +8171,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6652",
@@ -7642,7 +8186,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6653",
@@ -7656,7 +8201,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6654",
@@ -7670,7 +8216,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6655",
@@ -7684,7 +8231,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6656",
@@ -7698,7 +8246,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6657",
@@ -7712,7 +8261,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6658",
@@ -7726,11 +8276,12 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6659",
-    "descricao": "Transferência de combustíveis ou lubrificantes adquiridos ou recebidos de terceiro.",
+    "descricao": "Transferência de combustíveis ou lubrificantes adquiridos ou recebidos de terceiros.",
     "inicioVigencia": "2006-01-01",
     "fimVigencia": null,
     "indNFe": true,
@@ -7740,7 +8291,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6660",
@@ -7754,7 +8306,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6661",
@@ -7768,7 +8321,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6662",
@@ -7782,7 +8336,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6663",
@@ -7796,7 +8351,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6664",
@@ -7810,7 +8366,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6665",
@@ -7824,7 +8381,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": true
+    "indComb": true,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6666",
@@ -7838,7 +8396,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6667",
@@ -7852,7 +8411,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6901",
@@ -7866,7 +8426,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6902",
@@ -7880,7 +8441,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6903",
@@ -7894,7 +8456,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6904",
@@ -7908,7 +8471,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6905",
@@ -7922,7 +8486,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6906",
@@ -7936,7 +8501,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6907",
@@ -7950,7 +8516,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6908",
@@ -7964,7 +8531,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6909",
@@ -7978,7 +8546,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6910",
@@ -7992,7 +8561,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6911",
@@ -8006,7 +8576,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6912",
@@ -8020,7 +8591,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6913",
@@ -8034,7 +8606,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6914",
@@ -8048,7 +8621,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6915",
@@ -8062,7 +8636,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6916",
@@ -8076,7 +8651,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6917",
@@ -8090,7 +8666,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6918",
@@ -8104,7 +8681,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6919",
@@ -8118,7 +8696,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6920",
@@ -8132,7 +8711,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6921",
@@ -8146,7 +8726,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "6922",
@@ -8160,7 +8741,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6923",
@@ -8174,7 +8756,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6924",
@@ -8188,7 +8771,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6925",
@@ -8202,7 +8786,8 @@ export const CFOP_CATALOG = [
     "indRetor": true,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6929",
@@ -8216,7 +8801,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6931",
@@ -8230,7 +8816,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6932",
@@ -8244,7 +8831,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6933",
@@ -8258,7 +8846,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6934",
@@ -8272,7 +8861,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": true,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "6949",
@@ -8286,7 +8876,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7101",
@@ -8300,7 +8891,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7102",
@@ -8314,7 +8906,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7105",
@@ -8328,7 +8921,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7106",
@@ -8342,7 +8936,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7127",
@@ -8356,7 +8951,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7129",
@@ -8370,7 +8966,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7201",
@@ -8384,7 +8981,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7202",
@@ -8398,7 +8996,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7205",
@@ -8412,7 +9011,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7206",
@@ -8426,7 +9026,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7207",
@@ -8440,7 +9041,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": true,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7210",
@@ -8454,7 +9056,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7211",
@@ -8468,7 +9071,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7212",
@@ -8482,7 +9086,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7251",
@@ -8496,7 +9101,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7301",
@@ -8510,7 +9116,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7358",
@@ -8524,7 +9131,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7501",
@@ -8538,7 +9146,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7504",
@@ -8552,7 +9161,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7551",
@@ -8566,7 +9176,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "7552",
@@ -8580,7 +9191,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7553",
@@ -8594,7 +9206,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "7556",
@@ -8608,7 +9221,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": true
   },
   {
     "codigo": "7651",
@@ -8622,7 +9236,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7654",
@@ -8636,7 +9251,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7667",
@@ -8650,7 +9266,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7930",
@@ -8664,7 +9281,8 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   },
   {
     "codigo": "7949",
@@ -8678,6 +9296,7 @@ export const CFOP_CATALOG = [
     "indRetor": false,
     "indAnula": false,
     "indRemes": false,
-    "indComb": false
+    "indComb": false,
+    "indExcIBSCBS": false
   }
 ] satisfies readonly CfopCatalogEntry[];

@@ -1743,14 +1743,15 @@ export function GerarNotaDeOsDialog({
   }
 
   function aceitarAvisosEGerarRascunho() {
-    const codigosPorItem = new Map<string, string[]>();
+    // A ciência registra a situação que o usuário viu (code@fingerprint).
+    const avisosPorItem = new Map<string, AssistedItemIssue[]>();
     for (const aviso of selectedIssuesClassificadas.avisos) {
-      const codigos = codigosPorItem.get(aviso.item.sourceItemId) ?? [];
-      codigos.push(aviso.code);
-      codigosPorItem.set(aviso.item.sourceItemId, codigos);
+      const avisos = avisosPorItem.get(aviso.item.sourceItemId) ?? [];
+      avisos.push(aviso);
+      avisosPorItem.set(aviso.item.sourceItemId, avisos);
     }
     const itensComCiencia = selectedItems.map((item) =>
-      confirmarAvisosFiscais(item, codigosPorItem.get(item.sourceItemId) ?? []),
+      confirmarAvisosFiscais(item, avisosPorItem.get(item.sourceItemId) ?? []),
     );
     const atualizadosPorId = new Map(itensComCiencia.map((item) => [item.sourceItemId, item]));
 

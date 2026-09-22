@@ -14,7 +14,7 @@ import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
-import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
+import { avisoFiscalConfirmado, classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
 import { calcularTotaisNFe, validarPisCofinsStSuportado } from "@/lib/nfe/fiscal";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { validarNfce } from "@/lib/nfe/nfce/validator";
@@ -49,6 +49,7 @@ import {
   validarCoerenciaCfopIcms,
   type DecisaoFreteNaBase,
   type EntradaIcms,
+  type FonteIssueFiscal,
   type IcmsIssue,
 } from "@/lib/nfe/icms";
 import {
@@ -314,6 +315,10 @@ type ValidationError = {
   code?: string;
   /** Aviso que libera a emissão depois que o usuário confirma a ciência. */
   requerCiencia?: boolean;
+  severidade?: "AVISO";
+  /** Situação que o servidor analisou; a ciência tem de citar este fingerprint. */
+  fingerprint?: string;
+  fontes?: FonteIssueFiscal[];
 };
 
 const unidadesPermitidas = new Set(["UN", "JGO", "KIT", "PAR", "CX", "PCT"]);
@@ -561,7 +566,9 @@ export function prepararItemFiscal(
   if (resultado.valores) {
     issuesComplementares.push(...validarPoliticaStRetida(resultado.valores, contexto));
   }
-  const confirmados = new Set((item.avisosFiscaisConfirmados ?? []).map((code) => cleanText(code)));
+  // Chaves `code@fingerprint`. O fingerprint é recalculado aqui, dos dados do
+  // payload: confirmação de outra situação (ou só com o código) não libera.
+  const confirmados = new Set((item.avisosFiscaisConfirmados ?? []).map((chave) => cleanText(chave)));
   if (resultado.valores) {
     nfeItem.icms = resultado.valores;
     // O código gravado é o que foi para o XML ("060" digitado vira "60").
@@ -607,14 +614,14 @@ export function prepararItemFiscal(
     ...resultado.issues,
     ...issuesComplementares,
   ]);
-  const avisosConfirmados = classificadas.avisosComCiencia.filter((aviso) => confirmados.has(aviso.code));
+  const avisosConfirmados = classificadas.avisosComCiencia.filter((aviso) => avisoFiscalConfirmado(aviso, confirmados));
   if (resultado.valores) {
     nfeItem.icmsDecisao = montarDecisaoIcms(resultado, avisosConfirmados);
   }
   return {
     nfeItem,
     bloqueios: classificadas.bloqueios,
-    avisosPendentes: classificadas.avisosComCiencia.filter((aviso) => !confirmados.has(aviso.code)),
+    avisosPendentes: classificadas.avisosComCiencia.filter((aviso) => !avisoFiscalConfirmado(aviso, confirmados)),
     informativos: classificadas.informativos,
   };
 }
@@ -1882,7 +1889,10 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
       itemIndex,
       field: aviso.field,
       code: aviso.code,
+      severidade: "AVISO" as const,
       requerCiencia: true,
+      fingerprint: aviso.fingerprint,
+      fontes: aviso.fontes,
       message: `${aviso.code}: ${aviso.message} Para emitir assim, confirme a ciência no item.`,
     })),
   );
@@ -1910,7 +1920,10 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
           grupoXmlIcms: item.icmsDecisao.grupoXmlIcms,
           tratamentoIcms: item.icmsDecisao.tratamentoIcms,
           icmsProprio: item.icmsDecisao.icmsProprio,
-          avisosConfirmados: item.icmsDecisao.avisosConfirmados.map((aviso) => aviso.code),
+          // `code@fingerprint`: a auditoria mostra qual situação recebeu ciência.
+          avisosConfirmados: item.icmsDecisao.avisosConfirmados.map((aviso) =>
+            aviso.fingerprint ? `${aviso.code}@${aviso.fingerprint}` : aviso.code,
+          ),
         }
       : {}),
   }));

@@ -1,3 +1,5 @@
+import type { FonteIssueFiscal, IcmsIssue } from './icms/tipos';
+import { fingerprintFiscal } from './issuesFiscais';
 import type { NFeItem, TributoPisCofins } from './types';
 
 // Base de cálculo do IBS e da CBS (gIBSCBS/vBC) por item.
@@ -204,12 +206,29 @@ export function valorRtcParaEdicao(rtc: NFeItem['rtc'], campo: 'ibsUf' | 'ibsMun
   return valor == null ? '' : String(valor);
 }
 
-export function issuesBaseIbsCbs(rtc: NFeItem['rtc']): import('./icms/tipos').IcmsIssue[] {
+export const FONTES_BASE_IBS_CBS: FonteIssueFiscal[] = [
+  {
+    titulo: 'NT 2025.002-RTC, regra de validação UB16-10 (nota: implementação futura, aguardando orientação normativa)',
+    versao: '1.51',
+    url: 'https://www.nfe.fazenda.gov.br/portal/listaConteudo.aspx?tipoConteudo=04BIflQt1aY%3D',
+    vigenciaDesde: '2026-08-04',
+    jurisdicao: 'NACIONAL',
+  },
+  {
+    titulo: 'Lei Complementar 214/2025, art. 12',
+    url: 'https://www.planalto.gov.br/ccivil_03/leis/lcp/lcp214.htm',
+    vigenciaDesde: '2025-01-16',
+    jurisdicao: 'NACIONAL',
+  },
+];
+
+export function issuesBaseIbsCbs(rtc: NFeItem['rtc']): IcmsIssue[] {
   const base = rtc?.composicaoBase;
   if (!base) return [];
   if (base.inconsistencia) {
     return [{ code: 'NFE_IBSCBS_BASE_INVALIDA', severidade: 'BLOQUEIO', field: 'baseRtc', message: base.inconsistencia }];
   }
+  // AVISO e não bloqueio enquanto a UB16-10 for "implementação futura" na NT.
   return base.origem === 'MANUAL' && Math.abs(base.baseCalculo - base.baseCalculada) > 0.009
     ? [{
         code: 'NFE_IBSCBS_BASE_MANUAL',
@@ -217,10 +236,21 @@ export function issuesBaseIbsCbs(rtc: NFeItem['rtc']): import('./icms/tipos').Ic
         requerCiencia: true,
         field: 'baseRtc',
         message:
-          `Base IBS/CBS informada (${base.baseCalculo.toFixed(2)}) difere da composição oficial ` +
+          `A base informada (${base.baseCalculo.toFixed(2)}) difere da composição prevista pela regra UB16-10 ` +
           `(${base.baseCalculada.toFixed(2)}: vProd + vFrete − vDesc − vPIS − vCOFINS − PIS-ST/COFINS-ST quando não somados ao total − vICMS − vICMSUFDest − vFCP − vFCPUFDest...). ` +
-          'Quando a UB16-10 entrar em vigor a SEFAZ rejeita essa diferença (rejeição 1104). ' +
+          'A regra de validação encontra-se indicada como implementação futura na documentação vigente; ' +
+          'quando ativada, a diferença passará a ser rejeitada (rejeição 1104). Confira a base antes da emissão. ' +
           `Fonte: ${base.fonte}.`,
+        fontes: FONTES_BASE_IBS_CBS,
+        fingerprint: fingerprintFiscal({
+          code: 'NFE_IBSCBS_BASE_MANUAL',
+          baseInformada: base.baseInformada,
+          baseCalculada: base.baseCalculada,
+          componentes: base.componentes,
+          modFrete: base.modFrete,
+          dataEmissao: base.dataEmissao,
+          regra: base.versao,
+        }),
       }]
     : [];
 }

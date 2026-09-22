@@ -12,6 +12,7 @@ import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import {
   aplicarAlteracoesComCienciaFiscal,
   classificarIssuesFiscais,
+  confirmarAvisosFiscais,
 } from "@/lib/nfe/issuesFiscais";
 import { prepararItemFiscal } from "@/services/fiscal/nfeAvulsaService";
 
@@ -127,13 +128,68 @@ describe("tela assistida — regressão da NF-e 136", () => {
     assert.deepEqual(classificarIssuesFiscais(pendente).bloqueios, []);
     assert.equal(classificarIssuesFiscais(pendente).avisos.includes(aviso!), true);
 
-    const confirmado = validateAssistedItem(
-      itemMG({ avisosFiscaisConfirmados: ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"] }),
-      setup,
-      { parceiroUf: "MG" },
-    );
+    const itemConfirmado = confirmarAvisosFiscais(itemMG(), [aviso!]);
+    assert.deepEqual(itemConfirmado.avisosFiscaisConfirmados, [`${aviso!.code}@${aviso!.fingerprint}`]);
+    const confirmado = validateAssistedItem(itemConfirmado, setup, { parceiroUf: "MG" });
     assert.deepEqual(confirmado, []);
-    assert.deepEqual(noServidor(itemMG({ avisosFiscaisConfirmados: ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"] })).avisosPendentes, []);
+    // O servidor recalcula o mesmo fingerprint a partir do payload e aceita a ciência.
+    assert.deepEqual(noServidor(itemConfirmado).avisosPendentes, []);
+  });
+
+  it("confirmação só com o código (legado ou manipulada) não libera, nem na tela nem no servidor", () => {
+    const soCodigo = itemMG({ avisosFiscaisConfirmados: ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"] });
+    assert.equal(
+      validateAssistedItem(soCodigo, setup, { parceiroUf: "MG" }).some((issue) => issue.requerCiencia),
+      true,
+    );
+    assert.deepEqual(
+      noServidor(soCodigo).avisosPendentes.map((issue) => issue.code),
+      ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"],
+    );
+  });
+
+  it("ciência forjada para outra situação não engana o servidor", () => {
+    const [aviso6404] = validateAssistedItem(itemMG({ cfop: "6404" }), setup, { parceiroUf: "MG" }).filter(
+      (issue) => issue.requerCiencia,
+    );
+    // Chave de 6404 + CST 60 enviada num item 6403 + CST 60.
+    const forjado = itemMG({ avisosFiscaisConfirmados: [`${aviso6404.code}@${aviso6404.fingerprint}`] });
+    assert.deepEqual(
+      noServidor(forjado).avisosPendentes.map((issue) => issue.code),
+      ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"],
+    );
+  });
+
+  it("ciência registrada no snapshot leva o fingerprint e as fontes", () => {
+    const [aviso] = validateAssistedItem(itemMG(), setup, { parceiroUf: "MG" }).filter((issue) => issue.requerCiencia);
+    const [confirmado] = noServidor(confirmarAvisosFiscais(itemMG(), [aviso])).nfeItem.icmsDecisao?.avisosConfirmados ?? [];
+    assert.equal(confirmado?.code, "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO");
+    assert.equal(confirmado?.fingerprint, aviso.fingerprint);
+    assert.ok(confirmado?.fontes?.length);
+  });
+
+  it("alterar a decisão de ST (CST 90) invalida a ciência sem limpar a lista", () => {
+    const base = itemMG({ cfop: "5405", cst: "90", icmsReterSt: false });
+    const [aviso] = validateAssistedItem(base, setup, { parceiroUf: "SP" }).filter((issue) => issue.requerCiencia);
+    assert.equal(aviso?.code, "NFE_CFOP_ST_SUBSTITUIDO_SEM_ST_ANTERIOR");
+    const confirmado = confirmarAvisosFiscais(base, [aviso]);
+    assert.equal(
+      validateAssistedItem(confirmado, setup, { parceiroUf: "SP" }).some((issue) => issue.requerCiencia),
+      false,
+    );
+    const comSt = aplicarAlteracoesComCienciaFiscal(confirmado, {
+      icmsReterSt: true,
+      modBCST: "4",
+      pMVAST: "40",
+      pICMSST: "18",
+    });
+    assert.deepEqual(comSt.avisosFiscaisConfirmados, confirmado.avisosFiscaisConfirmados);
+    assert.deepEqual(
+      validateAssistedItem(comSt, setup, { parceiroUf: "SP" })
+        .filter((issue) => issue.requerCiencia)
+        .map((issue) => issue.code),
+      ["NFE_CFOP_ST_SUBSTITUIDO_SEM_ST_ANTERIOR"],
+    );
   });
 
   it("CST 60 + indFinal=0 apresenta ST retida como INFO e mantém o item pronto", () => {
@@ -166,10 +222,11 @@ describe("tela assistida — regressão da NF-e 136", () => {
   });
 
   it("aviso confirmado deixa o item pronto e mudança de CFOP pede ciência novamente", () => {
-    const confirmado = itemMG({
-      cfop: "6404",
-      avisosFiscaisConfirmados: ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"],
-    });
+    const item6404 = itemMG({ cfop: "6404" });
+    const confirmado = confirmarAvisosFiscais(
+      item6404,
+      validateAssistedItem(item6404, setup, { parceiroUf: "MG", indFinal: 0 }),
+    );
     const semPendencias = validateAssistedItem(confirmado, setup, {
       parceiroUf: "MG",
       indFinal: 0,
@@ -413,5 +470,50 @@ describe("invalidação do DIFAL enquanto o servidor não responde", () => {
 
     assert.equal(limpo.difalAliquotaFcp, "0", "a pessoa decidiu; não se apaga");
     assert.equal(limpo.difalAliquotaInterna, "");
+  });
+});
+
+describe("tela assistida — ciência da base IBS/CBS manual", () => {
+  const contexto = { parceiroUf: "MG", indFinal: 0, dataEmissao: "2026-09-22", modFrete: "9" } as const;
+  const noServidorEm = (item: AssistedFiscalItem) =>
+    prepararItemFiscal(toApiItem(item, setup), 0, 3, { dataEmissao: "2026-09-22", modFrete: "9" });
+  const comBaseManual = (overrides: Partial<AssistedFiscalItem> = {}) =>
+    itemMG({ cfop: "6102", cst: "00", baseRtc: "9000", ...overrides });
+
+  it("tela e servidor calculam o mesmo fingerprint, e a ciência da tela libera no servidor", () => {
+    const item = comBaseManual();
+    const [aviso] = validateAssistedItem(item, setup, contexto).filter((issue) => issue.code === "NFE_IBSCBS_BASE_MANUAL");
+    assert.ok(aviso?.fingerprint);
+    const [servidor] = noServidorEm(item).avisosPendentes.filter((issue) => issue.code === "NFE_IBSCBS_BASE_MANUAL");
+    assert.equal(servidor?.fingerprint, aviso.fingerprint);
+
+    const confirmado = confirmarAvisosFiscais(item, [aviso]);
+    assert.deepEqual(noServidorEm(confirmado).avisosPendentes, []);
+    assert.equal(
+      validateAssistedItem(confirmado, setup, contexto).some((issue) => issue.code === "NFE_IBSCBS_BASE_MANUAL"),
+      false,
+    );
+  });
+
+  it("alterar base, desconto ou frete depois da ciência pede ciência de novo", () => {
+    const item = comBaseManual();
+    const [aviso] = validateAssistedItem(item, setup, contexto).filter((issue) => issue.requerCiencia);
+    const confirmado = confirmarAvisosFiscais(item, [aviso]);
+    const pendente = (alterado: AssistedFiscalItem, extra: object = {}) =>
+      validateAssistedItem(alterado, setup, { ...contexto, ...extra }).some(
+        (issue) => issue.code === "NFE_IBSCBS_BASE_MANUAL" && issue.requerCiencia,
+      );
+
+    assert.equal(pendente(confirmado), false);
+    assert.equal(pendente(aplicarAlteracoesComCienciaFiscal(confirmado, { baseRtc: "8000" })), true);
+    assert.equal(pendente(aplicarAlteracoesComCienciaFiscal(confirmado, { valorDesconto: 100 })), true);
+    assert.equal(pendente(confirmado, { valorFrete: 50, modFrete: "0" }), true);
+  });
+
+  it("INFO nunca entra em avisosFiscaisConfirmados", () => {
+    const item = itemMG({ cfop: "6411" });
+    const issues = validateAssistedItem(item, setup, { parceiroUf: "MG", indFinal: 0 });
+    assert.ok(issues.some((issue) => issue.severidade === "INFO"));
+    assert.deepEqual(confirmarAvisosFiscais(item, issues).avisosFiscaisConfirmados, []);
   });
 });

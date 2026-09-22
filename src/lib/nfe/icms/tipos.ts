@@ -200,6 +200,17 @@ export type EntradaIcms = {
 
 export type SeveridadeIcms = 'BLOQUEIO' | 'AVISO' | 'INFO';
 
+/** Documento que sustenta uma issue: responde "por que o ERP está avisando isso?". */
+export type FonteIssueFiscal = {
+  titulo: string;
+  versao?: string;
+  url?: string;
+  /** AAAA-MM-DD */
+  vigenciaDesde?: string;
+  /** 'NACIONAL' ou a sigla da UF da política estadual. */
+  jurisdicao: string;
+};
+
 export type IcmsIssue = {
   code: string;
   severidade: SeveridadeIcms;
@@ -207,6 +218,12 @@ export type IcmsIssue = {
   requerCiencia?: boolean;
   field: string;
   message: string;
+  fontes?: FonteIssueFiscal[];
+  /**
+   * Identifica a situação analisada (dados que produziram a issue + versão da
+   * regra). A ciência vale só para ela: veja `chaveCiencia` em issuesFiscais.ts.
+   */
+  fingerprint?: string;
 };
 
 export type CampoIgnorado = {
@@ -236,7 +253,7 @@ export type DecisaoIcms = {
   camposInformados: BlocoIcms[];
   camposIgnorados: CampoIgnorado[];
   /** Somente avisos semânticos que exigiram ciência antes de gerar a nota. */
-  avisosConfirmados: Array<{ code: string; message: string }>;
+  avisosConfirmados: Array<{ code: string; message: string; fingerprint?: string; fontes?: FonteIssueFiscal[] }>;
   /** De onde saíram as bases: valor da operação, frete, seguro, outras despesas. */
   composicaoBase?: ComposicaoBaseIcms;
   motivo: string;

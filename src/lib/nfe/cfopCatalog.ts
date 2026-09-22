@@ -8,6 +8,7 @@ export type { CfopCatalogEntry, CfopValidationResult } from "./cfopTypes";
 
 export const CFOP_CATALOG_VERSION = CFOP_CATALOG_SOURCE.versao;
 export const CFOP_CATALOG_EFFECTIVE_FROM = CFOP_CATALOG_SOURCE.vigencia;
+export const CFOP_CATALOG_URL = CFOP_CATALOG_SOURCE.url;
 
 // Regra I08-150 do MOC 7.0: lista de CFOP admitidos no modelo 65.
 export const CFOPS_PERMITIDOS_NFCE = new Set([

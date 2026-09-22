@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { CFOP_CATALOG_VERSION, getCfopCatalogEntry } from '../cfopCatalog';
 import { calcularTotaisNFe } from '../fiscal';
 import type { CRT, NFeItem } from '../types';
 import { buildDetXml } from '../xmlItem';
@@ -514,17 +515,31 @@ describe('coerência CFOP × CST (aviso, nunca troca)', () => {
   const st10 = { cst: '10', aliquotaIcms: 18, st: { pMVAST: 40, pICMSST: 18 } };
   const stOpcional = { modBCST: '4', vBCST: 1400, pICMSST: 18, vICMSST: 252 };
 
-  it('lê o papel da ST na descrição oficial do CFOP', () => {
+  it('lê o papel da ST no título oficial do CFOP', () => {
+    assert.equal(papelStDoCfop('5401'), 'SUBSTITUTO');
     assert.equal(papelStDoCfop('5403'), 'SUBSTITUTO');
+    assert.equal(papelStDoCfop('6401'), 'SUBSTITUTO');
     assert.equal(papelStDoCfop('6403'), 'SUBSTITUTO');
     assert.equal(papelStDoCfop('5405'), 'SUBSTITUIDO');
     // A nota explicativa do 6.404 diz "na condição de substituto tributário";
-    // SEFAZ-SP RC 21691/2020 confirma o uso com CST 10 e nova retenção no destino.
+    // SEFAZ-SP RC 3837/2014 e RC 21691/2020 (CST 10, nova retenção no destino).
     assert.equal(papelStDoCfop('6404'), 'SUBSTITUTO');
     assert.equal(papelStDoCfop('5402'), 'ST_SEM_PAPEL');
     assert.equal(papelStDoCfop('5411'), 'ST_SEM_PAPEL');
-    assert.equal(papelStDoCfop('5102'), 'SEM_ST');
     assert.equal(papelStDoCfop('5915'), 'NEUTRO');
+  });
+
+  it('CFOP que não fala de ST é NEUTRO, não "sem ST" (fim da regra x.1xx = SEM_ST)', () => {
+    for (const cfop of ['5101', '5102', '6102', '6108', '5108', '1102', '2102']) {
+      assert.equal(papelStDoCfop(cfop), 'NEUTRO', cfop);
+    }
+  });
+
+  it('a exceção do 6404 continua ancorada no texto oficial do catálogo', () => {
+    // O título curto não diz quem retém; o gerador do catálogo confere a nota.
+    assert.match(getCfopCatalogEntry('6404')?.descricao ?? '', /cujo imposto já tenha sido retido anteriormente/);
+    assert.doesNotMatch(getCfopCatalogEntry('6404')?.descricao ?? '', /substituto/);
+    assert.equal(CFOP_CATALOG_VERSION, 'IT-2023.002-v2.10');
   });
 
   it('NF-e 136: 6403 (substituto) com CST 60 pede ciência', () => {
@@ -536,6 +551,9 @@ describe('coerência CFOP × CST (aviso, nunca troca)', () => {
     assert.equal(issue.code, 'NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO');
     assert.equal(issue.severidade, 'AVISO');
     assert.equal(issue.requerCiencia, true);
+    assert.match(issue.fingerprint ?? '', /^fp1\./);
+    assert.equal(issue.fontes?.[0]?.jurisdicao, 'NACIONAL');
+    assert.equal(issue.fontes?.[0]?.versao, CFOP_CATALOG_VERSION);
   });
 
   it('6404 + CST 10 sem ST preenchida mantém o papel semântico e deixa a completude bloquear', () => {
@@ -546,9 +564,26 @@ describe('coerência CFOP × CST (aviso, nunca troca)', () => {
     assert.ok(codigos(incompleto).includes('NFE_ICMS_PICMSST_REQUIRED'));
   });
 
+  it('6404 nos contextos oficialmente documentados: nova retenção (CST 10, CSOSN 202) sem aviso', () => {
+    assert.deepEqual(aviso('6404', st10), []);
+    assert.deepEqual(aviso('6404', { crt: 1, csosn: '202', st: { pMVAST: 40, pICMSST: 18 } }), []);
+  });
+
+  it('6404 + CST 60 diverge do papel de substituto definido na nota explicativa, citando as fontes', () => {
+    assert.deepEqual(aviso('6404', { cst: '60' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
+    const [issue] = validarCoerenciaCfopIcms({ cfop: '6404', tratamento: calcular({ cst: '60' }).tratamento! });
+    assert.deepEqual(
+      issue.fontes?.map((fonte) => fonte.url),
+      [
+        'https://www.nfe.fazenda.gov.br/portal/listaConteudo.aspx?tipoConteudo=%2FNJarYc9nus%3D',
+        'https://legislacao.fazenda.sp.gov.br/Paginas/RC3837_2014.aspx',
+        'https://legislacao.fazenda.sp.gov.br/Paginas/RC21691_2020.aspx',
+      ],
+    );
+  });
+
   it('combinações coerentes não geram aviso', () => {
     assert.deepEqual(aviso('5405', { cst: '60' }), []);
-    assert.deepEqual(aviso('6404', st10), []);
     assert.deepEqual(aviso('5403', st10), []);
     assert.deepEqual(aviso('6403', st10), []);
     assert.deepEqual(aviso('5102', { cst: '00', aliquotaIcms: 18 }), []);
@@ -557,22 +592,46 @@ describe('coerência CFOP × CST (aviso, nunca troca)', () => {
     assert.deepEqual(aviso('5915', { cst: '60' }), []);
   });
 
-  it('6404 + CST 60 diverge do papel de substituto definido na nota explicativa', () => {
-    assert.deepEqual(aviso('6404', { cst: '60' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
+  it('SEFAZ-SP RC 33951/2026: 6108 + CSOSN 500 não recebe falso "sem ST"', () => {
+    assert.deepEqual(aviso('6108', { crt: 1, csosn: '500' }), []);
   });
 
-  it('venda comum com CST de ST e CFOP de substituído sem ST pedem ciência', () => {
-    assert.deepEqual(aviso('5102', { cst: '60' }), ['NFE_CFOP_SEM_ST_COM_CST_DE_ST']);
-    assert.deepEqual(aviso('6102', st10), ['NFE_CFOP_SEM_ST_COM_CST_DE_ST']);
+  it('SEFAZ-SP RC 27923/2023: 6108 + CST 00 não recebe aviso de ST', () => {
+    assert.deepEqual(aviso('6108', { cst: '00', aliquotaIcms: 12 }), []);
+  });
+
+  it('6102 + CST 60 não é declarado errado só por ser 6.1xx', () => {
+    assert.deepEqual(aviso('6102', { cst: '60' }), []);
+    assert.deepEqual(aviso('5102', { cst: '60' }), []);
+    assert.deepEqual(aviso('6102', st10), []);
+  });
+
+  it('CFOP neutro não supõe nada sobre ST, qualquer que seja o CST', () => {
+    for (const entrada of [{ cst: '00', aliquotaIcms: 18 }, { cst: '60' }, st10, { cst: '90', st: stOpcional }]) {
+      assert.deepEqual(aviso('5102', entrada), []);
+      assert.deepEqual(aviso('5915', entrada), []);
+    }
+  });
+
+  it('5405 com ST anterior coerente passa; com CST incompatível pede ciência', () => {
+    assert.deepEqual(aviso('5405', { cst: '60' }), []);
+    assert.deepEqual(aviso('5405', { crt: 1, csosn: '500' }), []);
     assert.deepEqual(aviso('5405', { cst: '00', aliquotaIcms: 18 }), ['NFE_CFOP_ST_SUBSTITUIDO_SEM_ST_ANTERIOR']);
+    assert.deepEqual(aviso('5405', st10), ['NFE_CFOP_ST_SUBSTITUIDO_SEM_ST_ANTERIOR']);
+    assert.deepEqual(aviso('5405', { crt: 1, csosn: '102' }), ['NFE_CFOP_ST_SUBSTITUIDO_SEM_ST_ANTERIOR']);
+  });
+
+  it('CFOP explicitamente de substituto com CST sem retenção pede ciência', () => {
     assert.deepEqual(aviso('5403', { cst: '00', aliquotaIcms: 18 }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
+    assert.deepEqual(aviso('5401', { cst: '60' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
+    assert.deepEqual(aviso('6401', { crt: 1, csosn: '102' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
   });
 
   it('CST 90 e CSOSN 900 só retêm ST quando o bloco opcional foi explicitamente ativado', () => {
     assert.deepEqual(aviso('6102', { cst: '90' }), []);
     assert.deepEqual(aviso('6403', { cst: '90' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
     assert.deepEqual(aviso('6403', { cst: '90', st: stOpcional }), []);
-    assert.deepEqual(aviso('6102', { cst: '90', st: stOpcional }), ['NFE_CFOP_SEM_ST_COM_CST_DE_ST']);
+    assert.deepEqual(aviso('6102', { cst: '90', st: stOpcional }), []);
 
     assert.deepEqual(aviso('6102', { crt: 1, csosn: '900' }), []);
     assert.deepEqual(aviso('6403', { crt: 1, csosn: '900' }), ['NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO']);
@@ -581,7 +640,31 @@ describe('coerência CFOP × CST (aviso, nunca troca)', () => {
 
   it('vale igual para o Simples', () => {
     assert.deepEqual(aviso('5405', { crt: 1, csosn: '500' }), []);
-    assert.deepEqual(aviso('5102', { crt: 1, csosn: '500' }), ['NFE_CFOP_SEM_ST_COM_CST_DE_ST']);
+    assert.deepEqual(aviso('5102', { crt: 1, csosn: '500' }), []);
+  });
+
+  describe('fingerprint da ciência', () => {
+    const fp = (cfop: string, entrada: Partial<EntradaIcms>, stAtivada?: boolean) => {
+      const resultado = calcular(entrada);
+      return validarCoerenciaCfopIcms({ cfop, tratamento: resultado.tratamento!, stAtivada })[0]?.fingerprint;
+    };
+
+    it('é estável para a mesma situação', () => {
+      assert.equal(fp('6403', { cst: '60' }), fp('6403', { cst: '60' }));
+      assert.ok(fp('6403', { cst: '60' }));
+    });
+
+    it('muda com o CFOP e com o CST/CSOSN', () => {
+      assert.notEqual(fp('6403', { cst: '60' }), fp('5403', { cst: '60' }));
+      assert.notEqual(fp('6403', { cst: '60' }), fp('6403', { cst: '00', aliquotaIcms: 18 }));
+      assert.notEqual(fp('6403', { crt: 1, csosn: '500' }), fp('6403', { crt: 1, csosn: '102' }));
+    });
+
+    it('muda quando o bloco opcional de ST é ligado ou desligado (CST 90)', () => {
+      // 5405 é substituído: com ou sem ST opcional o aviso existe, e a situação muda.
+      assert.notEqual(fp('5405', { cst: '90' }, false), fp('5405', { cst: '90', st: stOpcional }, true));
+      assert.ok(fp('5405', { cst: '90' }, false));
+    });
   });
 });
 

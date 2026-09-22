@@ -29,7 +29,8 @@ import { Separator } from "@/components/ui/separator";
 import ValueInput from "@/components/ui/value-input";
 import type { NFeOperationDirection } from "@/lib/nfe/cfopOperation";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
-import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
+import { alternarCienciaFiscal, classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
+import { FontesDoAvisoFiscal } from "@/components/fiscal/fontes-do-aviso-fiscal";
 import { LIMITE_XPROD } from "@/lib/nfe/limites";
 import {
   getRequiredPisCofinsMode,
@@ -472,6 +473,7 @@ export function NfeItemFiscalEditor({
                 return (
                   <div key={`${issue.code}-${issue.field}-${index}`} className="space-y-2">
                     <p>{issue.message}</p>
+                    <FontesDoAvisoFiscal fontes={issue.fontes} />
                     <div className="flex items-start gap-2">
                       <Checkbox
                         id={checkboxId}
@@ -479,10 +481,11 @@ export function NfeItemFiscalEditor({
                         onCheckedChange={(checked) => {
                           if (!checked) return;
                           onChange({
-                            avisosFiscaisConfirmados: [
-                              ...item.avisosFiscaisConfirmados.filter((code) => code !== issue.code),
-                              issue.code,
-                            ],
+                            avisosFiscaisConfirmados: alternarCienciaFiscal(
+                              item.avisosFiscaisConfirmados,
+                              issue,
+                              true,
+                            ),
                           });
                         }}
                       />

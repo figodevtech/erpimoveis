@@ -276,7 +276,10 @@ Título abonado, quitado com crédito do cliente ou antecipado sem repasse fica
 `pendente = false` com `banco_id` nulo — justamente porque nenhum dinheiro entrou
 em conta nenhuma. Exigir o banco da importação já os exclui.
 
-Um candidato → `MATCH_EXATO`. Mais de um → `AMBIGUO`.
+Um candidato → `MATCH_EXATO`. Mais de um, com **exatamente um** no mesmo dia do
+extrato → `MATCH_EXATO` com esse, pré-selecionado; os de outras datas continuam
+na lista e a observação avisa que existem. Mais de um sem desempate pela data
+(nenhum ou vários no mesmo dia) → `AMBIGUO`.
 
 ### Etapa 2 — Títulos em aberto
 
@@ -301,9 +304,9 @@ Não há limite de dias entre o vencimento e o pagamento ou recebimento. A proxi
 
 | Situação | Quando | Ação sugerida |
 |---|---|---|
-| `MATCH_EXATO` | Um movimento do Fluxo bate. | `VINCULAR` |
-| `MATCH_PROVAVEL` | Um título com score ≥ 60, sem empate. | `LIQUIDAR` ou `BAIXA_PARCIAL` |
-| `AMBIGUO` | Vários do Fluxo, ou títulos empatados dentro de 5 pontos. | nenhuma — o usuário escolhe |
+| `MATCH_EXATO` | Um movimento do Fluxo bate, ou só um dos que batem é do mesmo dia. | `VINCULAR` |
+| `MATCH_PROVAVEL` | Um título com score ≥ 60, sem empate — ou, no empate, só um de valor integral com data no dia do extrato. | `LIQUIDAR` ou `BAIXA_PARCIAL` |
+| `AMBIGUO` | Vários do Fluxo ou títulos empatados dentro de 5 pontos, sem desempate pela data; ou duas linhas do extrato elegendo o mesmo lançamento. | nenhuma — o usuário escolhe |
 | `SEM_CORRESPONDENCIA` | Nada. | `CRIAR` |
 | `REVISAO_MANUAL` | Os únicos candidatos são de antecipação ou pagamento múltiplo. | nenhuma |
 
@@ -321,6 +324,10 @@ Antes de comparar, o servidor remove da lista de candidatos as transações que 
 respondem por algum movimento conciliado, independentemente do período. Sem isso, dois débitos
 iguais no mesmo dia receberiam a **mesma** sugestão, e o segundo só descobriria o
 conflito na hora de gravar.
+
+Dentro do próprio extrato vale o mesmo: se duas linhas pendentes elegem o mesmo
+lançamento para vincular (`desfazerDisputas`), nenhuma fica com ele — as duas
+voltam para `AMBIGUO` e o usuário escolhe.
 
 ---
 

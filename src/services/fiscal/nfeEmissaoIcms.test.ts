@@ -15,8 +15,18 @@ import { BancoFalso, instalarIbgeFalso } from "./__bancoFalso";
 import { salvarNFeAvulsaDraft, type NFeAvulsaDraftInput, type NFeAvulsaItemInput } from "./nfeAvulsaService";
 import { salvarNFeDeOrigem, statusOcupaOrigem } from "./nfeOrigemService";
 import { salvarNFeDaSaida } from "./nfeSaidaService";
+import { resolverTratamentoIcms, validarCoerenciaCfopIcms } from "@/lib/nfe/icms";
+import { chaveCiencia } from "@/lib/nfe/issuesFiscais";
 
-const AVISO_6403_CST60 = "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO";
+/** Ciência como a tela grava: `code@fingerprint` da situação conferida. */
+function cienciaCfopCst(cfop: string, cst: string) {
+  const [aviso] = validarCoerenciaCfopIcms({ cfop, tratamento: resolverTratamentoIcms({ crt: 3, cst })! });
+  const chave = aviso && chaveCiencia(aviso);
+  assert.ok(chave, `sem aviso com ciência para ${cfop} + CST ${cst}`);
+  return chave;
+}
+const AVISO_6403_CST60 = cienciaCfopCst("6403", "60");
+const AVISO_6404_CST60 = cienciaCfopCst("6404", "60");
 
 describe("nova emissão para uma origem já documentada", () => {
   it("libera origem com NF-e autorizada e preserva a trava durante rascunho/transmissão", () => {
@@ -297,8 +307,9 @@ describe("VENDA — regressão da NF-e 136", () => {
   it("6403 com CST 60 não sai sem a ciência do usuário, e o CST não é trocado", async () => {
     const resultado = await salvarNFeDeOrigem("VENDA", 164, { itens: [itemDaTela()], configuracaoFiscal: configuracaoVenda });
     assert.equal(resultado.ok, false);
-    const [erro] = resultado.errors as Array<{ code?: string; requerCiencia?: boolean }>;
-    assert.equal(erro.code, AVISO_6403_CST60);
+    const [erro] = resultado.errors as Array<{ code?: string; requerCiencia?: boolean; fingerprint?: string }>;
+    // O servidor devolve o fingerprint que ele calculou: é o que a ciência tem de citar.
+    assert.equal(`${erro.code}@${erro.fingerprint}`, AVISO_6403_CST60);
     assert.equal(erro.requerCiencia, true);
     assert.equal(banco.tabela("nfe").length, 0);
   });
@@ -312,9 +323,12 @@ describe("VENDA — regressão da NF-e 136", () => {
     const nota = notaGravada(resultado.ok ? resultado.nfeId : 0);
     assertRegressao136(nota);
     assert.deepEqual(
-      nota.itens[0].tributacao_snapshot.icmsDecisao.avisosConfirmados.map((aviso: { code: string }) => aviso.code),
+      nota.itens[0].tributacao_snapshot.icmsDecisao.avisosConfirmados.map(
+        (aviso: { code: string; fingerprint: string }) => `${aviso.code}@${aviso.fingerprint}`,
+      ),
       [AVISO_6403_CST60],
     );
+    assert.deepEqual(nota.nfe.decisao_fiscal.icms[0].avisosConfirmados, [AVISO_6403_CST60]);
     assert.match(nota.xml, /<CFOP>6403<\/CFOP>/);
     assert.equal(nota.nfe.decisao_fiscal.icms[0].grupoXmlIcms, "ICMS60");
   });
@@ -535,7 +549,7 @@ describe("AVULSA — mesmo núcleo", () => {
       cfop: "6404",
       icms: { stRetida: { vBCSTRet: 13200, pST: 18, vICMSSTRet: 1656, vICMSSubstituto: 720 } },
       avisosFiscaisConfirmados: [
-        AVISO_6403_CST60,
+        AVISO_6404_CST60,
       ],
     })]));
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
@@ -553,7 +567,7 @@ describe("AVULSA — mesmo núcleo", () => {
       itemDaTela({
         cfop: "6404",
         avisosFiscaisConfirmados: [
-          AVISO_6403_CST60,
+          AVISO_6404_CST60,
         ],
       }),
       itemDaTela({ cfop: "6102", cst: "00", valorUnitario: 1000 }),

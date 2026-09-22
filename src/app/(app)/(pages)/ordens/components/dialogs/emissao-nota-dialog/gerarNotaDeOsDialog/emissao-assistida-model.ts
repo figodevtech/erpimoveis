@@ -29,7 +29,7 @@ import { MODELO_NFCE, MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { dataCivilDeHoje } from "@/lib/fiscal-date";
-import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
+import { avisoFiscalConfirmado, classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
 import {
   calcularIcmsItem,
   montarDecisaoIcms,
@@ -38,6 +38,7 @@ import {
   type BlocoIcms,
   type CampoIgnorado,
   type EntradaIcms,
+  type FonteIssueFiscal,
   type IcmsIssue,
   type ResultadoIcms,
   type TratamentoIcms,
@@ -208,7 +209,10 @@ export type AssistedFiscalItem = {
   vICMSDeson: string;
   motDesICMS: string;
   pCredSN: string;
-  /** Avisos de coerência CFOP × CST que o usuário confirmou ter visto. */
+  /**
+   * Ciência dada a avisos fiscais, como `code@fingerprint` (`chaveCiencia`).
+   * Vale só para a situação conferida: mudou o dado, a chave deixa de casar.
+   */
   avisosFiscaisConfirmados: string[];
   cest: string;
   cstPis: string;
@@ -274,6 +278,9 @@ export type AssistedItemIssue = {
   severidade?: "BLOQUEIO" | "AVISO" | "INFO";
   /** Aviso que libera o item depois que o usuário confirma a ciência. */
   requerCiencia?: boolean;
+  /** Situação analisada; é o que a ciência registra. */
+  fingerprint?: string;
+  fontes?: FonteIssueFiscal[];
 };
 
 const CAMPOS_CANONICOS_ST = new Set(["modBCST", "vBCST", "pICMSST", "vICMSST"]);
@@ -1128,7 +1135,7 @@ export function toNFeItem(
     ...(icms?.valores
       ? {
           icms: icms.valores,
-          icmsDecisao: montarDecisaoIcms(icms, icms.avisos.filter((aviso) => confirmados.has(aviso.code))),
+          icmsDecisao: montarDecisaoIcms(icms, icms.avisos.filter((aviso) => avisoFiscalConfirmado(aviso, confirmados))),
         }
       : {}),
     cstPis: item.cstPis || null,
@@ -1289,13 +1296,15 @@ export function validateAssistedItem(
       issues.push({ code: issue.code, field: issue.field, message: issue.message });
     }
     for (const issue of issuesBaseIbsCbs(taxItem.rtc)) {
-      if (issue.requerCiencia === true && item.avisosFiscaisConfirmados.includes(issue.code)) continue;
+      if (avisoFiscalConfirmado(issue, item.avisosFiscaisConfirmados)) continue;
       issues.push({
         code: issue.code,
         field: issue.field,
         message: issue.message,
         severidade: issue.severidade,
         requerCiencia: issue.requerCiencia,
+        fingerprint: issue.fingerprint,
+        fontes: issue.fontes,
       });
     }
     const bloqueiosIcms = icms.issues.filter((issue) => issue.severidade === "BLOQUEIO");
@@ -1314,13 +1323,15 @@ export function validateAssistedItem(
     // mas o item só fica pronto depois que ele confirma a ciência.
     const confirmados = new Set(item.avisosFiscaisConfirmados);
     for (const aviso of icms.avisos) {
-      if (confirmados.has(aviso.code)) continue;
+      if (avisoFiscalConfirmado(aviso, confirmados)) continue;
       issues.push({
         code: aviso.code,
         field: aviso.field,
         message: aviso.message,
         severidade: aviso.severidade,
         requerCiencia: aviso.requerCiencia,
+        fingerprint: aviso.fingerprint,
+        fontes: aviso.fontes,
       });
     }
     for (const informativo of icms.informativos) {
@@ -1330,6 +1341,7 @@ export function validateAssistedItem(
         message: informativo.message,
         severidade: informativo.severidade,
         requerCiencia: false,
+        fontes: informativo.fontes,
       });
     }
   } else {

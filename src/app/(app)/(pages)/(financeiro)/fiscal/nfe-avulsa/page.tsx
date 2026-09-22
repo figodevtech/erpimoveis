@@ -103,9 +103,13 @@ import { indFinalDoDestino, type DestinoMercadoria } from "@/lib/nfe/destinoMerc
 import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import { freteNaBaseIcms, type IcmsCanonico } from "@/lib/nfe/icms";
 import {
+  alternarCienciaFiscal,
   aplicarAlteracoesComCienciaFiscal,
+  avisoFiscalConfirmado,
   classificarIssuesFiscais,
 } from "@/lib/nfe/issuesFiscais";
+import type { FonteIssueFiscal } from "@/lib/nfe/icms";
+import { FontesDoAvisoFiscal } from "@/components/fiscal/fontes-do-aviso-fiscal";
 import {
   aplicarResolucaoDifal,
   assinaturaDifalDe,
@@ -443,6 +447,9 @@ type ValidationError = {
   code?: string;
   severidade?: string;
   requerCiencia?: boolean;
+  /** Situação que o servidor analisou; a ciência registra `code@fingerprint`. */
+  fingerprint?: string;
+  fontes?: FonteIssueFiscal[];
 };
 
 type NFeDocumentState = {
@@ -967,8 +974,12 @@ function camposIcmsDoSnapshot(snapshot: any): Partial<DraftItem> {
     vICMSDeson: stringifyNumber(icms.vICMSDeson),
     motDesICMS: stringifyNumber(icms.motDesICMS),
     pCredSN: stringifyNumber(icms.pCredSN),
+    // Só volta a ciência gravada com fingerprint: a de rascunho antigo (só o
+    // código) não diz qual situação foi conferida e é pedida de novo.
     avisosFiscaisConfirmados: Array.isArray(decisao?.avisosConfirmados)
-      ? decisao.avisosConfirmados.map((aviso: { code: string }) => aviso.code)
+      ? decisao.avisosConfirmados
+          .filter((aviso: { code?: string; fingerprint?: string }) => aviso?.code && aviso?.fingerprint)
+          .map((aviso: { code: string; fingerprint: string }) => `${aviso.code}@${aviso.fingerprint}`)
       : [],
   };
 }
@@ -2371,11 +2382,17 @@ export default function NFeAvulsaPage() {
             {errorsClassificados.avisos.length === 1 ? "aviso fiscal a confirmar" : "avisos fiscais a confirmar"}
           </AlertTitle>
           <AlertDescription>
-            <ul className="mt-2 list-disc space-y-1 pl-4">
+            <ul className="mt-2 list-disc space-y-2 pl-4">
               {errorsClassificados.avisos.map((error, index) => {
                 const stepIndex = validationStepIndexes[error.step];
+                const itemDoAviso = error.itemIndex === undefined ? undefined : draft.itens[error.itemIndex];
+                const aviso = { ...error, code: error.code ?? "" };
+                const checkboxId = `ciencia-avulsa-${error.itemIndex ?? "nota"}-${error.code ?? "aviso"}-${index}`;
                 return (
-                  <li key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}>
+                  <li
+                    key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}
+                    className="space-y-1"
+                  >
                     {stepIndex === undefined ? (
                       formatValidationError(error)
                     ) : (
@@ -2387,6 +2404,27 @@ export default function NFeAvulsaPage() {
                         {formatValidationError(error)}
                       </button>
                     )}
+                    <FontesDoAvisoFiscal fontes={error.fontes} />
+                    {itemDoAviso && error.itemIndex !== undefined && error.code && error.fingerprint ? (
+                      <div className="flex items-start gap-2">
+                        <Checkbox
+                          id={checkboxId}
+                          checked={avisoFiscalConfirmado(aviso, itemDoAviso.avisosFiscaisConfirmados)}
+                          onCheckedChange={(checked) =>
+                            updateItem(error.itemIndex!, {
+                              avisosFiscaisConfirmados: alternarCienciaFiscal(
+                                itemDoAviso.avisosFiscaisConfirmados,
+                                aviso,
+                                checked === true,
+                              ),
+                            })
+                          }
+                        />
+                        <Label htmlFor={checkboxId} className="text-xs font-normal leading-snug">
+                          Li este aviso e confirmo que os dados da operação foram conferidos.
+                        </Label>
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}

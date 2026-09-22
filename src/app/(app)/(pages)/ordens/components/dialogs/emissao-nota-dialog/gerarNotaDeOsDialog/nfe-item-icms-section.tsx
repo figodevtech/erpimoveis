@@ -5,6 +5,7 @@ import { AlertTriangle, Info } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
+import { FontesDoAvisoFiscal } from "@/components/fiscal/fontes-do-aviso-fiscal";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { resolverTratamentoIcms } from "@/lib/nfe/icms";
+import { alternarCienciaFiscal, avisoFiscalConfirmado } from "@/lib/nfe/issuesFiscais";
 import { CSOSN_DESCRICOES, CST_ICMS_DESCRICOES, ORIGENS_MERCADORIA } from "@/lib/nfe/rotulosFiscais";
 
 import {
@@ -155,7 +157,6 @@ export function NfeItemIcmsSection({ item, setup, contextoBase, procedencia, onC
     );
   }
 
-  const confirmados = new Set(item.avisosFiscaisConfirmados);
 
   return (
     <section className="min-w-0 space-y-4 rounded-lg border p-3 sm:p-4 bg-card">
@@ -353,15 +354,18 @@ export function NfeItemIcmsSection({ item, setup, contextoBase, procedencia, onC
           <AlertTitle>{tituloDoAvisoFiscal(aviso.code, rotuloCodigo)}</AlertTitle>
           <AlertDescription className="min-w-0 space-y-2 [overflow-wrap:anywhere]">
             <p>{aviso.message}</p>
+            <FontesDoAvisoFiscal fontes={aviso.fontes} />
             <div className="flex items-start gap-2">
               <Checkbox
                 id={`ciencia-${item.sourceItemId}-${aviso.code}`}
-                checked={confirmados.has(aviso.code)}
+                checked={avisoFiscalConfirmado(aviso, item.avisosFiscaisConfirmados)}
                 onCheckedChange={(checked) =>
                   onChange({
-                    avisosFiscaisConfirmados: checked
-                      ? [...item.avisosFiscaisConfirmados.filter((code) => code !== aviso.code), aviso.code]
-                      : item.avisosFiscaisConfirmados.filter((code) => code !== aviso.code),
+                    avisosFiscaisConfirmados: alternarCienciaFiscal(
+                      item.avisosFiscaisConfirmados,
+                      aviso,
+                      checked === true,
+                    ),
                   })
                 }
               />
@@ -390,7 +394,7 @@ export function NfeItemIcmsSection({ item, setup, contextoBase, procedencia, onC
                   </>
                 ) : null}
                 {trocaPendente?.perdeCiencia ? (
-                  <p>A ciência dada ao aviso de CFOP × CST valia para o código anterior e será pedida de novo.</p>
+                  <p>A ciência dada aos avisos fiscais valia para o código anterior e será pedida de novo.</p>
                 ) : null}
                 <p>O ERP não troca o CST por conta própria: a escolha continua sendo sua.</p>
               </div>

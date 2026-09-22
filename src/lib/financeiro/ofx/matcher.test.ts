@@ -5,6 +5,7 @@ import {
   analisarMovimento,
   casarComFluxo,
   casarComTitulos,
+  desfazerDisputas,
   motivoDeIncompatibilidade,
   type CandidatoTransacao,
 } from "./matcher";
@@ -135,12 +136,55 @@ test("transações liquidadas conciliam sem limite de diferença entre as datas"
   }
 });
 
-test("movimentos de mesmo valor em datas distantes continuam exigindo escolha", () => {
+test("o único lançamento do mesmo dia é vinculado, e os de outras datas ficam para conferir", () => {
   const antiga = transacao({ id: 60, data_dia: "2020-01-01" });
-  const analise = analisarMovimento(movimento(), [transacao(), antiga], BANCO);
+  const vespera = transacao({ id: 61, data_dia: "2026-08-03" });
+  const analise = analisarMovimento(movimento(), [antiga, transacao(), vespera], BANCO);
+  assert.equal(analise.situacao, "MATCH_EXATO");
+  assert.equal(analise.acaoSugerida, "VINCULAR");
+  assert.equal(analise.score, 100);
+  assert.deepEqual(analise.sugestoes.map((s) => s.transacaoId), [1, 61, 60]);
+  assert.match(analise.observacao ?? "", /outros 2 lançamentos/);
+});
+
+test("sem lançamento no mesmo dia, mesmo valor em datas diferentes continua ambíguo", () => {
+  const vespera = transacao({ id: 61, data_dia: "2026-08-03" });
+  const seguinte = transacao({ id: 62, data_dia: "2026-08-05" });
+  const analise = analisarMovimento(movimento(), [vespera, seguinte], BANCO);
   assert.equal(analise.situacao, "AMBIGUO");
   assert.equal(analise.acaoSugerida, null);
-  assert.deepEqual(analise.sugestoes.map((s) => s.transacaoId), [1, 60]);
+});
+
+test("dois lançamentos no mesmo dia continuam ambíguos, mesmo com outro em outra data", () => {
+  const analise = analisarMovimento(
+    movimento(),
+    [transacao({ id: 1 }), transacao({ id: 2 }), transacao({ id: 3, data_dia: "2026-08-01" })],
+    BANCO,
+  );
+  assert.equal(analise.situacao, "AMBIGUO");
+  assert.equal(analise.sugestoes.length, 3);
+});
+
+test("duas linhas do extrato que elegem o mesmo lançamento voltam para escolha", () => {
+  const candidatos = [transacao({ id: 1 }), transacao({ id: 2, data_dia: "2026-08-01" })];
+  const primeira = analisarMovimento(movimento({ sequencia: 1 }), candidatos, BANCO);
+  const segunda = analisarMovimento(movimento({ sequencia: 2 }), candidatos, BANCO);
+  const outraData = analisarMovimento(movimento({ sequencia: 3, dataPostagem: "2026-08-01" }), candidatos, BANCO);
+
+  const [a, b, c] = desfazerDisputas([primeira, segunda, outraData]);
+  assert.equal(a?.situacao, "AMBIGUO");
+  assert.equal(a?.acaoSugerida, null);
+  assert.equal(b?.situacao, "AMBIGUO");
+  // Quem elegeu outro lançamento segue vinculado.
+  assert.equal(c?.situacao, "MATCH_EXATO");
+  assert.equal(c?.sugestoes[0].transacaoId, 2);
+});
+
+test("linha já resolvida não disputa lançamento com a pendente", () => {
+  const analise = analisarMovimento(movimento(), [transacao()], BANCO);
+  const [resolvida, pendente] = desfazerDisputas([null, analise]);
+  assert.equal(resolvida, null);
+  assert.equal(pendente?.situacao, "MATCH_EXATO");
 });
 
 /* --------------------------------------------------------- Títulos */
@@ -192,6 +236,20 @@ test("três títulos de mesmo valor deixam o PIX ambíguo", () => {
   const analise = analisarMovimento(pix, titulos, BANCO);
   assert.equal(analise.situacao, "AMBIGUO");
   assert.equal(analise.sugestoes.length, 3);
+});
+
+test("no empate entre títulos, o único com data no dia do extrato é o sugerido", () => {
+  const pix = movimento({ valorCentavos: -100_000, memo: "DEB PIX ENVIADO", dataPostagem: "2026-08-10" });
+  const titulo = (id: number, dia: string, descricao = "Fornecedor XYZ") =>
+    transacao({ id, descricao, valor: 1000, pendente: true, banco_id: null, data_dia: dia });
+  // O do dia seguinte soma bônus de texto e passa à frente no score; a data desempata.
+  const titulos = [titulo(41, "2026-08-11", "DEB PIX ENVIADO"), titulo(42, "2026-08-10")];
+
+  const analise = analisarMovimento(pix, titulos, BANCO);
+  assert.equal(analise.situacao, "MATCH_PROVAVEL");
+  assert.equal(analise.acaoSugerida, "LIQUIDAR");
+  assert.deepEqual(analise.sugestoes.map((s) => s.transacaoId), [42, 41]);
+  assert.match(analise.observacao ?? "", /outro título/);
 });
 
 test("movimento menor que o saldo vira sugestão de baixa parcial", () => {
