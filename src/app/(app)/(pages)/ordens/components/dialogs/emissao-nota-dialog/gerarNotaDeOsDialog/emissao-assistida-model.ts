@@ -356,6 +356,9 @@ export async function resolverDifalDosItens(params: {
   indIEDest: number | string;
   itens: ItemParaResolverDifal[];
   dataEmissao?: string;
+  tpNF?: number | string;
+  finNFe?: number;
+  ufEntrega?: string | null;
   signal?: AbortSignal;
 }): Promise<Map<string, ResolucaoDifalTela>> {
   const vazio = new Map<string, ResolucaoDifalTela>();
@@ -375,7 +378,9 @@ export async function resolverDifalDosItens(params: {
         modelo: params.modelo,
         indFinal: params.indFinal,
         indIEDest: params.indIEDest,
-        tpNF: 1,
+        tpNF: params.tpNF ?? 1,
+        finNFe: params.finNFe,
+        ufEntrega: params.ufEntrega,
         itens: params.itens.map((item) => ({
           id: item.sourceItemId,
           ncm: item.ncm,
@@ -408,11 +413,16 @@ export async function resolverDifalDosItens(params: {
  * a assinatura e o efeito se chamaria para sempre.
  */
 export function assinaturaDifalDe(params: {
+  ufEmitente?: string | null;
   ufDestino?: string | null;
   indFinal?: number | string | null;
   indIEDest?: number | string | null;
   crt?: number | string | null;
   modelo: ModeloDocumentoFiscal;
+  dataEmissao?: string;
+  tpNF?: number | string;
+  finNFe?: number;
+  ufEntrega?: string | null;
   itens: ItemParaResolverDifal[];
 }): string {
   return JSON.stringify([
@@ -421,6 +431,11 @@ export function assinaturaDifalDe(params: {
     String(params.indIEDest ?? ""),
     String(params.crt ?? ""),
     String(params.modelo),
+    String(params.ufEmitente ?? "").trim().toUpperCase(),
+    String(params.dataEmissao ?? ""),
+    String(params.tpNF ?? 1),
+    String(params.finNFe ?? 1),
+    String(params.ufEntrega ?? "").trim().toUpperCase(),
     params.itens.map((item) => [
       item.sourceItemId,
       onlyDigits(item.ncm ?? ""),
@@ -444,13 +459,24 @@ export function assinaturaDifalDe(params: {
  * que agora vai para o RJ é pior do que o campo vazio, porque o vazio bloqueia
  * e o número errado não.
  */
-export function aplicarResolucaoDifal(
-  itens: AssistedFiscalItem[],
+export type ItemComResolucaoDifal = Pick<AssistedFiscalItem,
+  | "difalHabilitado"
+  | "difalResolucao"
+  | "difalCamposManuais"
+  | "difalAliquotaInterna"
+  | "difalAliquotaInterestadual"
+  | "difalAliquotaFcp"
+  | "difalPercentualPartilha"
+> & { sourceItemId?: string | null };
+
+export function aplicarResolucaoDifal<T extends ItemComResolucaoDifal>(
+  itens: T[],
   resolucoes: Map<string, ResolucaoDifalTela>,
-): AssistedFiscalItem[] {
+  identificarItem: (item: T, index: number) => string = (item) => item.sourceItemId ?? "",
+): T[] {
   let mudou = false;
-  const proximos = itens.map((item) => {
-    const resolucao = resolucoes.get(item.sourceItemId) ?? null;
+  const proximos = itens.map((item, index) => {
+    const resolucao = resolucoes.get(identificarItem(item, index)) ?? null;
     const manuais = item.difalCamposManuais ?? [];
     const manual = (campo: DifalCampoManual) => manuais.includes(campo);
 
@@ -458,7 +484,7 @@ export function aplicarResolucaoDifal(
     const automatico = (campo: DifalCampoManual, valor: number | null | undefined, atual: string) =>
       manual(campo) ? atual : textoDeDecimal(valor ?? null);
 
-    const proximo: AssistedFiscalItem = {
+    const proximo: T = {
       ...item,
       difalHabilitado: habilitado,
       difalResolucao: habilitado ? resolucao : null,

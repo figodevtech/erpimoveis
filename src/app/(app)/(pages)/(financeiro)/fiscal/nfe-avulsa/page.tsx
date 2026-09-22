@@ -107,6 +107,9 @@ import {
   classificarIssuesFiscais,
 } from "@/lib/nfe/issuesFiscais";
 import {
+  aplicarResolucaoDifal,
+  assinaturaDifalDe,
+  resolverDifalDosItens,
   calcularIcmsDoItem,
   toNFeItem,
   icmsInputDoItem,
@@ -116,6 +119,7 @@ import {
   type AssistedFiscalItem,
   type DifalCampoManual,
   type FiscalSetup,
+  type ResolucaoDifalTela,
 } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/emissao-assistida-model";
 import { NfeItemIcmsSection } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/nfe-item-icms-section";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
@@ -307,12 +311,11 @@ type DraftItem = {
   difalPercentualPartilha: string;
   difalBaseFcp: string;
   /**
-   * Campos de DIFAL digitados aqui. Na avulsa a alíquota interna e o FCP não
-   * são sugeridos por ninguém, então tudo que estiver preenchido veio da
-   * pessoa — e o servidor precisa saber disso para a regra fiscal não
-   * sobrepor a decisão dela.
+   * Campos editados por cima da resolução automática. São preservados nas
+   * próximas consultas e enviados como manuais ao gravar a nota.
    */
   difalCamposManuais: DifalCampoManual[];
+  difalResolucao: ResolucaoDifalTela | null;
 };
 
 type DraftTransporte = {
@@ -650,6 +653,7 @@ const emptyItem: DraftItem = {
   difalPercentualPartilha: "",
   difalBaseFcp: "",
   difalCamposManuais: [],
+  difalResolucao: null,
 };
 
 const initialDraft: DraftPayload = {
@@ -1010,6 +1014,25 @@ function contextoBaseDaAvulsa(item: DraftItem, draft: DraftPayload, ufEmitente?:
   };
 }
 
+function parametrosDifalDaAvulsa(draft: DraftPayload, setup: SetupResponse | null, dataEmissao: string) {
+  return {
+    modelo: MODELO_NFE,
+    ufEmitente: setup?.empresa?.uf,
+    ufDestino: draft.destinatario.estado,
+    crt: setup?.empresa?.regimetributario,
+    indFinal: indFinalDoDestino(draft.operacao.destinoMercadoria, draft.operacao.consumidorFinal)
+      ?? ((draft.destinatario.indicadorIe || "9") === "9" ? 1 : 0),
+    indIEDest: draft.destinatario.indicadorIe || "9",
+    tpNF: draft.operacao.tipoOperacao === "SAIDA" ? 1 : 0,
+    finNFe: ({ NORMAL: 1, COMPLEMENTAR: 2, AJUSTE: 3, DEVOLUCAO: 4 })[draft.operacao.finalidade],
+    ufEntrega: draft.entrega.habilitado ? draft.entrega.estado || null : null,
+    dataEmissao,
+    // A chave da consulta identifica a linha, não o estoque de origem: duas
+    // linhas podem vir do mesmo produto e ter classificações diferentes.
+    itens: draft.itens.map((item, index) => ({ ...item, sourceItemId: `avulsa:${index}` })),
+  };
+}
+
 /** O item da avulsa no formato que a seção de ICMS e o núcleo leem. */
 function itemAssistidoDaAvulsa(item: DraftItem, index: number): AssistedFiscalItem {
   const quantidade = parseNumberInput(item.quantidade);
@@ -1019,9 +1042,7 @@ function itemAssistidoDaAvulsa(item: DraftItem, index: number): AssistedFiscalIt
     sourceItemId: item.sourceItemId ?? `avulsa:${index}`,
     produtoId: item.produtoId ?? 0,
     titulo: item.descricao,
-    // A avulsa monta o DIFAL no próprio formulário; a resolução automática dela
-    // vem do servidor no rascunho, não deste adaptador.
-    difalResolucao: null,
+    difalResolucao: item.difalResolucao ?? null,
     difalCamposManuais: item.difalCamposManuais ?? [],
     quantidade,
     valorUnitario,
@@ -1198,42 +1219,6 @@ export default function NFeAvulsaPage() {
   // dia em UTC, que das 21h à meia-noite já é o seguinte.
   const dataEmissaoFiscal = React.useMemo(() => dataCivilDeHoje(), []);
 
-  // DIFAL: reavalia sempre que emitente, destino, consumidor final ou o
-  // indicador de IE mudarem. Preserva o que o usuário já digitou.
-  const difalContexto = React.useMemo(
-    () => ({
-      ufEmitente: setup?.empresa?.uf ?? null,
-      ufDestinatario: draft.destinatario.estado ?? null,
-      tipoOperacao: "SAIDA" as const,
-      // Só a sugestão de DIFAL usa isto. Sem destino escolhido, vale a regra
-      // estrutural: não contribuinte é sempre consumidor final.
-      indFinal:
-        indFinalDoDestino(draft.operacao.destinoMercadoria, draft.operacao.consumidorFinal) ??
-        ((draft.destinatario.indicadorIe || "9") === "9" ? 1 : 0),
-      indIEDest: draft.destinatario.indicadorIe || "9",
-      // NA01-20, exceção 12: emitente do Simples Nacional não leva o grupo.
-      crt: setup?.empresa?.regimetributario ?? null,
-    }),
-    [
-      setup?.empresa?.uf,
-      draft.destinatario.estado,
-      draft.destinatario.indicadorIe,
-      draft.operacao.destinoMercadoria,
-      draft.operacao.consumidorFinal,
-      setup?.empresa?.regimetributario,
-    ],
-  );
-
-  React.useEffect(() => {
-    setDraft((current) => {
-      if (!current.itens.length) return current;
-      const itens = current.itens.map((item) => aplicarSugestaoDifal(item, difalContexto));
-      return itens.some((item, index) => item !== current.itens[index])
-        ? { ...current, itens }
-        : current;
-    });
-  }, [difalContexto]);
-
   const difalAtivo = draft.itens.some((item) => item.difalHabilitado);
   const [authorizing, setAuthorizing] = React.useState(false);
   const [dirty, setDirty] = React.useState(false);
@@ -1328,6 +1313,58 @@ export default function NFeAvulsaPage() {
   const isHomologacao = Boolean(setup) && (setup?.empresa?.ambiente || setup?.config?.ambiente) !== "PRODUCAO";
   const isEditingPersistedDraft = Boolean(draft.nfeId);
   const isAutorizada = String(documentState.status ?? "").toUpperCase() === "AUTORIZADA";
+  const consultaDifal = parametrosDifalDaAvulsa(draft, setup, dataEmissaoFiscal);
+  const assinaturaDifal = assinaturaDifalDe(consultaDifal);
+
+  React.useEffect(() => {
+    if (loading || !setup?.empresa?.uf || isAutorizada || !consultaDifal.itens.length) return;
+    const controle = new AbortController();
+    const corresponde = (current: DraftPayload) =>
+      assinaturaDifalDe(parametrosDifalDaAvulsa(current, setup, dataEmissaoFiscal)) === assinaturaDifal;
+
+    // Invalida alíquotas automáticas do contexto anterior enquanto consulta o
+    // motor. Os campos manuais permanecem; uma falha não restaura valores velhos.
+    setDraft((current) => {
+      if (controle.signal.aborted || !corresponde(current)) return current;
+      // Limpa ANTES de sugerir. `aplicarSugestaoDifal` só preenche campo vazio:
+      // na ordem inversa ela não substituiria a interestadual do contexto
+      // anterior, e a limpeza seguinte apagaria as duas. Assim a interestadual
+      // e a partilha — que saem da origem da mercadoria e da geografia, sem
+      // depender do banco — já ficam certas para o contexto novo, mesmo que a
+      // consulta ao motor falhe. O que depende de regra continua vazio, e é
+      // isso que segura a emissão.
+      const limpos = aplicarResolucaoDifal(current.itens, new Map(), (_, index) => `avulsa:${index}`);
+      const itens = limpos.map((item) => aplicarSugestaoDifal(item, {
+        ufEmitente: consultaDifal.ufEmitente,
+        ufDestinatario: consultaDifal.ufDestino,
+        tipoOperacao: current.operacao.tipoOperacao,
+        indFinal: consultaDifal.indFinal,
+        indIEDest: consultaDifal.indIEDest,
+        crt: consultaDifal.crt,
+        modelo: MODELO_NFE,
+      }));
+      return itens.some((item, index) => item !== current.itens[index]) ? { ...current, itens } : current;
+    });
+
+    const timer = setTimeout(async () => {
+      const resolucoes = await resolverDifalDosItens({ ...consultaDifal, signal: controle.signal });
+      if (controle.signal.aborted) return;
+      setDraft((current) => {
+        if (controle.signal.aborted || !corresponde(current)) return current;
+        const itens = aplicarResolucaoDifal(current.itens, resolucoes, (_, index) => `avulsa:${index}`);
+        return itens === current.itens ? current : { ...current, itens };
+      });
+    }, 350);
+
+    return () => {
+      clearTimeout(timer);
+      controle.abort();
+    };
+    // A assinatura inclui contexto e classificação, mas exclui as alíquotas
+    // devolvidas. Depender do draft dispararia outra consulta a cada resposta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assinaturaDifal, loading, isAutorizada, draftIdParam]);
+
   const isSemPagamentoObrigatorio =
     draft.operacao.finalidade === "AJUSTE" || draft.operacao.finalidade === "DEVOLUCAO";
   // finNFe=4 sem <NFref> cai na rejeição 321. O CFOP não isenta da regra.

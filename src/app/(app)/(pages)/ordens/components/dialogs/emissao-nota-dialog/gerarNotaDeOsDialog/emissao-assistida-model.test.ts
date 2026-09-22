@@ -15,7 +15,10 @@ import {
 } from "@/lib/nfe/issuesFiscais";
 import { prepararItemFiscal } from "@/services/fiscal/nfeAvulsaService";
 
+import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
+
 import {
+  aplicarResolucaoDifal,
   assinaturaDifalDe,
   calcularIcmsDoItem,
   createAssistedItem,
@@ -351,5 +354,64 @@ describe("seletor de NCM × motor de DIFAL", () => {
     assert.equal(assistido.ncm, "90328925");
     assert.ok(!assistido.ncm.includes("—"));
     assert.equal(toApiItem(assistido).ncm, "90328925");
+  });
+});
+
+describe("invalidação do DIFAL enquanto o servidor não responde", () => {
+  // O item vem de um contexto anterior (PB -> PI, 12%). O destino continua PI,
+  // mas o emitente passou a ser SP, onde a interestadual é 7%.
+  const doContextoAnterior = () => ({
+    sourceItemId: "avulsa:0",
+    orig: "0",
+    cfop: "6108",
+    difalHabilitado: true,
+    difalAliquotaInterna: "22.5",
+    difalAliquotaInterestadual: "12",
+    difalAliquotaFcp: "0",
+    difalPercentualPartilha: "100",
+    difalResolucao: null,
+    difalCamposManuais: [] as never[],
+  });
+  const contexto = {
+    ufEmitente: "SP",
+    ufDestinatario: "PI",
+    tipoOperacao: "SAIDA" as const,
+    indFinal: 1,
+    indIEDest: 9,
+    crt: 3,
+    modelo: MODELO_NFE,
+  };
+  const chave = (_: unknown, index: number) => `avulsa:${index}`;
+
+  it("limpar antes de sugerir devolve a interestadual do contexto novo", () => {
+    // A alíquota interestadual e a partilha não dependem do banco: saem da
+    // origem da mercadoria e da geografia. Limpar primeiro e sugerir depois
+    // deixa as duas corretas mesmo que a consulta ao motor falhe.
+    const limpo = aplicarResolucaoDifal([doContextoAnterior()], new Map(), chave)[0];
+    const sugerido = aplicarSugestaoDifal(limpo, contexto);
+
+    assert.equal(sugerido.difalAliquotaInterestadual, "7", "SP -> PI é 7%");
+    assert.equal(sugerido.difalPercentualPartilha, "100");
+    // O que depende do banco continua vazio, e é isso que bloqueia a emissão.
+    assert.equal(limpo.difalAliquotaInterna, "");
+    assert.equal(limpo.difalAliquotaFcp, "");
+  });
+
+  it("sugerir antes de limpar perde os dois campos dedutíveis", () => {
+    // `aplicarSugestaoDifal` só preenche campo vazio: com o valor antigo ainda
+    // presente ela não faz nada, e a limpeza seguinte apaga tudo.
+    const sugerido = aplicarSugestaoDifal(doContextoAnterior(), contexto);
+    const depois = aplicarResolucaoDifal([sugerido], new Map(), chave)[0];
+
+    assert.equal(depois.difalAliquotaInterestadual, "");
+    assert.equal(depois.difalPercentualPartilha, "");
+  });
+
+  it("campo marcado como manual sobrevive à invalidação", () => {
+    const comManual = { ...doContextoAnterior(), difalCamposManuais: ["aliquotaFcp"] as never[] };
+    const limpo = aplicarResolucaoDifal([comManual], new Map(), chave)[0];
+
+    assert.equal(limpo.difalAliquotaFcp, "0", "a pessoa decidiu; não se apaga");
+    assert.equal(limpo.difalAliquotaInterna, "");
   });
 });
