@@ -285,6 +285,14 @@ export interface Transaction {
   baixado_por?: string | null
   baixadoPor?: { id: string; nome: string | null } | null
   /**
+   * Quem lancou a transacao. `null` no historico anterior a permissao
+   * `financeiro:ver_todas_transacoes` e nas linhas que nascem de maquina (o
+   * webhook da maquineta nao tem sessao) — e por isso essas continuam visiveis
+   * para todo mundo.
+   */
+  created_by?: string | null
+  criador?: { id: string; nome: string | null } | null
+  /**
    * Título a receber perdoado sem passar pelo banco. `pendente=false` e
    * `banco_id=null`, igual ao título quitado por antecipação — a diferença é
    * que aqui nenhum dinheiro entrou em lugar nenhum.

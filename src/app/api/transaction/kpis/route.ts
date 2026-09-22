@@ -9,6 +9,11 @@ import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 import { saldoEmAberto } from "@/lib/financeiro/transacao";
 
 import { filtroDeBusca } from "../_lib/busca";
+import {
+  aplicarRecorteDeAutoria,
+  leApenasMinhas,
+  recorteDeAutoria,
+} from "../_lib/autoria";
 
 /**
  * Indicadores da aba aberta, sobre o período e os filtros da própria tabela.
@@ -95,6 +100,10 @@ export async function GET(req: NextRequest) {
     const search = (searchParams.get("search") ?? "").trim().slice(0, 200);
     // Mesma varredura da lista: o cartão soma exatamente o que a tabela mostra.
     const buscaEm = filtroDeBusca(search);
+    // E pelo mesmo motivo, o mesmo recorte de autoria: um cartão que soma o
+    // caixa inteiro sobre uma lista recortada entrega justamente o número que
+    // a lista esconde.
+    const recorte = await recorteDeAutoria(leApenasMinhas(searchParams.get("apenasMinhas")));
 
     /*
      * Os mesmos filtros de relação que a tabela manda para /api/transaction.
@@ -181,6 +190,10 @@ export async function GET(req: NextRequest) {
       if (centroCustoId != null) q = q.eq("centro_custo_id", centroCustoId);
       if (metodoPagamento) q = q.eq("metodopagamento", metodoPagamento);
       if (tipos.length > 0) q = q.in("tipo", tipos);
+      // No construtor, nao em cada ramo: FLUXO, A_PAGAR/A_RECEBER e LIQUIDADAS
+      // partem todos daqui, e esquecer um deles faria aquele cartao somar um
+      // recorte diferente do da tabela.
+      q = aplicarRecorteDeAutoria(q, recorte);
       return q;
     };
 

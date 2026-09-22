@@ -267,6 +267,14 @@ export async function requireFinanceiroEdit() {
 export async function requireFinanceiroDelete() {
   return requirePerm(PERMS.FINANCEIRO_EXCLUIR);
 }
+/**
+ * Booleano, nao `require`: esta permissao nao barra ninguem da tela — ela
+ * decide se a consulta traz o caixa inteiro ou so o que a pessoa lancou.
+ * Lancar 403 aqui expulsaria justamente quem deveria apenas ver menos.
+ */
+export async function podeVerTodasTransacoes() {
+  return hasPerm(PERMS.FINANCEIRO_VER_TODAS_TRANSACOES);
+}
 
 export async function hasVendasAccess() {
   return hasPerm(PERMS.VENDAS);

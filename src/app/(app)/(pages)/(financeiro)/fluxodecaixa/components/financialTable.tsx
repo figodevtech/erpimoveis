@@ -48,6 +48,7 @@ import {
   Plus,
   Pencil,
   ShoppingCart,
+  User,
   Trash2Icon,
   Undo2,
 } from "lucide-react";
@@ -252,6 +253,13 @@ interface FinancialTableProps {
   setViewMode: (value: FluxoViewMode) => void;
   relationFilters: TransactionRelationFilters;
   setRelationFilters: (value: TransactionRelationFilters) => void;
+  /**
+   * Recorte por autoria. Para quem tem `financeiro:ver_todas_transacoes` e um
+   * filtro opcional; para quem não tem, o servidor já recorta e este valor não
+   * muda nada — o controle nem aparece.
+   */
+  apenasMinhas: boolean;
+  setApenasMinhas: (value: boolean) => void;
   /** Avisa a página de que os números mudaram: baixa, estorno, exclusão. */
   revalidarIndicadores: () => void;
 }
@@ -277,6 +285,8 @@ export default function FinancialTable({
   setViewMode,
   relationFilters,
   setRelationFilters,
+  apenasMinhas,
+  setApenasMinhas,
   revalidarIndicadores,
   dateTo,
   dateFrom,
@@ -392,6 +402,17 @@ export default function FinancialTable({
     (session?.user as any)?.permissoes,
     PERMS.FINANCEIRO_EXCLUIR,
   );
+  /*
+   * Sem esta permissão a lista mostra só o que a pessoa lançou — mais tudo que
+   * não tem dono, que é o histórico anterior à regra. A decisão é do servidor;
+   * aqui ela serve para dizer isso na tela e para esconder um controle que não
+   * teria efeito nenhum.
+   */
+  const podeVerTodas = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.FINANCEIRO_VER_TODAS_TRANSACOES,
+  );
+  const listaRecortada = !podeVerTodas || apenasMinhas;
 
   useEffect(() => {
     if (selectedTransactionId) setIsOpen(true);
@@ -520,6 +541,26 @@ export default function FinancialTable({
                   className={isLoading ? "animate-spin" : ""}
                 />
               </button>
+              {/*
+                Uma lista recortada sem aviso vira chamado de suporte: a pessoa
+                procura um lançamento que existe e não acha. O tooltip explica o
+                que entra, incluindo o histórico sem dono.
+              */}
+              {listaRecortada ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex cursor-default items-center gap-1 rounded-sm border border-sky-600/40 bg-sky-600/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-sky-700 dark:text-sky-400">
+                      <User className="h-3 w-3" />
+                      Somente as minhas
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start" className="max-w-[320px] text-pretty">
+                    {podeVerTodas
+                      ? "Filtro ligado por você. A lista, os cartões e a exportação mostram o que você lançou, mais os registros sem autor."
+                      : "Você vê o que lançou, mais os registros sem autor. Ver o que as outras pessoas lançaram depende da permissão “Ver transações de todos”."}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
             </CardDescription>
           </div>
 
@@ -562,6 +603,9 @@ export default function FinancialTable({
                 setViewMode={setViewMode}
                 relationFilters={relationFilters}
                 setRelationFilters={setRelationFilters}
+                apenasMinhas={apenasMinhas}
+                setApenasMinhas={setApenasMinhas}
+                podeVerTodas={podeVerTodas}
                 setSearch={setSearch}
                 search={dateSearch}
                 setTipo={setTipo}
@@ -613,6 +657,7 @@ export default function FinancialTable({
                       planoContaId={relationFilters.planoContaId ? Number(relationFilters.planoContaId) : null}
                       centroCustoId={relationFilters.centroCustoId ? Number(relationFilters.centroCustoId) : null}
                       metodopagamento={relationFilters.metodoPagamento || null}
+                      apenasMinhas={apenasMinhas}
                       variant="ghost"
                       className="h-8 w-full justify-start px-2 font-normal hover:cursor-pointer"
                     />
@@ -877,6 +922,16 @@ export default function FinancialTable({
                           {t.nomepagador}
                         </TextoTruncado>
                       )}
+                      {/*
+                        De quem é a linha. Só aparece para quem vê a lista
+                        inteira — na lista recortada seria o mesmo nome em todas
+                        elas, e o histórico sem dono não tem o que mostrar.
+                      */}
+                      {podeVerTodas && t.criador?.nome ? (
+                        <TextoTruncado className="text-xs text-muted-foreground">
+                          {`Lançado por ${t.criador.nome}`}
+                        </TextoTruncado>
+                      ) : null}
                       <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         ID: {t.id}
                         {/*

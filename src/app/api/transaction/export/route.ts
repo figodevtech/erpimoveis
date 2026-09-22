@@ -6,6 +6,11 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import * as XLSX from "xlsx";
 
 import { filtroDeBusca } from "../_lib/busca";
+import {
+  aplicarRecorteDeAutoria,
+  leApenasMinhas,
+  recorteDeAutoria,
+} from "../_lib/autoria";
 
 /** ====== Constantes e helpers ====== */
 
@@ -70,6 +75,10 @@ function toIntFilter(v: string | null) {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
+
+    // O mesmo recorte da lista e dos cartoes. Sem ele a planilha entregaria
+    // justamente o que a tela esconde — e a exportacao sai por um clique.
+    const recorte = await recorteDeAutoria(leApenasMinhas(searchParams.get("apenasMinhas")));
 
     const q = normalizeQ(searchParams.get("search") ?? searchParams.get("q") ?? "");
 
@@ -211,6 +220,8 @@ export async function GET(req: Request) {
 
       if (dateFrom) query = query.gte("data", localDayStartToUtcIso(dateFrom));
       if (dateTo) query = query.lt("data", localNextDayStartToUtcIso(dateTo));
+
+      query = aplicarRecorteDeAutoria(query, recorte);
 
       return query;
     };

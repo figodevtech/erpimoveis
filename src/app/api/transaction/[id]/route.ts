@@ -9,6 +9,7 @@ import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { paraCentavos } from "@/lib/financeiro/rateio";
 import { origemDaTransacao, rotuloDaOrigem } from "@/lib/financeiro/transacao";
 import { excluirTransacao } from "../_lib/exclusao";
+import { exigirAcessoATransacao } from "../_lib/autoria";
 import {
   aplicarCamposDocumento,
   CAMPOS_DOCUMENTO,
@@ -419,6 +420,9 @@ export async function GET(_: Request, ctx: Params) {
   try {
     await requireFinanceirosAccess();
     const id = await parseId(ctx);
+    // Esconder a linha da lista nao bastava: bastava saber o id para abrir,
+    // editar ou excluir por aqui.
+    await exigirAcessoATransacao(id);
 
     const { data, error } = await supabaseAdmin
       .from("transacao")
@@ -665,6 +669,9 @@ export async function PATCH(req: NextRequest, ctx: Params) {
   try {
     await requireFinanceiroEdit();
     const id = await parseId(ctx);
+    // Esconder a linha da lista nao bastava: bastava saber o id para abrir,
+    // editar ou excluir por aqui.
+    await exigirAcessoATransacao(id);
     const body = await req.json().catch(() => ({}));
     const edicaoBloqueada = await validarEdicaoDeTransacao(id, body);
     if (edicaoBloqueada) return edicaoBloqueada;
@@ -747,6 +754,9 @@ export async function PUT(req: NextRequest, ctx: Params) {
   try {
     await requireFinanceiroEdit();
     const id = await parseId(ctx);
+    // Esconder a linha da lista nao bastava: bastava saber o id para abrir,
+    // editar ou excluir por aqui.
+    await exigirAcessoATransacao(id);
     const body = await req.json().catch(() => ({}));
     const edicaoBloqueada = await validarEdicaoDeTransacao(id, body);
     if (edicaoBloqueada) return edicaoBloqueada;
@@ -823,6 +833,9 @@ export async function DELETE(_: Request, ctx: Params) {
   try {
     await requireFinanceiroDelete();
     const id = await parseId(ctx);
+    // Esconder a linha da lista nao bastava: bastava saber o id para abrir,
+    // editar ou excluir por aqui.
+    await exigirAcessoATransacao(id);
 
     // A sessão é lida uma vez e desce para a `_lib`. Antes cada ramo que
     // precisava do autor chamava `auth()` por conta própria.

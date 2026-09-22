@@ -19,6 +19,7 @@ import {
 import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 const SELECT_FIELDS =
@@ -51,6 +52,8 @@ async function ensureTransactionExists(id: number) {
     (notFound as Error & { statusCode?: number }).statusCode = 404;
     throw notFound;
   }
+  // Aqui, e nao em cada handler: GET e POST passam os dois por esta funcao.
+  await exigirAcessoATransacao(id);
 }
 
 export async function GET(_request: NextRequest, ctx: Params) {

@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -24,6 +25,7 @@ export async function GET(_: Request, ctx: Params) {
     await requireFinanceirosAccess();
     const { id: raw } = await ctx.params;
     const id = Number(raw);
+    await exigirAcessoATransacao(id);
     if (!Number.isSafeInteger(id) || id <= 0) {
       return NextResponse.json({ error: "Transação inválida." }, { status: 400 });
     }

@@ -43,6 +43,8 @@ type TransactionProps = BaseProps & {
   valorMin?: number | null;
   valorMax?: number | null;
   vinculo?: "OS" | "VENDA" | "EVENTO" | "AVULSO" | null;
+  /** O mesmo recorte da tela: a planilha nao pode trazer o que a lista esconde. */
+  apenasMinhas?: boolean | null;
   dateFrom?: string | null; // YYYY-MM-DD
   dateTo?: string | null;   // YYYY-MM-DD
 };
@@ -100,6 +102,7 @@ export function ExportExcelButton({
           valorMin,
           valorMax,
           vinculo,
+          apenasMinhas,
           dateFrom,
           dateTo,
         } = rest as TransactionProps;
@@ -121,6 +124,7 @@ export function ExportExcelButton({
         if (valorMin != null) qp.set("valorMin", String(valorMin));
         if (valorMax != null) qp.set("valorMax", String(valorMax));
         if (vinculo) qp.set("vinculo", vinculo);
+        if (apenasMinhas) qp.set("apenasMinhas", "1");
         if (dateFrom) qp.set("dateFrom", dateFrom); // YYYY-MM-DD
         if (dateTo) qp.set("dateTo", dateTo);       // YYYY-MM-DD
       }

@@ -14,6 +14,7 @@ import { analisarImpacto } from "@/app/api/transaction/_lib/impacto-exclusao";
 import { lerIdsDoCorpo } from "@/app/api/transaction/_lib/lote-exclusao";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../_lib/autoria";
 
 /**
  * Exclui várias transações de uma vez.
@@ -42,6 +43,7 @@ export async function POST(req: Request) {
 
     const corpo = await req.json().catch(() => ({}));
     const ids = lerIdsDoCorpo((corpo as { ids?: unknown })?.ids);
+    await exigirAcessoATransacao(ids);
 
     const impactos = await analisarImpacto(ids);
     const { itens, plano } = classificarExclusaoEmLote(ids, impactos);

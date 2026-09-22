@@ -35,6 +35,14 @@ export default function FinanceiroPage() {
     totalPages: 0,
   });
   const [search, setSearch] = useState("");
+  /*
+   * "Apenas as minhas" e um recorte opcional de quem pode ver tudo.
+   *
+   * Quem nao tem `financeiro:ver_todas_transacoes` ja chega recortado pelo
+   * servidor, e este estado nao muda nada para essa pessoa — e de proposito:
+   * um limite que o cliente pudesse desligar nao seria limite.
+   */
+  const [apenasMinhas, setApenasMinhas] = useState(false);
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [viewMode, setViewMode] = useState<FluxoViewMode>("FLUXO");
@@ -166,6 +174,7 @@ export default function FinanceiroPage() {
           planoContaId: relationFilters.planoContaId || undefined,
           centroCustoId: relationFilters.centroCustoId || undefined,
           metodopagamento: relationFilters.metodoPagamento || undefined,
+          apenasMinhas: apenasMinhas ? "1" : undefined,
           ordem: ordenacao.direcao,
           ordenarPor: ordenacao.campo,
         },
@@ -187,6 +196,7 @@ export default function FinanceiroPage() {
     // Primitivos, não o objeto: `ordenacao` é recriado a cada render e
     // derrubaria o memo (e a busca) sem nada ter mudado.
   }, [
+    apenasMinhas,
     dateFrom,
     dateTo,
     effectiveComBanco,
@@ -276,6 +286,7 @@ export default function FinanceiroPage() {
             search={search}
             tiposParam={tiposParam}
             relationFilters={relationFilters}
+            apenasMinhas={apenasMinhas}
             revalidacao={revalidacao}
           />
         </motion.div>
@@ -299,6 +310,8 @@ export default function FinanceiroPage() {
         setViewMode={setViewMode}
         relationFilters={relationFilters}
         setRelationFilters={setRelationFilters}
+        apenasMinhas={apenasMinhas}
+        setApenasMinhas={setApenasMinhas}
         handleGetTransactions={handleGetTransactions}
         setLimit={handleChangeLimit}
         ordenacao={ordenacao}

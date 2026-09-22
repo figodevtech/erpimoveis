@@ -8,6 +8,7 @@ import { normalizarAjustes } from "@/app/api/transaction/_lib/ajustes";
 import { sincronizarTaxaRecebimento } from "@/app/api/transaction/_lib/taxa";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -60,6 +61,7 @@ export async function GET(_: NextRequest, ctx: Params) {
   try {
     await requireFinanceirosAccess();
     const id = parseId((await ctx.params).id);
+    await exigirAcessoATransacao(id);
 
     const { data, error } = await supabaseAdmin
       .from("transacao_ajuste")
@@ -84,6 +86,7 @@ export async function POST(req: NextRequest, ctx: Params) {
     if (bloqueio) return bloqueio;
 
     const id = parseId((await ctx.params).id);
+    await exigirAcessoATransacao(id);
     const body = await req.json().catch(() => ({}));
 
     const normalizacao = normalizarAjustes([body]);
@@ -178,6 +181,7 @@ export async function PUT(req: NextRequest, ctx: Params) {
     if (bloqueio) return bloqueio;
 
     const id = parseId((await ctx.params).id);
+    await exigirAcessoATransacao(id);
     const body = await req.json().catch(() => ({}));
     const liquidoDesejado = Number(body?.liquidoDesejado);
 
@@ -213,6 +217,7 @@ export async function DELETE(req: NextRequest, ctx: Params) {
     if (bloqueio) return bloqueio;
 
     const id = parseId((await ctx.params).id);
+    await exigirAcessoATransacao(id);
     const ajusteId = Number(new URL(req.url).searchParams.get("ajusteId"));
 
     if (!Number.isSafeInteger(ajusteId) || ajusteId <= 0) {

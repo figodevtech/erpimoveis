@@ -454,6 +454,17 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
   const [currentTab, setCurrentTab] = useState<string>("Geral")
   const { data: session } = useSession()
   const podeVerEventos = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO)
+  /*
+   * Trocar o vendedor transfere a comissão: o banco lê `vendedor` como
+   * beneficiário e reapura pela taxa de quem entra. Por isso não basta
+   * `vendas:editar` — quem corrige uma descrição não move dinheiro de uma
+   * pessoa para outra. Quem decide é o servidor; aqui só evitamos oferecer um
+   * campo que a gravação recusaria.
+   */
+  const podeAlterarVendedor = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.VENDAS_ALTERAR_VENDEDOR,
+  )
   const [users, setUsers] = useState<Array<{ id: string; nome: string | null; email?: string }>>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
   const [categoriasVenda, setCategoriasVenda] = useState<CategoriaVenda[]>([])
@@ -1126,6 +1137,22 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                               </p>
                               {loadingUsers ? (
                                 <p className="mt-2 text-sm font-medium text-muted-foreground">Carregando...</p>
+                              ) : !podeAlterarVendedor ? (
+                                /*
+                                  Sem a permissão o nome aparece como texto, e
+                                  não como um seletor desabilitado: um campo
+                                  travado parece um ajuste que dá para
+                                  destravar, e a pessoa fica tentando.
+                                */
+                                <>
+                                  <p className="mt-2 text-sm font-medium">
+                                    {venda.vendedor_rel?.nome || venda.vendedor || "Sem vendedor"}
+                                  </p>
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    Trocar o vendedor transfere a comissão e depende da
+                                    permissão “Alterar vendedor da venda”.
+                                  </p>
+                                </>
                               ) : (
                                 <Select
                                   value={venda.vendedor || "unassigned"}

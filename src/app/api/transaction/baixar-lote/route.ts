@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireFinanceiroEdit } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../_lib/autoria";
 
 /**
  * Baixa de várias transações pendentes de uma vez.
@@ -79,6 +80,9 @@ export async function POST(req: NextRequest) {
           .filter((id) => Number.isSafeInteger(id) && id > 0),
       ),
     ];
+    // O lote e tudo ou nada na checagem: uma unica linha de outra pessoa
+    // recusa a operacao inteira, em vez de baixar parte do que foi marcado.
+    await exigirAcessoATransacao(limpos);
 
     if (limpos.length === 0) {
       return NextResponse.json({ error: "Nenhuma transação válida." }, { status: 400 });
