@@ -119,8 +119,11 @@ DO $$
 DECLARE
   v_existe integer;
 BEGIN
+  -- Idempotente de propósito: o teste roda tanto antes da carga do catálogo
+  -- quanto depois dela, e nos dois casos as asserções abaixo valem.
   INSERT INTO public.fiscal_ncm (codigo, descricao, fonte)
-  VALUES ('87089990', 'Outros', 'teste'), ('84212300', 'Para filtrar carburantes', 'teste');
+  VALUES ('87089990', 'Outros', 'teste'), ('84212300', 'Para filtrar carburantes', 'teste')
+  ON CONFLICT (codigo) DO NOTHING;
 
   SELECT count(*) INTO v_existe FROM public.fiscal_ncm WHERE codigo = '87089990';
   IF v_existe <> 1 THEN RAISE EXCEPTION 'NCM válido não foi gravado'; END IF;

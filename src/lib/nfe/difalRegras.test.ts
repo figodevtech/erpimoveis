@@ -600,6 +600,22 @@ describe("18. ausência de regra não vira chute", () => {
     assert.equal(issue.severidade, "BLOQUEIO");
   });
 
+  it("o NCM inexistente bloqueia mesmo com as alíquotas já preenchidas pela tela", () => {
+    // O item chega do navegador com tudo resolvido e sem pendência aparente.
+    // Quem reconfere o catálogo é o servidor, e ele barra assim mesmo.
+    const item = resolverDifalDoItem(
+      itemDifal({ ncm: "22346792", aliquotaInternaDestino: 22.5, aliquotaFcpDestino: 0 }),
+      CONTEXTO_ITEM,
+      { regras: [PI_GERAL_ATUAL], ncmConhecido: false },
+    );
+
+    assert.equal(item.difalDecisao?.aliquotaInterna, 22.5);
+    assert.ok(
+      issuesDifalDoItem(item).some((i) => i.code === "NFE_DIFAL_NCM_INEXISTENTE"),
+      "o bloqueio não pode depender de a tela ter deixado campo vazio",
+    );
+  });
+
   it("o fallback da tabela genérica é marcado e continua bloqueando", () => {
     const item = resolverDifalDoItem(itemDifal(), CONTEXTO_ITEM, { regras: [] });
 
@@ -693,6 +709,31 @@ describe("20. o grupo ICMSUFDest do XML", () => {
     assert.equal(item.icmsUfDest?.pFCPUFDest, 2);
     assert.equal(item.icmsUfDest?.vFCPUFDest, 150);
     assert.equal(item.icmsUfDest?.vICMSUFDest, 450);
+  });
+
+  it("a base do DIFAL segue a composição do ICMS próprio, inclusive quanto ao frete", () => {
+    // O motor usa icmsDecisao.composicaoBase.baseIcmsProprio quando ela existe.
+    // É a mesma que o resumo da tela mostra: repetir a fórmula na interface
+    // faria o número exibido divergir do imposto assim que houvesse frete.
+    const comFreteNaBase = resolverDifalDoItem(
+      itemDifal({
+        valorFrete: 500,
+        icmsDecisao: { composicaoBase: { baseIcmsProprio: 8000 } },
+      } as Partial<NFeItem>),
+      CONTEXTO_ITEM,
+      { regras: [PI_GERAL_ATUAL] },
+    );
+    assert.equal(comFreteNaBase.icmsUfDest?.vBCUFDest, 8000);
+    // (22,5% - 12%) de 8.000 = 840,00
+    assert.equal(comFreteNaBase.icmsUfDest?.vICMSUFDest, 840);
+
+    const semComposicao = resolverDifalDoItem(
+      itemDifal({ valorFrete: 500 }),
+      CONTEXTO_ITEM,
+      { regras: [PI_GERAL_ATUAL] },
+    );
+    // Sem composição gravada, o motor cai em valorTotal - desconto + frete.
+    assert.equal(semComposicao.icmsUfDest?.vBCUFDest, 8000);
   });
 
   it("operação sem DIFAL não recebe o grupo", () => {

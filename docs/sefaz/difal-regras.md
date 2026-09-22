@@ -217,6 +217,11 @@ Para a pessoa não ficar sem os números, a seção mostra um resumo calculado
 (base do DIFAL, valor do DIFAL, base do FCP, valor do FCP, partilha e diferença
 de alíquota), em reais, ao lado dos campos editáveis.
 
+A base do resumo é a mesma do motor: `composicaoBase.baseIcmsProprio`, vinda de
+`calcularIcmsDoItem`. Ela já aplica a regra do frete — modFrete 0 e 3 integram
+por lei, nos demais vale a escolha do usuário. Repetir a fórmula na interface
+faria o número exibido divergir do imposto assim que a nota tivesse frete.
+
 ## Reprodutibilidade histórica
 
 `resolverDifalDoItem` grava em `difalDecisao` o valor de cada campo, a regra que
@@ -252,6 +257,26 @@ caso do "MÓDULO VOLVO 6792" da venda #180, cadastrado com `22346792`, em que os
 quatro últimos dígitos são o número da peça. Com regra geral da UF o resultado
 não muda; no dia em que houver regra por NCM, o código inexistente não casa com
 nenhuma, cai na geral e tributa errado sem avisar.
+
+A conferência acontece **nas duas pontas**, e a de baixo não confia na de cima:
+
+```
+fiscal_ncm
+   ↓
+/api/fiscal/difal/resolver  → NCM_INEXISTENTE → bloqueio na tela
+   ↓
+salvarNFeAvulsaDraft consulta fiscal_ncm de novo
+   ↓                   (conferirNcmsConhecidos, uma consulta por nota)
+prepararItemFiscal → resolverDifalDoItem({ ncmConhecido })
+   ↓
+NFE_DIFAL_NCM_INEXISTENTE → bloqueio no servidor
+```
+
+O payload pode vir de qualquer cliente, então o bloqueio do servidor independe
+de a tela ter deixado algum campo vazio: mesmo com as alíquotas todas
+preenchidas, um NCM inexistente barra a geração do rascunho. A tela repassa a
+pendência que recebeu para `toNFeItem`, de modo que a validação local acuse a
+mesma coisa e o item não fique "pronto" na lista.
 
 A tabela nasce **vazia** e é carregada por `npm run fiscal:ncm -- <banco> --aplicar`.
 Enquanto estiver vazia — ou se a consulta falhar, por exemplo com a migration
@@ -313,7 +338,7 @@ emissão escolher sozinha.
 ## Testes
 
 ```bash
-npx tsx --test src/lib/nfe/difalRegras.test.ts   # 57 casos do motor
+npx tsx --test src/lib/nfe/difalRegras.test.ts   # 59 casos do motor
 npx tsx --test src/lib/nfe/difal.test.ts         # 30 casos de cálculo e incidência
 npm run db:test:difal -- demir                   # migration, constraints e RLS, em rollback
 npm run test:negocio                             # suíte completa

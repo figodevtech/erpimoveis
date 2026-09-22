@@ -1141,15 +1141,27 @@ export function toNFeItem(
   // Mesma ordem do servidor: ICMS, DIFAL e só então IBS/CBS, cuja base desconta
   // vICMSUFDest e vFCPUFDest (NT 2025.002, UB16-10).
   if (contexto?.difal && contexto.ufEmitente && contexto.ufDestino) {
-    nfeItem = resolverDifalDoItem(nfeItem, {
-      ufEmitente: contexto.ufEmitente,
-      ufDestinatario: contexto.ufDestino,
-      indFinal: contexto.indFinal ?? 0,
-      indIEDest: contexto.difal.indIEDest,
-      tpNF: contexto.difal.tpNF,
-      finNFe: contexto.difal.finNFe,
-      ufEntrega: contexto.difal.ufEntrega,
-    });
+    nfeItem = resolverDifalDoItem(
+      nfeItem,
+      {
+        ufEmitente: contexto.ufEmitente,
+        ufDestinatario: contexto.ufDestino,
+        indFinal: contexto.indFinal ?? 0,
+        indIEDest: contexto.difal.indIEDest,
+        tpNF: contexto.difal.tpNF,
+        finNFe: contexto.difal.finNFe,
+        ufEntrega: contexto.difal.ufEntrega,
+      },
+      {
+        // A tela não consulta o catálogo de NCM; ela repassa o que o servidor
+        // já respondeu, para a validação local acusar a mesma pendência e o
+        // item não ficar "pronto" na lista. Quem decide de verdade é o
+        // servidor, que reconfere na geração do rascunho.
+        ncmConhecido: item.difalResolucao?.pendencias?.includes("NCM_INEXISTENTE")
+          ? false
+          : undefined,
+      },
+    );
   }
   resolverRtcDoItem(nfeItem, contexto ?? {}, { base: optionalDecimal(item.baseRtc),
     ibsUf: optionalDecimal(item.valorIbsUf), ibsMun: optionalDecimal(item.valorIbsMunicipio), cbs: optionalDecimal(item.valorCbs) });

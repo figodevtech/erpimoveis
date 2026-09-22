@@ -1,6 +1,6 @@
 import { issuesDifalDoItem, resolverDifalDoItem } from "@/lib/nfe/difal";
 import type { RegraDifal } from "@/lib/nfe/difalRegras";
-import { carregarRegrasDifalPorUf } from "@/services/fiscal/difal/repositorioDifal";
+import { carregarRegrasDifalPorUf, conferirNcmsConhecidos } from "@/services/fiscal/difal/repositorioDifal";
 import { resolverRtcDoItem, issuesBaseIbsCbs } from "@/lib/nfe/baseIbsCbs";
 import { validarPoliticaStRetida } from "@/lib/nfe/icms/politicaStRetida";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -528,6 +528,13 @@ export function prepararItemFiscal(
      * a mesma carga — nenhum item vai ao banco por conta própria.
      */
     regrasDifal?: RegraDifal[];
+    /**
+     * NCMs da nota que existem na NCM oficial, conferidos pelo chamador.
+     * `null`/ausente = catálogo indisponível, e a checagem de existência fica
+     * desligada. Vem de fora pela mesma razão das regras: esta função é
+     * síncrona e a nota inteira compartilha uma consulta só.
+     */
+    ncmsConhecidos?: Set<string> | null;
     modelo?: ModeloDocumentoFiscal;
   } = {},
 ): ItemFiscalPreparado {
@@ -577,7 +584,14 @@ export function prepararItemFiscal(
         modelo: contexto.modelo,
         dataEmissao: contexto.dataEmissao,
       },
-      { regras: contexto.regrasDifal },
+      {
+        regras: contexto.regrasDifal,
+        // O bloqueio do NCM inexistente é reconferido aqui, com o catálogo, e
+        // não herdado da tela: o payload pode vir de qualquer cliente.
+        ncmConhecido: contexto.ncmsConhecidos
+          ? contexto.ncmsConhecidos.has(String(nfeItem.ncm ?? "").replace(/\D/g, ""))
+          : undefined,
+      },
     );
     resultado.issues.push(...issuesDifalDoItem(nfeItem));
   }
@@ -1774,12 +1788,18 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const regrasDifal = !isNfce && destinatarioUf
     ? await carregarRegrasDifalPorUf(destinatarioUf)
     : [];
+  // Confere os NCMs da nota contra o catálogo oficial. Um código de oito
+  // dígitos que não existe na NCM nunca casa com regra por mercadoria: cairia
+  // na regra geral da UF e tributaria errado sem avisar ninguém.
+  const ncmsConhecidos = !isNfce && destinatarioUf
+    ? await conferirNcmsConhecidos(input.itens.map((item) => String(item.ncm ?? "").replace(/\D/g, "")))
+    : null;
   const preparados = input.itens.map((item, index) =>
     prepararItemFiscal(item, index, crt, {
       freteIntegraBaseIcms: freteNaBase.integra, modFrete: freteNaBase.modFrete,
       ufEmitente: empresaUf, ufDestino: destinatarioUf,
       indFinal: resolverIndFinalDaOperacao(input), dataEmissao: issueDate.toISOString(),
-      regrasDifal, modelo: isNfce ? MODELO_NFCE : MODELO_NFE,
+      regrasDifal, ncmsConhecidos, modelo: isNfce ? MODELO_NFCE : MODELO_NFE,
       // NFC-e é operação interna: nunca gera ICMSUFDest.
       difal: isNfce ? null : {
         indIEDest: input.destinatario.indicadorIe ?? '9',

@@ -242,7 +242,14 @@ const PERCENTUAL = new Intl.NumberFormat("pt-BR", {
  * deixaria a base do FCP defasada. Então o valor aparece aqui, calculado,
  * em vez de virar um campo editável que ninguém lembra de reconferir.
  */
-function ResumoDifal({ item }: { item: AssistedFiscalItem }) {
+function ResumoDifal({
+  item,
+  base,
+}: {
+  item: AssistedFiscalItem;
+  /** Base do DIFAL pela composição canônica do motor, já com a regra do frete. */
+  base: number;
+}) {
   const numero = (texto: string) => {
     const valor = Number(String(texto).replace(",", "."));
     return Number.isFinite(valor) ? valor : null;
@@ -252,11 +259,6 @@ function ResumoDifal({ item }: { item: AssistedFiscalItem }) {
   const interestadual = numero(item.difalAliquotaInterestadual);
   const fcp = numero(item.difalAliquotaFcp);
   const partilha = numero(item.difalPercentualPartilha) ?? 100;
-
-  // Mesma base do motor: valor da operação menos desconto, mais frete.
-  const base = Number(
-    (item.quantidade * item.valorUnitario - (item.valorDesconto ?? 0)).toFixed(2),
-  );
   const baseFcp = numero(item.difalBaseFcp) ?? base;
 
   if (interna === null || interestadual === null || base <= 0) return null;
@@ -317,6 +319,12 @@ function PendenciasDifal({ item }: { item: AssistedFiscalItem }) {
       "NCM ausente ou inválido: sem os 8 dígitos não dá para saber se esta mercadoria tem regra própria na UF de destino.",
     );
   }
+  if (resolucao?.pendencias?.includes("NCM_INEXISTENTE")) {
+    mensagens.push(
+      `O NCM ${onlyDigits(item.ncm) || "informado"} tem 8 dígitos mas não existe na Nomenclatura Comum do Mercosul. ` +
+        "Um código inexistente nunca casa com regra por mercadoria e cairia na regra geral da UF. Corrija o NCM no cadastro do produto.",
+    );
+  }
 
   if (mensagens.length === 0) return null;
   return (
@@ -359,7 +367,21 @@ export function NfeItemFiscalEditor({
   // selo descreve como o campo abriu, não o que o usuário digitou depois.
   const proc = item.procedenciaFiscal ?? {};
   // CEST é exigido quando o item retém ICMS-ST — o mesmo critério do XML.
-  const needsCest = calcularIcmsDoItem(item, setup, contextoBase).valores?.vBCST != null;
+  const icmsDoItem = calcularIcmsDoItem(item, setup, contextoBase);
+  const needsCest = icmsDoItem.valores?.vBCST != null;
+  // Base do DIFAL: a mesma que `resolverDifalDoItem` usa — a composição do
+  // ICMS próprio, que já decidiu se o frete entra (modFrete 0/3 entram por lei,
+  // nos demais vale a escolha do usuário). Repetir a fórmula aqui faria o
+  // resumo divergir do imposto assim que houvesse frete na nota.
+  const baseDifal =
+    icmsDoItem.composicaoBase?.baseIcmsProprio ??
+    Number(
+      (
+        item.quantidade * item.valorUnitario -
+        (item.valorDesconto ?? 0) +
+        Number(contextoBase?.valorFrete ?? 0)
+      ).toFixed(2),
+    );
   const issuesClassificadas = classificarIssuesFiscais(issues);
 
   const updateQuantity = (value: string) => {
@@ -739,7 +761,7 @@ export function NfeItemFiscalEditor({
                 />
               </Field>
             </div>
-            <ResumoDifal item={item} />
+            <ResumoDifal item={item} base={baseDifal} />
             <PendenciasDifal item={item} />
           </section>
         ) : null}
