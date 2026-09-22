@@ -14,7 +14,6 @@ import {
   FileText,
   Download,
   Hash,
-  Info as InfoIcon,
   Loader2,
   Plus,
   Printer,
@@ -98,6 +97,7 @@ import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 import { CfopCombobox } from "@/components/fiscal/cfop-combobox";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
+import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import { indFinalDoDestino, type DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
 import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import { freteNaBaseIcms, type IcmsCanonico } from "@/lib/nfe/icms";
@@ -501,16 +501,9 @@ function StatusFiscalDoItemAvulso({ issues }: { issues: ValidationError[] }) {
           {classificadas.avisos.length === 1 ? "aviso fiscal" : "avisos fiscais"}
         </Badge>
       ) : null}
-      {classificadas.informativos.length > 0 ? (
-        <Badge
-          variant="outline"
-          className="gap-1 border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
-        >
-          <InfoIcon className="h-3 w-3" />
-          {classificadas.informativos.length}{" "}
-          {classificadas.informativos.length === 1 ? "informação" : "informações"}
-        </Badge>
-      ) : null}
+      <FiscalInformationBadge
+        messages={classificadas.informativos.map((issue) => issue.message)}
+      />
     </div>
   );
 }
@@ -2336,21 +2329,9 @@ export default function NFeAvulsaPage() {
         </Alert>
       ) : null}
 
-      {errorsClassificados.informativos.length > 0 ? (
-        <Alert className="border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
-          <InfoIcon className="h-4 w-4" />
-          <AlertTitle>Informações fiscais</AlertTitle>
-          <AlertDescription>
-            <ul className="mt-2 list-disc space-y-1 pl-4">
-              {errorsClassificados.informativos.map((error, index) => (
-                <li key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}>
-                  {formatValidationError(error)}
-                </li>
-              ))}
-            </ul>
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      <FiscalInformationBadge
+        messages={errorsClassificados.informativos.map(formatValidationError)}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
         <Card>

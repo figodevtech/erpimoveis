@@ -1,8 +1,9 @@
 "use client";
 
-import { AlertCircle, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { CfopCombobox } from "@/components/fiscal/cfop-combobox";
+import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -282,19 +283,9 @@ export function NfeItemFiscalEditor({
           </Alert>
         ) : null}
 
-        {issuesClassificadas.informativos.length > 0 ? (
-          <Alert className="border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
-            <Info className="h-4 w-4" />
-            <AlertTitle>Informações fiscais</AlertTitle>
-            <AlertDescription className="min-w-0">
-              <ul className="mt-1 min-w-0 list-disc space-y-1 pl-4 [overflow-wrap:anywhere]">
-                {issuesClassificadas.informativos.map((issue, index) => (
-                  <li key={`${issue.code}-${issue.field}-${index}`}>{issue.message}</li>
-                ))}
-              </ul>
-            </AlertDescription>
-          </Alert>
-        ) : null}
+        <FiscalInformationBadge
+          messages={issuesClassificadas.informativos.map((issue) => issue.message)}
+        />
 
         {issuesClassificadas.pronto ? (
           <Alert>

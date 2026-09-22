@@ -45,7 +45,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Split, UserRound } from "lucide-react";
 import TransactionDialog from "../../fluxodecaixa/components/transactionDialog/transactionDialog";
 import { SelecaoMultiplaFooter } from "../../components/selecao-multipla-footer";
-import { useSelecaoMultipla } from "../../components/useSelecaoMultipla";
+import { useSelecaoMultipla, type AcaoEmLote } from "../../components/useSelecaoMultipla";
+import { SelecaoMultiplaMenu } from "../../components/selecao-multipla-menu";
 import {
   motivoForaDaEmissaoEmLote,
   podeEntrarNaEmissaoEmLote,
@@ -103,6 +104,10 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
     (session?.user as { permissoes?: unknown } | undefined)?.permissoes,
     PERMS.FINANCEIRO_NOTAS_FISCAIS,
   );
+  // A emissão só entra no menu quando a empresa a habilitou e o usuário pode
+  // notas fiscais — senão o fluxo terminaria num toast de permissão.
+  const acoesDeSelecao: AcaoEmLote[] =
+    config?.habilitar_emissao_nfe && podeNotasFiscais ? ["PAGAMENTO", "NOTA"] : ["PAGAMENTO"];
   const hasActiveFilters = Boolean(
     filters.cliente.trim() ||
       filters.notaNumero.trim() ||
@@ -267,28 +272,12 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
               <UserRound className="h-4 w-4" aria-hidden />
               Minhas vendas
             </Button>
-            <Button
-              variant={selecao.ehPagamento ? "secondary" : "ghost"}
-              size="sm"
-              className="hover:cursor-pointer"
-              aria-pressed={selecao.ehPagamento}
-              onClick={() => (selecao.ehPagamento ? sairDoModo() : selecao.entrar("PAGAMENTO"))}
-            >
-              <Split className="h-4 w-4" aria-hidden />
-              Pagamento múltiplo
-            </Button>
-            {config?.habilitar_emissao_nfe && podeNotasFiscais && (
-              <Button
-                variant={selecao.ehNota ? "secondary" : "ghost"}
-                size="sm"
-                className="hover:cursor-pointer"
-                aria-pressed={selecao.ehNota}
-                onClick={() => (selecao.ehNota ? sairDoModo() : selecao.entrar("NOTA"))}
-              >
-                <FileText className="h-4 w-4" aria-hidden />
-                Emitir nota fiscal
-              </Button>
-            )}
+            <SelecaoMultiplaMenu
+              acaoAlvo={selecao.acaoAlvo}
+              disponiveis={acoesDeSelecao}
+              onEscolher={(acao) => selecao.entrar(acao)}
+              onSair={sairDoModo}
+            />
             {hasActiveFilters && (
               <Button
                 variant="ghost"

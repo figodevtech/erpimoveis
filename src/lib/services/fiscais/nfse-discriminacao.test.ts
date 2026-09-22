@@ -114,3 +114,51 @@ test("dentro do limite, a discriminação agrupada passa", () => {
   assert.ok(texto.length <= 1000);
   assert.ok(texto.includes("OS #12") && texto.includes("OS #30"));
 });
+
+/*
+ * O caso que quebrava: a validação tratava `servicoid` como único na lista
+ * inteira. Numa OS só isso equivalia à PK de `osservico`, mas duas OS podem
+ * ter o mesmo serviço do catálogo — e é o caso mais comum de agrupamento
+ * (duas revisões, dois alinhamentos). Recusá-lo impediria justamente o que a
+ * emissão em lote existe para fazer.
+ */
+test("o mesmo serviço em duas OS é aceito e sai sob cada cabeçalho", () => {
+  const texto = montarDiscriminacaoServicos(12, [
+    servico(7, "Revisão completa", 250, 12),
+    servico(7, "Revisão completa", 250, 30),
+  ]);
+
+  assert.equal(
+    texto,
+    [
+      "OS #12",
+      `1. Revisão completa — 1 un. — ${dinheiro(250)}`,
+      "OS #30",
+      `1. Revisão completa — 1 un. — ${dinheiro(250)}`,
+    ].join("\n"),
+  );
+});
+
+test("o mesmo serviço repetido na MESMA OS continua sendo recusado", () => {
+  assert.throws(
+    () =>
+      montarDiscriminacaoServicos(12, [
+        servico(7, "Revisão completa", 250, 12),
+        servico(7, "Revisão completa", 250, 12),
+      ]),
+    (erro: Error) => {
+      assert.match(erro.message, /mais de uma vez/i);
+      return true;
+    },
+  );
+});
+
+test("serviço com identificador inválido é recusado por isso, não por duplicidade", () => {
+  assert.throws(
+    () => montarDiscriminacaoServicos(12, [servico(0, "Serviço sem id", 100, 12)]),
+    (erro: Error) => {
+      assert.match(erro.message, /identificador inválido/i);
+      return true;
+    },
+  );
+});

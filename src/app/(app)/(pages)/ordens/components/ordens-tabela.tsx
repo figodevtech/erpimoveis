@@ -593,6 +593,10 @@ export function OrdensTabela({
   const [confirmPaymentMethodsOpen, setConfirmPaymentMethodsOpen] = useState(false);
   const [confirmDescricaoFinanceiro, setConfirmDescricaoFinanceiro] = useState("");
   const [confirmGarantia, setConfirmGarantia] = useState("");
+  // Preenchida no cadastro da OS e só reeditável aqui: depois do orçamento a
+  // tela de edição sai do ar, e é neste momento que a recepção sabe o que a
+  // nota precisa dizer.
+  const [confirmObservacoesFiscais, setConfirmObservacoesFiscais] = useState("");
   const [confirmSaldoCents, setConfirmSaldoCents] = useState<number | null>(null);
   const [loadingConfirmSaldo, setLoadingConfirmSaldo] = useState(false);
   const [confirmCondicoesOriginais, setConfirmCondicoesOriginais] = useState<string | null>(null);
@@ -624,12 +628,16 @@ export function OrdensTabela({
           .map((method) => method.label)
           .join(", ");
 
+  // A observação fiscal é buscada em toda transição, e não só nas que coletam
+  // condições: com o faturamento ligado, o encerramento da execução não pede
+  // acordo nenhum e mesmo assim precisa trazer a observação para edição.
   useEffect(() => {
-    if (!confirmOpen || !confirmRow?.id || !confirmCondicoes) {
+    if (!confirmOpen || !confirmRow?.id) {
       setConfirmSaldoCents(null);
       setLoadingConfirmSaldo(false);
       setErroConfirmSaldo(false);
       setConfirmCondicoesOriginais(null);
+      setConfirmObservacoesFiscais("");
       return;
     }
 
@@ -645,6 +653,8 @@ export function OrdensTabela({
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload?.error || "Falha ao consultar o saldo da OS.");
         if (controller.signal.aborted) return;
+        setConfirmObservacoesFiscais(String(payload.os?.observacoes_fiscais ?? ""));
+        if (!confirmCondicoes) return;
         setConfirmSaldoCents(
           moneyToCents(payload?.resumoFinanceiro?.saldoDisponivelParaLancamento ?? 0),
         );
@@ -666,10 +676,15 @@ export function OrdensTabela({
         if (previstos.length) setConfirmCondicoesOriginais(assinaturaCondicoes(methods, amounts, installments, descricao));
       })
       .catch((error) => {
-        if (error?.name !== "AbortError") {
-          setErroConfirmSaldo(true);
-          toast.error(error?.message || "Falha ao consultar o saldo da OS.");
+        if (error?.name === "AbortError") return;
+        // Sem condições a informar não há o que travar: a transição segue, e
+        // só a observação fiscal fica de fora desta vez.
+        if (!confirmCondicoes) {
+          toast.error("Não foi possível carregar a observação fiscal da OS.");
+          return;
         }
+        setErroConfirmSaldo(true);
+        toast.error(error?.message || "Falha ao consultar o saldo da OS.");
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoadingConfirmSaldo(false);
@@ -802,6 +817,7 @@ export function OrdensTabela({
     pagamentosPrevistos?: PlannedPayment[];
     descricaoFinanceiro?: string | null;
     garantia?: string | null;
+    observacoesFiscais?: string | null;
   };
 
   /**
@@ -1950,6 +1966,7 @@ export function OrdensTabela({
               setConfirmPaymentMethodsOpen(false);
               setConfirmDescricaoFinanceiro("");
               setConfirmGarantia("");
+              setConfirmObservacoesFiscais("");
               setConfirmSaldoCents(null);
             }
           }}
@@ -2157,6 +2174,19 @@ export function OrdensTabela({
                   {confirmGarantia.length}/500
                 </p>
               </div>}
+
+              <div className="space-y-2">
+                <Label>Observações fiscais</Label>
+                <Textarea
+                  value={confirmObservacoesFiscais}
+                  onChange={(event) => setConfirmObservacoesFiscais(event.target.value)}
+                  placeholder="Informações fiscais adicionais..."
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Vem do cadastro da OS e alimenta as informações complementares da nota.
+                </p>
+              </div>
             </fieldset>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={enviandoStatus}>Cancelar</AlertDialogCancel>
@@ -2173,15 +2203,22 @@ export function OrdensTabela({
                       setEnviandoStatus(false);
                     }
                   };
+                  // A observação fiscal viaja em todos os caminhos: ela não faz
+                  // parte do acordo financeiro, então não conta como alteração
+                  // das condições nem tira o envio do caminho que as preserva.
+                  const observacoesFiscais = confirmObservacoesFiscais.trim() || null;
                   if (confirmDestino === "FATURAMENTO" && confirmCondicoesOriginais !== null &&
                     confirmCondicoesOriginais === assinaturaCondicoes(confirmPaymentMethods, confirmPaymentAmounts, confirmPaymentInstallments, confirmDescricaoFinanceiro)) {
-                    const updated = await enviar(confirmDestino);
+                    const updated = await enviar(confirmDestino, { observacoesFiscais });
                     if (updated) setConfirmOpen(false);
                     return;
                   }
 
                   if (!confirmCondicoes) {
-                    const updated = await enviar("PAGAMENTO", { garantia: confirmGarantia.trim() || null });
+                    const updated = await enviar("PAGAMENTO", {
+                      garantia: confirmGarantia.trim() || null,
+                      observacoesFiscais,
+                    });
                     if (updated || barradoPorRealizadorRef.current) setConfirmOpen(false);
                     return;
                   }
@@ -2230,6 +2267,7 @@ export function OrdensTabela({
                     pagamentosPrevistos,
                     descricaoFinanceiro:
                       confirmDescricaoFinanceiro.trim() || null,
+                    observacoesFiscais,
                     ...(confirmDestino !== "FATURAMENTO" ? { garantia: confirmGarantia.trim() || null } : {}),
                   });
                   // Falta de executor abre o seletor por cima deste dialog: sai

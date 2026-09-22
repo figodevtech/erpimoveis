@@ -81,6 +81,7 @@ import {
   type DestinoMercadoria,
 } from "@/lib/nfe/destinoMercadoria";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
+import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import { distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
 import { freteNaBaseIcms } from "@/lib/nfe/icms";
 import {
@@ -2409,16 +2410,9 @@ export function GerarNotaDeOsDialog({
                                     {issuesClassificadas.avisos.length === 1 ? "aviso fiscal" : "avisos fiscais"}
                                   </Badge>
                                 ) : null}
-                                {issuesClassificadas.informativos.length > 0 ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="gap-1 border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
-                                  >
-                                    <Info className="h-3 w-3" />
-                                    {issuesClassificadas.informativos.length}{" "}
-                                    {issuesClassificadas.informativos.length === 1 ? "informação" : "informações"}
-                                  </Badge>
-                                ) : null}
+                                <FiscalInformationBadge
+                                  messages={issuesClassificadas.informativos.map((issue) => issue.message)}
+                                />
                                 {item.ncm ? <Badge variant="outline">NCM {item.ncm}</Badge> : null}
                                 {item.cfop ? <Badge variant="outline">CFOP {item.cfop}</Badge> : null}
                                 {item.csosn ? <Badge variant="outline">CSOSN {item.csosn}</Badge> : null}
@@ -2458,13 +2452,6 @@ export function GerarNotaDeOsDialog({
                                       {issuesClassificadas.avisos.length - 3 === 1 ? "aviso fiscal" : "avisos fiscais"}
                                     </li>
                                   ) : null}
-                                </ul>
-                              ) : null}
-                              {issuesClassificadas.informativos.length > 0 ? (
-                                <ul className="min-w-0 list-disc space-y-0.5 pl-4 text-xs text-sky-700 dark:text-sky-400 [overflow-wrap:anywhere]">
-                                  {issuesClassificadas.informativos.slice(0, 3).map((issue, index) => (
-                                    <li key={`${issue.code}-${index}`}>{issue.message}</li>
-                                  ))}
                                 </ul>
                               ) : null}
                               {item.cfopResolution?.warning ? (

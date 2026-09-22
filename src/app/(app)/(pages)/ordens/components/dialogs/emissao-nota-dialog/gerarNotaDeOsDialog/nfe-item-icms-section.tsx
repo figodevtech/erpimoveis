@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, Info } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -337,15 +338,11 @@ export function NfeItemIcmsSection({ item, setup, contextoBase, procedencia, onC
         </Alert>
       ) : null}
 
-      {calculo.informativos.map((informativo) => (
-        <Alert key={informativo.code}>
-          <Info className="h-4 w-4" />
-          <AlertTitle>{tituloDoInformativoFiscal(informativo.code)}</AlertTitle>
-          <AlertDescription className="min-w-0 [overflow-wrap:anywhere]">
-            {informativo.message}
-          </AlertDescription>
-        </Alert>
-      ))}
+      <FiscalInformationBadge
+        messages={calculo.informativos.map(
+          (informativo) => `${tituloDoInformativoFiscal(informativo.code)}: ${informativo.message}`,
+        )}
+      />
 
       {calculo.avisos.map((aviso) => (
         <Alert

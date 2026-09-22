@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import axios, { isAxiosError } from "axios";
 import {
   AlertTriangle,
+  CalendarArrowDown,
   CalendarClock,
   CheckCircle2,
   Loader2,
@@ -205,6 +206,37 @@ export function ReparcelarEditor({
     );
   };
 
+  /*
+   * Repete o vencimento desta parcela nas seguintes, de mês em mês.
+   *
+   * É o atalho de quem empurra o parcelamento inteiro: corrigida a data da
+   * primeira, as outras vinte e nove são a mesma conta feita à mão. As
+   * anteriores ficam onde estão — quem clica está dizendo que a divergência
+   * começa aqui.
+   *
+   * Cada data sai de `base` (e não da anterior) para o dia sobreviver ao mês
+   * curto: partindo de 31/01 vem 28/02 e depois 31/03, não 28/03.
+   */
+  const aplicarMensalAPartirDe = (indice: number) => {
+    const base = parcelas[indice]?.vencimento;
+    if (!base) return;
+
+    setParcelas((atuais) =>
+      atuais.map((parcela, posicao) =>
+        posicao <= indice
+          ? parcela
+          : { ...parcela, vencimento: avancarMeses(base, posicao - indice) },
+      ),
+    );
+
+    // As seguintes quase sempre estão fora da tela: sem o aviso, o clique não
+    // parece ter feito nada.
+    const alcancadas = parcelas.length - indice - 1;
+    toast.success(
+      `${alcancadas} parcela${alcancadas === 1 ? "" : "s"} seguinte${alcancadas === 1 ? "" : "s"} ${alcancadas === 1 ? "remarcada" : "remarcadas"} de mês em mês.`,
+    );
+  };
+
   const distribuirIgualmente = () => {
     setParcelas((atuais) => redistribuirIgualmente(atuais, alvoEmCentavos));
   };
@@ -332,7 +364,7 @@ export function ReparcelarEditor({
           return (
             <li
               key={parcela.id}
-              className={`border p-3 ${
+              className={`group border p-3 ${
                 parcela.id === transacaoAtualId
                   ? "border-primary/50 bg-primary/5"
                   : "bg-card"
@@ -347,12 +379,29 @@ export function ReparcelarEditor({
                     Esta transação
                   </span>
                 ) : null}
+                {indice < parcelas.length - 1 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Mensal daqui — repetir a data da ${indice + 1}ª parcela nas seguintes`}
+                    title="Copia este vencimento para as parcelas de baixo, uma por mês."
+                    className="ml-auto h-7 text-xs font-normal text-muted-foreground opacity-0 transition-opacity focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
+                    onClick={() => aplicarMensalAPartirDe(indice)}
+                    disabled={salvando || !parcela.vencimento}
+                  >
+                    <CalendarArrowDown className="h-3.5 w-3.5" />
+                    Mensal daqui
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
                   aria-label={`Remover a ${indice + 1}ª parcela`}
-                  className="ml-auto h-7 w-7 text-destructive"
+                  className={`h-7 w-7 text-destructive ${
+                    indice < parcelas.length - 1 ? "" : "ml-auto"
+                  }`}
                   onClick={() => remover(parcela.id)}
                   disabled={salvando}
                 >
@@ -367,8 +416,17 @@ export function ReparcelarEditor({
                   </Label>
                   {/* Sem `min`: renegociar um título vencido é justamente quando
                       se reparcela, e a data que já passou precisa continuar
-                      escolhível. */}
+                      escolhível.
+
+                      `allowTyping`: aqui as datas vêm em série. Empurrar
+                      trinta parcelas para o ano que vem pelo calendário
+                      seria navegar doze meses trinta vezes; digitando são
+                      oito teclas por linha, e o ícone ao lado continua
+                      abrindo o calendário de sempre. */}
                   <DatePicker
+                    id={`vencimento-${parcela.id}`}
+                    aria-label={`Vencimento da ${indice + 1}ª parcela`}
+                    allowTyping
                     value={paraValorDeInputDate(parcela.vencimento)}
                     disabled={salvando}
                     className={semVencimento ? "border-destructive" : undefined}
