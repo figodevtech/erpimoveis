@@ -51,8 +51,18 @@ serviço de emissão em modo registro (opcoes.registrarCiencia)
   ↓
 POST/PATCH da emissão com o mesmo cienciaEscopo
   → libera só avisos com ciência em nfe_ciencia_aviso (escopo ou nfe_id)
-  → liga as ciências da sessão à NF-e salva (nfe_id)
+  → liga à NF-e salva (nfe_id) só as ciências que liberaram avisos dela
 ```
+
+- O vínculo usa os ids das ciências que casaram com os avisos da situação
+  final (`avisosConfirmados[].ciencia.id` do snapshot), não o escopo inteiro.
+  Ciência dada para uma situação que o usuário depois mudou (outro CFOP, CST,
+  base...) continua na tabela como ato histórico, com `nfe_id` NULL. A ciência
+  registrada ao editar uma nota já salva também nasce sem `nfe_id` e só é
+  ligada se for usada. Assim a tabela e o snapshot contam a mesma história.
+- Ao reabrir e salvar de novo, ciências ligadas a um salvamento anterior da
+  mesma nota continuam ligadas a ela, mesmo que a nova versão não as use: elas
+  liberaram a nota naquele momento. O que vale para a versão atual é o snapshot.
 
 - `avisosFiscaisConfirmados` no payload é **estado da tela**. O servidor não o
   lê para liberar nada (`prepararItemFiscal` usa `contexto.ciencias`).

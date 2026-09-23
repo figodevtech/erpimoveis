@@ -938,6 +938,64 @@ describe("ciência de aviso registrada pelo servidor", () => {
     assert.ok(reaberto.ok, JSON.stringify(!reaberto.ok && reaberto.errors));
   });
 
+  /** O usuário muda o item e confirma o aviso novo, como a tela faria. */
+  async function confirmarPendenteDoServidor(dados: NFeOrigemDraftInput) {
+    const pendente = await venda(dados);
+    assert.equal(pendente.ok, false);
+    const [erro] = pendente.errors as unknown as Array<{ code: string; fingerprint: string; requerCiencia?: boolean }>;
+    assert.equal(erro.requerCiencia, true, JSON.stringify(pendente.errors));
+    await venda(dados, {
+      registrarCiencia: { atorId: ATOR, pedidos: [{ itemIndex: 0, code: erro.code, fingerprint: erro.fingerprint }] },
+    });
+    return `${erro.code}@${erro.fingerprint}`;
+  }
+
+  it("só a ciência usada na situação final é ligada à NF-e; a de uma situação abandonada fica sem nota", async () => {
+    // 1-2. 6403 + CST 60: aviso A, confirmado.
+    const dados = input();
+    await venda(dados, { registrarCiencia: { atorId: ATOR, pedidos: [pedido6403()] } });
+    // 3-4. O usuário troca o CST: A some, aparece B (mesmo código, outra situação).
+    const cst00 = { ...dados, itens: [itemDaTela({ cst: "00", avisosFiscaisConfirmados: [] })] };
+    const chaveB = await confirmarPendenteDoServidor(cst00);
+    assert.notEqual(chaveB, AVISO_6403_CST60);
+    // 5. Salva.
+    const salvo = await venda(cst00);
+    assert.ok(salvo.ok, JSON.stringify(!salvo.ok && salvo.errors));
+
+    const linhas = banco.tabela("nfe_ciencia_aviso");
+    const a = linhas.find((linha) => `${linha.code}@${linha.fingerprint}` === AVISO_6403_CST60);
+    const b = linhas.find((linha) => `${linha.code}@${linha.fingerprint}` === chaveB);
+    assert.ok(a && b);
+    assert.equal(a.nfe_id, null, "ciência de situação abandonada não pode aparecer como usada na nota");
+    assert.equal(b.nfe_id, salvo.nfeId);
+    // Tabela e snapshot contam a mesma história.
+    const nota = notaGravada(salvo.nfeId);
+    assert.deepEqual(
+      nota.itens[0].tributacao_snapshot.icmsDecisao.avisosConfirmados.map(
+        (aviso: { ciencia: { id: number } }) => aviso.ciencia.id,
+      ),
+      [b.id],
+    );
+  });
+
+  it("ciência registrada ao editar uma nota salva só é ligada a ela quando libera o aviso", async () => {
+    const dados = input();
+    const salvo = await comCiencia(venda, dados);
+    assert.ok(salvo.ok);
+    const edicao = {
+      ...dados,
+      nfeId: salvo.nfeId,
+      cienciaEscopo: randomUUID(),
+      itens: [itemDaTela({ cst: "00", avisosFiscaisConfirmados: [] })],
+    };
+    const chaveB = await confirmarPendenteDoServidor(edicao);
+    const b = () => banco.tabela("nfe_ciencia_aviso").find((linha) => `${linha.code}@${linha.fingerprint}` === chaveB);
+    assert.equal(b()?.nfe_id, null);
+    const resalvo = await venda(edicao);
+    assert.ok(resalvo.ok, JSON.stringify(!resalvo.ok && resalvo.errors));
+    assert.equal(b()?.nfe_id, salvo.nfeId);
+  });
+
   it("registro com o motor bloqueado devolve os erros e não grava ciência", async () => {
     const registro = await venda(
       { ...input(), configuracaoFiscal: { ...configuracaoVenda, destinoMercadoria: null } },

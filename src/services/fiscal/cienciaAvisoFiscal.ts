@@ -89,7 +89,6 @@ export async function carregarCiencias(filtro: {
 export async function registrarCiencias(input: {
   escopo: string;
   atorId: string;
-  nfeId?: number | null;
   origemTipo: string;
   origemId?: number | null;
   versaoRegra: string;
@@ -129,7 +128,9 @@ export async function registrarCiencias(input: {
       pedido,
       linha: {
         escopo: input.escopo,
-        nfe_id: input.nfeId ?? null,
+        // Sem NF-e até ser usada: o vínculo é feito no salvamento, só para as
+        // ciências que liberaram avisos da nota como ela foi gravada.
+        nfe_id: null,
         origem_tipo: input.origemTipo,
         origem_id: input.origemId ?? null,
         item_ref: item.itemRef,
@@ -161,13 +162,18 @@ export async function registrarCiencias(input: {
   return resultado;
 }
 
-/** Depois do salvamento, a ciência da sessão fica ligada à NF-e que a usou. */
-export async function vincularCienciasANfe(escopo: string | null, nfeId: number) {
-  if (!escopo) return;
+/**
+ * Liga à NF-e salva só as ciências que liberaram avisos dela
+ * (`avisosConfirmados[].ciencia.id` do snapshot). Ciência dada para uma
+ * situação que depois mudou fica como ato histórico, com nfe_id NULL.
+ */
+export async function vincularCienciasANfe(idsUsados: readonly number[], nfeId: number) {
+  const ids = [...new Set(idsUsados)];
+  if (!ids.length) return;
   const { error } = await supabaseAdmin
     .from(TABELA)
     .update({ nfe_id: nfeId })
-    .eq("escopo", escopo)
+    .in("id", ids)
     .is("nfe_id", null);
   if (error) throw error;
 }

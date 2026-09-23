@@ -514,6 +514,11 @@ export type ItemFiscalPreparado = {
   avisosComCiencia: IcmsIssue[];
   /** Avisos sem ciência registrada pelo servidor. */
   avisosPendentes: IcmsIssue[];
+  /**
+   * Ids em nfe_ciencia_aviso das ciências que liberaram avisos deste item na
+   * situação atual. Só elas são ligadas à NF-e salva.
+   */
+  cienciasUsadas: number[];
   /** Orientações opcionais mantidas fora do gating e da auditoria de ciência. */
   informativos: IcmsIssue[];
 };
@@ -653,6 +658,7 @@ export function prepararItemFiscal(
     bloqueios: classificadas.bloqueios,
     avisosComCiencia: classificadas.avisosComCiencia,
     avisosPendentes: classificadas.avisosComCiencia.filter((aviso) => !cienciaDe(aviso)),
+    cienciasUsadas: avisosConfirmados.map((aviso) => aviso.ciencia.id),
     informativos: classificadas.informativos,
   };
 }
@@ -1938,7 +1944,6 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
     const ciencia: ResultadoRegistroCiencia = await registrarCiencias({
       escopo: cienciaEscopo,
       atorId: opcoes.registrarCiencia.atorId,
-      nfeId: input.nfeId ?? null,
       origemTipo: input.origem?.tipo ?? "AVULSA",
       origemId: origemIdDoInput(input.origem),
       versaoRegra: NFE_FISCAL_RULE_VERSION,
@@ -2377,7 +2382,9 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
     .eq("id", nfeId);
 
   if (xmlError) throw xmlError;
-  await vincularCienciasANfe(cienciaEscopo, nfeId);
+  // Só as ciências que liberaram avisos da situação final. A dada para uma
+  // situação que o usuário depois mudou continua registrada, sem NF-e.
+  await vincularCienciasANfe(preparados.flatMap((preparado) => preparado.cienciasUsadas), nfeId);
 
   return {
     ok: true as const,
