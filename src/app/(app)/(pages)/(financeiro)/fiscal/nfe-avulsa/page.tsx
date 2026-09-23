@@ -107,7 +107,9 @@ import {
   aplicarAlteracoesComCienciaFiscal,
   avisoFiscalConfirmado,
   classificarIssuesFiscais,
+  pedidosDeCiencia,
 } from "@/lib/nfe/issuesFiscais";
+import { novoEscopoCiencia, registrarCienciaNoServidor } from "@/lib/nfe/cienciaCliente";
 import type { FonteIssueFiscal } from "@/lib/nfe/icms";
 import { FontesDoAvisoFiscal } from "@/components/fiscal/fontes-do-aviso-fiscal";
 import {
@@ -1223,6 +1225,9 @@ export default function NFeAvulsaPage() {
   }, [errors]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  // Sessão de emissão desta tela: agrupa as ciências registradas no servidor
+  // até o rascunho ser salvo (nfe_ciencia_aviso.escopo).
+  const [cienciaEscopo] = React.useState(novoEscopoCiencia);
 
   // Data fiscal da nota, uma só para a tela inteira. A avulsa é emitida agora,
   // e o servidor carimba a data na gravação; aqui ela serve para o catálogo de
@@ -2082,7 +2087,24 @@ export default function NFeAvulsaPage() {
         toast.error("Revise os pagamentos", { description: paymentErrors[0] });
         return null;
       }
-      const submissionDraft = comBlocosIcms(getDraftForSubmission(draft));
+      const submissionDraft = { ...comBlocosIcms(getDraftForSubmission(draft)), cienciaEscopo };
+      // "Estou ciente" marcado na tela só vale depois que o servidor recalcula o
+      // aviso e grava a ciência com o usuário da sessão; o rascunho não confia
+      // na lista do payload.
+      const pedidos = pedidosDeCiencia(submissionDraft.itens);
+      if (pedidos.length > 0) {
+        const ciencia = await registrarCienciaNoServidor({
+          alvo: { tipo: "AVULSA", id: draft.nfeId ?? null },
+          payload: submissionDraft as unknown as Record<string, unknown>,
+          cienciaEscopo,
+          pedidos,
+        });
+        // Com bloqueios nada é registrado, e o salvamento abaixo devolve os
+        // mesmos erros. Qualquer outra falha interrompe.
+        if (!ciencia.ok && !ciencia.errors?.length) {
+          throw new Error(ciencia.message || "Não foi possível registrar a ciência dos avisos fiscais.");
+        }
+      }
       const response = draft.nfeId
         ? await axios.patch(`/api/fiscal/nfe-avulsa/drafts/${draft.nfeId}`, submissionDraft)
         : await axios.post("/api/fiscal/nfe-avulsa/drafts", submissionDraft);
@@ -2145,7 +2167,9 @@ export default function NFeAvulsaPage() {
       } else {
         const description = isAxiosError(error)
           ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
-          : "Erro ao salvar rascunho.";
+          : error instanceof Error && error.message
+            ? error.message
+            : "Erro ao salvar rascunho.";
         toast.error("Falha ao salvar rascunho", { description });
       }
       return null;

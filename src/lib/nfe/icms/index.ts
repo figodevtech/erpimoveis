@@ -5,7 +5,7 @@
 // O resultado — `IcmsCanonico` — é a única fonte do grupo ICMS no XML, dos
 // totais <ICMSTot>, das colunas de `nfe_item`, da prévia e do snapshot.
 
-import { chaveCiencia } from '../issuesFiscais';
+import { chaveCiencia, type CienciaRegistrada } from '../issuesFiscais';
 import type { CRT, NFeItem } from '../types';
 import { blocosPresentes, calcularIcmsItem } from './calculo';
 import { validarCoerenciaCfopIcms } from './cfopSemantica';
@@ -160,7 +160,7 @@ function explicar(resultado: ResultadoIcms): string {
 
 export function montarDecisaoIcms(
   resultado: ResultadoIcms,
-  avisosConfirmados: IcmsIssue[] = [],
+  avisosConfirmados: Array<IcmsIssue & { ciencia?: CienciaRegistrada }> = [],
 ): DecisaoIcms | undefined {
   const { tratamento, valores } = resultado;
   if (!tratamento || !valores) return undefined;
@@ -190,6 +190,7 @@ export function montarDecisaoIcms(
         message: aviso.message,
         fingerprint: aviso.fingerprint,
         ...(aviso.fontes ? { fontes: aviso.fontes } : {}),
+        ...(aviso.ciencia ? { ciencia: aviso.ciencia } : {}),
       })),
     ...(resultado.composicaoBase ? { composicaoBase: resultado.composicaoBase } : {}),
     motivo: explicar(resultado),

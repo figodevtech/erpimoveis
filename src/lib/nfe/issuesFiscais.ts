@@ -8,6 +8,13 @@ export type IssueComFingerprint = IssueFiscalClassificavel & {
   fingerprint?: string | null;
 };
 
+/** Ciência gravada pelo servidor (nfe_ciencia_aviso): quem e quando. */
+export type CienciaRegistrada = {
+  id: number;
+  usuarioId: string;
+  confirmadoEm: string;
+};
+
 export type ItemComCienciaFiscal = {
   cfop?: unknown;
   cst?: unknown;
@@ -64,9 +71,11 @@ export function classificarIssuesFiscais<T extends IssueFiscalClassificavel>(
 // o aviso e a versão da regra; a ciência guardada é `code@fingerprint`. Se
 // qualquer um desses dados muda, a chave muda e o aviso volta a pedir ciência.
 //
-// O servidor recalcula o fingerprint a partir do payload e só aceita a chave
-// igual à que ele mesmo calculou. Uma confirmação antiga, só com o código, não
-// casa com nenhuma chave e não libera nada.
+// O fingerprint prova que a confirmação é da situação atual, não que alguém
+// clicou: ele é calculável no navegador. Por isso a lista
+// `avisosFiscaisConfirmados` é só estado da tela. Prova de ciência é a linha
+// que o servidor grava em nfe_ciencia_aviso quando recebe o clique
+// (src/services/fiscal/cienciaAvisoFiscal.ts); o salvamento só aceita essas.
 // ---------------------------------------------------------------------------
 
 function canonico(valor: unknown): unknown {
@@ -180,4 +189,25 @@ export function confirmarAvisosFiscais<T extends ItemComCienciaFiscal>(
   }
 
   return { ...item, avisosFiscaisConfirmados: confirmados };
+}
+
+/** Aviso que o usuário confirmou, como a rota /api/fiscal/nfe/ciencias recebe. */
+export type PedidoCiencia = { itemIndex: number; code: string; fingerprint: string };
+
+/**
+ * Pedidos de ciência a partir do estado da tela (`code@fingerprint` por item,
+ * na ordem em que os itens vão para o servidor).
+ */
+export function pedidosDeCiencia(
+  itens: ReadonlyArray<{ avisosFiscaisConfirmados?: readonly string[] | null }>,
+): PedidoCiencia[] {
+  return itens.flatMap((item, itemIndex) =>
+    (item.avisosFiscaisConfirmados ?? []).flatMap((chave) => {
+      const separador = String(chave).lastIndexOf("@");
+      if (separador <= 0) return [];
+      const code = chave.slice(0, separador).trim();
+      const fingerprint = chave.slice(separador + 1).trim();
+      return code && fingerprint ? [{ itemIndex, code, fingerprint }] : [];
+    }),
+  );
 }

@@ -17,6 +17,7 @@ import { calcularTotaisOs, sanitizarValorFrete } from "@/lib/ordens/totais";
 import { valorDeFace } from "@/lib/financeiro/transacao";
 import { mesesDeCompetenciaFechada } from "../eventos-financeiros/_lib/competencia";
 import { buscarServicosSemRealizador } from "@/lib/ordens/realizadores-server";
+import { normalizarDescontoInformativo } from "@/lib/ordens/desconto-informativo";
 
 type Num = number;
 const toNum = (v: unknown): number => {
@@ -84,12 +85,14 @@ export async function GET(
 
     const { data: avulsoRows, error: avulsoErr } = await supabase
       .from("osproduto_avulso")
-      .select("id, titulo, quantidade, precounitario, subtotal, desconto_tipo, desconto")
+      .select("id, titulo, quantidade, precounitario, subtotal, desconto_tipo, desconto, desconto_informativo_tipo, desconto_informativo")
       .eq("ordemservicoid", osId)
       .order("id", { ascending: true });
 
     if (avulsoErr) throw avulsoErr;
     const produtosAvulsos = (avulsoRows ?? []).map((r: any) => ({
+      descontoInformativoTipo: r.desconto_informativo_tipo ?? null,
+      descontoInformativo: toNum(r.desconto_informativo),
       id: toNum(r.id),
       titulo: String(r.titulo ?? ""),
       quantidade: toNum(r.quantidade ?? 1),
@@ -234,6 +237,8 @@ export async function PUT(
       desconto?: Num;
     }> = Array.isArray(body?.servicos) ? body.servicos : [];
     const avulsosBody: Array<{
+      descontoInformativoTipo?: unknown;
+      descontoInformativo?: unknown;
       id?: Num;
       titulo: string;
       quantidade: Num;
@@ -256,6 +261,7 @@ export async function PUT(
     const modoBaixaEstoqueOS = await buscarModoBaixaEstoqueOS();
 
     const avulsosNormalizados = avulsosBody.map((item) => {
+      const informativo = normalizarDescontoInformativo(item.descontoInformativoTipo, item.descontoInformativo);
       const titulo = String(item.titulo ?? "").trim();
       const quantidade = Math.max(0, Math.trunc(toNum(item.quantidade)));
       const precounitario = Math.max(0, toNum(item.precounitario));
@@ -267,6 +273,8 @@ export async function PUT(
       );
       return {
         id: item.id ? toNum(item.id) : null,
+        desconto_informativo_tipo: informativo.descontoInformativoTipo,
+        desconto_informativo: informativo.descontoInformativo,
         titulo,
         quantidade,
         precounitario,
@@ -618,6 +626,8 @@ export async function PUT(
 
     for (const item of avulsosNormalizados) {
       const payload = {
+        desconto_informativo_tipo: item.desconto_informativo_tipo,
+        desconto_informativo: item.desconto_informativo,
         titulo: item.titulo,
         quantidade: item.quantidade,
         precounitario: item.precounitario,

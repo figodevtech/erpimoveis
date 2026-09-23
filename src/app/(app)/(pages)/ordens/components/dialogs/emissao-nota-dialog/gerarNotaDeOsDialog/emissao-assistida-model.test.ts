@@ -94,8 +94,21 @@ function itemMG(overrides: Partial<AssistedFiscalItem> = {}): AssistedFiscalItem
 }
 
 /** O que o servidor faria com o item que a tela envia. */
-function noServidor(item: AssistedFiscalItem) {
-  return prepararItemFiscal(toApiItem(item, setup), 0, 3);
+function noServidor(item: AssistedFiscalItem, contexto: Parameters<typeof prepararItemFiscal>[3] = {}) {
+  return prepararItemFiscal(toApiItem(item, setup), 0, 3, contexto);
+}
+
+/**
+ * Ciências como o servidor as teria gravado em nfe_ciencia_aviso para as
+ * chaves marcadas na tela. O payload sozinho não libera nada.
+ */
+function registradasPeloServidor(item: AssistedFiscalItem) {
+  return new Map(
+    item.avisosFiscaisConfirmados.map((chave, indice) => [
+      chave,
+      { id: indice + 1, usuarioId: "00000000-0000-4000-8000-0000000000a1", confirmadoEm: "2026-09-22T20:00:00-03:00" },
+    ]),
+  );
 }
 
 describe("tela assistida — regressão da NF-e 136", () => {
@@ -132,8 +145,13 @@ describe("tela assistida — regressão da NF-e 136", () => {
     assert.deepEqual(itemConfirmado.avisosFiscaisConfirmados, [`${aviso!.code}@${aviso!.fingerprint}`]);
     const confirmado = validateAssistedItem(itemConfirmado, setup, { parceiroUf: "MG" });
     assert.deepEqual(confirmado, []);
-    // O servidor recalcula o mesmo fingerprint a partir do payload e aceita a ciência.
-    assert.deepEqual(noServidor(itemConfirmado).avisosPendentes, []);
+    // A chave no payload não basta: o servidor exige a ciência que ele gravou.
+    assert.deepEqual(
+      noServidor(itemConfirmado).avisosPendentes.map((issue) => issue.code),
+      ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"],
+    );
+    // Gravada para a mesma situação (mesmo fingerprint), ela libera.
+    assert.deepEqual(noServidor(itemConfirmado, { ciencias: registradasPeloServidor(itemConfirmado) }).avisosPendentes, []);
   });
 
   it("confirmação só com o código (legado ou manipulada) não libera, nem na tela nem no servidor", () => {
@@ -152,20 +170,25 @@ describe("tela assistida — regressão da NF-e 136", () => {
     const [aviso6404] = validateAssistedItem(itemMG({ cfop: "6404" }), setup, { parceiroUf: "MG" }).filter(
       (issue) => issue.requerCiencia,
     );
-    // Chave de 6404 + CST 60 enviada num item 6403 + CST 60.
+    // Ciência gravada para 6404 + CST 60 não serve para um item 6403 + CST 60.
     const forjado = itemMG({ avisosFiscaisConfirmados: [`${aviso6404.code}@${aviso6404.fingerprint}`] });
     assert.deepEqual(
-      noServidor(forjado).avisosPendentes.map((issue) => issue.code),
+      noServidor(forjado, { ciencias: registradasPeloServidor(forjado) }).avisosPendentes.map((issue) => issue.code),
       ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"],
     );
   });
 
-  it("ciência registrada no snapshot leva o fingerprint e as fontes", () => {
+  it("ciência registrada no snapshot leva o fingerprint, as fontes e quem confirmou", () => {
     const [aviso] = validateAssistedItem(itemMG(), setup, { parceiroUf: "MG" }).filter((issue) => issue.requerCiencia);
-    const [confirmado] = noServidor(confirmarAvisosFiscais(itemMG(), [aviso])).nfeItem.icmsDecisao?.avisosConfirmados ?? [];
+    const item = confirmarAvisosFiscais(itemMG(), [aviso]);
+    const [confirmado] =
+      noServidor(item, { ciencias: registradasPeloServidor(item) }).nfeItem.icmsDecisao?.avisosConfirmados ?? [];
     assert.equal(confirmado?.code, "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO");
     assert.equal(confirmado?.fingerprint, aviso.fingerprint);
     assert.ok(confirmado?.fontes?.length);
+    assert.equal(confirmado?.ciencia?.usuarioId, "00000000-0000-4000-8000-0000000000a1");
+    // Sem ciência gravada, nada entra no snapshot, mesmo com a chave no payload.
+    assert.deepEqual(noServidor(item).nfeItem.icmsDecisao?.avisosConfirmados, []);
   });
 
   it("alterar a decisão de ST (CST 90) invalida a ciência sem limpar a lista", () => {
@@ -476,7 +499,11 @@ describe("invalidação do DIFAL enquanto o servidor não responde", () => {
 describe("tela assistida — ciência da base IBS/CBS manual", () => {
   const contexto = { parceiroUf: "MG", indFinal: 0, dataEmissao: "2026-09-22", modFrete: "9" } as const;
   const noServidorEm = (item: AssistedFiscalItem) =>
-    prepararItemFiscal(toApiItem(item, setup), 0, 3, { dataEmissao: "2026-09-22", modFrete: "9" });
+    prepararItemFiscal(toApiItem(item, setup), 0, 3, {
+      dataEmissao: "2026-09-22",
+      modFrete: "9",
+      ciencias: registradasPeloServidor(item),
+    });
   const comBaseManual = (overrides: Partial<AssistedFiscalItem> = {}) =>
     itemMG({ cfop: "6102", cst: "00", baseRtc: "9000", ...overrides });
 

@@ -13,6 +13,7 @@ type CampoDescontoProps = {
   className?: string;
   selectClassName?: string;
   inputClassName?: string;
+  ariaLabel?: string;
 };
 
 export function CampoDesconto({
@@ -23,6 +24,7 @@ export function CampoDesconto({
   className,
   selectClassName,
   inputClassName,
+  ariaLabel,
 }: CampoDescontoProps) {
   const temDesconto = Boolean(tipo);
   const isPorcentagem = tipo === "PORCENTAGEM";
@@ -37,7 +39,7 @@ export function CampoDesconto({
           if (!next) onValorChange(0);
         }}
       >
-        <SelectTrigger className={selectClassName ?? "h-8"}>
+        <SelectTrigger className={selectClassName ?? "h-8"} aria-label={ariaLabel ? `Tipo: ${ariaLabel}` : undefined}>
           <SelectValue placeholder="Sem desconto" />
         </SelectTrigger>
         <SelectContent>
@@ -50,6 +52,7 @@ export function CampoDesconto({
       <div className="relative">
         {isPorcentagem ? (
           <Input
+            aria-label={ariaLabel ? `Valor: ${ariaLabel}` : undefined}
             type="number"
             min={0}
             max={100}
@@ -66,6 +69,7 @@ export function CampoDesconto({
           />
         ) : (
           <ValueInput
+            aria-label={ariaLabel ? `Valor: ${ariaLabel}` : undefined}
             value={valor ?? 0}
             onValueChange={onValorChange}
             disabled={!temDesconto}

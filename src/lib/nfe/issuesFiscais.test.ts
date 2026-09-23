@@ -9,6 +9,7 @@ import {
   classificarIssuesFiscais,
   confirmarAvisosFiscais,
   fingerprintFiscal,
+  pedidosDeCiencia,
 } from "./issuesFiscais";
 
 describe("classificação visual das issues fiscais", () => {
@@ -140,5 +141,19 @@ describe("ciência de avisos fiscais", () => {
     const marcado = alternarCienciaFiscal(["OUTRO@fp1.z"], aviso, true);
     assert.deepEqual(marcado, ["OUTRO@fp1.z", chave]);
     assert.deepEqual(alternarCienciaFiscal(marcado, aviso, false), ["OUTRO@fp1.z"]);
+  });
+
+  it("pedidos para o servidor saem do estado da tela, por item, e ignoram chave malformada", () => {
+    assert.deepEqual(
+      pedidosDeCiencia([
+        { avisosFiscaisConfirmados: [chave, "SO_CODIGO", "@fp1.x", "X@"] },
+        { avisosFiscaisConfirmados: [] },
+        { avisosFiscaisConfirmados: ["NFE_IBSCBS_BASE_MANUAL@fp1.abc"] },
+      ]),
+      [
+        { itemIndex: 0, code: "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO", fingerprint: aviso.fingerprint },
+        { itemIndex: 2, code: "NFE_IBSCBS_BASE_MANUAL", fingerprint: "fp1.abc" },
+      ],
+    );
   });
 });

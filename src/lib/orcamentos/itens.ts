@@ -12,6 +12,7 @@ import {
   type TipoDesconto,
 } from "@/lib/ordens/desconto";
 import { calcularTotaisOs, sanitizarValorFrete } from "@/lib/ordens/totais";
+import { normalizarDescontoInformativo } from "@/lib/ordens/desconto-informativo";
 
 export const toNum = (value: unknown): number => {
   const numero = Number(value);
@@ -49,6 +50,8 @@ export type AvulsoEntrada = {
   precounitario: unknown;
   descontoTipo?: unknown;
   desconto?: unknown;
+  descontoInformativoTipo?: unknown;
+  descontoInformativo?: unknown;
 };
 
 export type ItensNormalizados = ReturnType<typeof normalizarItens>;
@@ -107,15 +110,20 @@ export function normalizarItens(body: {
     }))
     .filter((item) => item.servicoid > 0 && item.quantidade > 0);
 
-  const produtosAvulsos = avulsosBody.map((item) => ({
-    titulo: String(item.titulo ?? "").trim(),
-    ...normalizarLinha(
-      Math.trunc(toNum(item.quantidade)),
-      item.precounitario,
-      item.descontoTipo,
-      item.desconto,
-    ),
-  }));
+  const produtosAvulsos = avulsosBody.map((item) => {
+    const informativo = normalizarDescontoInformativo(item.descontoInformativoTipo, item.descontoInformativo);
+    return {
+      titulo: String(item.titulo ?? "").trim(),
+      desconto_informativo_tipo: informativo.descontoInformativoTipo,
+      desconto_informativo: informativo.descontoInformativo,
+      ...normalizarLinha(
+        Math.trunc(toNum(item.quantidade)),
+        item.precounitario,
+        item.descontoTipo,
+        item.desconto,
+      ),
+    };
+  });
 
   if (produtosAvulsos.some((item) => !item.titulo || item.quantidade < 1 || item.precounitario <= 0)) {
     throw new OrcamentoInvalidoError(

@@ -1,9 +1,12 @@
 // Gera src/lib/nfe/cfopCatalog.generated.ts a partir da Tabela CFOP oficial do
 // Portal Nacional da NF-e (Informe Técnico 2023.002).
 //
+// A planilha usada fica versionada em docs/fiscal/fontes/cfop/, com SHA256.txt
+// e origem.md. Baixar de novo pelo link do Portal pode trazer outra versão.
+//
 // Uso (IT 2023.002 v2.10 em diante, que traz título e nota explicativa):
 //   node scripts/nfe/generate-cfop-catalog.mjs \
-//     --xlsx IT_2023_002_v2_10_Tabela_CFOP_Descrição.xlsx \
+//     --xlsx docs/fiscal/fontes/cfop/IT_2023_002_v2_10_Tabela_CFOP_Descricao.xlsx \
 //     --versao IT-2023.002-v2.10 --publicacao 2026-09-04
 //
 // Tabelas anteriores à v2.10 não têm o título do CFOP; para elas, passe também
@@ -74,6 +77,11 @@ function excelDate(value) {
   const br = String(value).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (br) return `${br[3]}-${br[2]}-${br[1]}`;
   return String(value).slice(0, 10);
+}
+
+function arquivoDaFonte(filePath) {
+  const relativo = path.relative(process.cwd(), path.resolve(filePath)).split(path.sep).join("/");
+  return relativo.startsWith("..") || path.isAbsolute(relativo) ? path.basename(filePath) : relativo;
 }
 
 function indicator(value) {
@@ -179,7 +187,8 @@ export const CFOP_CATALOG_SOURCE = ${JSON.stringify(
   {
     versao,
     vigencia: publicacao,
-    arquivo: path.basename(xlsxPath),
+    // Caminho no repositório quando a fonte está versionada; senão, o nome.
+    arquivo: arquivoDaFonte(xlsxPath),
     sha256: hash,
     url: "https://www.nfe.fazenda.gov.br/portal/listaConteudo.aspx?tipoConteudo=%2FNJarYc9nus%3D",
     descricao: temTituloOficial

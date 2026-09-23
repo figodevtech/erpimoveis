@@ -22,26 +22,70 @@ errada, campo obrigatório do grupo, DIFAL) ficam fora desta lista.
   jurisdição). A tela mostra em "Fundamento do aviso"
   (`components/fiscal/fontes-do-aviso-fiscal.tsx`).
 
-## Ciência vinculada à situação
+## Ciência vinculada à situação e registrada pelo servidor
 
-A ciência é gravada como `code@fingerprint` (`chaveCiencia` em
-`src/lib/nfe/issuesFiscais.ts`). O fingerprint é um hash estável dos dados que
-produziram o aviso mais a versão da regra. Se um desses dados muda, a chave muda
-e o aviso volta a pedir ciência — sem depender de a tela limpar a lista.
+Duas coisas diferentes são provadas, por mecanismos diferentes:
 
-- O servidor recalcula o fingerprint a partir do payload e só aceita a chave que
-  ele mesmo calcularia. Chave de outra situação, ou só o código (formato antigo),
-  não libera nada.
-- `INFO` e `BLOQUEIO` nunca geram chave (`confirmarAvisosFiscais` e
-  `montarDecisaoIcms` filtram).
+1. **A ciência é da situação atual.** Cada regra que pede ciência monta um
+   fingerprint com os dados que produziram o aviso e a versão da regra
+   (`fingerprintFiscal`, `chaveCiencia` em `src/lib/nfe/issuesFiscais.ts`). Se
+   um desses dados muda, a chave `code@fingerprint` muda e o aviso volta a pedir
+   ciência.
+2. **Alguém clicou em "estou ciente".** O fingerprint não prova isso: o
+   algoritmo é determinístico e roda no navegador, então um cliente manipulado
+   calcularia a chave. Por isso a prova é uma linha em `nfe_ciencia_aviso`,
+   gravada pelo servidor quando recebe o clique.
+
+Fluxo:
+
+```text
+tela marca "estou ciente" (estado local: avisosFiscaisConfirmados)
+  ↓ ao gerar/salvar
+POST /api/fiscal/nfe/ciencias  { alvo, payload, cienciaEscopo, pedidos }
+  ↓ mesma permissão da rota de emissão do alvo
+serviço de emissão em modo registro (opcoes.registrarCiencia)
+  → recalcula os avisos com o mesmo motor
+  → grava só pedidos que casam com aviso pendente: usuário, escopo, item,
+    code, fingerprint, dados, mensagem e fontes do servidor, versão da regra
+  → para antes de gravar qualquer coisa da NF-e
+  ↓
+POST/PATCH da emissão com o mesmo cienciaEscopo
+  → libera só avisos com ciência em nfe_ciencia_aviso (escopo ou nfe_id)
+  → liga as ciências da sessão à NF-e salva (nfe_id)
+```
+
+- `avisosFiscaisConfirmados` no payload é **estado da tela**. O servidor não o
+  lê para liberar nada (`prepararItemFiscal` usa `contexto.ciencias`).
+- `cienciaEscopo` é um UUID por sessão de emissão (abertura do diálogo, página
+  da avulsa). Ciência de outra sessão não vale; ao reabrir uma nota salva, valem
+  as ciências já ligadas ao `nfe_id` dela.
+- O item é identificado pelo `sourceItemId` da origem (`os:`, `venda:`,
+  `entrada:`, `saida:`) ou por `#<índice>` na avulsa.
+- Pedido que não casa com um aviso pendente do item (fingerprint de outra
+  situação, item inexistente, INFO, BLOQUEIO) é recusado e não grava nada.
+- Se o motor para antes dos avisos (bloqueio, dado incompleto), o registro
+  devolve os mesmos erros e não grava ciência.
+- `nfe_ciencia_aviso` é trilha de auditoria: gatilho impede UPDATE (exceto ligar
+  ou desligar `nfe_id`) e DELETE; `service_role` não tem DELETE nem TRUNCATE.
 - O snapshot (`tributacao_snapshot.icmsDecisao.avisosConfirmados`) guarda
-  `code`, `message`, `fingerprint` e `fontes`; `decisao_fiscal.icms[].avisosConfirmados`
-  guarda `code@fingerprint`.
+  `code`, `message`, `fingerprint`, `fontes` e `ciencia` (id da linha, usuário,
+  data). `decisao_fiscal.icms[].avisosConfirmados` guarda `code@fingerprint`.
 - Rascunhos gerados antes desta revisão têm `versao_regra_fiscal` antiga e são
   gerados de novo antes da autorização (`rascunhoPrecisaSerRegerado`); a ciência
-  antiga, sem fingerprint, é pedida outra vez.
+  é pedida outra vez.
 - Trocar CFOP, CST ou CSOSN continua limpando a lista na tela
   (`aplicarAlteracoesComCienciaFiscal`), só por clareza visual.
+
+Consultar quem confirmou o quê numa nota:
+
+```sql
+SELECT c.item_numero, c.code, c.mensagem, c.dados, c.versao_regra,
+       u.nome AS confirmado_por, c.confirmado_em
+  FROM nfe_ciencia_aviso c
+  JOIN usuario u ON u.id = c.usuario_id
+ WHERE c.nfe_id = :nfe_id
+ ORDER BY c.item_numero, c.confirmado_em;
+```
 
 ## Catálogo
 
@@ -100,16 +144,23 @@ e o aviso volta a pedir ciência — sem depender de a tela limpar a lista.
 - **Fonte:** MOC 7.0 / NT 2018.005, N12-82 e N12a-60, facultativas pela UF.
 - Mesma regra de severidade do anterior.
 
-Políticas cadastradas (`POLITICAS_ST_RETIDA` em `icms/politicaStRetida.ts`):
+Manifestações estaduais cadastradas (`POLITICAS_ST_RETIDA` em
+`icms/politicaStRetida.ts`):
 
-| UF | Regra | Desde | Obrigatória | Fonte | Revisada em |
-|---|---|---|---|---|---|
-| PB | ST_RETIDA (N12-81, N12a-50) | 08/04/2019 | não | [SEFAZ-PB, comunicado sobre a NT 2018.005](https://www.sefaz.pb.gov.br/announcements/7581-validacao-do-icms-de-substituicao-tributaria-dos-documentos-eletronicos-nf-e-e-nfc-e-precisa-ser-realizada-ate-29-de-abril) | 22/09/2026 |
-| PB | ICMS_EFETIVO (N12-82, N12a-60) | 08/04/2019 | não | mesmo comunicado ("demais validações opcionais… não serão aplicadas, inicialmente") | 22/09/2026 |
+| UF | Regra | Status | Publicada | Obrigatória | Fonte | Conferida pelo ERP |
+|---|---|---|---|---|---|---|
+| PB | ST_RETIDA (N12-81, N12a-50) | `VIGENTE` | 08/04/2019 | não | [SEFAZ-PB, comunicado sobre a NT 2018.005](https://www.sefaz.pb.gov.br/announcements/7581-validacao-do-icms-de-substituicao-tributaria-dos-documentos-eletronicos-nf-e-e-nfc-e-precisa-ser-realizada-ate-29-de-abril) ("tornou-se facultativo") | 22/09/2026 |
+| PB | ICMS_EFETIVO (N12-82, N12a-60) | `HISTORICA` | 08/04/2019 | não | mesmo comunicado ("demais validações opcionais… não serão aplicadas, **inicialmente**") | 22/09/2026 |
 
-Nova orientação de uma UF entra como outra linha, com `inicio` posterior: a mais
-recente vigente na data de emissão prevalece. A de PB não é eterna — revise-a
-quando houver comunicado novo.
+- `VIGENTE` pode decidir a severidade; `HISTORICA` só é citada. Sem regra
+  obrigatória vigente comprovada, o aviso é INFO de qualquer forma.
+- A mensagem cita o **órgão e a data da manifestação** ("Existe comunicado da
+  SEFAZ-PB de 08/04/2019…"; para a histórica, "…informou que essa validação não
+  seria aplicada, inicialmente"), seguida de "Não há política estadual
+  obrigatória mais recente cadastrada no ERP". A data da conferência
+  (`revisadaEm`) é metadado interno e nunca aparece como data da política.
+- Nova orientação de uma UF entra como outra linha, com `inicio` posterior: a
+  mais recente vigente na data de emissão prevalece.
 
 ### `NFE_IBSCBS_BASE_MANUAL` — AVISO, com ciência
 
@@ -123,8 +174,10 @@ quando houver comunicado novo.
   fiscal, `VERSAO_BASE_IBS_CBS`.
 - **Não gera:** base automática; base digitada igual à composição.
 - Vira BLOQUEIO só quando a NT tirar a UB16-10 de "implementação futura".
-- Na NF-e avulsa, a ciência é dada na lista "avisos fiscais a confirmar", com o
-  fingerprint devolvido pelo servidor.
+- Na NF-e avulsa, a caixa de ciência fica na lista "avisos fiscais a confirmar",
+  com o fingerprint devolvido pelo servidor; o registro acontece ao salvar.
+- Sem `dataEmissao` no contexto, a data fiscal é o dia civil do emitente
+  (`dataCivilDeHoje`), não o dia em UTC.
 
 ### `NFE_IBSCBS_BASE_INVALIDA` — BLOQUEIO
 
@@ -135,21 +188,26 @@ escopo de ciência.
 
 | Fonte | Versão | Publicação | Onde |
 |---|---|---|---|
-| Tabela CFOP (IT 2023.002) | v2.10 | 04/09/2026 | `cfopCatalog.generated.ts` |
+| Tabela CFOP (IT 2023.002) | v2.10 | 04/09/2026 | `cfopCatalog.generated.ts`; arquivo oficial em `docs/fiscal/fontes/cfop/` |
 | NT 2025.002-RTC | v1.51 | 04/08/2026 | `NFE_FISCAL_RULE_VERSION`, `baseIbsCbs.ts` |
 | Schemas PL_010f | NT 2025.002 v1.50 | 31/08/2026 | `icms/__xsdOficial.ts` (sem pacote novo para a v1.51) |
 
 ### Regenerar o catálogo CFOP
 
-Baixe a "Tabela de CFOP" vigente no
-[Portal Nacional da NF-e](https://www.nfe.fazenda.gov.br/portal/listaConteudo.aspx?tipoConteudo=%2FNJarYc9nus%3D)
-e rode:
+A planilha oficial usada está versionada em `docs/fiscal/fontes/cfop/`, com
+`SHA256.txt` e `origem.md` (link exato, data do download, nome original). Não
+baixe de novo pelo link genérico do Portal para regenerar: ele pode trazer outra
+versão. Para uma tabela nova, adicione o arquivo ao lado, com hash e origem.
 
 ```sh
+sha256sum -c docs/fiscal/fontes/cfop/SHA256.txt
 node scripts/nfe/generate-cfop-catalog.mjs \
-  --xlsx "IT_2023_002_v2_10_Tabela_CFOP_Descrição.xlsx" \
+  --xlsx docs/fiscal/fontes/cfop/IT_2023_002_v2_10_Tabela_CFOP_Descricao.xlsx \
   --versao IT-2023.002-v2.10 --publicacao 2026-09-04
 ```
+
+`cfopOperation.test.ts` confere o hash e refaz a geração, comparando com o
+catálogo versionado.
 
 A partir da v2.10 o título do CFOP vem da própria tabela oficial (coluna "Título
 do CFOP"). O gerador para se os textos de ST de 5401/5403/6401/6403/5405 ou a

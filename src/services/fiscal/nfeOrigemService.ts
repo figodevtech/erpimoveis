@@ -23,6 +23,7 @@ import {
   salvarNFeAvulsaDraft,
   type NFeAvulsaDraftInput,
   type NFeAvulsaItemInput,
+  type OpcoesSalvarNFe,
 } from "@/services/fiscal/nfeAvulsaService";
 import { buscarFiscalConfig } from "@/services/fiscal/nfeConfigService";
 
@@ -122,6 +123,8 @@ export type NFeOrigemItemInput = NFeAvulsaItemInput & {
 export type NFeOrigemDraftInput = {
   /** Preenchido ao reabrir um rascunho já criado desta origem. */
   nfeId?: number | null;
+  /** Sessão de emissão: liga a ciência dos avisos registrada pelo servidor. */
+  cienciaEscopo?: string | null;
   /**
    * Outras OS/vendas que esta mesma nota documenta, além da âncora que abriu a
    * emissão. Todas precisam ser do mesmo cliente: a NF-e tem um único
@@ -748,6 +751,7 @@ export async function salvarNFeDeOrigem(
   origemId: number,
   input: NFeOrigemDraftInput,
   modelo: ModeloDocumentoFiscal = MODELO_NFE,
+  opcoes: OpcoesSalvarNFe = {},
 ) {
   if (!Number.isFinite(origemId) || origemId <= 0) {
     throw new Error("Identificador da origem inválido.");
@@ -1058,6 +1062,7 @@ export async function salvarNFeDeOrigem(
 
   const resultado = await salvarNFeAvulsaDraft({
     nfeId: input.nfeId ?? null,
+    cienciaEscopo: input.cienciaEscopo ?? null,
     modelo,
     origem: {
       tipo,
@@ -1089,7 +1094,7 @@ export async function salvarNFeDeOrigem(
     transporte,
     destinatario,
     itens: itensDaNota,
-  });
+  }, opcoes);
 
   // O vínculo é gravado sempre, inclusive na emissão de uma origem só: é o que
   // faz a leitura e a listagem não precisarem distinguir nota agrupada de nota

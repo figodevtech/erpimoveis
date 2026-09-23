@@ -7,7 +7,7 @@ import type { CfopCatalogEntry } from "./cfopTypes";
 export const CFOP_CATALOG_SOURCE = {
   "versao": "IT-2023.002-v2.10",
   "vigencia": "2026-09-04",
-  "arquivo": "IT_2023_002_v2_10_Tabela_CFOP_Descrição.xlsx",
+  "arquivo": "docs/fiscal/fontes/cfop/IT_2023_002_v2_10_Tabela_CFOP_Descricao.xlsx",
   "sha256": "C95C91ED1644FDD1C2E6ADA24498D8B68B1897F9C9A0665E07EF5EED6A75FF6F",
   "url": "https://www.nfe.fazenda.gov.br/portal/listaConteudo.aspx?tipoConteudo=%2FNJarYc9nus%3D",
   "descricao": "Tabela CFOP oficial, coluna \"Título do CFOP\""

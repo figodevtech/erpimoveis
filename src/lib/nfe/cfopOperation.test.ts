@@ -1,4 +1,9 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test, { describe, it } from "node:test";
 
 import { CFOP_CATALOG, CFOP_CATALOG_SOURCE } from "./cfopCatalog.generated";
@@ -188,5 +193,32 @@ describe("catálogo CFOP — IT 2023.002 v2.10 (04/09/2026)", () => {
     for (const cfop of CFOPS_PERMITIDOS_NFCE) {
       assert.equal(validateCfopForEmission({ value: cfop, modelo: MODELO_NFCE, operation: "SAIDA", emitterUf: "PB", partnerUf: "PB" }).valid, true, cfop);
     }
+  });
+});
+
+describe("catálogo CFOP — fonte versionada e geração reproduzível", () => {
+  const FONTE = "docs/fiscal/fontes/cfop/IT_2023_002_v2_10_Tabela_CFOP_Descricao.xlsx";
+
+  it("o arquivo oficial versionado tem o hash registrado no catálogo e no SHA256.txt", () => {
+    const hash = createHash("sha256").update(readFileSync(FONTE)).digest("hex");
+    assert.equal(hash.toUpperCase(), CFOP_CATALOG_SOURCE.sha256);
+    assert.equal(CFOP_CATALOG_SOURCE.arquivo, FONTE);
+    assert.match(readFileSync("docs/fiscal/fontes/cfop/SHA256.txt", "utf8"), new RegExp(`^${hash}  `));
+  });
+
+  it("gerar de novo a partir da fonte versionada reproduz o catálogo byte a byte", () => {
+    const destino = join(mkdtempSync(join(tmpdir(), "cfop-")), "catalogo.ts");
+    execFileSync(process.execPath, [
+      "scripts/nfe/generate-cfop-catalog.mjs",
+      "--xlsx", FONTE,
+      "--versao", CFOP_CATALOG_SOURCE.versao,
+      "--publicacao", CFOP_CATALOG_SOURCE.vigencia,
+      "--output", destino,
+    ]);
+    const normalizar = (texto: string) => texto.replace(/\r\n/g, "\n");
+    assert.equal(
+      normalizar(readFileSync(destino, "utf8")),
+      normalizar(readFileSync("src/lib/nfe/cfopCatalog.generated.ts", "utf8")),
+    );
   });
 });

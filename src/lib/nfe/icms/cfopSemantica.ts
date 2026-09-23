@@ -158,16 +158,10 @@ export function validarCoerenciaCfopIcms(input: {
     cfop === '6404'
       ? `Fonte: nota explicativa oficial do CFOP 6.404 (Tabela CFOP ${CFOP_CATALOG_VERSION}); SEFAZ-SP RC 3837/2014 e RC 21691/2020.`
       : `Fonte: título oficial do CFOP ${cfop} (Tabela CFOP ${CFOP_CATALOG_VERSION}).`;
-  const aviso = (code: string, message: string): IcmsIssue => ({
-    code,
-    severidade: 'AVISO',
-    requerCiencia: true,
-    field: 'cfop',
-    message: `${message} ${fonte}`,
-    fontes,
+  const aviso = (code: string, message: string): IcmsIssue => {
     // O papel do ICMS resume CST/CSOSN + ST ativada; nos grupos em que a ST é
     // opcional, ligar ou desligar o bloco muda o papel e invalida a ciência.
-    fingerprint: fingerprintFiscal({
+    const dados = {
       code,
       cfop,
       regime: input.tratamento.regime,
@@ -175,8 +169,18 @@ export function validarCoerenciaCfopIcms(input: {
       papelCfop,
       papelIcms,
       regra: VERSAO_REGRA_CFOP_ST,
-    }),
-  });
+    };
+    return {
+      code,
+      severidade: 'AVISO',
+      requerCiencia: true,
+      field: 'cfop',
+      message: `${message} ${fonte}`,
+      fontes,
+      fingerprint: fingerprintFiscal(dados),
+      dadosFingerprint: dados,
+    };
+  };
 
   if (papelCfop === 'SUBSTITUTO' && !retemStNestaOperacao(papelIcms)) {
     return [

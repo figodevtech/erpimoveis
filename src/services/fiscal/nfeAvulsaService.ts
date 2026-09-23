@@ -14,7 +14,16 @@ import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
-import { avisoFiscalConfirmado, classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
+import { chaveCiencia, classificarIssuesFiscais, type CienciaRegistrada } from "@/lib/nfe/issuesFiscais";
+import {
+  carregarCiencias,
+  escopoCienciaValido,
+  itemRefDaCiencia,
+  registrarCiencias,
+  vincularCienciasANfe,
+  type RegistroDeCiencia,
+  type ResultadoRegistroCiencia,
+} from "@/services/fiscal/cienciaAvisoFiscal";
 import { calcularTotaisNFe, validarPisCofinsStSuportado } from "@/lib/nfe/fiscal";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { validarNfce } from "@/lib/nfe/nfce/validator";
@@ -110,8 +119,9 @@ export type NFeAvulsaItemInput = {
    */
   icms?: NFeAvulsaIcmsInput | null;
   /**
-   * Avisos de coerência (CFOP × CST/CSOSN) que o usuário viu e confirmou. Sem
-   * a confirmação a nota não é gerada; com ela, o aviso vai para o snapshot.
+   * Estado da tela (`code@fingerprint`). NÃO é prova de ciência: o servidor
+   * só aceita a ciência registrada em nfe_ciencia_aviso pela rota
+   * /api/fiscal/nfe/ciencias (`cienciaAvisoFiscal.ts`).
    */
   avisosFiscaisConfirmados?: string[] | null;
   cest?: string | null;
@@ -291,6 +301,11 @@ export type NFeAvulsaDraftInput = {
   };
   itens: NFeAvulsaItemInput[];
   documentosReferenciados?: Array<{ chaveAcesso: string }> | null;
+  /**
+   * Sessão de emissão (UUID gerado pela tela). O salvamento aceita as ciências
+   * registradas nela e as já ligadas a `nfeId`.
+   */
+  cienciaEscopo?: string | null;
 };
 
 export type NFeAvulsaIcmsInput = Pick<
@@ -495,7 +510,9 @@ export type ItemFiscalPreparado = {
   nfeItem: NFeItem;
   /** Combinação que o núcleo recusa: a nota não é gerada. */
   bloqueios: IcmsIssue[];
-  /** Avisos de coerência que o usuário ainda não confirmou. */
+  /** Todos os avisos que pedem ciência, confirmados ou não. */
+  avisosComCiencia: IcmsIssue[];
+  /** Avisos sem ciência registrada pelo servidor. */
   avisosPendentes: IcmsIssue[];
   /** Orientações opcionais mantidas fora do gating e da auditoria de ciência. */
   informativos: IcmsIssue[];
@@ -543,6 +560,12 @@ export function prepararItemFiscal(
      */
     ncmsConhecidos?: Set<string> | null;
     modelo?: ModeloDocumentoFiscal;
+    /**
+     * Ciências deste item registradas em nfe_ciencia_aviso, por
+     * `code@fingerprint`. O `avisosFiscaisConfirmados` do payload é ignorado:
+     * ele é estado da tela, não prova de que alguém confirmou.
+     */
+    ciencias?: ReadonlyMap<string, CienciaRegistrada> | null;
   } = {},
 ): ItemFiscalPreparado {
   let nfeItem = mapInputToTaxItem(item, index);
@@ -566,9 +589,13 @@ export function prepararItemFiscal(
   if (resultado.valores) {
     issuesComplementares.push(...validarPoliticaStRetida(resultado.valores, contexto));
   }
-  // Chaves `code@fingerprint`. O fingerprint é recalculado aqui, dos dados do
-  // payload: confirmação de outra situação (ou só com o código) não libera.
-  const confirmados = new Set((item.avisosFiscaisConfirmados ?? []).map((chave) => cleanText(chave)));
+  // O fingerprint é recalculado aqui, dos dados do payload, e só casa com a
+  // ciência que o servidor gravou para esta mesma situação.
+  const ciencias = contexto.ciencias ?? new Map<string, CienciaRegistrada>();
+  const cienciaDe = (aviso: IcmsIssue) => {
+    const chave = chaveCiencia(aviso);
+    return chave ? ciencias.get(chave) : undefined;
+  };
   if (resultado.valores) {
     nfeItem.icms = resultado.valores;
     // O código gravado é o que foi para o XML ("060" digitado vira "60").
@@ -614,14 +641,18 @@ export function prepararItemFiscal(
     ...resultado.issues,
     ...issuesComplementares,
   ]);
-  const avisosConfirmados = classificadas.avisosComCiencia.filter((aviso) => avisoFiscalConfirmado(aviso, confirmados));
+  const avisosConfirmados = classificadas.avisosComCiencia.flatMap((aviso) => {
+    const ciencia = cienciaDe(aviso);
+    return ciencia ? [{ ...aviso, ciencia }] : [];
+  });
   if (resultado.valores) {
     nfeItem.icmsDecisao = montarDecisaoIcms(resultado, avisosConfirmados);
   }
   return {
     nfeItem,
     bloqueios: classificadas.bloqueios,
-    avisosPendentes: classificadas.avisosComCiencia.filter((aviso) => !avisoFiscalConfirmado(aviso, confirmados)),
+    avisosComCiencia: classificadas.avisosComCiencia,
+    avisosPendentes: classificadas.avisosComCiencia.filter((aviso) => !cienciaDe(aviso)),
     informativos: classificadas.informativos,
   };
 }
@@ -1683,7 +1714,20 @@ export function mapItemToInsert(item: NFeAvulsaItemInput, index: number, nfeId: 
   };
 }
 
-export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
+export type OpcoesSalvarNFe = {
+  /**
+   * Modo registro de ciência (rota /api/fiscal/nfe/ciencias): recalcula os
+   * avisos com o mesmo motor, grava a ciência dos pedidos que correspondem a
+   * avisos pendentes e para antes de gravar qualquer coisa da NF-e.
+   */
+  registrarCiencia?: RegistroDeCiencia;
+};
+
+function origemIdDoInput(origem: NFeAvulsaDraftInput["origem"]) {
+  return origem?.ordemServicoId ?? origem?.vendaId ?? origem?.entradaId ?? origem?.saidaId ?? null;
+}
+
+export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: OpcoesSalvarNFe = {}) {
   const modelo = input.modelo ?? MODELO_NFE;
   const isNfce = modelo === MODELO_NFCE;
 
@@ -1816,8 +1860,11 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
   const ncmsConhecidos = !isNfce && destinatarioUf
     ? await conferirNcmsConhecidos(input.itens.map((item) => String(item.ncm ?? "").replace(/\D/g, "")))
     : null;
+  const cienciaEscopo = escopoCienciaValido(input.cienciaEscopo);
+  const cienciasRegistradas = await carregarCiencias({ escopo: cienciaEscopo, nfeId: input.nfeId });
   const preparados = input.itens.map((item, index) =>
     prepararItemFiscal(item, index, crt, {
+      ciencias: cienciasRegistradas.get(itemRefDaCiencia(item, index)),
       freteIntegraBaseIcms: freteNaBase.integra, modFrete: freteNaBase.modFrete,
       ufEmitente: empresaUf, ufDestino: destinatarioUf,
       indFinal: resolverIndFinalDaOperacao(input), dataEmissao: issueDay,
@@ -1880,6 +1927,32 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     }));
   });
   if (taxErrors.length > 0) return { ok: false as const, errors: taxErrors };
+
+  if (opcoes.registrarCiencia) {
+    if (!cienciaEscopo) {
+      return {
+        ok: false as const,
+        errors: [{ step: "products", message: "Sessão de emissão ausente: reabra a emissão e confirme de novo." }],
+      };
+    }
+    const ciencia: ResultadoRegistroCiencia = await registrarCiencias({
+      escopo: cienciaEscopo,
+      atorId: opcoes.registrarCiencia.atorId,
+      nfeId: input.nfeId ?? null,
+      origemTipo: input.origem?.tipo ?? "AVULSA",
+      origemId: origemIdDoInput(input.origem),
+      versaoRegra: NFE_FISCAL_RULE_VERSION,
+      itens: preparados.map((preparado, index) => ({
+        itemRef: itemRefDaCiencia(input.itens[index], index),
+        avisos: preparado.avisosComCiencia,
+      })),
+      registradas: cienciasRegistradas,
+      pedidos: opcoes.registrarCiencia.pedidos,
+    });
+    // ok:false de propósito: nenhum chamador pode tratar o registro de ciência
+    // como rascunho salvo (vínculo com a origem, numeração, XML).
+    return { ok: false as const, errors: [] as ValidationError[], ciencia };
+  }
 
   // Combinação CFOP × CST/CSOSN que a descrição oficial do CFOP contradiz: a
   // escolha continua sendo do usuário, mas a nota só sai com a ciência dele.
@@ -2304,6 +2377,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput) {
     .eq("id", nfeId);
 
   if (xmlError) throw xmlError;
+  await vincularCienciasANfe(cienciaEscopo, nfeId);
 
   return {
     ok: true as const,

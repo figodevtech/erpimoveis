@@ -28,6 +28,7 @@ import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
 import { fetchPrintColors } from "@/lib/print-config";
 import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import { formatCpfCnpj } from "@/lib/nfe/recipientNormalization";
+import { formatarDescontoInformativo } from "@/lib/ordens/desconto-informativo";
 
 export const runtime = "nodejs";
 
@@ -172,6 +173,7 @@ export default async function OrcamentoPrintPage({ params }: PageProps) {
       subtotal: toNumber(item.subtotal),
     })),
     ...(orcamento.produtosAvulsos ?? []).map((item: any) => ({
+      subdescricao: formatarDescontoInformativo(item.desconto_informativo_tipo, item.desconto_informativo),
       tipo: "PEÇA" as const,
       descricao: String(item.titulo || "Produto avulso"),
       identificador: null,

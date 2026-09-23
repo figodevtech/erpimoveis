@@ -21,7 +21,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import ProductSelect from "@/app/(app)/components/productSelect";
 import { DialogProduto } from "../../../../estoque/components/dialog-produto/dialog-produto";
 import { Estoque_status, type Produto, Unidade_medida } from "../../../../estoque/types";
-import type { ItemProdutoAvulso } from "../tipos";
+import type { ItemProdutoAvulso, TipoDesconto } from "../tipos";
+import { normalizarDescontoInformativo } from "@/lib/ordens/desconto-informativo";
+import { CampoDesconto } from "./campo-desconto";
 import { CampoPreco } from "./campo-preco";
 import { CampoQuantidade } from "./campo-quantidade";
 import { IdentificadoresItem } from "./identificadores-item";
@@ -55,6 +57,8 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
   const [titulo, setTitulo] = useState("");
   const [valor, setValor] = useState(0);
   const [quantidade, setQuantidade] = useState(1);
+  const [descontoTipo, setDescontoTipo] = useState<TipoDesconto | null>(null);
+  const [desconto, setDesconto] = useState(0);
   const [selectItem, setSelectItem] = useState<ItemProdutoAvulso | null>(null);
   const [cadastroItem, setCadastroItem] = useState<ItemProdutoAvulso | null>(null);
   const [vinculando, setVinculando] = useState(false);
@@ -87,10 +91,13 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
       subtotal: Number((quantidade * valor).toFixed(2)),
       descontoTipo: null,
       desconto: 0,
+      ...normalizarDescontoInformativo(descontoTipo, desconto),
     });
     setTitulo("");
     setValor(0);
     setQuantidade(1);
+    setDescontoTipo(null);
+    setDesconto(0);
     setOpen(false);
   }
 
@@ -165,6 +172,7 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
                 <TableHead className="min-w-[280px]">Produto avulso</TableHead>
                 <TableHead className="w-28 text-center">Quantidade</TableHead>
                 <TableHead className="w-36 text-right">Valor unit.</TableHead>
+                <TableHead className="min-w-60">Desconto informativo</TableHead>
                 <TableHead className="w-32 text-right">Subtotal</TableHead>
                 <TableHead className="w-72 text-right">Ações</TableHead>
               </TableRow>
@@ -201,6 +209,16 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
                   </TableCell>
                   <TableCell>
                     <CampoPreco value={item.precounitario} onChange={(value) => onAtualizar(index, { precounitario: value })} />
+                  </TableCell>
+                  <TableCell>
+                    <CampoDesconto
+                      tipo={item.descontoInformativoTipo}
+                      valor={item.descontoInformativo}
+                      ariaLabel={`Desconto informativo de ${item.titulo}`}
+                      onTipoChange={(tipo) => onAtualizar(index, normalizarDescontoInformativo(tipo, item.descontoInformativo))}
+                      onValorChange={(valor) => onAtualizar(index, { descontoInformativo: normalizarDescontoInformativo(item.descontoInformativoTipo, valor).descontoInformativo })}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">Apenas na impressão; não altera os totais.</p>
                   </TableCell>
                   <TableCell className="text-right font-medium tabular-nums">{money(item.subtotal)}</TableCell>
                   <TableCell className="align-middle">
@@ -287,6 +305,17 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2"><Label>Quantidade</Label><CampoQuantidade value={quantidade} min={1} onChange={setQuantidade} /></div>
               <div className="space-y-2"><Label>Valor unitário</Label><CampoPreco value={valor} onChange={setValor} /></div>
+            </div>
+            <div className="space-y-2">
+              <Label>Desconto informativo</Label>
+              <CampoDesconto
+                tipo={descontoTipo}
+                valor={desconto}
+                ariaLabel="Desconto informativo do novo produto avulso"
+                onTipoChange={setDescontoTipo}
+                onValorChange={setDesconto}
+              />
+              <p className="text-xs text-muted-foreground">Aparece na impressão da OS ou do orçamento, sem alterar os totais.</p>
             </div>
           </div>
           <DialogFooter><Button type="button" onClick={adicionar} disabled={!titulo.trim() || valor <= 0 || quantidade < 1}>Adicionar ao orçamento</Button></DialogFooter>

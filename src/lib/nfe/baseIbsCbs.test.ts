@@ -213,6 +213,13 @@ describe('base IBS/CBS — lida do item já resolvido', () => {
     });
   });
 
+  it('sem data informada, usa o dia civil do emitente e não o dia em UTC', (t) => {
+    // 22/09 às 23h30 em João Pessoa já é 23/09 em UTC.
+    t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-23T02:30:00Z') });
+    const composicao = baseIbsCbsDoItem(item(), { modFrete: '9' });
+    assert.equal(composicao.dataEmissao, '2026-09-22');
+  });
+
   it('reabrir rascunho não congela como manual uma base que era calculada', () => {
     const alvo = item();
     resolverRtcDoItem(alvo, { modFrete: '9', dataEmissao: DATA }, {});

@@ -20,7 +20,15 @@ export type ContextoStRetida = {
 
 export type RegraStRetida = 'ST_RETIDA' | 'ICMS_EFETIVO';
 
-/** Política estadual revisada; sem fonte e vigência não existe bloqueio estadual. */
+/**
+ * Manifestação estadual cadastrada; sem fonte e vigência não existe bloqueio.
+ *
+ * - `VIGENTE`: a fonte estabelece a regra sem prazo (ou com `fim`) e pode
+ *   decidir a severidade na data da emissão.
+ * - `HISTORICA`: a fonte descreve uma situação datada ("inicialmente", "por
+ *   ora"). Serve de evidência na mensagem, nunca decide a severidade: sem regra
+ *   obrigatória vigente comprovada, o aviso é INFO.
+ */
 export type PoliticaStRetida = {
   /** UF que valida o documento (a do emitente). */
   ufEmitente: string;
@@ -32,11 +40,19 @@ export type PoliticaStRetida = {
   fim?: string;
   /** ST_RETIDA = indFinal 0 (N12-81/N12a-50); ICMS_EFETIVO = indFinal 1 (N12-82/N12a-60). */
   regra: RegraStRetida;
+  status?: 'VIGENTE' | 'HISTORICA';
+  /** Quem se manifestou, para a mensagem ("SEFAZ-PB"). */
+  orgao?: string;
   fonte: string;
   fonteUrl?: string;
+  /** Data da manifestação do órgão, AAAA-MM-DD. É a data citada ao usuário. */
+  publicadaEm?: string;
   /** Regras do MOC afetadas, para a auditoria. */
   regrasMoc?: string[];
-  /** Data da última conferência da fonte, AAAA-MM-DD. */
+  /**
+   * Quando o ERP conferiu a fonte, AAAA-MM-DD. Metadado interno: não é uma
+   * manifestação do órgão e nunca aparece como data da política.
+   */
   revisadaEm?: string;
   obrigatoria: boolean;
 };
@@ -44,6 +60,8 @@ export type PoliticaStRetida = {
 const PB_NT_2018_005 = {
   ufEmitente: 'PB',
   inicio: '2019-04-08',
+  orgao: 'SEFAZ-PB',
+  publicadaEm: '2019-04-08',
   fonte: 'SEFAZ-PB, comunicado de 08/04/2019 sobre a NT 2018.005 (ICMS-ST anteriormente retido)',
   fonteUrl:
     'https://www.sefaz.pb.gov.br/announcements/7581-validacao-do-icms-de-substituicao-tributaria-dos-documentos-eletronicos-nf-e-e-nfc-e-precisa-ser-realizada-ate-29-de-abril',
@@ -57,11 +75,14 @@ const PB_NT_2018_005 = {
  * mais recente vigente na data da emissão prevalece.
  */
 export const POLITICAS_ST_RETIDA: readonly PoliticaStRetida[] = [
-  // "Tornou-se facultativo o preenchimento" de vBCSTRet, pST, vICMSSubstituto e vICMSSTRet.
-  { ...PB_NT_2018_005, regra: 'ST_RETIDA', regrasMoc: ['N12-81', 'N12a-50'] },
+  // "Tornou-se facultativo o preenchimento" de vBCSTRet, pST, vICMSSubstituto e
+  // vICMSSTRet. O comunicado não traz prazo; ainda assim a mensagem cita a data
+  // dele e não afirma que a situação continua a mesma hoje.
+  { ...PB_NT_2018_005, regra: 'ST_RETIDA', status: 'VIGENTE', regrasMoc: ['N12-81', 'N12a-50'] },
   // "As demais validações opcionais por Estado da NT 2018.005 também não serão
-  // aplicadas, inicialmente, no estado da Paraíba."
-  { ...PB_NT_2018_005, regra: 'ICMS_EFETIVO', regrasMoc: ['N12-82', 'N12a-60'] },
+  // aplicadas, inicialmente, no estado da Paraíba." O "inicialmente" faz disto
+  // um registro histórico, não uma política facultativa permanente.
+  { ...PB_NT_2018_005, regra: 'ICMS_EFETIVO', status: 'HISTORICA', regrasMoc: ['N12-82', 'N12a-60'] },
 ];
 
 export const FONTE_MOC_ST_RETIDA: FonteIssueFiscal = {
@@ -69,6 +90,11 @@ export const FONTE_MOC_ST_RETIDA: FonteIssueFiscal = {
   url: 'https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=URRwWd0zp2U%3D',
   jurisdicao: 'NACIONAL',
 };
+
+function dataBr(valor: string) {
+  const partes = valor.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return partes ? `${partes[3]}/${partes[2]}/${partes[1]}` : valor;
+}
 
 function vigenteEm(politica: PoliticaStRetida, data: string) {
   return data >= politica.inicio && (!politica.fim || data <= politica.fim);
@@ -82,26 +108,28 @@ export function resolverObrigatoriedadeStRetida(
   if (contexto.indFinal !== 0 && contexto.indFinal !== 1) return null;
   const regra: RegraStRetida = contexto.indFinal === 0 ? 'ST_RETIDA' : 'ICMS_EFETIVO';
   const data = contexto.dataEmissao?.slice(0, 10);
-  const politica =
-    politicas
-      .filter(
-        (p) =>
-          p.regra === regra &&
-          p.ufEmitente === contexto.ufEmitente &&
-          (!p.ufDestino || p.ufDestino === contexto.ufDestino) &&
-          p.fonte.trim() &&
-          data &&
-          vigenteEm(p, data),
-      )
-      // A mais recente prevalece; entre duas do mesmo dia, a de destino específico.
-      .sort((a, b) => b.inicio.localeCompare(a.inicio) || Number(Boolean(b.ufDestino)) - Number(Boolean(a.ufDestino)))[0] ??
-    null;
+  const candidatas = politicas
+    .filter(
+      (p) =>
+        p.regra === regra &&
+        p.ufEmitente === contexto.ufEmitente &&
+        (!p.ufDestino || p.ufDestino === contexto.ufDestino) &&
+        p.fonte.trim() &&
+        data &&
+        vigenteEm(p, data),
+    )
+    // A mais recente prevalece; entre duas do mesmo dia, a de destino específico.
+    .sort((a, b) => b.inicio.localeCompare(a.inicio) || Number(Boolean(b.ufDestino)) - Number(Boolean(a.ufDestino)));
+  // Registro histórico nunca decide a severidade: só é citado.
+  const politica = candidatas.find((p) => (p.status ?? 'VIGENTE') === 'VIGENTE') ?? null;
+  const historica = politica ? null : candidatas.find((p) => p.status === 'HISTORICA') ?? null;
   return {
     regra,
     severidade: politica?.obrigatoria ? ('BLOQUEIO' as const) : ('INFO' as const),
-    fonte: politica?.fonte ?? 'MOC 7.0, N12-81/N12-82 e N12a-50/N12a-60; aplicação facultativa pela UF',
+    fonte: (politica ?? historica)?.fonte ?? 'MOC 7.0, N12-81/N12-82 e N12a-50/N12a-60; aplicação facultativa pela UF',
     contexto,
     politica,
+    historica,
   };
 }
 
@@ -122,16 +150,30 @@ export function validarPoliticaStRetida(
     ? 'Dados de ICMS-ST cobrado anteriormente não informados. O grupo permite vBCSTRet, pST, vICMSSubstituto e vICMSSTRet. Preencha somente quando aplicável e com os dados da operação anterior.'
     : 'ICMS efetivo não informado. O grupo permite pRedBCEfet, vBCEfet, pICMSEfet e vICMSEfet. Preencha somente quando aplicável e com dados fiscalmente comprovados.';
   const obrigatoriedade = `Política estadual vigente exige o preenchimento de ${faltantes.join(', ')}.`;
-  const politica = regra.politica;
+  const { politica, historica } = regra;
+  const citada = politica ?? historica;
+  const orgaoEData = (p: PoliticaStRetida) =>
+    `${p.orgao ?? p.ufEmitente} de ${dataBr(p.publicadaEm ?? p.inicio)}`;
+  // Cita a manifestação do órgão com a data dela. A data em que o ERP conferiu
+  // a fonte (`revisadaEm`) não é uma nova manifestação e não aparece aqui.
   const situacao = regra.severidade === 'BLOQUEIO'
     ? ''
     : politica
-      ? `A política da ${politica.ufEmitente} conferida em ${politica.revisadaEm ?? politica.inicio} torna o preenchimento facultativo. `
-      : 'Não há política estadual obrigatória configurada. ';
+      ? `Existe comunicado da ${orgaoEData(politica)} informando a não aplicação obrigatória dessa validação. ` +
+        'Não há política estadual obrigatória mais recente cadastrada no ERP. '
+      : historica
+        ? `Comunicado da ${orgaoEData(historica)} informou que essa validação não seria aplicada, inicialmente. ` +
+          'Não há regra estadual obrigatória vigente comprovada cadastrada no ERP. '
+        : 'Não há política estadual obrigatória configurada. ';
   const fontes: FonteIssueFiscal[] = [
     FONTE_MOC_ST_RETIDA,
-    ...(politica
-      ? [{ titulo: politica.fonte, url: politica.fonteUrl, vigenciaDesde: politica.inicio, jurisdicao: politica.ufEmitente }]
+    ...(citada
+      ? [{
+          titulo: citada.status === 'HISTORICA' ? `${citada.fonte} (registro histórico)` : citada.fonte,
+          url: citada.fonteUrl,
+          vigenciaDesde: citada.publicadaEm ?? citada.inicio,
+          jurisdicao: citada.ufEmitente,
+        }]
       : []),
   ];
   return [{ code: `NFE_${regra.regra}_POLITICA_UF`, severidade: regra.severidade,

@@ -1,4 +1,5 @@
 import type { FonteIssueFiscal, IcmsIssue } from './icms/tipos';
+import { dataCivilDeHoje } from '@/lib/fiscal-date';
 import { fingerprintFiscal } from './issuesFiscais';
 import type { NFeItem, TributoPisCofins } from './types';
 
@@ -164,7 +165,9 @@ export function baseIbsCbsDoItem(
     vFCPUFDest: item.icmsUfDest?.vFCPUFDest ?? 0,
     vIS: item.impostoSeletivo?.valor ?? 0,
     modFrete: contexto.modFrete,
-    dataEmissao: contexto.dataEmissao ?? new Date().toISOString(),
+    // Sem data, o dia civil do emitente: `toISOString()` daria o dia em UTC e,
+    // das 21h à meia-noite, a data (e o fingerprint da ciência) do dia seguinte.
+    dataEmissao: contexto.dataEmissao ?? dataCivilDeHoje(),
     baseInformada,
   });
 }
@@ -229,28 +232,29 @@ export function issuesBaseIbsCbs(rtc: NFeItem['rtc']): IcmsIssue[] {
     return [{ code: 'NFE_IBSCBS_BASE_INVALIDA', severidade: 'BLOQUEIO', field: 'baseRtc', message: base.inconsistencia }];
   }
   // AVISO e não bloqueio enquanto a UB16-10 for "implementação futura" na NT.
-  return base.origem === 'MANUAL' && Math.abs(base.baseCalculo - base.baseCalculada) > 0.009
-    ? [{
-        code: 'NFE_IBSCBS_BASE_MANUAL',
-        severidade: 'AVISO',
-        requerCiencia: true,
-        field: 'baseRtc',
-        message:
-          `A base informada (${base.baseCalculo.toFixed(2)}) difere da composição prevista pela regra UB16-10 ` +
-          `(${base.baseCalculada.toFixed(2)}: vProd + vFrete − vDesc − vPIS − vCOFINS − PIS-ST/COFINS-ST quando não somados ao total − vICMS − vICMSUFDest − vFCP − vFCPUFDest...). ` +
-          'A regra de validação encontra-se indicada como implementação futura na documentação vigente; ' +
-          'quando ativada, a diferença passará a ser rejeitada (rejeição 1104). Confira a base antes da emissão. ' +
-          `Fonte: ${base.fonte}.`,
-        fontes: FONTES_BASE_IBS_CBS,
-        fingerprint: fingerprintFiscal({
-          code: 'NFE_IBSCBS_BASE_MANUAL',
-          baseInformada: base.baseInformada,
-          baseCalculada: base.baseCalculada,
-          componentes: base.componentes,
-          modFrete: base.modFrete,
-          dataEmissao: base.dataEmissao,
-          regra: base.versao,
-        }),
-      }]
-    : [];
+  if (base.origem !== 'MANUAL' || Math.abs(base.baseCalculo - base.baseCalculada) <= 0.009) return [];
+  const dados = {
+    code: 'NFE_IBSCBS_BASE_MANUAL',
+    baseInformada: base.baseInformada,
+    baseCalculada: base.baseCalculada,
+    componentes: base.componentes,
+    modFrete: base.modFrete,
+    dataEmissao: base.dataEmissao,
+    regra: base.versao,
+  };
+  return [{
+    code: 'NFE_IBSCBS_BASE_MANUAL',
+    severidade: 'AVISO',
+    requerCiencia: true,
+    field: 'baseRtc',
+    message:
+      `A base informada (${base.baseCalculo.toFixed(2)}) difere da composição prevista pela regra UB16-10 ` +
+      `(${base.baseCalculada.toFixed(2)}: vProd + vFrete − vDesc − vPIS − vCOFINS − PIS-ST/COFINS-ST quando não somados ao total − vICMS − vICMSUFDest − vFCP − vFCPUFDest...). ` +
+      'A regra de validação encontra-se indicada como implementação futura na documentação vigente; ' +
+      'quando ativada, a diferença passará a ser rejeitada (rejeição 1104). Confira a base antes da emissão. ' +
+      `Fonte: ${base.fonte}.`,
+    fontes: FONTES_BASE_IBS_CBS,
+    fingerprint: fingerprintFiscal(dados),
+    dadosFingerprint: dados,
+  }];
 }

@@ -90,6 +90,7 @@ import {
   aplicarAlteracoesComCienciaFiscal,
   classificarIssuesFiscais,
   confirmarAvisosFiscais,
+  pedidosDeCiencia,
 } from "@/lib/nfe/issuesFiscais";
 import { MODELO_NFE, MODELO_NFCE, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { PB_NFCE_PISO_IDENTIFICACAO } from "@/lib/nfe/fiscalRules";
@@ -97,6 +98,7 @@ import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
 import { ConfirmarIndicadorIe } from "@/components/fiscal/confirmar-indicador-ie";
 import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
+import { novoEscopoCiencia, registrarCienciaNoServidor } from "@/lib/nfe/cienciaCliente";
 
 import {
   aplicarCamposFiscais,
@@ -481,6 +483,12 @@ export function GerarNotaDeOsDialog({
   const [serverError, setServerError] = useState<string | null>(null);
   const [serverErrorTom, setServerErrorTom] = useState<"BLOQUEIO" | "AVISO">("BLOQUEIO");
   const [confirmWarningsOpen, setConfirmWarningsOpen] = useState(false);
+  // Uma sessão de emissão por abertura do diálogo; agrupa as ciências até o
+  // rascunho ser salvo (nfe_ciencia_aviso.escopo).
+  const [cienciaEscopo, setCienciaEscopo] = useState(novoEscopoCiencia);
+  useEffect(() => {
+    if (open) setCienciaEscopo(novoEscopoCiencia());
+  }, [open]);
   const [includeObservations, setIncludeObservations] = useState(false);
   const [observations, setObservations] = useState("");
   // Desconto geral da nota. Chega da origem já rateado nos itens; redigitar aqui
@@ -1607,10 +1615,9 @@ export function GerarNotaDeOsDialog({
     setSaving(true);
     setServerError(null);
     try {
-      const response = await fetch(generateEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const corpo = {
+          // Sessão de emissão: o servidor aceita as ciências registradas nela.
+          cienciaEscopo,
           // Corrigindo uma rejeitada: o servidor atualiza este rascunho em vez
           // de criar outro, preservando número e chave já alocados.
           ...(nfeId ? { nfeId } : {}),
@@ -1704,7 +1711,32 @@ export function GerarNotaDeOsDialog({
                 },
               }
             : {}),
-        }),
+      };
+
+      // "Estou ciente" marcado na tela só vale depois que o servidor recalcula o
+      // aviso e grava a ciência com o usuário da sessão. O rascunho não confia
+      // na lista enviada no payload.
+      const pedidos = pedidosDeCiencia(itensParaGerar);
+      if (pedidos.length > 0 && origin && originId) {
+        const ciencia = await registrarCienciaNoServidor({
+          alvo: origin === "OS" || origin === "VENDA"
+            ? { tipo: origin, id: originId, modelo }
+            : { tipo: origin, id: originId },
+          payload: corpo,
+          cienciaEscopo,
+          pedidos,
+        });
+        if (!ciencia.ok && !ciencia.errors?.length) {
+          throw new Error(ciencia.message || "Não foi possível registrar a ciência dos avisos fiscais.");
+        }
+        // Com bloqueios (ciencia.errors) nada foi registrado; o salvamento
+        // abaixo devolve os mesmos erros e a tela os mostra como sempre.
+      }
+
+      const response = await fetch(generateEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
       });
       const json = (await response.json().catch(() => null)) as GenerateResponse | null;
       if (!response.ok || !json?.ok) {

@@ -102,6 +102,8 @@ export async function carregarItensDaOSAPI(osId: number) {
   }));
 
   const produtosAvulsos: ItemProdutoAvulso[] = (j?.produtosAvulsos ?? []).map((p: any) => ({
+    descontoInformativoTipo: (p.descontoInformativoTipo ?? null) as TipoDesconto | null,
+    descontoInformativo: toNum(p.descontoInformativo),
     id: Number(p.id),
     titulo: String(p.titulo ?? ""),
     quantidade: toNum(p.quantidade ?? 1),
@@ -148,6 +150,8 @@ export async function salvarOrcamentoAPI(
       desconto: p.desconto ?? 0,
     })),
     produtosAvulsos: itensProdutoAvulso.map((p) => ({
+      descontoInformativoTipo: p.descontoInformativoTipo ?? null,
+      descontoInformativo: p.descontoInformativo ?? 0,
       id: p.id,
       titulo: p.titulo,
       quantidade: p.quantidade,
