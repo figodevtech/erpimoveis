@@ -6,7 +6,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
-import { requireVendasAccess, requireVendasDelete, requireVendasEdit } from "@/app/api/_authz/perms";
+import { PERMS, requirePerm, requireVendasAccess, requireVendasDelete, requireVendasEdit } from "@/app/api/_authz/perms";
 import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
 import { calculateFinancialTotal, sanitizeFinancialSurchargeType } from "@/lib/financial-surcharge";
 import { normalizarDadosParaFinanceiro } from "@/lib/financeiro/dados-para-financeiro";
@@ -846,7 +846,36 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
     if (observacoesFiscais !== undefined) {
       updatePayload.observacoes_fiscais = String(observacoesFiscais ?? "").trim() || null;
     }
-    if (vendedor !== undefined) updatePayload.vendedor = vendedor;
+    /*
+     * Trocar o vendedor e transferir a comissao.
+     *
+     * `reconciliar_comissao_venda` le `coalesce(vendedor, created_by)` como
+     * beneficiario e reapura pela taxa de quem entra, entao este campo move
+     * dinheiro de uma pessoa para outra — diferente do resto da edicao, que so
+     * corrige o registro. Por isso ele tem permissao propria.
+     *
+     * A checagem e contra o valor GRAVADO, nao contra a presenca do campo: o
+     * dialog reenvia `vendedor` inalterado em toda gravacao, e recusar isso
+     * barraria qualquer edicao de venda de quem nao tem a permissao.
+     */
+    if (vendedor !== undefined) {
+      const atualVendedor = await supabaseAdmin
+        .from("venda")
+        .select("vendedor")
+        .eq("id", vendaId)
+        .maybeSingle();
+      if (atualVendedor.error) throw atualVendedor.error;
+      if (!atualVendedor.data) {
+        return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
+      }
+
+      const antes = atualVendedor.data.vendedor ?? null;
+      const depois = vendedor ?? null;
+      if (antes !== depois) {
+        await requirePerm(PERMS.VENDAS_ALTERAR_VENDEDOR);
+        updatePayload.vendedor = depois;
+      }
+    }
     if (categoriaVendaId !== undefined) {
       if (categoriaVendaId === null) {
         updatePayload.categoriavendaid = null;
@@ -1033,10 +1062,16 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       data,
     });
   } catch (e: any) {
-    console.error("Erro inesperado no PATCH /venda/[id]:", e);
+    // 401/403 precisam chegar como 401/403. Como 500, a recusa de permissao
+    // aparece na tela como "Erro interno do servidor" e ninguem descobre que
+    // faltou permissao — vale para esta trava e para o requireVendasEdit acima.
+    const statusAutorizacao = Number(e?.statusCode);
+    if (statusAutorizacao !== 401 && statusAutorizacao !== 403) {
+      console.error("Erro inesperado no PATCH /venda/[id]:", e);
+    }
     return NextResponse.json(
       { error: e?.message || "Erro interno do servidor." },
-      { status: 500 }
+      { status: statusAutorizacao === 401 || statusAutorizacao === 403 ? statusAutorizacao : 500 }
     );
   }
 }

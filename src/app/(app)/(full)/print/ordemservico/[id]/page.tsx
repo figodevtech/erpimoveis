@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { notFound } from "next/navigation";
+import { formatarDescontoInformativo } from "@/lib/ordens/desconto-informativo";
 import type { Metadata } from "next";
 import Script from "next/script";
 import { Car, ClipboardList, Cog, Tag, User, Power } from "lucide-react";
@@ -432,7 +433,7 @@ export default async function OSFullPage({ params }: PageProps) {
         descricao: String(p.titulo || "Produto avulso"),
         produtoId: null,
         etiqueta: null,
-        subdescricao: null,
+        subdescricao: formatarDescontoInformativo(p.desconto_informativo_tipo, p.desconto_informativo),
         avulso: true,
         estoque: null,
         qtd,

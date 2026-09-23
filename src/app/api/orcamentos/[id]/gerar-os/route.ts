@@ -285,6 +285,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (itens.produtosAvulsos.length) {
       const { error } = await supabaseAdmin.from("osproduto_avulso").insert(
         itens.produtosAvulsos.map((item) => ({
+          desconto_informativo_tipo: item.descontoInformativoTipo,
+          desconto_informativo: item.descontoInformativo,
           ordemservicoid: osCriadaId,
           titulo: item.titulo,
           quantidade: item.quantidade,

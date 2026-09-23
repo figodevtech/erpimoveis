@@ -2,11 +2,13 @@ import { CFOP_CATALOG, CFOP_CATALOG_SOURCE } from "./cfopCatalog.generated";
 import { MODELO_NFCE } from "./modeloDocumento";
 import type { CfopCatalogEntry, CfopValidationResult } from "./cfopTypes";
 import type { ModeloDocumentoFiscal } from "./types";
+import { dataCivilDeHoje, dataCivilDoInstante } from "@/lib/fiscal-date";
 
 export type { CfopCatalogEntry, CfopValidationResult } from "./cfopTypes";
 
 export const CFOP_CATALOG_VERSION = CFOP_CATALOG_SOURCE.versao;
 export const CFOP_CATALOG_EFFECTIVE_FROM = CFOP_CATALOG_SOURCE.vigencia;
+export const CFOP_CATALOG_URL = CFOP_CATALOG_SOURCE.url;
 
 // Regra I08-150 do MOC 7.0: lista de CFOP admitidos no modelo 65.
 export const CFOPS_PERMITIDOS_NFCE = new Set([
@@ -26,9 +28,11 @@ function onlyDigits(value: unknown) {
 }
 
 function dateKey(value?: Date | string | null) {
-  if (!value) return new Date().toISOString().slice(0, 10);
+  // Data civil do emitente: a vigência do CFOP é comparada com o dia que consta
+  // no documento, não com o dia em UTC.
+  if (!value) return dataCivilDeHoje();
   if (typeof value === "string") return value.slice(0, 10);
-  return value.toISOString().slice(0, 10);
+  return dataCivilDoInstante(value);
 }
 
 function vigenteEm(entry: CfopCatalogEntry, at: string) {

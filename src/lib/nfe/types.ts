@@ -1,6 +1,7 @@
 // src/lib/nfe/types.ts
 
-import type { ContextoDifalCanonico, ICMSUFDest } from './difal';
+import type { ContextoDifalCanonico, DifalPendencia, ICMSUFDest } from './difal';
+import type { CampoResolvido, ConflitoRegraDifal, OrigemValorDifal } from './difalRegras';
 import type { IndIEDest } from './indIEDest';
 import type { DecisaoIcms, IcmsCanonico } from './icms/tipos';
 
@@ -412,14 +413,41 @@ export interface NFeItem {
    * Os campos abaixo permitem sobrepor as alíquotas resolvidas por padrão.
    */
   icmsUfDest?: ICMSUFDest;
+  /**
+   * Proveniência do DIFAL: o que foi decidido, por qual regra, em que vigência
+   * e com que fundamento. É o que responde, meses depois, "por que esta NF-e
+   * usou 22,5% e FCP 0%?" sem depender do estado atual de fiscal_difal_regra.
+   */
   difalDecisao?: {
-    origemAliquotaInterna: 'ITEM' | 'TABELA';
     ufDestino: string;
-    aliquotaInterna: number;
-    origemFcp: 'ITEM' | 'NAO_CONFIGURADO';
-    aviso: string | null;
+    /** Data fiscal usada para escolher a regra vigente. */
+    dataResolucao: string | null;
+    /** NULL = não determinada; bloqueia a emissão. */
+    aliquotaInterna: number | null;
+    origemAliquotaInterna: OrigemValorDifal;
+    regraAliquotaInterna: CampoResolvido | null;
+    /** NULL = não determinado. 0 = regra determinou que não há FCP. */
+    aliquotaFcp: number | null;
+    origemFcp: OrigemValorDifal;
+    regraFcp: CampoResolvido | null;
+    conflitos: ConflitoRegraDifal[];
+    pendencias: DifalPendencia[];
+    /** true quando o motor fechou tudo sem depender de digitação. */
+    resolvidoAutomaticamente: boolean;
     /** Snapshot estrutural usado para detectar grupo canônico stale. */
     contexto: ContextoDifalCanonico;
+  };
+  /**
+   * Campos do DIFAL que o usuário editou por cima de um valor resolvido. Marca
+   * a proveniência como MANUAL e impede que a tela continue apresentando o
+   * valor como automático.
+   */
+  overrideDifalManual?: {
+    aliquotaInterna?: boolean;
+    aliquotaFcp?: boolean;
+    aliquotaInterestadual?: boolean;
+    percentualPartilha?: boolean;
+    baseFcp?: boolean;
   };
   aliquotaInternaDestino?: number | null;
   aliquotaInterestadual?: number | null;

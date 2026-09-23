@@ -8,6 +8,7 @@ import { carregarAutores } from "@/lib/movement-authors";
 import { modoDeReparcelamento } from "@/lib/financeiro/reparcelamento-modo";
 import { tipoEhEntradaDeCaixa, valorDeFace } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -101,6 +102,8 @@ export async function GET(_: Request, { params }: Params) {
     if (!transacao) {
       return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
     }
+
+    await exigirAcessoATransacao(id);
 
     /* ---------- Lancamentos relacionados ---------- */
 
@@ -543,9 +546,14 @@ export async function GET(_: Request, { params }: Params) {
       },
     });
   } catch (error: any) {
+    // 401/403 precisam chegar como 401/403: um "Erro ao carregar" generico
+    // esconderia que a recusa foi de permissao, e nao falha do servidor.
+    const statusAutorizacao = Number(error?.statusCode);
+    const status =
+      statusAutorizacao === 401 || statusAutorizacao === 403 ? statusAutorizacao : 500;
     return NextResponse.json(
       { error: error?.message ?? "Erro ao carregar o contexto da transação." },
-      { status: 500 },
+      { status },
     );
   }
 }

@@ -1,3 +1,16 @@
+// Gera src/lib/nfe/cfopCatalog.generated.ts a partir da Tabela CFOP oficial do
+// Portal Nacional da NF-e (Informe Técnico 2023.002).
+//
+// A planilha usada fica versionada em docs/fiscal/fontes/cfop/, com SHA256.txt
+// e origem.md. Baixar de novo pelo link do Portal pode trazer outra versão.
+//
+// Uso (IT 2023.002 v2.10 em diante, que traz título e nota explicativa):
+//   node scripts/nfe/generate-cfop-catalog.mjs \
+//     --xlsx docs/fiscal/fontes/cfop/IT_2023_002_v2_10_Tabela_CFOP_Descricao.xlsx \
+//     --versao IT-2023.002-v2.10 --publicacao 2026-09-04
+//
+// Tabelas anteriores à v2.10 não têm o título do CFOP; para elas, passe também
+// --descriptions-current e --descriptions-legacy com o HTML consolidado do CONFAZ.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,16 +23,21 @@ for (let index = 2; index < process.argv.length; index += 2) {
 }
 
 const xlsxPath = args.get("--xlsx");
+const versao = args.get("--versao");
+const publicacao = args.get("--publicacao");
 const descriptionsCurrentPath = args.get("--descriptions-current");
 const descriptionsLegacyPath = args.get("--descriptions-legacy");
 const outputPath = args.get("--output") ?? "src/lib/nfe/cfopCatalog.generated.ts";
 
-if (!xlsxPath || !descriptionsCurrentPath || !descriptionsLegacyPath) {
+if (!xlsxPath || !versao || !/^\d{4}-\d{2}-\d{2}$/.test(publicacao ?? "")) {
   throw new Error(
-    "Uso: node scripts/nfe/generate-cfop-catalog.mjs --xlsx <arquivo> " +
-      "--descriptions-current <html> --descriptions-legacy <html> [--output <arquivo>]",
+    "Uso: node scripts/nfe/generate-cfop-catalog.mjs --xlsx <arquivo> --versao <IT-2023.002-vX.YY> " +
+      "--publicacao <AAAA-MM-DD> [--descriptions-current <html> --descriptions-legacy <html>] [--output <arquivo>]",
   );
 }
+
+const COLUNA_TITULO = "Título do CFOP";
+const COLUNA_NOTA = "Descrição (nota explicativa)";
 
 function decodeHtml(value) {
   return value
@@ -61,13 +79,17 @@ function excelDate(value) {
   return String(value).slice(0, 10);
 }
 
+function arquivoDaFonte(filePath) {
+  const relativo = path.relative(process.cwd(), path.resolve(filePath)).split(path.sep).join("/");
+  return relativo.startsWith("..") || path.isAbsolute(relativo) ? path.basename(filePath) : relativo;
+}
+
 function indicator(value) {
   return Number(value ?? 0) === 1;
 }
 
-const descriptions = parseDescriptions(descriptionsCurrentPath);
-for (const [code, description] of parseDescriptions(descriptionsLegacyPath)) {
-  if (!descriptions.has(code)) descriptions.set(code, description);
+function texto(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
 const sourceBytes = fs.readFileSync(xlsxPath);
@@ -76,12 +98,30 @@ const sheet = workbook.Sheets.CFOP;
 if (!sheet) throw new Error('A planilha oficial não contém a aba "CFOP".');
 
 const rows = XLSX.utils.sheet_to_json(sheet, { defval: null });
+const temTituloOficial = rows.some((row) => texto(row[COLUNA_TITULO]));
+
+// Sem título na planilha, as descrições vêm do HTML do CONFAZ (tabelas antigas).
+const descriptions = new Map();
+if (!temTituloOficial) {
+  if (!descriptionsCurrentPath || !descriptionsLegacyPath) {
+    throw new Error(
+      `A planilha não traz a coluna "${COLUNA_TITULO}". Informe --descriptions-current e --descriptions-legacy.`,
+    );
+  }
+  for (const [code, description] of parseDescriptions(descriptionsCurrentPath)) descriptions.set(code, description);
+  for (const [code, description] of parseDescriptions(descriptionsLegacyPath)) {
+    if (!descriptions.has(code)) descriptions.set(code, description);
+  }
+}
+
+const notas = new Map();
 const entries = rows
   .map((row) => {
     const codigo = String(row.CFOP ?? "").replace(/\D/g, "").padStart(4, "0");
+    if (temTituloOficial) notas.set(codigo, texto(row[COLUNA_NOTA]));
     return {
       codigo,
-      descricao: descriptions.get(codigo) ?? "",
+      descricao: temTituloOficial ? texto(row[COLUNA_TITULO]) : descriptions.get(codigo) ?? "",
       inicioVigencia: excelDate(row["Início de vigência"]),
       fimVigencia: excelDate(row["Fim de vigência"]),
       indNFe: indicator(row.indNFe),
@@ -92,6 +132,7 @@ const entries = rows
       indAnula: indicator(row.indAnula),
       indRemes: indicator(row.indRemes),
       indComb: indicator(row.indComb),
+      indExcIBSCBS: indicator(row.indExcIBSCBS),
     };
   })
   .filter((entry) => /^\d{4}$/.test(entry.codigo) && entry.inicioVigencia)
@@ -110,21 +151,49 @@ for (const expected of ["5102", "5405", "6102", "6401"]) {
   }
 }
 
+// src/lib/nfe/icms/cfopSemantica.ts lê o papel da ST no título oficial e trata o
+// 6404 como exceção documentada pela nota explicativa. Se a fonte mudar esses
+// textos, a geração para aqui: a regra fiscal tem de ser revista antes.
+const PREMISSAS_ST = [
+  { codigo: "5401", campo: "titulo", trecho: /na condição de contribuinte substituto\b/i },
+  { codigo: "5403", campo: "titulo", trecho: /na condição de contribuinte substituto\b/i },
+  { codigo: "6401", campo: "titulo", trecho: /na condição de contribuinte substituto\b/i },
+  { codigo: "6403", campo: "titulo", trecho: /na condição de contribuinte substituto\b/i },
+  { codigo: "5405", campo: "titulo", trecho: /na condição de contribuinte substituído/i },
+  { codigo: "6404", campo: "titulo", trecho: /cujo imposto já tenha sido retido anteriormente/i },
+  { codigo: "6404", campo: "nota", trecho: /na condição de substituto tributário, exclusivamente nas hipóteses em que o imposto já tenha sido retido anteriormente/i },
+];
+for (const premissa of PREMISSAS_ST) {
+  if (premissa.campo === "nota" && !temTituloOficial) continue;
+  const valor =
+    premissa.campo === "nota"
+      ? notas.get(premissa.codigo) ?? ""
+      : entries.find((entry) => entry.codigo === premissa.codigo && !entry.fimVigencia)?.descricao ?? "";
+  if (!premissa.trecho.test(valor)) {
+    throw new Error(
+      `O ${premissa.campo} oficial do CFOP ${premissa.codigo} mudou ("${valor}"). Revise src/lib/nfe/icms/cfopSemantica.ts.`,
+    );
+  }
+}
+
 const hash = crypto.createHash("sha256").update(sourceBytes).digest("hex").toUpperCase();
 const header = `// Arquivo gerado por scripts/nfe/generate-cfop-catalog.mjs. Não edite manualmente.
-// Fonte de existência/indicadores: Portal Nacional da NF-e, Tabela CFOP vigente desde 24/04/2023.
-// Descrições: CONFAZ, Código Fiscal de Operações e Prestações consolidado.
+// Fonte: Portal Nacional da NF-e, Tabela CFOP (Informe Técnico ${versao.replace(/^IT-/, "")}), publicada em ${publicacao}.
+// ${temTituloOficial ? `Descrição: coluna "${COLUNA_TITULO}" da própria tabela oficial.` : "Descrições: CONFAZ, Código Fiscal de Operações e Prestações consolidado."}
 
 import type { CfopCatalogEntry } from "./cfopTypes";
 
 export const CFOP_CATALOG_SOURCE = ${JSON.stringify(
   {
-    versao: "IT-2023.002-v1.00",
-    vigencia: "2023-04-24",
-    arquivo: "IT 2023.002-v1.00_Tabela_CFOP_Vigência_20230424.xlsx",
+    versao,
+    vigencia: publicacao,
+    // Caminho no repositório quando a fonte está versionada; senão, o nome.
+    arquivo: arquivoDaFonte(xlsxPath),
     sha256: hash,
     url: "https://www.nfe.fazenda.gov.br/portal/listaConteudo.aspx?tipoConteudo=%2FNJarYc9nus%3D",
-    descricaoUrl: "https://www.confaz.fazenda.gov.br/legislacao/ajustes/sinief/cfop_cvsn_1-6.24",
+    descricao: temTituloOficial
+      ? `Tabela CFOP oficial, coluna "${COLUNA_TITULO}"`
+      : "https://www.confaz.fazenda.gov.br/legislacao/ajustes/sinief/cfop_cvsn_1-6.24",
   },
   null,
   2,

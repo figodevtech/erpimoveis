@@ -4,6 +4,13 @@
 comissões de vendas. A exibição é sempre em lista, com identificação do documento
 e do cliente, situação, valor e ações. Não há agrupamento por OS.
 
+Cada card de evento de OS também mostra **Conclusão da OS**, a partir de
+`ordemservico.execucao_fim_em`, no formato dia/mês/ano e fuso da oficina
+(America/Fortaleza). Quando a data não está registrada, exibe **Sem data de
+conclusão**. A API consulta as datas das OS da página em lote. A data do evento
+continua visível; os filtros de período e a ordenação continuam usando
+`data_evento`.
+
 Os cartões refletem o filtro inteiro, independentemente da página. A busca
 aceita descrição e número de OS ou venda. A gaveta permite filtrar por tipo de
 documento, natureza, origem, OS, beneficiário e datas; os filtros aplicados

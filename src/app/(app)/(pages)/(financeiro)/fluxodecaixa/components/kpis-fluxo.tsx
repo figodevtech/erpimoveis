@@ -56,6 +56,7 @@ export function KpisFluxo({
   search,
   tiposParam,
   relationFilters,
+  apenasMinhas,
   revalidacao,
 }: {
   viewMode: FluxoViewMode;
@@ -66,6 +67,8 @@ export function KpisFluxo({
   tiposParam: string;
   /** Os mesmos filtros da tabela: os cartões respondem pelo que está na tela. */
   relationFilters: TransactionRelationFilters;
+  /** O mesmo recorte de autoria da lista, para o cartão não somar o que ela esconde. */
+  apenasMinhas: boolean;
   /**
    * Sobe a cada baixa, estorno ou exclusão feita na lista.
    *
@@ -99,8 +102,10 @@ export function KpisFluxo({
       planoContaId: planoContaId || undefined,
       centroCustoId: centroCustoId || undefined,
       metodopagamento: metodoPagamento || undefined,
+      apenasMinhas: apenasMinhas ? "1" : undefined,
     }),
     [
+      apenasMinhas,
       viewMode,
       dateFrom,
       dateTo,

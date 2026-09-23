@@ -8,6 +8,7 @@ import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -37,6 +38,13 @@ interface SearchFilterProps {
   setViewMode: (value: FluxoViewMode) => void;
   relationFilters: TransactionRelationFilters;
   setRelationFilters: (value: TransactionRelationFilters) => void;
+  apenasMinhas: boolean;
+  setApenasMinhas: (value: boolean) => void;
+  /**
+   * `financeiro:ver_todas_transacoes`. Sem ela o recorte e do servidor e nao ha
+   * o que alternar — no lugar do controle fica a explicacao.
+   */
+  podeVerTodas: boolean;
   lockedTipoLabel?: string;
   renderOnlyTrigger?: boolean;
 }
@@ -64,6 +72,9 @@ export default function SearchFilter({
   setViewMode,
   relationFilters,
   setRelationFilters,
+  apenasMinhas,
+  setApenasMinhas,
+  podeVerTodas,
   lockedTipoLabel,
   renderOnlyTrigger = false,
 }: SearchFilterProps) {
@@ -76,6 +87,7 @@ export default function SearchFilter({
   const [draftDateFrom, setDraftDateFrom] = React.useState(dateFrom);
   const [draftDateTo, setDraftDateTo] = React.useState(dateTo);
   const [draftViewMode, setDraftViewMode] = React.useState<FluxoViewMode>(viewMode);
+  const [draftApenasMinhas, setDraftApenasMinhas] = React.useState(apenasMinhas);
   const [draftRelationFilters, setDraftRelationFilters] =
     React.useState<TransactionRelationFilters>(relationFilters);
   const [banks, setBanks] = React.useState<Banco[]>([]);
@@ -97,9 +109,10 @@ export default function SearchFilter({
       setDraftDateFrom(dateFrom);
       setDraftDateTo(dateTo);
       setDraftViewMode(viewMode);
+      setDraftApenasMinhas(apenasMinhas);
       setDraftRelationFilters(relationFilters);
     }
-  }, [sheetOpen, search, tipo, dateFrom, dateTo, viewMode, relationFilters]);
+  }, [sheetOpen, search, tipo, dateFrom, dateTo, viewMode, relationFilters, apenasMinhas]);
 
   React.useEffect(() => {
     if (!sheetOpen) return;
@@ -148,6 +161,10 @@ export default function SearchFilter({
     relationFilters.planoContaId,
     relationFilters.centroCustoId,
     relationFilters.metodoPagamento,
+    // Só conta como filtro quando foi a pessoa que o ligou: para quem não pode
+    // ver tudo o recorte é permanente, e um contador que nunca zera convida a
+    // clicar em "Limpar filtros" atrás de um botão que não existe.
+    podeVerTodas && apenasMinhas ? "apenasMinhas" : "",
   ].filter(Boolean).length;
 
   const periodLabel = React.useMemo(() => {
@@ -170,6 +187,7 @@ export default function SearchFilter({
     setDateTo(draftDateTo);
     setViewMode(draftViewMode);
     setRelationFilters(draftRelationFilters);
+    setApenasMinhas(draftApenasMinhas);
     setSheetOpen(false);
   };
 
@@ -179,6 +197,7 @@ export default function SearchFilter({
     setDraftDateFrom("");
     setDraftDateTo("");
     setDraftViewMode("FLUXO");
+    setDraftApenasMinhas(false);
     const emptyRelations: TransactionRelationFilters = {
       categoriaId: "",
       bancoId: "",
@@ -193,6 +212,7 @@ export default function SearchFilter({
     setDateTo("");
     setViewMode("FLUXO");
     setRelationFilters(emptyRelations);
+    setApenasMinhas(false);
   };
 
   return (
@@ -441,6 +461,37 @@ export default function SearchFilter({
                       }))}
                     />
                   </div>
+                </div>
+
+                <div className="space-y-2 border-t pt-4">
+                  <Label>Autoria</Label>
+                  {/*
+                    Quem pode ver tudo alterna; quem não pode lê por que a lista
+                    está recortada. Um checkbox desabilitado diria a mesma coisa
+                    pior: parece um ajuste que a pessoa poderia destravar.
+                  */}
+                  {podeVerTodas ? (
+                    <label className="flex items-start gap-2 text-sm hover:cursor-pointer">
+                      <Checkbox
+                        checked={draftApenasMinhas}
+                        onCheckedChange={(valor) => setDraftApenasMinhas(valor === true)}
+                        className="mt-0.5 hover:cursor-pointer"
+                      />
+                      <span>
+                        Apenas as transações que eu criei
+                        <span className="block text-xs text-muted-foreground">
+                          Vale para a lista, os cartões e a exportação. Os
+                          registros sem autor continuam aparecendo.
+                        </span>
+                      </span>
+                    </label>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Você vê as transações que lançou, mais os registros sem
+                      autor. Ver o que as outras pessoas lançaram depende da
+                      permissão “Ver transações de todos”.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2 border-t pt-4">

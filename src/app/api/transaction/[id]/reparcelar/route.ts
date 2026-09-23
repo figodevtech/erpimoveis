@@ -8,6 +8,7 @@ import { auth } from "@/lib/auth";
 import { modoDeReparcelamento } from "@/lib/financeiro/reparcelamento-modo";
 import { MAXIMO_DE_PARCELAS } from "@/lib/financeiro/reparcelamento";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -75,6 +76,7 @@ export async function POST(req: NextRequest, ctx: Params) {
     if (bloqueio) return bloqueio;
 
     const { id } = await ctx.params;
+    await exigirAcessoATransacao(Number(id));
     if (!/^\d+$/.test(id) || id === "0") {
       return NextResponse.json({ error: "Transação inválida." }, { status: 400 });
     }

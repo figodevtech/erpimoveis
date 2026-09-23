@@ -1,8 +1,10 @@
 "use client";
 
-import { AlertCircle, AlertTriangle, CheckCircle2, Info } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { CfopCombobox } from "@/components/fiscal/cfop-combobox";
+import { NcmCombobox } from "@/components/fiscal/ncm-combobox";
+import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -27,7 +29,9 @@ import { Separator } from "@/components/ui/separator";
 import ValueInput from "@/components/ui/value-input";
 import type { NFeOperationDirection } from "@/lib/nfe/cfopOperation";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
-import { classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
+import { alternarCienciaFiscal, classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
+import { FontesDoAvisoFiscal } from "@/components/fiscal/fontes-do-aviso-fiscal";
+import { LIMITE_XPROD } from "@/lib/nfe/limites";
 import {
   getRequiredPisCofinsMode,
   PIS_COFINS_CST_OPTIONS,
@@ -37,9 +41,12 @@ import {
   type AssistedFiscalItem,
   type AssistedItemIssue,
   type ContextoBaseIcms,
+  type DifalCampoManual,
   type FiscalSetup,
+  type RegraResolvidaTela,
   calcularIcmsDoItem,
   inferPisCofinsMode,
+  marcarDifalManual,
   onlyDigits,
 } from "./emissao-assistida-model";
 import { NfeItemIcmsSection } from "./nfe-item-icms-section";
@@ -137,6 +144,201 @@ function Field({
   );
 }
 
+/**
+ * Situação do DIFAL do item, num selo só.
+ *
+ * Existe porque "campo preenchido" não diz de onde veio o número. Um 0 que o
+ * motor determinou e um 0 que alguém digitou produzem a mesma tela e
+ * consequências fiscais diferentes.
+ */
+function StatusDifal({ item }: { item: AssistedFiscalItem }) {
+  const resolucao = item.difalResolucao;
+  const temManual = (item.difalCamposManuais?.length ?? 0) > 0;
+
+  if (temManual) {
+    return (
+      <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-400">
+        Ajustado manualmente
+      </span>
+    );
+  }
+  if (resolucao?.resolvidoAutomaticamente) {
+    return (
+      <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-400">
+        Determinado automaticamente
+      </span>
+    );
+  }
+  return (
+    <span className="rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[11px] text-destructive">
+      Confirmação necessária
+    </span>
+  );
+}
+
+const ROTULO_ORIGEM: Record<string, string> = {
+  REGRA_UF: "regra geral da UF",
+  REGRA_NCM: "regra por NCM",
+  REGRA_NCM_PREFIXO: "regra por faixa de NCM",
+  REGRA_CEST: "regra por CEST",
+  REGRA_NCM_CEST: "regra por NCM + CEST",
+  REGRA_BENEFICIO: "benefício fiscal",
+  REGRA_EXCECAO: "exceção cadastrada",
+};
+
+function dataBr(iso: string | null | undefined) {
+  if (!iso) return null;
+  const [ano, mes, dia] = iso.split("-");
+  return dia && mes && ano ? `${dia}/${mes}/${ano}` : iso;
+}
+
+/**
+ * Linha discreta sob o campo: qual regra respondeu, de que vigência e com que
+ * fundamento. É o que permite responder, meses depois, por que a nota usou
+ * aquela alíquota — sem abrir o banco.
+ */
+function ProvenienciaDifal({
+  campo,
+  item,
+  regra,
+}: {
+  campo: DifalCampoManual;
+  item: AssistedFiscalItem;
+  regra: RegraResolvidaTela | null;
+}) {
+  if (item.difalCamposManuais?.includes(campo)) {
+    return (
+      <p className="mt-1 text-[11px] leading-snug text-amber-700 dark:text-amber-400">
+        Valor informado manualmente — deixa de valer a regra automática.
+      </p>
+    );
+  }
+  if (!regra) return null;
+
+  const vigencia = regra.vigenciaFim
+    ? `${dataBr(regra.vigenciaInicio)} a ${dataBr(regra.vigenciaFim)}`
+    : `desde ${dataBr(regra.vigenciaInicio)}`;
+
+  return (
+    <p
+      className="mt-1 text-[11px] leading-snug text-muted-foreground"
+      title={[regra.regraDescricao, regra.fundamentoLegal, regra.fonte].filter(Boolean).join(" · ")}
+    >
+      {regra.valor}% — {ROTULO_ORIGEM[regra.origem] ?? "regra fiscal"}, vigente {vigencia}
+      {regra.fundamentoLegal ? ` (${regra.fundamentoLegal})` : ""}
+    </p>
+  );
+}
+
+const MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const PERCENTUAL = new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/**
+ * Resumo do que o DIFAL vai valer neste item, em reais.
+ *
+ * As alíquotas sozinhas não dizem quanto a nota vai pagar, e o campo "Base do
+ * FCP" fica de propósito em branco — vazio ali significa "mesma base do DIFAL",
+ * e preencher com um número o congelaria: mudar o desconto do item depois
+ * deixaria a base do FCP defasada. Então o valor aparece aqui, calculado,
+ * em vez de virar um campo editável que ninguém lembra de reconferir.
+ */
+function ResumoDifal({
+  item,
+  base,
+}: {
+  item: AssistedFiscalItem;
+  /** Base do DIFAL pela composição canônica do motor, já com a regra do frete. */
+  base: number;
+}) {
+  const numero = (texto: string) => {
+    const valor = Number(String(texto).replace(",", "."));
+    return Number.isFinite(valor) ? valor : null;
+  };
+
+  const interna = numero(item.difalAliquotaInterna);
+  const interestadual = numero(item.difalAliquotaInterestadual);
+  const fcp = numero(item.difalAliquotaFcp);
+  const partilha = numero(item.difalPercentualPartilha) ?? 100;
+  const baseFcp = numero(item.difalBaseFcp) ?? base;
+
+  if (interna === null || interestadual === null || base <= 0) return null;
+
+  const diferenca = Math.max(0, interna - interestadual);
+  const valorDifal = Number(((base * (diferenca / 100) * partilha) / 100).toFixed(2));
+  const valorFcp = fcp === null ? null : Number((baseFcp * (fcp / 100)).toFixed(2));
+
+  const linha = (rotulo: string, valor: string) => (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-muted-foreground">{rotulo}</span>
+      <span className="font-medium tabular-nums">{valor}</span>
+    </div>
+  );
+
+  return (
+    <div className="grid gap-x-6 gap-y-1 rounded-md border bg-muted/40 p-3 text-xs sm:grid-cols-2">
+      {linha("Base do DIFAL", MOEDA.format(base))}
+      {linha("Valor do DIFAL", MOEDA.format(valorDifal))}
+      {linha("Base do FCP", MOEDA.format(baseFcp))}
+      {linha(
+        "Valor do FCP",
+        valorFcp === null ? "—" : MOEDA.format(valorFcp),
+      )}
+      {linha("Partilha ao destino", `${PERCENTUAL.format(partilha)}%`)}
+      {linha(
+        "Diferença de alíquota",
+        `${PERCENTUAL.format(diferenca)}%`,
+      )}
+    </div>
+  );
+}
+
+/** O que falta para o DIFAL fechar, com a causa nomeada. */
+function PendenciasDifal({ item }: { item: AssistedFiscalItem }) {
+  const resolucao = item.difalResolucao;
+  const mensagens: string[] = [];
+
+  if (!item.difalAliquotaInterna.trim()) {
+    mensagens.push(
+      "Não foi possível determinar automaticamente a alíquota interna da UF de destino. Informe a alíquota vigente antes de emitir.",
+    );
+  }
+  if (!item.difalAliquotaFcp.trim()) {
+    mensagens.push(
+      "Não foi possível determinar automaticamente o FCP desta mercadoria na UF de destino. Confirme a tributação e informe inclusive zero quando não devido.",
+    );
+  }
+  for (const conflito of resolucao?.conflitos ?? []) {
+    mensagens.push(
+      `Regras fiscais conflitantes para ${conflito.campo}: ${conflito.regras
+        .map((regra) => `#${regra.id} (${regra.valor}%)`)
+        .join(" x ")}. Ajuste a vigência ou a prioridade de uma delas.`,
+    );
+  }
+  if (resolucao?.pendencias?.includes("NCM_INVALIDO")) {
+    mensagens.push(
+      "NCM ausente ou inválido: sem os 8 dígitos não dá para saber se esta mercadoria tem regra própria na UF de destino.",
+    );
+  }
+  if (resolucao?.pendencias?.includes("NCM_INEXISTENTE")) {
+    mensagens.push(
+      `O NCM ${onlyDigits(item.ncm) || "informado"} tem 8 dígitos mas não existe na Nomenclatura Comum do Mercosul. ` +
+        "Um código inexistente nunca casa com regra por mercadoria e cairia na regra geral da UF. Corrija o NCM no cadastro do produto.",
+    );
+  }
+
+  if (mensagens.length === 0) return null;
+  return (
+    <ul className="space-y-1 text-xs text-destructive">
+      {mensagens.map((mensagem) => (
+        <li key={mensagem}>{mensagem}</li>
+      ))}
+    </ul>
+  );
+}
+
 function contributionModeOptions(cst: string) {
   const required = getRequiredPisCofinsMode(cst);
   const options = [
@@ -168,7 +370,21 @@ export function NfeItemFiscalEditor({
   // selo descreve como o campo abriu, não o que o usuário digitou depois.
   const proc = item.procedenciaFiscal ?? {};
   // CEST é exigido quando o item retém ICMS-ST — o mesmo critério do XML.
-  const needsCest = calcularIcmsDoItem(item, setup, contextoBase).valores?.vBCST != null;
+  const icmsDoItem = calcularIcmsDoItem(item, setup, contextoBase);
+  const needsCest = icmsDoItem.valores?.vBCST != null;
+  // Base do DIFAL: a mesma que `resolverDifalDoItem` usa — a composição do
+  // ICMS próprio, que já decidiu se o frete entra (modFrete 0/3 entram por lei,
+  // nos demais vale a escolha do usuário). Repetir a fórmula aqui faria o
+  // resumo divergir do imposto assim que houvesse frete na nota.
+  const baseDifal =
+    icmsDoItem.composicaoBase?.baseIcmsProprio ??
+    Number(
+      (
+        item.quantidade * item.valorUnitario -
+        (item.valorDesconto ?? 0) +
+        Number(contextoBase?.valorFrete ?? 0)
+      ).toFixed(2),
+    );
   const issuesClassificadas = classificarIssuesFiscais(issues);
 
   const updateQuantity = (value: string) => {
@@ -257,6 +473,7 @@ export function NfeItemFiscalEditor({
                 return (
                   <div key={`${issue.code}-${issue.field}-${index}`} className="space-y-2">
                     <p>{issue.message}</p>
+                    <FontesDoAvisoFiscal fontes={issue.fontes} />
                     <div className="flex items-start gap-2">
                       <Checkbox
                         id={checkboxId}
@@ -264,10 +481,11 @@ export function NfeItemFiscalEditor({
                         onCheckedChange={(checked) => {
                           if (!checked) return;
                           onChange({
-                            avisosFiscaisConfirmados: [
-                              ...item.avisosFiscaisConfirmados.filter((code) => code !== issue.code),
-                              issue.code,
-                            ],
+                            avisosFiscaisConfirmados: alternarCienciaFiscal(
+                              item.avisosFiscaisConfirmados,
+                              issue,
+                              true,
+                            ),
                           });
                         }}
                       />
@@ -282,19 +500,9 @@ export function NfeItemFiscalEditor({
           </Alert>
         ) : null}
 
-        {issuesClassificadas.informativos.length > 0 ? (
-          <Alert className="border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
-            <Info className="h-4 w-4" />
-            <AlertTitle>Informações fiscais</AlertTitle>
-            <AlertDescription className="min-w-0">
-              <ul className="mt-1 min-w-0 list-disc space-y-1 pl-4 [overflow-wrap:anywhere]">
-                {issuesClassificadas.informativos.map((issue, index) => (
-                  <li key={`${issue.code}-${issue.field}-${index}`}>{issue.message}</li>
-                ))}
-              </ul>
-            </AlertDescription>
-          </Alert>
-        ) : null}
+        <FiscalInformationBadge
+          messages={issuesClassificadas.informativos.map((issue) => issue.message)}
+        />
 
         {issuesClassificadas.pronto ? (
           <Alert>
@@ -316,14 +524,23 @@ export function NfeItemFiscalEditor({
           <h3 className="text-sm font-semibold">Produto</h3>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-12">
             <Field label="Descrição" required className="lg:col-span-5">
-              <Input value={item.descricao} disabled />
+              {/* É o xProd da nota. Editar aqui vale só para este documento: o
+                  cadastro do produto não é alterado, e a próxima nota volta a
+                  nascer com o título dele. */}
+              <Input
+                value={item.descricao}
+                maxLength={LIMITE_XPROD}
+                onChange={(event) => onChange({ descricao: event.target.value })}
+              />
             </Field>
             <Field label="NCM" required className="lg:col-span-2">
-              <Input
+              {/* Trocar o NCM muda a assinatura fiscal do item, e o diálogo
+                  refaz a resolução do DIFAL — o mesmo caminho de sempre, sem
+                  um segundo motor. */}
+              <NcmCombobox
                 value={item.ncm}
-                maxLength={8}
-                inputMode="numeric"
-                onChange={(event) => onChange({ ncm: onlyDigits(event.target.value) })}
+                onValueChange={(ncm) => onChange({ ncm })}
+                dataFiscal={contextoBase?.dataEmissao}
               />
             </Field>
             <Field label="CFOP" required origem={proc.cfop} className="lg:col-span-2">
@@ -445,12 +662,18 @@ export function NfeItemFiscalEditor({
 
         {item.difalHabilitado ? (
           <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4 bg-card">
-            <div>
-              <h3 className="text-sm font-semibold">DIFAL — partilha para a UF de destino</h3>
-              <p className="text-xs text-muted-foreground">
-                Venda interestadual a consumidor final não contribuinte. Os valores abaixo são
-                sugestões: confira a legislação vigente da UF de destino e ajuste se necessário.
-              </p>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold">
+                  DIFAL — partilha para a UF de destino
+                  {parceiroUf ? ` (${parceiroUf})` : ""}
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Venda interestadual a consumidor final não contribuinte. Os campos são
+                  obrigatórios: sem eles a nota não sai.
+                </p>
+              </div>
+              <StatusDifal item={item} />
             </div>
             <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Alíquota interna do destino (%)" required>
@@ -458,9 +681,22 @@ export function NfeItemFiscalEditor({
                   type="number"
                   inputMode="decimal"
                   step="0.01"
-                  placeholder="Pesquise a alíquota vigente"
+                  placeholder="Informe a alíquota vigente"
                   value={item.difalAliquotaInterna}
-                  onChange={(event) => onChange({ difalAliquotaInterna: event.target.value })}
+                  onChange={(event) =>
+                    onChange({
+                      difalAliquotaInterna: event.target.value,
+                      difalCamposManuais: marcarDifalManual(
+                        item.difalCamposManuais,
+                        "aliquotaInterna",
+                      ),
+                    })
+                  }
+                />
+                <ProvenienciaDifal
+                  campo="aliquotaInterna"
+                  item={item}
+                  regra={item.difalResolucao?.regraAliquotaInterna ?? null}
                 />
               </Field>
               <Field label="Alíquota interestadual (%)" required>
@@ -469,8 +705,19 @@ export function NfeItemFiscalEditor({
                   inputMode="decimal"
                   step="0.01"
                   value={item.difalAliquotaInterestadual}
-                  onChange={(event) => onChange({ difalAliquotaInterestadual: event.target.value })}
+                  onChange={(event) =>
+                    onChange({
+                      difalAliquotaInterestadual: event.target.value,
+                      difalCamposManuais: marcarDifalManual(
+                        item.difalCamposManuais,
+                        "aliquotaInterestadual",
+                      ),
+                    })
+                  }
                 />
+                <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                  Origem da mercadoria e UFs envolvidas (Resolução do Senado 13/2012).
+                </p>
               </Field>
               <Field label="Partilha ao destino (%)">
                 <Input
@@ -478,17 +725,38 @@ export function NfeItemFiscalEditor({
                   inputMode="decimal"
                   step="0.01"
                   value={item.difalPercentualPartilha}
-                  onChange={(event) => onChange({ difalPercentualPartilha: event.target.value })}
+                  onChange={(event) =>
+                    onChange({
+                      difalPercentualPartilha: event.target.value,
+                      difalCamposManuais: marcarDifalManual(
+                        item.difalCamposManuais,
+                        "percentualPartilha",
+                      ),
+                    })
+                  }
                 />
               </Field>
-              <Field label="Alíquota FCP (%)">
+              <Field label="Alíquota FCP (%)" required>
                 <Input
                   type="number"
                   inputMode="decimal"
                   step="0.01"
-                  placeholder="0"
+                  // Sem placeholder numérico: um "0" cinza é indistinguível de um
+                  // zero informado, e a diferença entre os dois é justamente o
+                  // que decide se a nota sai.
+                  placeholder="Informe 0 se não devido"
                   value={item.difalAliquotaFcp}
-                  onChange={(event) => onChange({ difalAliquotaFcp: event.target.value })}
+                  onChange={(event) =>
+                    onChange({
+                      difalAliquotaFcp: event.target.value,
+                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "aliquotaFcp"),
+                    })
+                  }
+                />
+                <ProvenienciaDifal
+                  campo="aliquotaFcp"
+                  item={item}
+                  regra={item.difalResolucao?.regraFcp ?? null}
                 />
               </Field>
               <Field label="Base do FCP (R$)">
@@ -498,15 +766,17 @@ export function NfeItemFiscalEditor({
                   step="0.01"
                   placeholder="Mesma do DIFAL"
                   value={item.difalBaseFcp}
-                  onChange={(event) => onChange({ difalBaseFcp: event.target.value })}
+                  onChange={(event) =>
+                    onChange({
+                      difalBaseFcp: event.target.value,
+                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "baseFcp"),
+                    })
+                  }
                 />
               </Field>
             </div>
-            {!item.difalAliquotaInterna.trim() ? (
-              <p className="text-xs text-destructive">
-                Informe a alíquota interna da UF de destino para calcular o DIFAL.
-              </p>
-            ) : null}
+            <ResumoDifal item={item} base={baseDifal} />
+            <PendenciasDifal item={item} />
           </section>
         ) : null}
 

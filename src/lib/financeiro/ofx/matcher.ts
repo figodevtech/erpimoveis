@@ -114,6 +114,12 @@ const SCORE_MINIMO = 60;
 /** Diferença que ainda deixa dois candidatos empatados na prática. */
 const MARGEM_DE_EMPATE = 5;
 
+function outrosQueTambemBatem(quantidade: number, nome: "lançamento" | "título"): string {
+  return quantidade === 1
+    ? `Há outro ${nome} que também bate`
+    : `Há outros ${quantidade} ${nome}s que também batem`;
+}
+
 function diaDa(candidato: CandidatoTransacao): string {
   if (candidato.data_dia) return candidato.data_dia;
   // O ERP grava `data` com horas que variam conforme o caminho que criou a
@@ -429,6 +435,23 @@ export function analisarMovimento(
   }
 
   if (noFluxo.length > 1) {
+    /*
+     * Um único lançamento no mesmo dia do extrato é a resposta, mesmo com outros
+     * de mesmo valor em outras datas: a data igual é o caso normal, e deixar a
+     * linha ambígua só obrigaria o usuário a escolher o óbvio. As demais
+     * continuam na lista para ele conferir antes de confirmar.
+     */
+    const noMesmoDia = noFluxo.filter((sugestao) => sugestao.diferencaEmDias === 0);
+    if (noMesmoDia.length === 1) {
+      return {
+        situacao: "MATCH_EXATO",
+        score: noMesmoDia[0].score,
+        sugestoes: noFluxo,
+        acaoSugerida: "VINCULAR",
+        observacao: `Vinculado ao lançamento do mesmo dia. ${outrosQueTambemBatem(noFluxo.length - 1, "lançamento")} — confira antes de confirmar.`,
+      };
+    }
+
     return {
       situacao: "AMBIGUO",
       score: noFluxo[0].score,
@@ -473,6 +496,22 @@ export function analisarMovimento(
   );
 
   if (empatados.length > 1) {
+    // Mesmo critério do Fluxo: um único título do valor exato com data no dia
+    // do extrato desempata, ainda que outro tenha somado bônus de texto.
+    const noMesmoDia = empatados.filter(
+      (sugestao) => sugestao.diferencaEmDias === 0 && !sugestao.parcial,
+    );
+    if (noMesmoDia.length === 1) {
+      const escolhido = noMesmoDia[0];
+      return {
+        situacao: "MATCH_PROVAVEL",
+        score: escolhido.score,
+        sugestoes: [escolhido, ...aproveitaveis.filter((sugestao) => sugestao !== escolhido)],
+        acaoSugerida: "LIQUIDAR",
+        observacao: `Sugerido o título com data no dia do extrato. ${outrosQueTambemBatem(empatados.length - 1, "título")} — confira antes de confirmar.`,
+      };
+    }
+
     return {
       situacao: "AMBIGUO",
       score: melhor.score,
@@ -489,4 +528,40 @@ export function analisarMovimento(
     acaoSugerida: melhor.parcial ? "BAIXA_PARCIAL" : "LIQUIDAR",
     observacao: null,
   };
+}
+
+/**
+ * Tira o vínculo automático das linhas que disputam o mesmo lançamento.
+ *
+ * Uma transação só responde por um movimento. Duas linhas iguais no mesmo dia
+ * podem eleger o mesmo lançamento — cada uma analisada sozinha não sabe da
+ * outra —, e pré-selecionar os dois só levaria ao conflito na hora de gravar.
+ * Nenhuma delas tem motivo para ficar com ele antes da outra, então as duas
+ * voltam a ser escolha do usuário.
+ *
+ * `null` marca a linha que já foi resolvida e não entra na conta; a posição de
+ * cada item é mantida.
+ */
+export function desfazerDisputas(
+  analises: Array<AnaliseDeMovimento | null>,
+): Array<AnaliseDeMovimento | null> {
+  const eleitaPor = (analise: AnaliseDeMovimento | null) =>
+    analise?.acaoSugerida === "VINCULAR" ? (analise.sugestoes[0]?.transacaoId ?? null) : null;
+
+  const pretendentes = new Map<number, number>();
+  for (const analise of analises) {
+    const id = eleitaPor(analise);
+    if (id != null) pretendentes.set(id, (pretendentes.get(id) ?? 0) + 1);
+  }
+
+  return analises.map((analise) => {
+    const id = eleitaPor(analise);
+    if (analise == null || id == null || (pretendentes.get(id) ?? 0) < 2) return analise;
+    return {
+      ...analise,
+      situacao: "AMBIGUO",
+      acaoSugerida: null,
+      observacao: `Outra linha deste extrato bate com o mesmo lançamento (#${id}). Escolha qual delas ele representa.`,
+    };
+  });
 }

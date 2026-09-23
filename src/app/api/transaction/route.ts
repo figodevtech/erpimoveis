@@ -10,6 +10,11 @@ import { somarRecebimentosDeFace } from "@/lib/financeiro/recebimentos-do-docume
 import { aplicarCamposDocumento, erroDeDocumento } from "./_lib/documento";
 import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "./_lib/bandeira";
 import { filtroDeBusca } from "./_lib/busca";
+import {
+  aplicarRecorteDeAutoria,
+  leApenasMinhas,
+  recorteDeAutoria,
+} from "./_lib/autoria";
 import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 import { reportErpDiagnostic } from "@/lib/monitoring/erp-diagnostic";
 
@@ -87,7 +92,7 @@ const VINCULOS = new Set(["OS", "VENDA", "EVENTO", "AVULSO"]);
 const FORTALEZA_OFFSET = "-03:00";
 
 const TRANSACAO_FIELDS =
-  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, valor_baixado, baixa_de_transacao_id, transferencia_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, bandeira_id, bandeira_parcelas, bandeira_taxa_percentual, bandeira_taxa_ajustada, abonado, abonado_por, abonado_em, abono_motivo, created_at, updated_at";
+  "id, descricao, descricao_pagamento, valor, valorLiquido, valor_base, valor_acrescimos, valor_descontos, valor_baixado, baixa_de_transacao_id, transferencia_id, adiantamento_id, eh_adiantamento, pagamento_multiplo_id, nomepagador, cpfcnpjpagador, pendente, data, competencia_em, ordemservicoid, vendaid, evento_financeiro_id, metodopagamento, categoria, categoria_id, plano_de_conta, plano_de_conta_id, centro_custo, centro_custo_id, tipo, cliente_id, fornecedor_id, banco_id, documento_tipo_id, documento_numero, documento_serie, documento_chave, documento_emitido_em, documento_valor, documento_observacao, bandeira_id, bandeira_parcelas, bandeira_taxa_percentual, bandeira_taxa_ajustada, abonado, abonado_por, abonado_em, abono_motivo, created_by, created_at, updated_at";
 
 const BANCO_FIELDS =
   "id, titulo, tipo, agencia, contanumero, proprietario, valorinicial, empresa_id, created_at, updated_at";
@@ -305,6 +310,13 @@ export async function GET(req: Request) {
      * quer achá-la, não somar coluna nenhuma.
      */
     const incluirBaixas = parseBooleanParam(searchParams.get("incluirBaixas"));
+    /*
+     * Quem nao tem `financeiro:ver_todas_transacoes` so ve o que criou — e o
+     * que nao tem dono, que e quase todo o historico. O parametro nao decide
+     * nada nesse caso: quem nao pode ver tudo nao ganha uma chave para desligar
+     * o proprio limite. Para quem tem a permissao, ele e o recorte opcional.
+     */
+    const recorte = await recorteDeAutoria(leApenasMinhas(searchParams.get("apenasMinhas")));
 
     // Padrão: mais novo primeiro (extrato). "asc" serve às visões de contas a
     // pagar/receber, onde o que vence antes precisa aparecer antes.
@@ -338,7 +350,8 @@ export async function GET(req: Request) {
         centro_custo_dados:centrosdecusto!transacao_centro_custo_id_fkey ( id, nome, descricao, ativo ),
         bandeira_dados:bandeira_cartao!transacao_bandeira_id_fkey ( id, nome, metodopagamento ),
         fornecedor:fornecedor!transacao_fornecedor_id_fkey ( id, nomerazaosocial, nomefantasia, cpfcnpj ),
-        pagamento_multiplo:pagamento_multiplo_id ( id, descricao, modo, valor_total, data )
+        pagamento_multiplo:pagamento_multiplo_id ( id, descricao, modo, valor_total, data ),
+        criador:usuario!transacao_created_by_fkey ( id, nome )
         `,
         { count: "exact" }
       )
@@ -403,6 +416,9 @@ export async function GET(req: Request) {
     if (vinculo === "AVULSO") {
       query = query.is("ordemservicoid", null).is("vendaid", null).is("evento_financeiro_id", null);
     }
+    // Depois da busca: as duas viram `or=` separados, e filtros de topo se
+    // somam em AND — um nao anula o outro.
+    query = aplicarRecorteDeAutoria(query, recorte);
 
     diagnosticStage = "QUERY_TRANSACTIONS";
     const { data, error, count } = await query;
@@ -444,6 +460,7 @@ export async function GET(req: Request) {
         valorMax: valorMax ?? null,
         vinculo: vinculo || null,
         incluirBaixas,
+        apenasMinhas: recorte.restrito,
         ordem: ascending ? "asc" : "desc",
         ordenarPor,
       },
@@ -695,6 +712,12 @@ export async function POST(req: Request) {
           valorLiquido: centsToNumber(parcelasNetCents[index] ?? parcelasGrossCents[index] ?? 0),
           data: hasParcelamento ? parcelasDetalhadas[index]?.data : payload.data,
           pendente: pendenteLinha,
+          // Quem criou a linha, sempre — inclusive na parcela que nasce
+          // pendente e ainda nem tem baixa. E o que a listagem usa para saber
+          // de quem e cada transacao, e o que a aba Historico mostra em
+          // "Criada por", ate aqui vazia para todo lancamento avulso.
+          // Fora de WRITABLE_FIELDS de proposito: autor nao vem do corpo.
+          created_by: baixadoPor,
           // Parcela pendente ainda sera baixada depois, por baixar_transacao_pendente.
           baixado_por: pendenteLinha ? null : baixadoPor,
         };

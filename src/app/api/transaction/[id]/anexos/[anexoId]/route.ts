@@ -9,6 +9,7 @@ import {
 } from "@/app/api/transaction/_lib/anexos";
 import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string; anexoId: string }> };
 
@@ -41,6 +42,7 @@ export async function DELETE(_request: NextRequest, ctx: Params) {
     if (!transacao) {
       return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
     }
+    await exigirAcessoATransacao(transacaoId);
 
     const { data: anexo, error: selectError } = await supabaseAdmin
       .from("transacao_anexo")

@@ -1,6 +1,5 @@
 "use client";
-"use cliente";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Cards from "./components/cards";
 import axios from "axios";
 import {
@@ -10,7 +9,8 @@ import {
   VendaStatusMetricsData,
 } from "./types";
 import VendasDataTable from "./components/vendas-data-table";
-import { PaymentListFilters } from "../../(financeiro)/components/payments-filter-sheet";
+import { dataDoFiltro, type VendasListFilters } from "@/lib/vendas/filtros";
+import { toast } from "@/lib/toast";
 
 function formatMonthFromDate(date: Date): string {
   const year = date.getFullYear();
@@ -37,36 +37,38 @@ export default function HistoricoVendas() {
     limit: 20,
     totalPages: 0,
   });
+  const requisicao = useRef<AbortController | null>(null);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<PaymentListFilters>({
+  const [filters, setFilters] = useState<VendasListFilters>({
     cliente: "",
     notaNumero: "",
   });
 
-  const handleGetVendas = async (
+  const handleGetVendas = useCallback(async (
     pageNumber?: number,
     limit?: number,
     searchText?: string,
-    statusValue?: vendaStatus | "TODOS",
-    listFilters?: PaymentListFilters,
+    _statusValue?: vendaStatus | "TODOS",
+    listFilters?: VendasListFilters,
   ) => {
+    requisicao.current?.abort();
+    const controller = new AbortController();
+    requisicao.current = controller;
     setIsLoading(true);
     try {
       const activeFilters = listFilters ?? filters;
       const response = await axios.get("/api/venda", {
+        signal: controller.signal,
         params: {
           page: pageNumber || 1,
-          limit: pagination.limit,
+          limit: limit || pagination.limit,
           search: searchText || undefined,
-          status: statusValue || "TODOS",
+          status: activeFilters.status || "TODOS",
+          statusEntrega: activeFilters.statusEntrega || "",
           cliente: activeFilters.cliente || "",
           notaNumero: activeFilters.notaNumero || "",
-          dateFrom: activeFilters.dataInicio
-            ? activeFilters.dataInicio.toISOString().slice(0, 10)
-            : "",
-          dateTo: activeFilters.dataFim
-            ? activeFilters.dataFim.toISOString().slice(0, 10)
-            : "",
+          dateFrom: dataDoFiltro(activeFilters.dataInicio),
+          dateTo: dataDoFiltro(activeFilters.dataFim),
           apenasMinhas: activeFilters.apenasMinhas ? "1" : "",
           canal: activeFilters.canal || "",
           categoriaVendaId: activeFilters.categoriaVendaId || "",
@@ -75,18 +77,24 @@ export default function HistoricoVendas() {
           valorMax: activeFilters.valorMax ?? "",
         },
       });
-      if (response.status === 200) {
+      if (!controller.signal.aborted && response.status === 200) {
         const { data } = response;
         setVendas(data.data);
         setPagination(data.pagination);
       }
-    } catch {
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setVendas([]);
+      setPagination({ total: 0, page: 1, limit: limit || pagination.limit, totalPages: 1 });
+      toast.error("Erro ao buscar vendas", {
+        description: axios.isAxiosError(error) ? error.response?.data?.error || "Tente novamente." : "Tente novamente.",
+      });
     } finally {
-      setIsLoading(false);
+      if (!controller.signal.aborted) setIsLoading(false);
     }
-  };
+  }, [filters, pagination.limit]);
 
-  async function fetchMetrics() {
+  const fetchMetrics = useCallback(async () => {
     try {
       setLoadingStatusCounter(true);
 
@@ -101,19 +109,18 @@ export default function HistoricoVendas() {
     } finally {
       setLoadingStatusCounter(false);
     }
-  }
+  }, [month]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       handleGetVendas(1, pagination.limit, search, status);
     }, 350);
 
-    return () => window.clearTimeout(timeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search]);
+    return () => { window.clearTimeout(timeout); requisicao.current?.abort(); };
+  }, [search, status, pagination.limit, handleGetVendas]);
   useEffect(() => {
     fetchMetrics();
-  }, [, month]);
+  }, [fetchMetrics]);
 
   return (
     <div className="mx-auto space-y-6">

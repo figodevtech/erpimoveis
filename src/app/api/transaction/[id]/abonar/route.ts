@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireFinanceiroEdit } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -12,6 +13,7 @@ export async function POST(req: NextRequest, ctx: Params) {
     await requireFinanceiroEdit();
     const session = await auth();
     const { id } = await ctx.params;
+    await exigirAcessoATransacao(Number(id));
     if (!/^\d+$/.test(id) || id === "0") {
       return NextResponse.json({ error: "Transação inválida." }, { status: 400 });
     }

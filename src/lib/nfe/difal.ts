@@ -1,4 +1,11 @@
 import type { NFeItem } from './types';
+import {
+  casarRegrasDifal,
+  normalizarNcm,
+  type CampoResolvido,
+  type OrigemValorDifal,
+  type RegraDifal,
+} from './difalRegras';
 
 /**
  * DIFAL — partilha do ICMS para a UF de destino (grupo ICMSUFDest, NF-e 4.00).
@@ -31,6 +38,10 @@ export type ContextoDifal = {
   tpNF?: number | string;
   finNFe?: number;
   ufEntrega?: string | null;
+  crt?: number | string | null;
+  modelo?: number | string | null;
+  /** Data fiscal do documento (YYYY-MM-DD), usada para escolher a regra vigente. */
+  dataEmissao?: string | null;
 };
 
 /**
@@ -46,6 +57,9 @@ export type ContextoDifalCanonico = {
   tpNF: string;
   finNFe: number;
   ufEntrega: string | null;
+  /** Ausentes nos snapshots gravados antes do motor de regras. */
+  crt?: string | null;
+  modelo?: string | null;
 };
 
 /**
@@ -170,6 +184,20 @@ export function cfopDispensaDifal(cfop: unknown): boolean {
 /**
  * O grupo entra apenas na saida interestadual a consumidor final nao
  * contribuinte, com item fora do ISSQN e CFOP que caracterize venda.
+ *
+ * As dispensas seguem as exceções da NA01-20 como publicadas na NT 2025.002-RTC
+ * v1.33 (dez/2025), a versão vigente da regra:
+ *
+ *   exceção 5   NF-e de entrada (tpNF=0)
+ *   exceção 7   UF do local de entrega igual à do emitente
+ *   exceção 9   CFOP 6.552, 6.922 e 6.929
+ *   exceção 10  isentas, imunes e não tributadas (CST 40/41, CSOSN 103/300/400)
+ *   exceção 11  finNFe 2 (complementar), 3 (ajuste), 5 (crédito) e 6 (débito)
+ *   exceção 12  emitente optante pelo Simples Nacional (CRT 1 ou 4)
+ *
+ * As exceções 4 e 8 (CFOP de retorno e de remessa, pelos indicadores indRetor e
+ * indRemes da tabela CFOP) entram por FINAIS_CFOP_SEM_DIFAL, que lista os
+ * finais correntes em vez de carregar a tabela inteira.
  */
 export function deveGerarICMSUFDest(params: {
   ufEmitente: string;
@@ -183,11 +211,25 @@ export function deveGerarICMSUFDest(params: {
   csosn?: string | null;
   finNFe?: number;
   ufEntrega?: string | null;
+  /** CRT do emitente. 1 e 4 (Simples Nacional e MEI) dispensam o grupo. */
+  crt?: number | string | null;
+  /** Modelo do documento. A NFC-e (65) não leva o grupo. */
+  modelo?: number | string | null;
 }): boolean {
   const destino = normalizarUf(params.ufDestinatario);
 
   // Exportacao tem regime proprio; nao gera partilha de ICMS interestadual.
   if (destino === "EX") return false;
+
+  // NA01-10: NFC-e com o grupo é rejeição 807. O modelo é opcional para não
+  // quebrar chamadas antigas, que sempre foram de NF-e.
+  if (params.modelo != null && String(params.modelo) === "65") return false;
+
+  // NA01-20, exceção 12: o Simples Nacional não recolhe o DIFAL da EC 87/2015
+  // (cláusula nona do Convênio ICMS 93/2015, suspensa pelo STF na ADI 5464), e
+  // a regra de validação dispensa o grupo para CRT 1 e 4. Ausente o CRT, o
+  // comportamento é o de antes: decide pelos demais critérios.
+  if (params.crt != null && ["1", "4"].includes(String(params.crt))) return false;
 
   // Entrada nao gera DIFAL de saida. Default 1 preserva chamadas antigas.
   if (String(params.tpNF ?? 1) !== "1") return false;
@@ -195,7 +237,7 @@ export function deveGerarICMSUFDest(params: {
   // NA01-20, exceções 7, 10 e 11; não inferir benefício a partir de alíquota.
   if (params.ufEntrega && normalizarUf(params.ufEntrega) === normalizarUf(params.ufEmitente)) return false;
   if (['40', '41'].includes(params.cst ?? '') || ['103', '300', '400'].includes(params.csosn ?? '')) return false;
-  if (params.finNFe === 2 || params.finNFe === 3) return false;
+  if ([2, 3, 5, 6].includes(Number(params.finNFe))) return false;
   // Devolucao, remessa, retorno e transferencia nao sao venda a consumidor final.
   if (cfopDispensaDifal(params.cfop)) return false;
 
@@ -337,6 +379,8 @@ function contextoCanonico(contexto: ContextoDifal): ContextoDifalCanonico {
     tpNF: String(contexto.tpNF ?? 1),
     finNFe: Number(contexto.finNFe ?? 1),
     ufEntrega: contexto.ufEntrega ? normalizarUf(contexto.ufEntrega) : null,
+    crt: contexto.crt == null ? null : String(contexto.crt),
+    modelo: contexto.modelo == null ? null : String(contexto.modelo),
   };
 }
 
@@ -378,8 +422,16 @@ export function validarDifalCanonicoDoItem(item: NFeItem, contexto: ContextoDifa
   }
 
   const atual = contextoCanonico(contexto);
+  // crt e modelo passaram a ser gravados junto com o motor de regras. Quando o
+  // snapshot não os registrou — nota decidida antes disso, ou por um caminho
+  // que não conhecia o CRT —, não há o que comparar: ausência é "não sei",
+  // não divergência. Tratá-la como divergência invalidaria rascunhos corretos.
+  const opcionais: Array<keyof ContextoDifalCanonico> = ['crt', 'modelo'];
   const divergencias = (Object.keys(atual) as Array<keyof ContextoDifalCanonico>)
-    .filter((campo) => gravado[campo] !== atual[campo]);
+    .filter((campo) => {
+      if (opcionais.includes(campo) && gravado[campo] == null) return false;
+      return gravado[campo] !== atual[campo];
+    });
   if (item.difalDecisao?.ufDestino !== atual.ufDestino && !divergencias.includes('ufDestino')) {
     divergencias.push('ufDestino');
   }
@@ -388,32 +440,208 @@ export function validarDifalCanonicoDoItem(item: NFeItem, contexto: ContextoDifa
   }
 }
 
-/** Proveniência gravada junto do item e usada tanto na prévia quanto no XML. */
-export function resolverDifalDoItem(item: NFeItem, contexto: ContextoDifal): NFeItem {
-  if (!deveGerarICMSUFDest({ ...contexto, cfop: item.cfop, cst: item.cstIcms ?? item.cst, csosn: item.csosn })) return item;
-  const resolvida = resolverAliquotaInternaDestino(contexto.ufDestinatario, item.aliquotaInternaDestino);
-  const avisos = [
-    ...(resolvida.origem === 'TABELA' ? ['Alíquota interna obtida de tabela genérica por UF; não considera NCM, benefício ou vigência específica do produto. Configure a alíquota de destino.'] : []),
-    ...(item.aliquotaFcpDestino == null ? ['FCP de destino não configurado; confirme a incidência e informe inclusive zero quando não devido.'] : []),
-  ];
-  return { ...item, difalDecisao: {
-    origemAliquotaInterna: resolvida.origem, ufDestino: normalizarUf(contexto.ufDestinatario),
-    aliquotaInterna: resolvida.aliquota, origemFcp: item.aliquotaFcpDestino == null ? 'NAO_CONFIGURADO' : 'ITEM',
-    aviso: avisos.join(' ') || null, contexto: contextoCanonico(contexto),
-  }, icmsUfDest: montarICMSUFDest({
-    baseCalculo: item.icmsDecisao?.composicaoBase?.baseIcmsProprio ?? valorOperacaoDifal(item),
-    baseCalculoFcp: item.baseCalculoFcpDestino,
-    ufEmitente: contexto.ufEmitente, ufDestinatario: contexto.ufDestinatario,
-    origemMercadoria: item.orig, aliquotaInternaDestino: item.aliquotaInternaDestino,
-    aliquotaInterestadual: item.aliquotaInterestadual, aliquotaFcpDestino: item.aliquotaFcpDestino,
-    percentualPartilhaDestino: item.percentualPartilhaDestino,
-  }) };
+/**
+ * Resolve um campo do DIFAL na ordem: override manual explícito, regra fiscal
+ * versionada, valor que veio no item, tabela de referência.
+ *
+ * A regra vem ANTES do valor do item de propósito. A tela resolve o DIFAL no
+ * carregamento e devolve os mesmos números no payload; se o valor do item
+ * ganhasse, o servidor gravaria "22,5 veio do ITEM" para um número que veio da
+ * regra do PI — e o snapshot perderia regraId, vigência, fonte e fundamento,
+ * que são justamente o que responde "por que esta nota usou 22,5%?". Pior: o
+ * navegador passaria a ditar alíquota sem deixar rastro.
+ *
+ * O valor do item só vence quando vem marcado como override manual, e aí a
+ * proveniência diz isso. Sem marca e sem regra, ele ainda serve de último
+ * recurso — é o caso da NF-e avulsa numa UF que ainda não tem regra cadastrada.
+ */
+function resolverCampoDifal(params: {
+  valorDoItem: number | null | undefined;
+  overrideManual: boolean | undefined;
+  daRegra: CampoResolvido | null;
+}): { valor: number | null; origem: OrigemValorDifal; regra: CampoResolvido | null } {
+  if (params.valorDoItem != null && params.overrideManual) {
+    return { valor: Number(params.valorDoItem), origem: 'MANUAL', regra: null };
+  }
+  if (params.daRegra) {
+    return { valor: params.daRegra.valor, origem: params.daRegra.origem, regra: params.daRegra };
+  }
+  if (params.valorDoItem != null) {
+    return { valor: Number(params.valorDoItem), origem: 'ITEM', regra: null };
+  }
+  return { valor: null, origem: 'NAO_CONFIGURADO', regra: null };
 }
 
 /**
- * Pendência de configuração do DIFAL do item. A tabela ALIQUOTA_INTERNA_POR_UF
- * é referência genérica por UF (não conhece NCM, benefício nem vigência): sem a
- * alíquota interna do destino e o FCP configurados na emissão, a nota não sai.
+ * Decide o DIFAL do item e grava a proveniência junto: qual regra respondeu por
+ * cada campo, em que vigência, com que fonte e fundamento.
+ *
+ * O snapshot gravado aqui é o que vai para a prévia e para o XML. Alterar uma
+ * regra em fiscal_difal_regra depois disso não mexe em nota nenhuma: quem
+ * recalcula é uma nova resolução, disparada por mudança de contexto fiscal.
+ */
+export function resolverDifalDoItem(
+  item: NFeItem,
+  contexto: ContextoDifal,
+  opcoes?: {
+    regras?: RegraDifal[];
+    /**
+     * O NCM do item existe na NCM oficial? `undefined` quer dizer que o
+     * catálogo não foi consultado (tabela fiscal_ncm ainda vazia) — nesse caso
+     * a checagem de existência fica desligada e vale só o formato.
+     */
+    ncmConhecido?: boolean;
+  },
+): NFeItem {
+  if (!deveGerarICMSUFDest({ ...contexto, cfop: item.cfop, cst: item.cstIcms ?? item.cst, csosn: item.csosn })) return item;
+
+  const ufDestino = normalizarUf(contexto.ufDestinatario);
+  const dataEmissao = String(contexto.dataEmissao ?? '').slice(0, 10);
+  const casamento = casarRegrasDifal(opcoes?.regras ?? [], {
+    ufDestino,
+    dataEmissao,
+    ncm: item.ncm,
+    cest: item.cest,
+  });
+
+  const override = item.overrideDifalManual;
+  const interna = resolverCampoDifal({
+    valorDoItem: item.aliquotaInternaDestino,
+    overrideManual: override?.aliquotaInterna,
+    daRegra: casamento.aliquotaInterna,
+  });
+  const fcp = resolverCampoDifal({
+    valorDoItem: item.aliquotaFcpDestino,
+    overrideManual: override?.aliquotaFcp,
+    daRegra: casamento.aliquotaFcp,
+  });
+
+  // Último recurso: a tabela genérica por UF. Ela preenche o cálculo para a
+  // prévia não quebrar, mas fica marcada como referência e bloqueia a emissão.
+  let internaValor = interna.valor;
+  let internaOrigem = interna.origem;
+  if (internaValor == null) {
+    const daTabela = ALIQUOTA_INTERNA_POR_UF[ufDestino];
+    if (Number.isFinite(daTabela) && daTabela > 0) {
+      internaValor = daTabela;
+      internaOrigem = 'TABELA_REFERENCIA';
+    }
+  }
+
+  const ncmNormalizado = normalizarNcm(item.ncm);
+  const pendencias: DifalPendencia[] = [];
+  if (!ufDestino || !dataEmissao) {
+    pendencias.push('CONTEXTO_INCOMPLETO');
+  }
+  if (!ncmNormalizado) {
+    pendencias.push('NCM_INVALIDO');
+  } else if (opcoes?.ncmConhecido === false) {
+    pendencias.push('NCM_INEXISTENTE');
+  }
+  if (casamento.conflitos.length > 0) {
+    pendencias.push('REGRA_CONFLITANTE');
+  }
+  if (internaValor == null) {
+    pendencias.push('ALIQUOTA_INTERNA_NAO_DETERMINADA');
+  } else if (internaOrigem === 'TABELA_REFERENCIA') {
+    pendencias.push('ALIQUOTA_INTERNA_SEM_REGRA');
+  }
+  if (fcp.valor == null) {
+    pendencias.push('FCP_NAO_DETERMINADO');
+  }
+
+  return {
+    ...item,
+    difalDecisao: {
+      ufDestino,
+      dataResolucao: dataEmissao || null,
+      aliquotaInterna: internaValor,
+      origemAliquotaInterna: internaOrigem,
+      regraAliquotaInterna: interna.regra,
+      aliquotaFcp: fcp.valor,
+      origemFcp: fcp.origem,
+      regraFcp: fcp.regra,
+      conflitos: casamento.conflitos,
+      pendencias,
+      resolvidoAutomaticamente:
+        pendencias.length === 0 && (internaOrigem !== 'ITEM' || fcp.origem !== 'ITEM'),
+      contexto: contextoCanonico(contexto),
+    },
+    icmsUfDest: montarICMSUFDest({
+      baseCalculo: item.icmsDecisao?.composicaoBase?.baseIcmsProprio ?? valorOperacaoDifal(item),
+      baseCalculoFcp: item.baseCalculoFcpDestino,
+      ufEmitente: contexto.ufEmitente,
+      ufDestinatario: contexto.ufDestinatario,
+      origemMercadoria: item.orig,
+      aliquotaInternaDestino: internaValor,
+      aliquotaInterestadual: item.aliquotaInterestadual,
+      aliquotaFcpDestino: fcp.valor,
+      percentualPartilhaDestino: item.percentualPartilhaDestino,
+    }),
+  };
+}
+
+/** Motivos pelos quais o DIFAL de um item não fecha sozinho. */
+export type DifalPendencia =
+  | 'CONTEXTO_INCOMPLETO'
+  | 'NCM_INVALIDO'
+  | 'NCM_INEXISTENTE'
+  | 'REGRA_CONFLITANTE'
+  | 'ALIQUOTA_INTERNA_NAO_DETERMINADA'
+  | 'ALIQUOTA_INTERNA_SEM_REGRA'
+  | 'FCP_NAO_DETERMINADO';
+
+const MENSAGEM_PENDENCIA: Record<DifalPendencia, { code: string; field: string; message: string }> = {
+  CONTEXTO_INCOMPLETO: {
+    code: 'NFE_DIFAL_CONTEXTO_INCOMPLETO',
+    field: 'aliquotaInternaDestino',
+    message: 'Contexto fiscal incompleto para resolver o DIFAL.',
+  },
+  NCM_INVALIDO: {
+    code: 'NFE_DIFAL_NCM_INVALIDO',
+    field: 'ncm',
+    message:
+      'NCM ausente ou inválido (são 8 dígitos). Sem ele não dá para saber se a mercadoria tem regra própria de alíquota ou de FCP na UF de destino, e o motor não escolhe por semelhança.',
+  },
+  NCM_INEXISTENTE: {
+    code: 'NFE_DIFAL_NCM_INEXISTENTE',
+    field: 'ncm',
+    message:
+      'O NCM informado tem 8 dígitos mas não existe na Nomenclatura Comum do Mercosul. Um código inexistente nunca casa com regra por mercadoria e cairia na regra geral da UF, tributando errado sem avisar. Corrija o NCM no cadastro do produto.',
+  },
+  REGRA_CONFLITANTE: {
+    code: 'NFE_DIFAL_REGRA_CONFLITANTE',
+    field: 'aliquotaInternaDestino',
+    message:
+      'Duas regras fiscais igualmente específicas valem nesta data e discordam do valor. A escolha é de quem mantém o cadastro fiscal, não do sistema: ajuste a vigência ou a prioridade de uma delas.',
+  },
+  ALIQUOTA_INTERNA_NAO_DETERMINADA: {
+    code: 'NFE_DIFAL_ALIQUOTA_INTERNA_NAO_DETERMINADA',
+    field: 'aliquotaInternaDestino',
+    message:
+      'Não foi possível determinar automaticamente a alíquota interna da UF de destino nesta data. Informe a alíquota vigente antes de emitir.',
+  },
+  ALIQUOTA_INTERNA_SEM_REGRA: {
+    code: 'NFE_DIFAL_ALIQUOTA_INTERNA_SEM_REGRA',
+    field: 'aliquotaInternaDestino',
+    message:
+      'A alíquota interna veio da tabela genérica por UF, que não conhece NCM, benefício nem vigência. Cadastre a regra fiscal da UF de destino ou informe a alíquota no item.',
+  },
+  FCP_NAO_DETERMINADO: {
+    code: 'NFE_DIFAL_FCP_NAO_DETERMINADO',
+    field: 'aliquotaFcpDestino',
+    message:
+      'Não foi possível determinar automaticamente o FCP desta mercadoria na UF de destino. Confirme a tributação e informe inclusive zero quando não devido.',
+  },
+};
+
+/**
+ * Pendências que impedem a emissão. Cada uma nomeia a sua causa, porque a
+ * anterior — um bloqueio único para qualquer aviso — não dizia ao operador se
+ * faltava alíquota, faltava FCP ou havia conflito de regra.
+ *
+ * O que NÃO bloqueia: valor determinado por regra versionada, inclusive FCP
+ * igual a zero. Zero vindo de regra é resposta fiscal, não ausência de resposta.
  * Servidor e tela usam esta mesma função.
  */
 export function issuesDifalDoItem(item: NFeItem): Array<{
@@ -422,14 +650,32 @@ export function issuesDifalDoItem(item: NFeItem): Array<{
   field: string;
   message: string;
 }> {
-  const aviso = item.difalDecisao?.aviso;
-  if (!aviso) return [];
-  return [{
-    code: 'NFE_DIFAL_CONFIGURACAO_REQUIRED',
-    severidade: 'BLOQUEIO',
-    field: 'aliquotaInternaDestino',
-    message: `${aviso} O ERP exige configuração fiscal explícita para gerar o rascunho; a tabela serve apenas de referência.`,
-  }];
+  const decisao = item.difalDecisao;
+  if (!decisao?.pendencias?.length) return [];
+
+  return decisao.pendencias.map((pendencia) => {
+    const base = MENSAGEM_PENDENCIA[pendencia];
+    let detalhe = '';
+    if (pendencia === 'REGRA_CONFLITANTE' && decisao.conflitos?.length) {
+      detalhe = ` Em disputa: ${decisao.conflitos
+        .map((c) => `${c.campo} (${c.regras.map((r) => `#${r.id} = ${r.valor}%`).join(' x ')})`)
+        .join('; ')}.`;
+    }
+    if (pendencia === 'CONTEXTO_INCOMPLETO') {
+      // Dizer "faltam a UF ou a data" obriga quem lê a descobrir qual das duas.
+      const faltando = [
+        !decisao.ufDestino ? 'a UF de destino' : null,
+        !decisao.dataResolucao ? 'a data de emissão' : null,
+      ].filter(Boolean);
+      if (faltando.length) detalhe = ` Falta ${faltando.join(' e ')}.`;
+    }
+    return {
+      code: base.code,
+      severidade: 'BLOQUEIO' as const,
+      field: base.field,
+      message: `${base.message}${detalhe}`,
+    };
+  });
 }
 
 function valorOperacaoDifal(item: NFeItem) {

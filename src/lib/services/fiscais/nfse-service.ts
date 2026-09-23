@@ -371,12 +371,31 @@ function validarItensEmissao(itens: NFSeItemEmissao[]) {
     throw new NFSeValidationError("Selecione ao menos um serviço para emitir a NFS-e.");
   }
 
-  const ids = new Set<number>();
+  /*
+   * A identidade de uma linha de serviço é o par (OS, serviço), não o serviço
+   * sozinho: `osservico` tem PK (ordemservicoid, servicoid), então o mesmo
+   * serviço do catálogo aparece no máximo uma vez POR OS — e legitimamente em
+   * várias OS diferentes.
+   *
+   * Enquanto a nota cobria uma OS só, comparar `servicoid` dava no mesmo. Numa
+   * nota agrupada não dá: duas OS com "Revisão completa" são duas linhas
+   * distintas, e recusá-las como duplicadas impediria justamente o caso mais
+   * comum de agrupamento — o mesmo serviço repetido em várias ordens.
+   */
+  const chaves = new Set<string>();
   itens.forEach((item, index) => {
-    if (!Number.isInteger(item.servicoid) || item.servicoid <= 0 || ids.has(item.servicoid)) {
-      throw new NFSeValidationError(`O serviço ${index + 1} possui um identificador inválido ou duplicado.`);
+    const chave = `${item.ordemServicoId ?? "ancora"}:${item.servicoid}`;
+    if (!Number.isInteger(item.servicoid) || item.servicoid <= 0) {
+      throw new NFSeValidationError(`O serviço ${index + 1} possui um identificador inválido.`);
     }
-    ids.add(item.servicoid);
+    if (chaves.has(chave)) {
+      throw new NFSeValidationError(
+        item.ordemServicoId
+          ? `O serviço ${item.servicoid} da OS ${item.ordemServicoId} foi informado mais de uma vez.`
+          : `O serviço ${index + 1} foi informado mais de uma vez.`,
+      );
+    }
+    chaves.add(chave);
 
     if (!Number.isFinite(item.quantidade) || item.quantidade <= 0) {
       throw new NFSeValidationError(`Informe uma quantidade válida para o serviço ${index + 1}.`);
@@ -474,7 +493,11 @@ function valorTotalServicos(itens: NFSeItemEmissao[]) {
 }
 
 function criarReferencia(osId: number, itens: NFSeItemEmissao[]) {
-  return criarReferenciaPorServicos(osId, itens.map((item) => item.servicoid));
+  // Numa nota agrupada o mesmo serviço pode vir de duas OS; sem o dedupe a
+  // referência sairia com "7-7". Ela identifica a tentativa de emissão para a
+  // Focus, não o conteúdo da nota — quem guarda o leque completo é
+  // nfse_os_servico_vinculo.
+  return criarReferenciaPorServicos(osId, [...new Set(itens.map((item) => item.servicoid))]);
 }
 
 /**

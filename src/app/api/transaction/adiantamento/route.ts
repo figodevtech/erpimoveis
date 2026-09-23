@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireFinanceiroEdit } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao } from "../_lib/autoria";
 
 /**
  * Baixa por adiantamento: várias parcelas liquidadas por um único movimento.
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
     if (limpos.length === 0) {
       return NextResponse.json({ error: "Nenhuma transação válida." }, { status: 400 });
     }
+    await exigirAcessoATransacao(limpos);
 
     // Meio-dia no fuso do Brasil, mesma regra da baixa individual: a data chega
     // como dia puro e precisa cair no dia certo depois da conversão.
@@ -155,6 +157,7 @@ export async function GET(req: NextRequest) {
 
     if (atualError) throw atualError;
     if (!atual) return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
+    await exigirAcessoATransacao(id);
 
     // A aba serve aos dois lados: quem antecipou (lista as parcelas) e a parcela
     // antecipada (mostra o lançamento que trouxe o dinheiro).

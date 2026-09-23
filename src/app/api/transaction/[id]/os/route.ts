@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroDelete } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
+import { exigirAcessoATransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -34,6 +35,7 @@ export async function DELETE(_: Request, ctx: Params) {
   try {
     await requireFinanceiroDelete();
     const id = await parseId(ctx);
+    await exigirAcessoATransacao(id);
 
     // 1) Buscar a transação para obter OS ou VENDA e tipo
     const { data: tx, error: txErr } = await supabaseAdmin
@@ -163,7 +165,13 @@ export async function DELETE(_: Request, ctx: Params) {
     return new NextResponse(null, { status: 204 });
   } catch (e: any) {
     const msg = e?.message ?? "Erro ao deletar transação.";
-    const status = msg.includes("ID inválido") ? 400 : 500;
+    const statusAutorizacao = Number(e?.statusCode);
+    const status =
+      statusAutorizacao === 401 || statusAutorizacao === 403
+        ? statusAutorizacao
+        : msg.includes("ID inválido")
+          ? 400
+          : 500;
     return NextResponse.json({ error: msg }, { status });
   }
 }

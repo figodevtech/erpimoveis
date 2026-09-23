@@ -65,7 +65,8 @@ import { PedidoOnlineDialog } from "./pedido-online-dialog";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import { useConfig } from "../../../config-context";
-import { PaymentListFilters, PaymentsFilterSheet } from "../../../(financeiro)/components/payments-filter-sheet";
+import { quantidadeFiltros, type VendasListFilters } from "@/lib/vendas/filtros";
+import { VendasFiltros } from "./vendas-filtros";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import {
   dadosParaFinanceiroDaVenda,
@@ -83,14 +84,14 @@ interface VendasDataTableProps {
   pagination: Pagination;
   search: string;
   setSearch: (value: string) => void;
-  filters: PaymentListFilters;
-  setFilters: (value: PaymentListFilters) => void;
+  filters: VendasListFilters;
+  setFilters: (value: VendasListFilters) => void;
   handleGetVendas: (
     pageNumber?: number,
     limit?: number,
     searchText?: string,
     status?: vendaStatus | "TODOS",
-    filters?: PaymentListFilters,
+    filters?: VendasListFilters,
   ) => Promise<void>;
   fetchStatusCounts: () => Promise<void>;
   status: vendaStatus | "TODOS";
@@ -309,7 +310,6 @@ export default function VendasDataTable({
   );
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkVenda, setLinkVenda] = useState<VendaComItens | null>(null);
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelVendaId, setCancelVendaId] = useState<number | null>(null);
   const [cancelMotivo, setCancelMotivo] = useState("");
@@ -327,16 +327,7 @@ export default function VendasDataTable({
     (session?.user as any)?.permissoes,
     PERMS.FINANCEIRO_NOTAS_FISCAIS,
   );
-  const hasActiveFilters = Boolean(
-    filters.dataInicio ||
-      filters.dataFim ||
-      filters.apenasMinhas ||
-      filters.canal ||
-      filters.categoriaVendaId ||
-      filters.vendedorId ||
-      filters.valorMin != null ||
-      filters.valorMax != null,
-  );
+  const hasActiveFilters = quantidadeFiltros(filters) > 0;
 
   const toggleApenasMinhas = () => {
     const next = { ...filters, apenasMinhas: !filters.apenasMinhas };
@@ -592,16 +583,19 @@ export default function VendasDataTable({
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-full sm:w-96">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="ID, valor, cliente, CPF/CNPJ ou nota..."
+                placeholder="Cliente, CPF/CNPJ, produto, nota, valor..."
+                title="Busque por venda, cliente, documento, telefone, e-mail, produto, referência, código de barras, vendedor, categoria, nota, rastreio ou observações"
+                maxLength={200}
                 aria-label="Buscar no histórico de vendas"
-                className="pl-9"
+                className="pl-9 pr-14"
               />
+              {search && <Button type="button" size="sm" variant="ghost" className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-2 text-xs" onClick={() => setSearch("")} aria-label="Limpar busca">Limpar</Button>}
             </div>
             {canEdit && (
               <Button
@@ -644,19 +638,10 @@ export default function VendasDataTable({
                 Limpar filtros
               </Button>
             )}
-            <PaymentsFilterSheet
-              showTextFilters={false}
-              open={filtersOpen}
-              onOpenChange={setFiltersOpen}
-              filters={filters}
-              onFiltersChange={setFilters}
-              onAplicar={() => handleGetVendas(1, pagination.limit, search, status, filters)}
-              onLimpar={() => {
-                const cleared = { cliente: "", notaNumero: "" };
-                setFilters(cleared);
-                handleGetVendas(1, pagination.limit, search, status, cleared);
-              }}
-            />
+            <VendasFiltros filters={filters} onApply={(next) => {
+              setFilters(next);
+              void handleGetVendas(1, pagination.limit, search, status, next);
+            }} />
           </div>
         </div>
       </CardHeader>

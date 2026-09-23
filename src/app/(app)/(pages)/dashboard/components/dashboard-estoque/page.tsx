@@ -4,13 +4,17 @@ import * as React from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
+  Banknote,
   Boxes,
   CircleDollarSign,
+  Layers,
   PackageCheck,
   PackageMinus,
   PackageX,
   RefreshCcw,
+  ShoppingCart,
   Tags,
+  Trophy,
 } from "lucide-react";
 import { Cell, Pie, PieChart } from "recharts";
 
@@ -21,34 +25,37 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-type ProdutoResumo = {
-  id: number;
-  titulo: string;
-  referencia: string | null;
-  estoque: number;
-  minimo: number;
-  custo: number;
-  valor: number;
-  reposicaoSugerida: number;
-};
-
-type DadosEstoque = {
-  totais: {
-    produtos: number;
-    unidades: number;
-    valorEstoque: number;
-    zerados: number;
-    abaixoMinimo: number;
-    adequados: number;
-    semCusto: number;
-  };
-  distribuicao: Array<{ nome: string; valor: number; cor: string }>;
-  reposicao: ProdutoResumo[];
-  maiorValor: ProdutoResumo[];
-};
+import FaixaKpis from "../shared/faixa-kpis";
+import Kpi from "../shared/kpi";
+import PresetsPeriodo from "../shared/presets-periodo";
+import SheetPeriodoFiltros from "../shared/sheet-periodo-filtros";
+import { usePeriodo } from "../shared/use-periodo";
+import GraficoMaisVendidos from "./components/grafico-mais-vendidos";
+import { useProdutosVendidos } from "./hooks/use-produtos-vendidos";
+import { TOTAIS_VAZIOS, type DadosEstoque, type ProdutoVendido } from "./lib/types";
 
 const moeda = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const numero = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
+// Quantidade é integer no banco: fração aqui seria inventar precisão.
+const unidades = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
+
+const ROTULOS_KPI_ESTOQUE = [
+  "Produtos cadastrados",
+  "Unidades disponíveis",
+  "Valor em estoque",
+  "Produtos zerados",
+  "Abaixo do mínimo",
+  "Sem custo cadastrado",
+];
+
+const ROTULOS_KPI_VENDIDOS = [
+  "Unidades vendidas",
+  "Faturamento em produtos",
+  "Produtos distintos vendidos",
+  "Produto campeão",
+];
+
+const NOTA_ESTOQUE = "Posição atual — não segue o filtro de período";
 
 function KpiEstoque({
   rotulo,
@@ -74,11 +81,41 @@ function KpiEstoque({
   );
 }
 
+/** Mantém os rótulos e esqueleta só os números: a faixa não muda de forma ao carregar. */
+function SkeletonKpis({ rotulos }: { rotulos: string[] }) {
+  return (
+    <>
+      {rotulos.map((rotulo) => (
+        <div key={rotulo} className="dashboard-kpi min-h-20 p-3 sm:min-h-24 sm:p-3.5">
+          <div className="flex items-start justify-between gap-2">
+            <p className="line-clamp-2 text-xs leading-tight text-muted-foreground sm:text-sm">{rotulo}</p>
+            <Skeleton className="size-4 shrink-0 rounded-full" />
+          </div>
+          <Skeleton className="mt-2 h-7 w-20 max-w-[70%]" />
+        </div>
+      ))}
+    </>
+  );
+}
+
 export default function DashboardEstoque() {
   const [dados, setDados] = React.useState<DadosEstoque | null>(null);
   const [erro, setErro] = React.useState<string | null>(null);
   const [carregando, setCarregando] = React.useState(true);
 
+  const {
+    dataInicio,
+    dataFim,
+    filtroAberto,
+    setFiltroAberto,
+    tratarDataInicio,
+    tratarDataFim,
+    aplicarPeriodo,
+    limparFiltros,
+    textoPeriodo,
+  } = usePeriodo();
+
+  // A posição do estoque não tem eixo de tempo: trocar a data não a rebusca.
   const carregar = React.useCallback(async () => {
     setCarregando(true);
     setErro(null);
@@ -98,21 +135,88 @@ export default function DashboardEstoque() {
     void carregar();
   }, [carregar]);
 
+  const {
+    dados: vendidos,
+    carregando: carregandoVendidos,
+    erro: erroVendidos,
+    recarregar: recarregarVendidos,
+    animKey,
+  } = useProdutosVendidos("/api/dashboard/produtos-vendidos", { inicio: dataInicio, fim: dataFim });
+
+  const totaisVendidos = vendidos?.totais.todas ?? TOTAIS_VAZIOS;
+  // O ranking já vem ordenado por quantidade, mas não dependo disso aqui: o
+  // campeão é o campeão mesmo que a ordenação do servidor mude um dia.
+  const campeao = React.useMemo(
+    () =>
+      (vendidos?.ranking ?? []).reduce<ProdutoVendido | null>(
+        (melhor, produto) => (!melhor || produto.quantidade > melhor.quantidade ? produto : melhor),
+        null,
+      ),
+    [vendidos],
+  );
+
+  const recarregarTudo = React.useCallback(() => {
+    void carregar();
+    void recarregarVendidos();
+  }, [carregar, recarregarVendidos]);
+
+  const recarregando = carregando || carregandoVendidos;
+  const primeiraCargaEstoque = !dados && carregando;
+  const primeiraCargaVendidos = !vendidos && carregandoVendidos;
+
+  const ticketMedio =
+    totaisVendidos.quantidade > 0 ? totaisVendidos.faturamento / totaisVendidos.quantidade : 0;
+
   return (
     <Card className="dashboard-root w-full py-2">
-      <CardHeader className="flex flex-row items-start justify-between gap-2 sm:gap-4">
-        <div className="min-w-0 flex-1 space-y-1">
-          <CardTitle className="flex items-center gap-2 text-base leading-tight sm:text-lg">
-            <Boxes className="size-5" />
-            Dashboard Estoque
+      <CardHeader className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 gap-y-1 px-3 sm:flex sm:flex-row sm:items-start sm:justify-between sm:gap-4 sm:px-6">
+        <div className="contents sm:block sm:min-w-0 sm:flex-1 sm:space-y-1">
+          <CardTitle className="flex min-w-0 items-center gap-1.5 text-sm leading-tight sm:gap-2 sm:text-lg">
+            <Boxes className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden="true" />
+            <span className="truncate sm:hidden" title="Estoque">Estoque</span>
+            <span className="hidden sm:inline">Dashboard Estoque</span>
           </CardTitle>
-          <CardDescription className="hidden sm:block">Visão de disponibilidade, reposição e capital imobilizado em produtos.</CardDescription>
-          <Badge>Posição atual</Badge>
+
+          <CardDescription className="hidden text-xs sm:block sm:text-sm">
+            Disponibilidade, reposição e capital imobilizado em produtos — e o que saiu no período.
+          </CardDescription>
+
+          <Badge
+            variant="default"
+            className="col-start-1 row-start-2 min-w-0 max-w-full justify-self-start whitespace-normal text-[10px] sm:text-xs"
+            title={`Período: ${textoPeriodo}`}
+          >
+            Período: {textoPeriodo}
+          </Badge>
         </div>
-        <div className="flex shrink-0 gap-1.5 sm:gap-2">
-          <Button asChild variant="outline" size="sm"><Link href="/estoque"><span className="hidden sm:inline">Abrir </span>Estoque</Link></Button>
-          <Button variant="outline" size="icon" onClick={carregar} aria-label="Atualizar estoque">
-            <RefreshCcw className={cn("size-4", carregando && "animate-spin")} />
+
+        <div className="contents sm:flex sm:w-auto sm:shrink-0 sm:flex-wrap sm:items-center sm:justify-end sm:gap-2">
+          <PresetsPeriodo
+            dataInicio={dataInicio}
+            dataFim={dataFim}
+            aoAplicar={aplicarPeriodo}
+            className="col-span-2 col-start-2 row-start-1"
+          />
+
+          <SheetPeriodoFiltros
+            titulo="Filtros de produtos vendidos"
+            aberto={filtroAberto}
+            aoMudarAberto={setFiltroAberto}
+            dataInicio={dataInicio}
+            dataFim={dataFim}
+            aoMudarDataInicio={tratarDataInicio}
+            aoMudarDataFim={tratarDataFim}
+            aoLimpar={limparFiltros}
+          />
+
+          {/* Atalho de navegação: fora do grid do mobile, que já cabe só o
+              período, o filtro e o refresh — os mesmos três das outras abas. */}
+          <Button asChild variant="outline" size="sm" className="hidden h-8 shrink-0 sm:inline-flex">
+            <Link href="/estoque">Abrir Estoque</Link>
+          </Button>
+
+          <Button variant="outline" size="icon" className="size-8 shrink-0" onClick={recarregarTudo} aria-label="Atualizar estoque">
+            <RefreshCcw className={cn("size-4", recarregando && "animate-spin")} />
           </Button>
         </div>
       </CardHeader>
@@ -120,20 +224,93 @@ export default function DashboardEstoque() {
       <CardContent className="space-y-5 px-3 pb-3 sm:px-4 sm:pb-4">
         {erro ? <div className="rounded-2xl bg-destructive/10 p-3 text-sm text-destructive">{erro}</div> : null}
 
-        {!dados && carregando ? (
-          <div className="space-y-5">
-            <div className="dashboard-kpi-strip grid gap-2 sm:grid-cols-2 sm:gap-3 xl:grid-cols-6" data-loading="true" aria-busy="true">
-              {["Produtos cadastrados", "Unidades disponíveis", "Valor em estoque", "Produtos zerados", "Abaixo do mínimo", "Sem custo cadastrado"].map((rotulo) => (
-                <div key={rotulo} className="dashboard-kpi min-h-20 p-3 sm:min-h-24 sm:p-3.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="line-clamp-2 text-xs leading-tight text-muted-foreground sm:text-sm">{rotulo}</p>
-                    <Skeleton className="size-4 shrink-0 rounded-full" />
-                  </div>
-                  <Skeleton className="mt-2 h-7 w-20 max-w-[70%]" />
-                </div>
-              ))}
-            </div>
+        <FaixaKpis
+          titulo="Estoque"
+          nota={NOTA_ESTOQUE}
+          carregando={carregando}
+          className="sm:grid-cols-2 sm:gap-3 md:grid-cols-3 2xl:grid-cols-6"
+        >
+          {primeiraCargaEstoque ? (
+            <SkeletonKpis rotulos={ROTULOS_KPI_ESTOQUE} />
+          ) : dados ? (
+            <>
+              <KpiEstoque rotulo="Produtos cadastrados" valor={numero.format(dados.totais.produtos)} Icone={Tags} />
+              <KpiEstoque rotulo="Unidades disponíveis" valor={numero.format(dados.totais.unidades)} Icone={Boxes} />
+              <KpiEstoque rotulo="Valor em estoque" valor={moeda.format(dados.totais.valorEstoque)} Icone={CircleDollarSign} />
+              <KpiEstoque rotulo="Produtos zerados" valor={numero.format(dados.totais.zerados)} Icone={PackageX} alerta={dados.totais.zerados > 0} />
+              <KpiEstoque rotulo="Abaixo do mínimo" valor={numero.format(dados.totais.abaixoMinimo)} Icone={PackageMinus} alerta={dados.totais.abaixoMinimo > 0} />
+              <KpiEstoque rotulo="Sem custo cadastrado" valor={numero.format(dados.totais.semCusto)} Icone={AlertTriangle} alerta={dados.totais.semCusto > 0} />
+            </>
+          ) : null}
+        </FaixaKpis>
 
+        <div className="space-y-4">
+          <FaixaKpis
+            titulo="Vendas de produtos"
+            nota={textoPeriodo}
+            carregando={carregandoVendidos}
+            className="sm:grid-cols-2 sm:gap-3 xl:grid-cols-4"
+          >
+            {primeiraCargaVendidos ? (
+              <SkeletonKpis rotulos={ROTULOS_KPI_VENDIDOS} />
+            ) : (
+              <>
+                <Kpi
+                  label="Unidades vendidas"
+                  value={unidades.format(totaisVendidos.quantidade)}
+                  icon={ShoppingCart}
+                  hint={`Total de unidades de produto cobradas do cliente no período, somando venda de balcão e peça aplicada em ordem de serviço. Sai de ${unidades.format(totaisVendidos.documentos)} documentos. É o total do gráfico abaixo — e não muda quando o gráfico é filtrado por origem ou por grupo: os números desta faixa somam sempre o período inteiro.`}
+                />
+                <Kpi
+                  label="Faturamento em produtos"
+                  value={moeda.format(totaisVendidos.faturamento)}
+                  icon={Banknote}
+                  hint={`Valor dos itens de produto, já líquido do desconto de cada item e sem o frete. Dá um ticket médio de ${moeda.format(ticketMedio)} por unidade — uma média que mistura óleo com peça cara, então serve de referência, não de meta. O desconto geral do documento não é rateado entre os itens.`}
+                />
+                <Kpi
+                  label="Produtos distintos vendidos"
+                  value={unidades.format(totaisVendidos.produtosDistintos)}
+                  icon={Layers}
+                  hint="Quantos produtos diferentes do cadastro tiveram saída no período. Lido junto com as unidades, separa a oficina que gira poucos itens em volume da que gira um catálogo largo."
+                />
+                <Kpi
+                  label="Produto campeão"
+                  value={campeao?.titulo ?? "—"}
+                  icon={Trophy}
+                  hint={
+                    campeao
+                      ? `${campeao.grupoNome} · ${unidades.format(campeao.quantidade)} unidades e ${moeda.format(campeao.faturamento)} no período, em ${unidades.format(campeao.documentos)} documentos. É o primeiro do gráfico quando a ordenação é por unidades e os dois filtros estão abertos.`
+                      : "Nenhum produto vendido no período."
+                  }
+                />
+              </>
+            )}
+          </FaixaKpis>
+
+          {/* Banner próprio: falha nas vendas não pode derrubar a posição do estoque. */}
+          {erroVendidos ? (
+            <div className="rounded-2xl bg-destructive/10 p-3 text-sm text-destructive">{erroVendidos}</div>
+          ) : null}
+
+          {vendidos?.truncado ? (
+            <p className="text-[11px] text-muted-foreground">
+              O período tem mais produtos do que o ranking comporta: a lista foi cortada nos mais vendidos.
+            </p>
+          ) : null}
+
+          {primeiraCargaVendidos ? (
+            <Skeleton className="h-64 rounded-2xl" />
+          ) : (
+            <GraficoMaisVendidos
+              ranking={vendidos?.ranking ?? []}
+              carregando={carregandoVendidos}
+              animKey={animKey}
+            />
+          )}
+        </div>
+
+        {primeiraCargaEstoque ? (
+          <div className="space-y-5">
             <div className="grid items-start gap-4 lg:grid-cols-5">
               <section className="dashboard-surface min-w-0 p-3 sm:p-4 lg:col-span-2">
                 <h3 className="dashboard-card-title">Saúde do estoque</h3>
@@ -159,15 +336,6 @@ export default function DashboardEstoque() {
           </div>
         ) : dados ? (
           <>
-            <div className="dashboard-kpi-strip grid gap-2 sm:grid-cols-2 sm:gap-3 md:grid-cols-3 2xl:grid-cols-6" data-loading={carregando} aria-busy={carregando}>
-              <KpiEstoque rotulo="Produtos cadastrados" valor={numero.format(dados.totais.produtos)} Icone={Tags} />
-              <KpiEstoque rotulo="Unidades disponíveis" valor={numero.format(dados.totais.unidades)} Icone={Boxes} />
-              <KpiEstoque rotulo="Valor em estoque" valor={moeda.format(dados.totais.valorEstoque)} Icone={CircleDollarSign} />
-              <KpiEstoque rotulo="Produtos zerados" valor={numero.format(dados.totais.zerados)} Icone={PackageX} alerta={dados.totais.zerados > 0} />
-              <KpiEstoque rotulo="Abaixo do mínimo" valor={numero.format(dados.totais.abaixoMinimo)} Icone={PackageMinus} alerta={dados.totais.abaixoMinimo > 0} />
-              <KpiEstoque rotulo="Sem custo cadastrado" valor={numero.format(dados.totais.semCusto)} Icone={AlertTriangle} alerta={dados.totais.semCusto > 0} />
-            </div>
-
             <div className="grid items-start gap-4 lg:grid-cols-5">
               <section className="dashboard-surface min-w-0 p-3 sm:p-4 lg:col-span-2">
                 <div className="mb-2">
@@ -230,7 +398,7 @@ export default function DashboardEstoque() {
                 <p className="dashboard-card-description">Produtos com maior valor de custo atualmente armazenado.</p>
               </div>
               <div className="max-h-72 space-y-2 overflow-y-auto overscroll-contain pr-1">
-                {dados.maiorValor.map((produto, index) => (
+                {dados.maiorValor.length ? dados.maiorValor.map((produto, index) => (
                   <div key={produto.id} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-2xl bg-muted/35 p-2.5 sm:gap-3 sm:p-3">
                     <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">{index + 1}</span>
                     <div className="min-w-0">
@@ -239,7 +407,7 @@ export default function DashboardEstoque() {
                     </div>
                     <p className="max-w-28 truncate text-right text-sm font-semibold sm:max-w-none" title={moeda.format(produto.valor)}>{moeda.format(produto.valor)}</p>
                   </div>
-                ))}
+                )) : <p className="py-16 text-center text-sm text-muted-foreground">Nenhum produto com custo cadastrado.</p>}
               </div>
             </section>
           </>

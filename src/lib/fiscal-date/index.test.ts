@@ -3,6 +3,9 @@ import test from "node:test";
 
 import {
   competenceFromCivilDate,
+  dataCivilDeHoje,
+  dataCivilDoInstante,
+  isValidCivilDate,
   endOfCompetence,
   formatEfdDate,
   parseCompetence,
@@ -46,4 +49,39 @@ test("recusa datas, timezone e competências inválidas", () => {
   assert.throws(() => parseCompetence("2026-13"));
   assert.deepEqual(parseCompetence("2026-08"), { start: "2026-08-01", year: 2026, month: 8 });
   assert.equal(endOfCompetence("2026-02"), "2026-02-28");
+});
+
+test("data civil usa o fuso do emitente, não o UTC", () => {
+  // 22:30 de 22/09 em João Pessoa (UTC-3) já é 01:30 de 23/09 em UTC.
+  const noiteDePB = new Date("2026-09-23T01:30:00Z");
+  assert.equal(dataCivilDoInstante(noiteDePB), "2026-09-22");
+  assert.equal(noiteDePB.toISOString().slice(0, 10), "2026-09-23");
+});
+
+test("na virada de vigência, a data do emitente é a que vale", () => {
+  // 31/03/2025 23:00 em João Pessoa: a alíquota do PI ainda é a de 21%.
+  // Em UTC já seria 01/04, quando passa a valer 22,5%.
+  const vesperaDaMudanca = new Date("2025-04-01T02:00:00Z");
+  assert.equal(dataCivilDoInstante(vesperaDaMudanca), "2025-03-31");
+});
+
+test("fuso inválido cai no padrão em vez de quebrar a emissão", () => {
+  const instante = new Date("2026-09-23T01:30:00Z");
+  assert.equal(dataCivilDeHoje("Fuso/Inexistente", instante), "2026-09-22");
+});
+
+test("data civil de hoje tem o formato AAAA-MM-DD", () => {
+  assert.match(dataCivilDeHoje(), /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("data com formato certo e calendário errado é recusada", () => {
+  // As rotas fiscais recebem `data` do cliente. Conferir só o formato deixaria
+  // 2026-99-99 passar e recortar vigência por uma data que não existe.
+  assert.equal(isValidCivilDate("2026-99-99"), false);
+  assert.equal(isValidCivilDate("2026-02-30"), false);
+  assert.equal(isValidCivilDate("2026-13-01"), false);
+  assert.equal(isValidCivilDate("2026-00-10"), false);
+  assert.equal(isValidCivilDate("2026-09-22"), true);
+  assert.equal(isValidCivilDate("2024-02-29"), true, "ano bissexto existe");
+  assert.equal(isValidCivilDate("2026-02-29"), false, "2026 não é bissexto");
 });

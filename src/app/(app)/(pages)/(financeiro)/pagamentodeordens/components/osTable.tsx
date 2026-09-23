@@ -51,7 +51,8 @@ import {
   somarSaldos,
   type DocumentoSelecionavel,
 } from "../../components/pagamento-multiplo";
-import { useSelecaoMultipla } from "../../components/useSelecaoMultipla";
+import { useSelecaoMultipla, type AcaoEmLote } from "../../components/useSelecaoMultipla";
+import { SelecaoMultiplaMenu } from "../../components/selecao-multipla-menu";
 import {
   motivoForaDaEmissaoEmLote,
   osPodeEmitirNota,
@@ -145,6 +146,10 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
   const limitListboxId = `${limitUid}-os-limit-listbox`;
   const selecao = useSelecaoMultipla(`${selectedStatus}|${pagination.page}`);
   const { selecionadas } = selecao;
+  // A emissão só entra no menu quando a empresa a habilitou e o usuário pode
+  // notas fiscais — senão o fluxo terminaria num toast de permissão.
+  const acoesDeSelecao: AcaoEmLote[] =
+    config?.habilitar_emissao_nfe && podeNotasFiscais ? ["PAGAMENTO", "NOTA"] : ["PAGAMENTO"];
   const [dialogPagamentoAberto, setDialogPagamentoAberto] = useState(false);
   const hasActiveFilters = Boolean(
     filters.cliente.trim() ||
@@ -318,28 +323,12 @@ export default function OsTable({ ordens, pagination, handleGetOrdens, isLoading
               <UserRound className="h-4 w-4" aria-hidden />
               Minhas OS
             </Button>
-            <Button
-              variant={selecao.ehPagamento ? "secondary" : "ghost"}
-              size="sm"
-              className="hover:cursor-pointer"
-              aria-pressed={selecao.ehPagamento}
-              onClick={() => (selecao.ehPagamento ? sairDoModo() : selecao.entrar("PAGAMENTO"))}
-            >
-              <Split className="h-4 w-4" aria-hidden />
-              Pagamento múltiplo
-            </Button>
-            {config?.habilitar_emissao_nfe && podeNotasFiscais && (
-              <Button
-                variant={selecao.ehNota ? "secondary" : "ghost"}
-                size="sm"
-                className="hover:cursor-pointer"
-                aria-pressed={selecao.ehNota}
-                onClick={() => (selecao.ehNota ? sairDoModo() : selecao.entrar("NOTA"))}
-              >
-                <FileText className="h-4 w-4" aria-hidden />
-                Emitir nota fiscal
-              </Button>
-            )}
+            <SelecaoMultiplaMenu
+              acaoAlvo={selecao.acaoAlvo}
+              disponiveis={acoesDeSelecao}
+              onEscolher={(acao) => selecao.entrar(acao)}
+              onSair={sairDoModo}
+            />
             {hasActiveFilters && (
               <Button
                 variant="ghost"

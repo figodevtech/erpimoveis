@@ -14,7 +14,6 @@ import {
   FileText,
   Download,
   Hash,
-  Info as InfoIcon,
   Loader2,
   Plus,
   Printer,
@@ -97,24 +96,40 @@ import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 import { CfopCombobox } from "@/components/fiscal/cfop-combobox";
+import { NcmCombobox } from "@/components/fiscal/ncm-combobox";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
+import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import { indFinalDoDestino, type DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
 import { MODELO_NFE } from "@/lib/nfe/modeloDocumento";
 import { freteNaBaseIcms, type IcmsCanonico } from "@/lib/nfe/icms";
 import {
+  alternarCienciaFiscal,
   aplicarAlteracoesComCienciaFiscal,
+  avisoFiscalConfirmado,
   classificarIssuesFiscais,
+  pedidosDeCiencia,
 } from "@/lib/nfe/issuesFiscais";
+import { novoEscopoCiencia, registrarCienciaNoServidor } from "@/lib/nfe/cienciaCliente";
+import type { FonteIssueFiscal } from "@/lib/nfe/icms";
+import { FontesDoAvisoFiscal } from "@/components/fiscal/fontes-do-aviso-fiscal";
 import {
+  aplicarResolucaoDifal,
+  assinaturaDifalDe,
+  resolverDifalDosItens,
   calcularIcmsDoItem,
   toNFeItem,
   icmsInputDoItem,
   tratamentoIcmsDoItem,
+  marcarDifalManual,
+  overrideDifalDaTela,
   type AssistedFiscalItem,
+  type DifalCampoManual,
   type FiscalSetup,
+  type ResolucaoDifalTela,
 } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/emissao-assistida-model";
 import { NfeItemIcmsSection } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/nfe-item-icms-section";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
+import { dataCivilDeHoje } from "@/lib/fiscal-date";
 
 type ClienteSetup = {
   id: number;
@@ -301,6 +316,12 @@ type DraftItem = {
   difalAliquotaFcp: string;
   difalPercentualPartilha: string;
   difalBaseFcp: string;
+  /**
+   * Campos editados por cima da resolução automática. São preservados nas
+   * próximas consultas e enviados como manuais ao gravar a nota.
+   */
+  difalCamposManuais: DifalCampoManual[];
+  difalResolucao: ResolucaoDifalTela | null;
 };
 
 type DraftTransporte = {
@@ -428,6 +449,9 @@ type ValidationError = {
   code?: string;
   severidade?: string;
   requerCiencia?: boolean;
+  /** Situação que o servidor analisou; a ciência registra `code@fingerprint`. */
+  fingerprint?: string;
+  fontes?: FonteIssueFiscal[];
 };
 
 type NFeDocumentState = {
@@ -501,16 +525,9 @@ function StatusFiscalDoItemAvulso({ issues }: { issues: ValidationError[] }) {
           {classificadas.avisos.length === 1 ? "aviso fiscal" : "avisos fiscais"}
         </Badge>
       ) : null}
-      {classificadas.informativos.length > 0 ? (
-        <Badge
-          variant="outline"
-          className="gap-1 border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
-        >
-          <InfoIcon className="h-3 w-3" />
-          {classificadas.informativos.length}{" "}
-          {classificadas.informativos.length === 1 ? "informação" : "informações"}
-        </Badge>
-      ) : null}
+      <FiscalInformationBadge
+        messages={classificadas.informativos.map((issue) => issue.message)}
+      />
     </div>
   );
 }
@@ -644,6 +661,8 @@ const emptyItem: DraftItem = {
   difalAliquotaFcp: "",
   difalPercentualPartilha: "",
   difalBaseFcp: "",
+  difalCamposManuais: [],
+  difalResolucao: null,
 };
 
 const initialDraft: DraftPayload = {
@@ -957,8 +976,12 @@ function camposIcmsDoSnapshot(snapshot: any): Partial<DraftItem> {
     vICMSDeson: stringifyNumber(icms.vICMSDeson),
     motDesICMS: stringifyNumber(icms.motDesICMS),
     pCredSN: stringifyNumber(icms.pCredSN),
+    // Só volta a ciência gravada com fingerprint: a de rascunho antigo (só o
+    // código) não diz qual situação foi conferida e é pedida de novo.
     avisosFiscaisConfirmados: Array.isArray(decisao?.avisosConfirmados)
-      ? decisao.avisosConfirmados.map((aviso: { code: string }) => aviso.code)
+      ? decisao.avisosConfirmados
+          .filter((aviso: { code?: string; fingerprint?: string }) => aviso?.code && aviso?.fingerprint)
+          .map((aviso: { code: string; fingerprint: string }) => `${aviso.code}@${aviso.fingerprint}`)
       : [],
   };
 }
@@ -1004,6 +1027,25 @@ function contextoBaseDaAvulsa(item: DraftItem, draft: DraftPayload, ufEmitente?:
   };
 }
 
+function parametrosDifalDaAvulsa(draft: DraftPayload, setup: SetupResponse | null, dataEmissao: string) {
+  return {
+    modelo: MODELO_NFE,
+    ufEmitente: setup?.empresa?.uf,
+    ufDestino: draft.destinatario.estado,
+    crt: setup?.empresa?.regimetributario,
+    indFinal: indFinalDoDestino(draft.operacao.destinoMercadoria, draft.operacao.consumidorFinal)
+      ?? ((draft.destinatario.indicadorIe || "9") === "9" ? 1 : 0),
+    indIEDest: draft.destinatario.indicadorIe || "9",
+    tpNF: draft.operacao.tipoOperacao === "SAIDA" ? 1 : 0,
+    finNFe: ({ NORMAL: 1, COMPLEMENTAR: 2, AJUSTE: 3, DEVOLUCAO: 4 })[draft.operacao.finalidade],
+    ufEntrega: draft.entrega.habilitado ? draft.entrega.estado || null : null,
+    dataEmissao,
+    // A chave da consulta identifica a linha, não o estoque de origem: duas
+    // linhas podem vir do mesmo produto e ter classificações diferentes.
+    itens: draft.itens.map((item, index) => ({ ...item, sourceItemId: `avulsa:${index}` })),
+  };
+}
+
 /** O item da avulsa no formato que a seção de ICMS e o núcleo leem. */
 function itemAssistidoDaAvulsa(item: DraftItem, index: number): AssistedFiscalItem {
   const quantidade = parseNumberInput(item.quantidade);
@@ -1013,6 +1055,8 @@ function itemAssistidoDaAvulsa(item: DraftItem, index: number): AssistedFiscalIt
     sourceItemId: item.sourceItemId ?? `avulsa:${index}`,
     produtoId: item.produtoId ?? 0,
     titulo: item.descricao,
+    difalResolucao: item.difalResolucao ?? null,
+    difalCamposManuais: item.difalCamposManuais ?? [],
     quantidade,
     valorUnitario,
     subtotal: Number((quantidade * valorUnitario).toFixed(2)),
@@ -1181,39 +1225,15 @@ export default function NFeAvulsaPage() {
   }, [errors]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  // Sessão de emissão desta tela: agrupa as ciências registradas no servidor
+  // até o rascunho ser salvo (nfe_ciencia_aviso.escopo).
+  const [cienciaEscopo] = React.useState(novoEscopoCiencia);
 
-  // DIFAL: reavalia sempre que emitente, destino, consumidor final ou o
-  // indicador de IE mudarem. Preserva o que o usuário já digitou.
-  const difalContexto = React.useMemo(
-    () => ({
-      ufEmitente: setup?.empresa?.uf ?? null,
-      ufDestinatario: draft.destinatario.estado ?? null,
-      tipoOperacao: "SAIDA" as const,
-      // Só a sugestão de DIFAL usa isto. Sem destino escolhido, vale a regra
-      // estrutural: não contribuinte é sempre consumidor final.
-      indFinal:
-        indFinalDoDestino(draft.operacao.destinoMercadoria, draft.operacao.consumidorFinal) ??
-        ((draft.destinatario.indicadorIe || "9") === "9" ? 1 : 0),
-      indIEDest: draft.destinatario.indicadorIe || "9",
-    }),
-    [
-      setup?.empresa?.uf,
-      draft.destinatario.estado,
-      draft.destinatario.indicadorIe,
-      draft.operacao.destinoMercadoria,
-      draft.operacao.consumidorFinal,
-    ],
-  );
-
-  React.useEffect(() => {
-    setDraft((current) => {
-      if (!current.itens.length) return current;
-      const itens = current.itens.map((item) => aplicarSugestaoDifal(item, difalContexto));
-      return itens.some((item, index) => item !== current.itens[index])
-        ? { ...current, itens }
-        : current;
-    });
-  }, [difalContexto]);
+  // Data fiscal da nota, uma só para a tela inteira. A avulsa é emitida agora,
+  // e o servidor carimba a data na gravação; aqui ela serve para o catálogo de
+  // NCM recortar a vigência pelo mesmo dia que o emitente enxerga — não pelo
+  // dia em UTC, que das 21h à meia-noite já é o seguinte.
+  const dataEmissaoFiscal = React.useMemo(() => dataCivilDeHoje(), []);
 
   const difalAtivo = draft.itens.some((item) => item.difalHabilitado);
   const [authorizing, setAuthorizing] = React.useState(false);
@@ -1309,6 +1329,58 @@ export default function NFeAvulsaPage() {
   const isHomologacao = Boolean(setup) && (setup?.empresa?.ambiente || setup?.config?.ambiente) !== "PRODUCAO";
   const isEditingPersistedDraft = Boolean(draft.nfeId);
   const isAutorizada = String(documentState.status ?? "").toUpperCase() === "AUTORIZADA";
+  const consultaDifal = parametrosDifalDaAvulsa(draft, setup, dataEmissaoFiscal);
+  const assinaturaDifal = assinaturaDifalDe(consultaDifal);
+
+  React.useEffect(() => {
+    if (loading || !setup?.empresa?.uf || isAutorizada || !consultaDifal.itens.length) return;
+    const controle = new AbortController();
+    const corresponde = (current: DraftPayload) =>
+      assinaturaDifalDe(parametrosDifalDaAvulsa(current, setup, dataEmissaoFiscal)) === assinaturaDifal;
+
+    // Invalida alíquotas automáticas do contexto anterior enquanto consulta o
+    // motor. Os campos manuais permanecem; uma falha não restaura valores velhos.
+    setDraft((current) => {
+      if (controle.signal.aborted || !corresponde(current)) return current;
+      // Limpa ANTES de sugerir. `aplicarSugestaoDifal` só preenche campo vazio:
+      // na ordem inversa ela não substituiria a interestadual do contexto
+      // anterior, e a limpeza seguinte apagaria as duas. Assim a interestadual
+      // e a partilha — que saem da origem da mercadoria e da geografia, sem
+      // depender do banco — já ficam certas para o contexto novo, mesmo que a
+      // consulta ao motor falhe. O que depende de regra continua vazio, e é
+      // isso que segura a emissão.
+      const limpos = aplicarResolucaoDifal(current.itens, new Map(), (_, index) => `avulsa:${index}`);
+      const itens = limpos.map((item) => aplicarSugestaoDifal(item, {
+        ufEmitente: consultaDifal.ufEmitente,
+        ufDestinatario: consultaDifal.ufDestino,
+        tipoOperacao: current.operacao.tipoOperacao,
+        indFinal: consultaDifal.indFinal,
+        indIEDest: consultaDifal.indIEDest,
+        crt: consultaDifal.crt,
+        modelo: MODELO_NFE,
+      }));
+      return itens.some((item, index) => item !== current.itens[index]) ? { ...current, itens } : current;
+    });
+
+    const timer = setTimeout(async () => {
+      const resolucoes = await resolverDifalDosItens({ ...consultaDifal, signal: controle.signal });
+      if (controle.signal.aborted) return;
+      setDraft((current) => {
+        if (controle.signal.aborted || !corresponde(current)) return current;
+        const itens = aplicarResolucaoDifal(current.itens, resolucoes, (_, index) => `avulsa:${index}`);
+        return itens === current.itens ? current : { ...current, itens };
+      });
+    }, 350);
+
+    return () => {
+      clearTimeout(timer);
+      controle.abort();
+    };
+    // A assinatura inclui contexto e classificação, mas exclui as alíquotas
+    // devolvidas. Depender do draft dispararia outra consulta a cada resposta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assinaturaDifal, loading, isAutorizada, draftIdParam]);
+
   const isSemPagamentoObrigatorio =
     draft.operacao.finalidade === "AJUSTE" || draft.operacao.finalidade === "DEVOLUCAO";
   // finNFe=4 sem <NFref> cai na rejeição 321. O CFOP não isenta da regra.
@@ -1545,6 +1617,9 @@ export default function NFeAvulsaPage() {
         aliquotaFcpDestino: item.difalHabilitado ? item.difalAliquotaFcp || null : null,
         percentualPartilhaDestino: item.difalHabilitado ? item.difalPercentualPartilha || null : null,
         baseCalculoFcpDestino: item.difalHabilitado ? item.difalBaseFcp || null : null,
+        overrideDifalManual: item.difalHabilitado
+          ? overrideDifalDaTela(item.difalCamposManuais)
+          : undefined,
       })),
     };
   }
@@ -2012,7 +2087,24 @@ export default function NFeAvulsaPage() {
         toast.error("Revise os pagamentos", { description: paymentErrors[0] });
         return null;
       }
-      const submissionDraft = comBlocosIcms(getDraftForSubmission(draft));
+      const submissionDraft = { ...comBlocosIcms(getDraftForSubmission(draft)), cienciaEscopo };
+      // "Estou ciente" marcado na tela só vale depois que o servidor recalcula o
+      // aviso e grava a ciência com o usuário da sessão; o rascunho não confia
+      // na lista do payload.
+      const pedidos = pedidosDeCiencia(submissionDraft.itens);
+      if (pedidos.length > 0) {
+        const ciencia = await registrarCienciaNoServidor({
+          alvo: { tipo: "AVULSA", id: draft.nfeId ?? null },
+          payload: submissionDraft as unknown as Record<string, unknown>,
+          cienciaEscopo,
+          pedidos,
+        });
+        // Com bloqueios nada é registrado, e o salvamento abaixo devolve os
+        // mesmos erros. Qualquer outra falha interrompe.
+        if (!ciencia.ok && !ciencia.errors?.length) {
+          throw new Error(ciencia.message || "Não foi possível registrar a ciência dos avisos fiscais.");
+        }
+      }
       const response = draft.nfeId
         ? await axios.patch(`/api/fiscal/nfe-avulsa/drafts/${draft.nfeId}`, submissionDraft)
         : await axios.post("/api/fiscal/nfe-avulsa/drafts", submissionDraft);
@@ -2075,7 +2167,9 @@ export default function NFeAvulsaPage() {
       } else {
         const description = isAxiosError(error)
           ? error.response?.data?.detail ?? error.response?.data?.error ?? error.message
-          : "Erro ao salvar rascunho.";
+          : error instanceof Error && error.message
+            ? error.message
+            : "Erro ao salvar rascunho.";
         toast.error("Falha ao salvar rascunho", { description });
       }
       return null;
@@ -2312,11 +2406,17 @@ export default function NFeAvulsaPage() {
             {errorsClassificados.avisos.length === 1 ? "aviso fiscal a confirmar" : "avisos fiscais a confirmar"}
           </AlertTitle>
           <AlertDescription>
-            <ul className="mt-2 list-disc space-y-1 pl-4">
+            <ul className="mt-2 list-disc space-y-2 pl-4">
               {errorsClassificados.avisos.map((error, index) => {
                 const stepIndex = validationStepIndexes[error.step];
+                const itemDoAviso = error.itemIndex === undefined ? undefined : draft.itens[error.itemIndex];
+                const aviso = { ...error, code: error.code ?? "" };
+                const checkboxId = `ciencia-avulsa-${error.itemIndex ?? "nota"}-${error.code ?? "aviso"}-${index}`;
                 return (
-                  <li key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}>
+                  <li
+                    key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}
+                    className="space-y-1"
+                  >
                     {stepIndex === undefined ? (
                       formatValidationError(error)
                     ) : (
@@ -2328,6 +2428,27 @@ export default function NFeAvulsaPage() {
                         {formatValidationError(error)}
                       </button>
                     )}
+                    <FontesDoAvisoFiscal fontes={error.fontes} />
+                    {itemDoAviso && error.itemIndex !== undefined && error.code && error.fingerprint ? (
+                      <div className="flex items-start gap-2">
+                        <Checkbox
+                          id={checkboxId}
+                          checked={avisoFiscalConfirmado(aviso, itemDoAviso.avisosFiscaisConfirmados)}
+                          onCheckedChange={(checked) =>
+                            updateItem(error.itemIndex!, {
+                              avisosFiscaisConfirmados: alternarCienciaFiscal(
+                                itemDoAviso.avisosFiscaisConfirmados,
+                                aviso,
+                                checked === true,
+                              ),
+                            })
+                          }
+                        />
+                        <Label htmlFor={checkboxId} className="text-xs font-normal leading-snug">
+                          Li este aviso e confirmo que os dados da operação foram conferidos.
+                        </Label>
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}
@@ -2336,21 +2457,9 @@ export default function NFeAvulsaPage() {
         </Alert>
       ) : null}
 
-      {errorsClassificados.informativos.length > 0 ? (
-        <Alert className="border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
-          <InfoIcon className="h-4 w-4" />
-          <AlertTitle>Informações fiscais</AlertTitle>
-          <AlertDescription>
-            <ul className="mt-2 list-disc space-y-1 pl-4">
-              {errorsClassificados.informativos.map((error, index) => (
-                <li key={`${error.step}-${error.itemIndex ?? "general"}-${error.field ?? "field"}-${index}`}>
-                  {formatValidationError(error)}
-                </li>
-              ))}
-            </ul>
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      <FiscalInformationBadge
+        messages={errorsClassificados.informativos.map(formatValidationError)}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
         <Card>
@@ -3023,7 +3132,11 @@ export default function NFeAvulsaPage() {
                         </div>
                         <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">NCM <RequiredMark /></Label>
-                          <Input value={item.ncm} onChange={(event) => updateItem(index, { ncm: onlyDigits(event.target.value) })} />
+                          <NcmCombobox
+                            value={item.ncm}
+                            onValueChange={(ncm) => updateItem(index, { ncm })}
+                            dataFiscal={dataEmissaoFiscal}
+                          />
                         </div>
                         <div className="md:col-span-2">
                           <Label className="inline-flex items-center gap-1">CFOP <RequiredMark /></Label>
@@ -3128,33 +3241,58 @@ export default function NFeAvulsaPage() {
                                 <Input
                                   placeholder="Pesquise a alíquota"
                                   value={item.difalAliquotaInterna}
-                                  onChange={(event) => updateItem(index, { difalAliquotaInterna: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalAliquotaInterna: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "aliquotaInterna"),
+                                    })
+                                  }
                                 />
                               </Field>
                               <Field label="% interestadual" required>
                                 <Input
                                   value={item.difalAliquotaInterestadual}
-                                  onChange={(event) => updateItem(index, { difalAliquotaInterestadual: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalAliquotaInterestadual: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "aliquotaInterestadual"),
+                                    })
+                                  }
                                 />
                               </Field>
                               <Field label="% partilha destino">
                                 <Input
                                   value={item.difalPercentualPartilha}
-                                  onChange={(event) => updateItem(index, { difalPercentualPartilha: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalPercentualPartilha: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "percentualPartilha"),
+                                    })
+                                  }
                                 />
                               </Field>
-                              <Field label="% FCP">
+                              <Field label="% FCP" required>
                                 <Input
-                                  placeholder="0"
+                                  placeholder="Informe 0 se não devido"
                                   value={item.difalAliquotaFcp}
-                                  onChange={(event) => updateItem(index, { difalAliquotaFcp: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalAliquotaFcp: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "aliquotaFcp"),
+                                    })
+                                  }
                                 />
                               </Field>
                               <Field label="Base FCP (R$)">
                                 <Input
                                   placeholder="Mesma do DIFAL"
                                   value={item.difalBaseFcp}
-                                  onChange={(event) => updateItem(index, { difalBaseFcp: event.target.value })}
+                                  onChange={(event) =>
+                                    updateItem(index, {
+                                      difalBaseFcp: event.target.value,
+                                      difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "baseFcp"),
+                                    })
+                                  }
                                 />
                               </Field>
                             </div>

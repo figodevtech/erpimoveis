@@ -46,6 +46,7 @@ type Body = {
   pagamentosPrevistos?: PlannedPayment[];
   descricaoFinanceiro?: string | null;
   garantia?: string | null;
+  observacoesFiscais?: string | null;
   transacoesFinanceirasEsperadas?: Array<string | number>;
 };
 
@@ -105,6 +106,31 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
       : null;
     const descricaoFinanceiro = (body.descricaoFinanceiro ?? "").trim() || null;
     const garantia = (body.garantia ?? "").trim() || null;
+    // Mesma convenção de `resolverObservacoesFiscais`: `undefined` é "a
+    // requisição não falou do campo" e preserva o que está gravado; vazio é
+    // escolha explícita de limpar a observação.
+    const observacoesFiscais =
+      body.observacoesFiscais === undefined
+        ? undefined
+        : (body.observacoesFiscais ?? "").trim() || null;
+
+    /*
+     * A observação fiscal é da nota, não do acordo financeiro: vale em qualquer
+     * caminho de ida ao pagamento, inclusive nos dois que terminam na RPC de
+     * faturamento, que só escreve as condições acertadas com o cliente. Por isso
+     * vai num UPDATE próprio, depois das validações e imediatamente antes de
+     * mudar a etapa. A devolução ao pagamento não passa por aqui de propósito:
+     * lá o contrato é preservar tudo como está.
+     */
+    const salvarObservacoesFiscais = async () => {
+      if (observacoesFiscais === undefined) return;
+      const upd = await supabaseAdmin
+        .from("ordemservico")
+        .update({ observacoes_fiscais: observacoesFiscais })
+        .eq("id", osId);
+      if (upd.error) throw upd.error;
+    };
+
     const formasPagamentoValidas = new Set(await getPaymentMethodValues());
 
     if (!status) {
@@ -287,8 +313,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     }
 
     const updateData: any = { status };
+    if (observacoesFiscais !== undefined) updateData.observacoes_fiscais = observacoesFiscais;
     let statusFinal: DBStatusOS = status;
     if (preservarCondicoes) {
+      await salvarObservacoesFiscais();
       const result = await supabaseAdmin.rpc("transicionar_faturamento_os", { p_os_id: osId, p_status: status });
       if (result.error) return NextResponse.json({ error: result.error.message }, { status: 409 });
       return NextResponse.json({ ok: true, status: result.data.status });
@@ -344,6 +372,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
     }
 
     if (status === "FATURAMENTO") {
+      await salvarObservacoesFiscais();
       const result = await supabaseAdmin.rpc("transicionar_faturamento_os", {
         p_os_id: osId,
         p_status: status,
@@ -478,6 +507,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
         pagamentosPrevistos,
         descricaoFinanceiro,
         garantia,
+        observacoesFiscais,
         transacoesExcluidas,
       },
       { status: 200 },

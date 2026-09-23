@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate } from "@/app/api/_authz/perms";
 import { dataDoCalendario } from "@/lib/data-calendario";
 import { calcularTotalDocumentoEntrada, parcelasFechamTotalDocumento } from "@/lib/financeiro/entrada-fiscal";
@@ -297,7 +298,13 @@ export async function POST(req: Request, { params }: Params) {
       );
     }
 
+    // Quem lancou o financeiro da entrada. Vem da sessao, nunca do corpo — e e
+    // o que a listagem do fluxo usa para saber de quem e a linha.
+    const session = await auth();
+    const criadoPor = ((session?.user as { id?: string } | undefined)?.id as string | undefined) ?? null;
+
     const base = {
+      created_by: criadoPor,
       metodopagamento: text(financeiro?.metodoPagamento ?? financeiro?.metodopagamento),
       categoria: text(financeiro?.categoria) ?? "NÃO RELACIONADO",
       categoria_id: financeiro?.categoriaId ? Number(financeiro.categoriaId) : null,

@@ -57,7 +57,7 @@ export async function carregarItensDoOrcamento(orcamentoId: number) {
       .eq("orcamentoid", orcamentoId),
     supabaseAdmin
       .from("orcamento_produto_avulso")
-      .select("id, titulo, quantidade, precounitario, subtotal, desconto_tipo, desconto")
+      .select("id, titulo, quantidade, precounitario, subtotal, desconto_tipo, desconto, desconto_informativo_tipo, desconto_informativo")
       .eq("orcamentoid", orcamentoId)
       .order("id", { ascending: true }),
   ]);
@@ -95,6 +95,8 @@ export async function carregarItensDoOrcamento(orcamentoId: number) {
       desconto: num(row.desconto),
     })),
     produtosAvulsos: (avulsosRes.data ?? []).map((row: any) => ({
+      descontoInformativoTipo: row.desconto_informativo_tipo ?? null,
+      descontoInformativo: num(row.desconto_informativo),
       id: num(row.id),
       titulo: String(row.titulo ?? ""),
       quantidade: num(row.quantidade),

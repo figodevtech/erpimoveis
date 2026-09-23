@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { dataCivilDeHoje } from "@/lib/fiscal-date";
 import {
   AlertCircle,
   CheckCircle2,
@@ -81,12 +83,14 @@ import {
   type DestinoMercadoria,
 } from "@/lib/nfe/destinoMercadoria";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
+import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import { distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
 import { freteNaBaseIcms } from "@/lib/nfe/icms";
 import {
   aplicarAlteracoesComCienciaFiscal,
   classificarIssuesFiscais,
   confirmarAvisosFiscais,
+  pedidosDeCiencia,
 } from "@/lib/nfe/issuesFiscais";
 import { MODELO_NFE, MODELO_NFCE, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { PB_NFCE_PISO_IDENTIFICACAO } from "@/lib/nfe/fiscalRules";
@@ -94,11 +98,15 @@ import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
 import { ConfirmarIndicadorIe } from "@/components/fiscal/confirmar-indicador-ie";
 import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
+import { novoEscopoCiencia, registrarCienciaNoServidor } from "@/lib/nfe/cienciaCliente";
 
 import {
   aplicarCamposFiscais,
   aplicarSugestaoDifal,
+  aplicarResolucaoDifal,
+  assinaturaDifalDe,
   createAssistedItem,
+  resolverDifalDosItens,
   type AssistedFiscalItem,
   type AssistedItemIssue,
   type DifalContexto,
@@ -475,6 +483,12 @@ export function GerarNotaDeOsDialog({
   const [serverError, setServerError] = useState<string | null>(null);
   const [serverErrorTom, setServerErrorTom] = useState<"BLOQUEIO" | "AVISO">("BLOQUEIO");
   const [confirmWarningsOpen, setConfirmWarningsOpen] = useState(false);
+  // Uma sessão de emissão por abertura do diálogo; agrupa as ciências até o
+  // rascunho ser salvo (nfe_ciencia_aviso.escopo).
+  const [cienciaEscopo, setCienciaEscopo] = useState(novoEscopoCiencia);
+  useEffect(() => {
+    if (open) setCienciaEscopo(novoEscopoCiencia());
+  }, [open]);
   const [includeObservations, setIncludeObservations] = useState(false);
   const [observations, setObservations] = useState("");
   // Desconto geral da nota. Chega da origem já rateado nos itens; redigitar aqui
@@ -505,6 +519,12 @@ export function GerarNotaDeOsDialog({
   const indFinalEscolhido = isNfce
     ? 1
     : indFinalDoDestino(fiscalConfig.destinoMercadoria, fiscalConfig.consumidorFinal);
+  // Data fiscal da nota: uma só, usada pelo resolver da tela, pela validação
+  // local e enviada ao servidor. `new Date().toISOString()` daria a data em
+  // UTC — em João Pessoa, das 21h à meia-noite, o dia seguinte — e numa virada
+  // de vigência escolheria a alíquota errada.
+  const dataEmissaoFiscal = useMemo(() => dataCivilDeHoje(), []);
+
   const difalContexto = useMemo(() => {
     const parceiro = source?.fornecedor ?? source?.cliente;
     const indIEDest = indicadorDoCliente(source?.cliente);
@@ -516,6 +536,10 @@ export function GerarNotaDeOsDialog({
       // regra estrutural: não contribuinte é sempre consumidor final.
       indFinal: indFinalEscolhido ?? (String(indIEDest) === "9" ? 1 : 0),
       indIEDest,
+      // CRT e modelo entram na incidência: a NA01-20 dispensa o grupo para
+      // Simples Nacional e MEI (exceção 12) e a NA01-10 o proíbe na NFC-e.
+      crt: setup?.empresa?.crt ?? null,
+      modelo,
     } satisfies DifalContexto;
   }, [
     isNfce,
@@ -524,6 +548,8 @@ export function GerarNotaDeOsDialog({
     source?.cliente,
     source?.tipo_operacao,
     indFinalEscolhido,
+    setup?.empresa?.crt,
+    modelo,
   ]);
 
   useEffect(() => {
@@ -533,6 +559,52 @@ export function GerarNotaDeOsDialog({
       return proximos.some((item, index) => item !== current[index]) ? proximos : current;
     });
   }, [difalContexto]);
+
+  // Tudo que muda a decisão do motor fiscal. `aplicarSugestaoDifal` acima só
+  // refaz o que se deduz sem cadastro (interestadual e partilha); a alíquota
+  // interna e o FCP vêm do banco e precisam de uma volta ao servidor.
+  //
+  // Sem isto, trocar o destinatário de PI para RJ deixaria na tela os 22,5% e
+  // o FCP 0 do PI, e a pessoa confirmaria números de outra UF.
+  const assinaturaDifal = useMemo(
+    () =>
+      assinaturaDifalDe({
+        ufDestino: difalContexto.ufDestinatario,
+        indFinal: difalContexto.indFinal,
+        indIEDest: difalContexto.indIEDest,
+        crt: difalContexto.crt,
+        modelo,
+        itens: items,
+      }),
+    [difalContexto, items, modelo],
+  );
+  const assinaturaDifalResolvida = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!items.length) return;
+    if (assinaturaDifalResolvida.current === assinaturaDifal) return;
+    assinaturaDifalResolvida.current = assinaturaDifal;
+
+    const controle = new AbortController();
+    void (async () => {
+      const resolucoes = await resolverDifalDosItens({
+        modelo,
+        ufDestino: difalContexto.ufDestinatario,
+        indFinal: difalContexto.indFinal ?? 1,
+        indIEDest: difalContexto.indIEDest ?? 9,
+        itens: items,
+        dataEmissao: dataEmissaoFiscal,
+        signal: controle.signal,
+      });
+      if (controle.signal.aborted) return;
+      setItems((current) => aplicarResolucaoDifal(current, resolucoes));
+    })();
+
+    return () => controle.abort();
+    // A assinatura já contém tudo que muda a decisão. Declarar `items` aqui faria
+    // o efeito reagir à própria resposta que ele acabou de aplicar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assinaturaDifal]);
 
   const difalAtivo = items.some((item) => item.difalHabilitado);
 
@@ -605,15 +677,8 @@ export function GerarNotaDeOsDialog({
       const parceiro = productsJson.fornecedor ?? productsJson.cliente;
       const parceiroUfCfop = modelo === MODELO_NFCE ? fiscalSetup.empresa?.uf : parceiro?.uf;
       const indIEDest = indicadorDoCliente(productsJson.cliente);
-      const mapped = productsJson.itens.map((item) =>
-        createAssistedItem(item, fiscalSetup, {
-          tipoOperacao: productsJson.tipo_operacao ?? "SAIDA",
-          parceiroUf: parceiroUfCfop,
-          indFinal: modelo === MODELO_NFCE || String(indIEDest) === "9" ? 1 : 0,
-          indIEDest,
-          modelo,
-        }),
-      );
+      const indFinal = modelo === MODELO_NFCE || String(indIEDest) === "9" ? 1 : 0;
+
       // Emissao agrupada: os itens das demais origens entram na mesma lista.
       // Cada rota unitaria ja devolve o `sourceItemId` com o id da origem
       // embutido (`os:12:34`), entao a concatenacao nao colide e o servidor
@@ -623,44 +688,71 @@ export function GerarNotaDeOsDialog({
       const extras = (origensAdicionais ?? []).filter(
         (id) => Number.isInteger(id) && id > 0 && id !== originId,
       );
-      const itensExtras: typeof mapped = [];
-      if (extras.length > 0 && (origin === "OS" || origin === "VENDA")) {
-        const respostas = await Promise.all(
-          extras.map(async (id) => {
-            const rota =
-              origin === "OS"
-                ? `/api/ordens/${id}/produtos-para-nfe?modelo=${modelo}`
-                : `/api/venda/${id}/produtos-para-nfe?modelo=${modelo}`;
-            const resposta = await fetch(rota, { cache: "no-store", signal });
-            const json = (await resposta.json().catch(() => null)) as SourceResponse | null;
-            if (!resposta.ok || !json?.ok) {
-              throw new Error(
-                json?.message ||
-                  `Nao foi possivel carregar os produtos da ${origin === "OS" ? "OS" : "venda"} #${id}.`,
-              );
-            }
-            return json;
-          }),
-        );
-
-        for (const extra of respostas) {
-          for (const item of extra.itens) {
-            itensExtras.push(
-              createAssistedItem(item, fiscalSetup, {
-                tipoOperacao: extra.tipo_operacao ?? "SAIDA",
-                parceiroUf: parceiroUfCfop,
-                indFinal: modelo === MODELO_NFCE || String(indIEDest) === "9" ? 1 : 0,
-                indIEDest,
-                modelo,
+      const respostasExtras =
+        extras.length > 0 && (origin === "OS" || origin === "VENDA")
+          ? await Promise.all(
+              extras.map(async (id) => {
+                const rota =
+                  origin === "OS"
+                    ? `/api/ordens/${id}/produtos-para-nfe?modelo=${modelo}`
+                    : `/api/venda/${id}/produtos-para-nfe?modelo=${modelo}`;
+                const resposta = await fetch(rota, { cache: "no-store", signal });
+                const json = (await resposta.json().catch(() => null)) as SourceResponse | null;
+                if (!resposta.ok || !json?.ok) {
+                  throw new Error(
+                    json?.message ||
+                      `Nao foi possivel carregar os produtos da ${origin === "OS" ? "OS" : "venda"} #${id}.`,
+                  );
+                }
+                return json;
               }),
-            );
-          }
-        }
-      }
+            )
+          : [];
 
-      const todosOsItens = [...mapped, ...itensExtras];
+      // Todos os itens da nota, de todas as origens, antes de qualquer montagem:
+      // o DIFAL é resolvido de uma vez só, para a tela já abrir preenchida.
+      const origensDosItens = [
+        { tipoOperacao: productsJson.tipo_operacao ?? "SAIDA", itens: productsJson.itens },
+        ...respostasExtras.map((extra) => ({
+          tipoOperacao: extra.tipo_operacao ?? "SAIDA",
+          itens: extra.itens,
+        })),
+      ];
+
+      const resolucoesDifal = await resolverDifalDosItens({
+        modelo,
+        ufDestino: parceiroUfCfop,
+        indFinal,
+        indIEDest,
+        itens: origensDosItens.flatMap((origemItens) => origemItens.itens),
+        dataEmissao: dataEmissaoFiscal,
+        signal,
+      });
+
+      const todosOsItens = origensDosItens.flatMap((origemItens) =>
+        origemItens.itens.map((item) =>
+          createAssistedItem(item, fiscalSetup, {
+            tipoOperacao: origemItens.tipoOperacao,
+            parceiroUf: parceiroUfCfop,
+            indFinal,
+            indIEDest,
+            modelo,
+            resolucaoDifal: resolucoesDifal.get(item.sourceItemId) ?? null,
+          }),
+        ),
+      );
       setSetup(fiscalSetup);
       setSource(productsJson);
+      // A carga já resolveu o DIFAL destes itens: registrar a assinatura evita
+      // que o efeito de re-resolução repita a chamada assim que a tela abre.
+      assinaturaDifalResolvida.current = assinaturaDifalDe({
+        ufDestino: parceiroUfCfop,
+        indFinal,
+        indIEDest,
+        crt: fiscalSetup.empresa?.crt,
+        modelo,
+        itens: todosOsItens,
+      });
       setItems(todosOsItens);
       setSelectedIds(todosOsItens.map((item) => item.sourceItemId));
       setEntrySupplier(productsJson.destinatario ?? emptyEntrySupplier);
@@ -722,7 +814,7 @@ export function GerarNotaDeOsDialog({
               operacaoGravada?.exigeDocumentoReferenciado,
           ),
           chaveAcessoReferenciada: contexto?.chave_acesso_referenciada ?? "",
-          itens: mapped.map((item) => {
+          itens: todosOsItens.map((item) => {
             // `sourceItemId` é "saida:{saidaId}:{itemId}" — o último segmento é
             // a linha da saída, que é a chave do contexto fiscal.
             const saidaItemId = Number(item.sourceItemId.split(":").at(-1));
@@ -826,6 +918,10 @@ export function GerarNotaDeOsDialog({
     (sourceItemId: string) => ({
       modFrete: fiscalConfig.modFrete,
       indFinal: indFinalEscolhido,
+      // Sem a data aqui, a reconstrução local do item ficava sem vigência para
+      // casar a regra e acusava "contexto fiscal incompleto" numa nota que o
+      // servidor tinha acabado de resolver.
+      dataEmissao: dataEmissaoFiscal,
       valorFrete: fretePorItem.get(sourceItemId) ?? 0,
       freteIntegraBaseIcms: freteNaBase.integra ?? false,
       ufEmitente: setup?.empresa?.uf ?? undefined,
@@ -855,6 +951,7 @@ export function GerarNotaDeOsDialog({
       freteNaBase.integra,
       fiscalConfig.modFrete,
       indFinalEscolhido,
+      dataEmissaoFiscal,
       setup?.empresa?.uf,
       usesEditableRecipient,
       entrySupplier.estado,
@@ -1518,10 +1615,9 @@ export function GerarNotaDeOsDialog({
     setSaving(true);
     setServerError(null);
     try {
-      const response = await fetch(generateEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const corpo = {
+          // Sessão de emissão: o servidor aceita as ciências registradas nela.
+          cienciaEscopo,
           // Corrigindo uma rejeitada: o servidor atualiza este rascunho em vez
           // de criar outro, preservando número e chave já alocados.
           ...(nfeId ? { nfeId } : {}),
@@ -1615,7 +1711,32 @@ export function GerarNotaDeOsDialog({
                 },
               }
             : {}),
-        }),
+      };
+
+      // "Estou ciente" marcado na tela só vale depois que o servidor recalcula o
+      // aviso e grava a ciência com o usuário da sessão. O rascunho não confia
+      // na lista enviada no payload.
+      const pedidos = pedidosDeCiencia(itensParaGerar);
+      if (pedidos.length > 0 && origin && originId) {
+        const ciencia = await registrarCienciaNoServidor({
+          alvo: origin === "OS" || origin === "VENDA"
+            ? { tipo: origin, id: originId, modelo }
+            : { tipo: origin, id: originId },
+          payload: corpo,
+          cienciaEscopo,
+          pedidos,
+        });
+        if (!ciencia.ok && !ciencia.errors?.length) {
+          throw new Error(ciencia.message || "Não foi possível registrar a ciência dos avisos fiscais.");
+        }
+        // Com bloqueios (ciencia.errors) nada foi registrado; o salvamento
+        // abaixo devolve os mesmos erros e a tela os mostra como sempre.
+      }
+
+      const response = await fetch(generateEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(corpo),
       });
       const json = (await response.json().catch(() => null)) as GenerateResponse | null;
       if (!response.ok || !json?.ok) {
@@ -1654,14 +1775,15 @@ export function GerarNotaDeOsDialog({
   }
 
   function aceitarAvisosEGerarRascunho() {
-    const codigosPorItem = new Map<string, string[]>();
+    // A ciência registra a situação que o usuário viu (code@fingerprint).
+    const avisosPorItem = new Map<string, AssistedItemIssue[]>();
     for (const aviso of selectedIssuesClassificadas.avisos) {
-      const codigos = codigosPorItem.get(aviso.item.sourceItemId) ?? [];
-      codigos.push(aviso.code);
-      codigosPorItem.set(aviso.item.sourceItemId, codigos);
+      const avisos = avisosPorItem.get(aviso.item.sourceItemId) ?? [];
+      avisos.push(aviso);
+      avisosPorItem.set(aviso.item.sourceItemId, avisos);
     }
     const itensComCiencia = selectedItems.map((item) =>
-      confirmarAvisosFiscais(item, codigosPorItem.get(item.sourceItemId) ?? []),
+      confirmarAvisosFiscais(item, avisosPorItem.get(item.sourceItemId) ?? []),
     );
     const atualizadosPorId = new Map(itensComCiencia.map((item) => [item.sourceItemId, item]));
 
@@ -2409,16 +2531,9 @@ export function GerarNotaDeOsDialog({
                                     {issuesClassificadas.avisos.length === 1 ? "aviso fiscal" : "avisos fiscais"}
                                   </Badge>
                                 ) : null}
-                                {issuesClassificadas.informativos.length > 0 ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="gap-1 border-sky-400 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
-                                  >
-                                    <Info className="h-3 w-3" />
-                                    {issuesClassificadas.informativos.length}{" "}
-                                    {issuesClassificadas.informativos.length === 1 ? "informação" : "informações"}
-                                  </Badge>
-                                ) : null}
+                                <FiscalInformationBadge
+                                  messages={issuesClassificadas.informativos.map((issue) => issue.message)}
+                                />
                                 {item.ncm ? <Badge variant="outline">NCM {item.ncm}</Badge> : null}
                                 {item.cfop ? <Badge variant="outline">CFOP {item.cfop}</Badge> : null}
                                 {item.csosn ? <Badge variant="outline">CSOSN {item.csosn}</Badge> : null}
@@ -2458,13 +2573,6 @@ export function GerarNotaDeOsDialog({
                                       {issuesClassificadas.avisos.length - 3 === 1 ? "aviso fiscal" : "avisos fiscais"}
                                     </li>
                                   ) : null}
-                                </ul>
-                              ) : null}
-                              {issuesClassificadas.informativos.length > 0 ? (
-                                <ul className="min-w-0 list-disc space-y-0.5 pl-4 text-xs text-sky-700 dark:text-sky-400 [overflow-wrap:anywhere]">
-                                  {issuesClassificadas.informativos.slice(0, 3).map((issue, index) => (
-                                    <li key={`${issue.code}-${index}`}>{issue.message}</li>
-                                  ))}
                                 </ul>
                               ) : null}
                               {item.cfopResolution?.warning ? (

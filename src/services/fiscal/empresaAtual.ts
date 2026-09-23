@@ -21,12 +21,14 @@ export type EmpresaAtual = {
   regimetributario: string;
   /** IBGE de 7 dígitos: decide o município da NFS-e. */
   codigomunicipio: string;
+  /** UF do emitente: define idDest e a alíquota interestadual do DIFAL. */
+  uf: string;
 };
 
 export async function buscarEmpresaAtual(): Promise<EmpresaAtual | null> {
   const { data, error } = await supabaseAdmin
     .from("empresa")
-    .select("id, regimetributario, codigomunicipio")
+    .select("id, regimetributario, codigomunicipio, uf")
     .order("id", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -38,5 +40,6 @@ export async function buscarEmpresaAtual(): Promise<EmpresaAtual | null> {
     id: Number(data.id),
     regimetributario: String(data.regimetributario ?? ""),
     codigomunicipio: String(data.codigomunicipio ?? ""),
+    uf: String(data.uf ?? "").trim().toUpperCase(),
   };
 }

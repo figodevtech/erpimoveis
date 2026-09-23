@@ -44,8 +44,16 @@ export const PERMS = {
   FINANCEIRO_EDITAR: "financeiro:editar",
   FINANCEIRO_EXCLUIR: "financeiro:excluir",
   FINANCEIRO_NOTAS_FISCAIS: "financeiro:notas_fiscais",
+  // Modificador da listagem do fluxo de caixa, nao um segundo "visualizar":
+  // sem ela a pessoa ve o que criou (e o que nao tem dono), com ela ve tudo.
+  // Fica fora de IMPLIED_PERMISSIONS de proposito — conceder esta nao pode
+  // valer como conceder o acesso ao financeiro.
+  FINANCEIRO_VER_TODAS_TRANSACOES: "financeiro:ver_todas_transacoes",
   FISCAL_SPED: "fiscal:sped",
   FISCAL_SPED_GERENCIAR: "fiscal:sped_gerenciar",
+  // Regras de DIFAL/FCP por UF: alterar uma muda o imposto de toda nota futura.
+  FISCAL_DIFAL: "fiscal:difal",
+  FISCAL_DIFAL_GERENCIAR: "fiscal:difal_gerenciar",
 
   RELATORIOS: "relatorios:visualizar",
 
@@ -81,6 +89,9 @@ export const PERMS = {
   VENDAS_CRIAR: "vendas:criar",
   VENDAS_EDITAR: "vendas:editar",
   VENDAS_EXCLUIR: "vendas:excluir",
+  // Troca o vendedor e transfere a comissao. Sem backfill: concedida a dedo,
+  // pela mesma razao de ORDENS_ALTERAR_CRIADOR.
+  VENDAS_ALTERAR_VENDEDOR: "vendas:alterar_vendedor",
 
   VEICULOS: "veiculos:visualizar",
   VEICULOS_CRIAR: "veiculos:criar",
@@ -104,6 +115,7 @@ export function normalizePermission(perm: unknown) {
 
 const IMPLIED_PERMISSIONS: Record<string, Permission[]> = {
   [normalizePermission(PERMS.FISCAL_SPED_GERENCIAR)]: [PERMS.FISCAL_SPED],
+  [normalizePermission(PERMS.FISCAL_DIFAL_GERENCIAR)]: [PERMS.FISCAL_DIFAL],
   [normalizePermission(PERMS.FINANCEIRO_NOTAS_FISCAIS)]: [PERMS.FINANCEIRO],
   [normalizePermission(PERMS.ESTOQUE)]: [PERMS.USOCONSUMO],
   [normalizePermission(PERMS.ESTOQUE_CRIAR)]: [PERMS.USOCONSUMO_CRIAR, PERMS.USOCONSUMO_ENTRADA],

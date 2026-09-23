@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireFinanceiroDelete } from "@/app/api/_authz/perms";
 import { analisarImpacto } from "@/app/api/transaction/_lib/impacto-exclusao";
+import { exigirAcessoATransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -24,6 +25,7 @@ export async function GET(_: Request, { params }: Params) {
     if (!Number.isInteger(id) || id <= 0) {
       return NextResponse.json({ error: "ID inválido." }, { status: 400 });
     }
+    await exigirAcessoATransacao(id);
 
     const mapa = await analisarImpacto([id]);
     const impacto = mapa.get(id);
@@ -48,9 +50,12 @@ export async function GET(_: Request, { params }: Params) {
       estornoApontando: impacto.estornoApontando,
     });
   } catch (error: any) {
+    const statusAutorizacao = Number(error?.statusCode);
+    const status =
+      statusAutorizacao === 401 || statusAutorizacao === 403 ? statusAutorizacao : 500;
     return NextResponse.json(
       { error: error?.message ?? "Erro ao verificar impacto da exclusão." },
-      { status: 500 },
+      { status },
     );
   }
 }

@@ -57,6 +57,7 @@ export type EventoFinanceiroBruto = {
     id: number;
     status: string;
     dataentrada?: string | null;
+    execucao_fim_em?: string | null;
     cliente?: { id: number; nomerazaosocial?: string | null } | null;
   } | null;
 };

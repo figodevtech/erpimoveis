@@ -33,6 +33,7 @@ import {
   salvarNFeAvulsaDraft,
   type NFeAvulsaDraftInput,
   type NFeAvulsaItemInput,
+  type OpcoesSalvarNFe,
 } from "@/services/fiscal/nfeAvulsaService";
 
 const STATUS_OCUPAM_SAIDA = [
@@ -68,6 +69,8 @@ export type SalvarContextoFiscalSaidaInput = {
 
 export type NFeSaidaDraftInput = {
   nfeId?: number | null;
+  /** Sessão de emissão: liga a ciência dos avisos registrada pelo servidor. */
+  cienciaEscopo?: string | null;
   itens: Array<NFeAvulsaItemInput & { sourceItemId: string }>;
   destinatario: NFeAvulsaDraftInput["destinatario"];
   observacoesFiscais?: string | null;
@@ -911,7 +914,7 @@ async function buscarUfEmitente() {
   return cleanText(empresa?.uf).toUpperCase();
 }
 
-async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput) {
+async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput, opcoes: OpcoesSalvarNFe = {}) {
   if (!input.nfeId) {
     const existente = await buscarNotaAtivaDaSaida(saidaId);
     if (existente) {
@@ -1049,6 +1052,9 @@ async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput)
   });
   if (errors.length) return { ok: false as const, errors };
 
+  // No registro de ciência o caminho é o mesmo até aqui (contexto fiscal e
+  // destinatário da saída são gravados como em qualquer tentativa de emissão);
+  // `salvarNFeAvulsaDraft` para antes de gravar a NF-e.
   const { error: snapshotError } = await supabaseAdmin
     .from("estoque_saida_fiscal")
     .update({ destinatario_snapshot: destinatario, updated_at: new Date().toISOString() })
@@ -1057,6 +1063,7 @@ async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput)
 
   return salvarNFeAvulsaDraft({
     nfeId: input.nfeId ?? null,
+    cienciaEscopo: input.cienciaEscopo ?? null,
     modelo: 55,
     origem: { tipo: "SAIDA", saidaId },
     operacao: {
@@ -1084,7 +1091,7 @@ async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput)
     }),
     destinatario,
     itens,
-  });
+  }, opcoes);
 
 }
 
@@ -1129,7 +1136,7 @@ async function vincularResultadoAsSaidas(
  * continua usando o motor já existente; o caminho agrupado replica as mesmas
  * validações para cada saída e só então grava o vínculo transacional.
  */
-export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInput) {
+export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInput, opcoes: OpcoesSalvarNFe = {}) {
   if (!Array.isArray(input.itens) || !input.itens.length) {
     return { ok: false as const, errors: [{ step: "products", message: "Selecione pelo menos um produto." }] };
   }
@@ -1166,7 +1173,7 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
 
   const saidaIds = Array.from(new Set(referencias.map(({ referencia }) => referencia!.saidaId)));
   if (saidaIds.length === 1) {
-    const resultado = await salvarNFeDaSaidaUnica(saidaId, input);
+    const resultado = await salvarNFeDaSaidaUnica(saidaId, input, opcoes);
     if (!resultado.ok) return resultado;
     const dados = await buscarContextoFiscalSaida(saidaId);
     const mappingById = new Map(
@@ -1349,6 +1356,7 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
 
   const resultado = await salvarNFeAvulsaDraft({
     nfeId: input.nfeId ?? null,
+    cienciaEscopo: input.cienciaEscopo ?? null,
     modelo: 55,
     origem: { tipo: "SAIDA", saidaId },
     operacao: {
@@ -1374,7 +1382,7 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
     }),
     destinatario,
     itens,
-  });
+  }, opcoes);
 
   return vincularResultadoAsSaidas(
     resultado,

@@ -580,6 +580,10 @@ export async function POST(req: Request) {
           ),
           data: hasParcelamento ? parcelasDetalhadas[index]?.data : payload.data,
           pendente: pendenteLinha,
+          // Mesmo carimbo do lancamento avulso: quem registrou o pagamento da
+          // OS e o autor da linha, mesmo quando ela nasce pendente e a baixa
+          // vem depois.
+          created_by: baixadoPor,
           // Parcela pendente ainda sera baixada depois, por baixar_transacao_pendente.
           baixado_por: pendenteLinha ? null : baixadoPor,
         };

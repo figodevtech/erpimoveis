@@ -173,6 +173,53 @@ describe('base IBS/CBS — lida do item já resolvido', () => {
     assert.equal(baseRtcParaEdicao(alvo.rtc), '900');
   });
 
+  it('base automática correta não gera aviso', () => {
+    const alvo = item();
+    resolverRtcDoItem(alvo, { modFrete: '9', dataEmissao: DATA }, {});
+    assert.deepEqual(issuesBaseIbsCbs(alvo.rtc), []);
+    // Digitar exatamente a base composta também não diverge.
+    const igual = item();
+    resolverRtcDoItem(igual, { modFrete: '9', dataEmissao: DATA }, { base: alvo.rtc!.baseCalculo });
+    assert.deepEqual(issuesBaseIbsCbs(igual.rtc), []);
+  });
+
+  it('aviso da base manual diz que a UB16-10 é implementação futura e cita as fontes', () => {
+    const alvo = item();
+    resolverRtcDoItem(alvo, { modFrete: '9', dataEmissao: DATA }, { base: 900 });
+    const [aviso] = issuesBaseIbsCbs(alvo.rtc);
+    assert.match(aviso.message, /implementação futura/);
+    assert.match(aviso.message, /Confira a base antes da emissão/);
+    assert.deepEqual(aviso.fontes?.map((fonte) => fonte.versao ?? null), ['1.51', null]);
+    assert.match(aviso.fingerprint ?? '', /^fp1\./);
+  });
+
+  describe('fingerprint da ciência da base manual', () => {
+    const fp = (extra: Partial<NFeItem>, base: number, contexto = { modFrete: '0', dataEmissao: DATA }) => {
+      const alvo = item(extra);
+      resolverRtcDoItem(alvo, contexto, { base });
+      return issuesBaseIbsCbs(alvo.rtc)[0]?.fingerprint;
+    };
+
+    it('é o mesmo para a mesma situação', () => {
+      assert.equal(fp({}, 900), fp({}, 900));
+    });
+
+    it('muda com a base informada, o frete, o desconto e a data fiscal', () => {
+      const original = fp({}, 900);
+      assert.notEqual(fp({}, 901), original);
+      assert.notEqual(fp({ valorFrete: 10 }, 900), original);
+      assert.notEqual(fp({ valorDesconto: 10 }, 900), original);
+      assert.notEqual(fp({}, 900, { modFrete: '0', dataEmissao: '2026-09-19' }), original);
+    });
+  });
+
+  it('sem data informada, usa o dia civil do emitente e não o dia em UTC', (t) => {
+    // 22/09 às 23h30 em João Pessoa já é 23/09 em UTC.
+    t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-09-23T02:30:00Z') });
+    const composicao = baseIbsCbsDoItem(item(), { modFrete: '9' });
+    assert.equal(composicao.dataEmissao, '2026-09-22');
+  });
+
   it('reabrir rascunho não congela como manual uma base que era calculada', () => {
     const alvo = item();
     resolverRtcDoItem(alvo, { modFrete: '9', dataEmissao: DATA }, {});

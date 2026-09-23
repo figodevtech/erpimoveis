@@ -268,6 +268,54 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
      * e aplicado mais abaixo, ANTES do envio a Focus. Esta checagem existe
      * para devolver uma mensagem boa no caso comum.
      */
+    /*
+     * A junção primeiro: ela é o único lugar que enxerga uma OS que foi
+     * AGREGADA a uma nota anterior — nessa nota, `ordemservicoid` aponta para
+     * a âncora, então a consulta escalar abaixo nunca a encontraria. Sem isto
+     * o usuário só descobriria no índice único, depois do registro criado, com
+     * uma mensagem de corrida para algo que já estava emitido.
+     */
+    const { data: vinculosAtivos, error: vinculosAtivosError } = await supabaseAdmin
+      .from("nfse_os_servico_vinculo")
+      .select("ordemservico_id, servico_id, nfse_id")
+      .eq("ativo", true)
+      .in("ordemservico_id", osDoGrupo.map((ordem) => Number(ordem.id)));
+
+    if (vinculosAtivosError) {
+      console.error("[POST /api/nfse/de-os] Erro ao verificar vínculos ativos", vinculosAtivosError);
+      return NextResponse.json(
+        {
+          ok: false,
+          message:
+            "Não foi possível validar emissões existentes. Confirme se a migration de NFS-e foi aplicada.",
+        },
+        { status: 500 },
+      );
+    }
+
+    const ocupados = new Set(
+      (vinculosAtivos ?? []).map(
+        (linha: any) => `${Number(linha.ordemservico_id)}:${Number(linha.servico_id)}`,
+      ),
+    );
+    const jaEmitido = itensSelecionados.find((item) =>
+      ocupados.has(`${Number(item.ordemServicoId ?? osId)}:${item.servicoid}`),
+    );
+
+    if (jaEmitido) {
+      const ordemDoItem = Number(jaEmitido.ordemServicoId ?? osId);
+      return NextResponse.json(
+        {
+          ok: false,
+          message:
+            osDoGrupo.length > 1
+              ? `O serviço "${String(jaEmitido.servico?.descricao ?? jaEmitido.servicoid)}" da OS ${ordemDoItem} já está em outra NFS-e ativa.`
+              : "Um dos serviços selecionados já possui uma NFS-e ativa ou em processamento.",
+        },
+        { status: 409 },
+      );
+    }
+
     for (const ordem of osDoGrupo) {
       const idDaOrdem = Number(ordem.id);
       const servicosDaOrdem = itensSelecionados
@@ -328,6 +376,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // que é o que a discriminação levou de fato.
     const snapshotItens = itensSelecionados.map((item) => ({
       servicoid: item.servicoid,
+      // De qual OS veio esta linha. Numa nota agrupada, duas OS podem trazer o
+      // mesmo serviço do catálogo: sem este campo o snapshot teria duas
+      // entradas idênticas e o registro não diria a quem cada uma pertence.
+      ordemservicoid: Number(item.ordemServicoId ?? osId),
       descricao: String(item.servico?.descricao ?? "").trim(),
       descricaoItem: descricaoComplementarDoItem(item.descricaoItem, item.servico?.descricao),
       quantidade: item.quantidade,

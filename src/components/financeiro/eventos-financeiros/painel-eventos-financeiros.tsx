@@ -767,6 +767,13 @@ export function PainelEventosFinanceiros({
               {linha.comissaoAjustada ? <Badge variant="outline" className="text-[10px]">Comissão ajustada</Badge> : null}
               {linha.competenciaFechada ? <span title="Evento de competência anterior. Alterar o valor recalcula a DRE daquele período.">· Competência anterior</span> : null}
             </div>
+            {mostrarContextoDaOs && linha.osId != null ? (
+              <p className="text-xs text-muted-foreground">
+                {linha.ordem?.execucao_fim_em ? (
+                  <>Conclusão da OS: <time dateTime={linha.ordem.execucao_fim_em}>{new Date(linha.ordem.execucao_fim_em).toLocaleDateString("pt-BR", { timeZone: "America/Fortaleza" })}</time></>
+                ) : "Sem data de conclusão"}
+              </p>
+            ) : null}
             {mostrarContextoDaOs ? <p className="text-xs text-muted-foreground lg:hidden"><span className="font-medium text-foreground">{documento}</span>{cliente ? ` · ${cliente}` : ""}</p> : null}
           </div>
         </div>

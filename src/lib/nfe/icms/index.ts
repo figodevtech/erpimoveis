@@ -5,6 +5,7 @@
 // O resultado — `IcmsCanonico` — é a única fonte do grupo ICMS no XML, dos
 // totais <ICMSTot>, das colunas de `nfe_item`, da prévia e do snapshot.
 
+import { chaveCiencia, type CienciaRegistrada } from '../issuesFiscais';
 import type { CRT, NFeItem } from '../types';
 import { blocosPresentes, calcularIcmsItem } from './calculo';
 import { validarCoerenciaCfopIcms } from './cfopSemantica';
@@ -23,7 +24,7 @@ export {
   type DecisaoFreteNaBase,
 } from './baseCalculo';
 export { blocosPresentes, calcularIcmsItem, icmsVazio, numeroIcms } from './calculo';
-export { papelStDoCfop, papelStDoTratamento, validarCoerenciaCfopIcms } from './cfopSemantica';
+export { VERSAO_REGRA_CFOP_ST, papelStDoCfop, papelStDoTratamento, validarCoerenciaCfopIcms } from './cfopSemantica';
 export { ORDEM_XSD_ICMS, serializarIcms, validarIcmsCanonico } from './serializacao';
 export {
   BLOCOS_ICMS,
@@ -159,7 +160,7 @@ function explicar(resultado: ResultadoIcms): string {
 
 export function montarDecisaoIcms(
   resultado: ResultadoIcms,
-  avisosConfirmados: IcmsIssue[] = [],
+  avisosConfirmados: Array<IcmsIssue & { ciencia?: CienciaRegistrada }> = [],
 ): DecisaoIcms | undefined {
   const { tratamento, valores } = resultado;
   if (!tratamento || !valores) return undefined;
@@ -181,9 +182,16 @@ export function montarDecisaoIcms(
     camposAplicaveis: BLOCOS_ICMS.filter((bloco) => tratamento.blocos[bloco] !== 'PROIBIDO'),
     camposInformados: presentes,
     camposIgnorados: resultado.camposIgnorados,
+    // Só avisos que admitem ciência; INFO e BLOQUEIO nunca entram aqui.
     avisosConfirmados: avisosConfirmados
-      .filter((aviso) => aviso.severidade !== 'BLOQUEIO' && aviso.requerCiencia === true)
-      .map((aviso) => ({ code: aviso.code, message: aviso.message })),
+      .filter((aviso) => chaveCiencia(aviso) !== null)
+      .map((aviso) => ({
+        code: aviso.code,
+        message: aviso.message,
+        fingerprint: aviso.fingerprint,
+        ...(aviso.fontes ? { fontes: aviso.fontes } : {}),
+        ...(aviso.ciencia ? { ciencia: aviso.ciencia } : {}),
+      })),
     ...(resultado.composicaoBase ? { composicaoBase: resultado.composicaoBase } : {}),
     motivo: explicar(resultado),
   };

@@ -12,11 +12,56 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 import { BancoFalso, instalarIbgeFalso } from "./__bancoFalso";
-import { salvarNFeAvulsaDraft, type NFeAvulsaDraftInput, type NFeAvulsaItemInput } from "./nfeAvulsaService";
-import { salvarNFeDeOrigem, statusOcupaOrigem } from "./nfeOrigemService";
+import {
+  salvarNFeAvulsaDraft,
+  type NFeAvulsaDraftInput,
+  type NFeAvulsaItemInput,
+  type OpcoesSalvarNFe,
+} from "./nfeAvulsaService";
+import type { ResultadoRegistroCiencia } from "./cienciaAvisoFiscal";
+import { salvarNFeDeOrigem, statusOcupaOrigem, type NFeOrigemDraftInput } from "./nfeOrigemService";
 import { salvarNFeDaSaida } from "./nfeSaidaService";
+import { resolverTratamentoIcms, validarCoerenciaCfopIcms } from "@/lib/nfe/icms";
+import { chaveCiencia, pedidosDeCiencia } from "@/lib/nfe/issuesFiscais";
+import { randomUUID } from "node:crypto";
 
-const AVISO_6403_CST60 = "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO";
+/** Ciência como a tela grava: `code@fingerprint` da situação conferida. */
+function cienciaCfopCst(cfop: string, cst: string) {
+  const [aviso] = validarCoerenciaCfopIcms({ cfop, tratamento: resolverTratamentoIcms({ crt: 3, cst })! });
+  const chave = aviso && chaveCiencia(aviso);
+  assert.ok(chave, `sem aviso com ciência para ${cfop} + CST ${cst}`);
+  return chave;
+}
+const AVISO_6403_CST60 = cienciaCfopCst("6403", "60");
+const AVISO_6404_CST60 = cienciaCfopCst("6404", "60");
+
+const ATOR = "00000000-0000-4000-8000-0000000000a1";
+
+type SalvarComOpcoes<I, R> = (input: I, opcoes?: OpcoesSalvarNFe) => Promise<R>;
+
+/**
+ * O caminho da tela: o "estou ciente" vai para o servidor em modo registro e só
+ * depois a nota é salva, na mesma sessão de emissão.
+ */
+async function comCiencia<
+  I extends { itens: Array<{ avisosFiscaisConfirmados?: string[] | null }>; cienciaEscopo?: string | null },
+  R,
+>(salvar: SalvarComOpcoes<I, R>, input: I): Promise<R> {
+  const comEscopo = { ...input, cienciaEscopo: input.cienciaEscopo ?? randomUUID() };
+  const pedidos = pedidosDeCiencia(comEscopo.itens);
+  if (pedidos.length) {
+    const registro = (await salvar(comEscopo, { registrarCiencia: { atorId: ATOR, pedidos } })) as {
+      ciencia?: ResultadoRegistroCiencia;
+      errors?: unknown;
+    };
+    assert.ok(registro.ciencia, JSON.stringify(registro.errors));
+    assert.deepEqual(registro.ciencia.recusadas, []);
+  }
+  return salvar(comEscopo);
+}
+
+const venda: SalvarComOpcoes<NFeOrigemDraftInput, Awaited<ReturnType<typeof salvarNFeDeOrigem>>> = (input, opcoes) =>
+  salvarNFeDeOrigem("VENDA", 164, input, undefined, opcoes);
 
 describe("nova emissão para uma origem já documentada", () => {
   it("libera origem com NF-e autorizada e preserva a trava durante rascunho/transmissão", () => {
@@ -280,14 +325,14 @@ describe("VENDA — regressão da NF-e 136", () => {
       })],
       configuracaoFiscal: configuracaoVenda,
     };
-    const primeira = await salvarNFeDeOrigem("VENDA", 164, input);
+    const primeira = await comCiencia(venda, input);
     assert.ok(primeira.ok, JSON.stringify(!primeira.ok && primeira.errors));
     const notaExistente = banco.tabela("nfe").find((nota) => Number(nota.id) === primeira.nfeId);
     assert.ok(notaExistente);
     notaExistente.status = "AUTORIZADA";
     notaExistente.numero = 136;
 
-    const segunda = await salvarNFeDeOrigem("VENDA", 164, input);
+    const segunda = await comCiencia(venda, input);
 
     assert.ok(segunda.ok, JSON.stringify(!segunda.ok && segunda.errors));
     assert.notEqual(segunda.nfeId, primeira.nfeId);
@@ -297,14 +342,15 @@ describe("VENDA — regressão da NF-e 136", () => {
   it("6403 com CST 60 não sai sem a ciência do usuário, e o CST não é trocado", async () => {
     const resultado = await salvarNFeDeOrigem("VENDA", 164, { itens: [itemDaTela()], configuracaoFiscal: configuracaoVenda });
     assert.equal(resultado.ok, false);
-    const [erro] = resultado.errors as Array<{ code?: string; requerCiencia?: boolean }>;
-    assert.equal(erro.code, AVISO_6403_CST60);
+    const [erro] = resultado.errors as Array<{ code?: string; requerCiencia?: boolean; fingerprint?: string }>;
+    // O servidor devolve o fingerprint que ele calculou: é o que a ciência tem de citar.
+    assert.equal(`${erro.code}@${erro.fingerprint}`, AVISO_6403_CST60);
     assert.equal(erro.requerCiencia, true);
     assert.equal(banco.tabela("nfe").length, 0);
   });
 
   it("com a ciência, grava ICMS60 sem ICMS próprio no banco, no XML e nos totais", async () => {
-    const resultado = await salvarNFeDeOrigem("VENDA", 164, {
+    const resultado = await comCiencia(venda, {
       itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
       configuracaoFiscal: configuracaoVenda,
     });
@@ -312,9 +358,18 @@ describe("VENDA — regressão da NF-e 136", () => {
     const nota = notaGravada(resultado.ok ? resultado.nfeId : 0);
     assertRegressao136(nota);
     assert.deepEqual(
-      nota.itens[0].tributacao_snapshot.icmsDecisao.avisosConfirmados.map((aviso: { code: string }) => aviso.code),
+      nota.itens[0].tributacao_snapshot.icmsDecisao.avisosConfirmados.map(
+        (aviso: { code: string; fingerprint: string }) => `${aviso.code}@${aviso.fingerprint}`,
+      ),
       [AVISO_6403_CST60],
     );
+    assert.deepEqual(nota.nfe.decisao_fiscal.icms[0].avisosConfirmados, [AVISO_6403_CST60]);
+    // Quem confirmou e quando: a ciência registrada pelo servidor.
+    const [confirmado] = nota.itens[0].tributacao_snapshot.icmsDecisao.avisosConfirmados;
+    assert.equal(confirmado.ciencia.usuarioId, ATOR);
+    const [linha] = banco.tabela("nfe_ciencia_aviso");
+    assert.equal(confirmado.ciencia.id, linha.id);
+    assert.equal(linha.nfe_id, resultado.ok ? resultado.nfeId : null);
     assert.match(nota.xml, /<CFOP>6403<\/CFOP>/);
     assert.equal(nota.nfe.decisao_fiscal.icms[0].grupoXmlIcms, "ICMS60");
   });
@@ -329,7 +384,7 @@ describe("VENDA — regressão da NF-e 136", () => {
   });
 
   it("o indFinal sai do destino escolhido, não do tipo de origem", async () => {
-    const revenda = await salvarNFeDeOrigem("VENDA", 164, {
+    const revenda = await comCiencia(venda, {
       itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
       configuracaoFiscal: configuracaoVenda,
     });
@@ -362,7 +417,8 @@ describe("OS — mesmo núcleo", () => {
   const itemOs = (overrides: SemOrigem = {}) => itemDaTela({ sourceItemId: "os:50:1964", ...overrides });
 
   it("regressão da NF-e 136 pela OS", async () => {
-    const resultado = await salvarNFeDeOrigem("OS", 50, {
+    const resultado = await comCiencia((input: NFeOrigemDraftInput, opcoes?: OpcoesSalvarNFe) =>
+      salvarNFeDeOrigem("OS", 50, input, undefined, opcoes), {
       itens: [itemOs({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
       configuracaoFiscal: configuracaoVenda,
     });
@@ -525,17 +581,17 @@ describe("AVULSA — mesmo núcleo", () => {
   }
 
   it("regressão da NF-e 136 pela avulsa", async () => {
-    const resultado = await salvarNFeAvulsaDraft(draftAvulso([itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })]));
+    const resultado = await comCiencia(salvarNFeAvulsaDraft, draftAvulso([itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })]));
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
     assertRegressao136(notaGravada(resultado.nfeId));
   });
 
   it("CST 60 com ST retida informada vai para as colunas próprias e para o XML", async () => {
-    const resultado = await salvarNFeAvulsaDraft(draftAvulso([itemDaTela({
+    const resultado = await comCiencia(salvarNFeAvulsaDraft, draftAvulso([itemDaTela({
       cfop: "6404",
       icms: { stRetida: { vBCSTRet: 13200, pST: 18, vICMSSTRet: 1656, vICMSSubstituto: 720 } },
       avisosFiscaisConfirmados: [
-        AVISO_6403_CST60,
+        AVISO_6404_CST60,
       ],
     })]));
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
@@ -549,11 +605,11 @@ describe("AVULSA — mesmo núcleo", () => {
   });
 
   it("vários CST na mesma nota: o total soma só o ICMS próprio serializado", async () => {
-    const resultado = await salvarNFeAvulsaDraft(draftAvulso([
+    const resultado = await comCiencia(salvarNFeAvulsaDraft, draftAvulso([
       itemDaTela({
         cfop: "6404",
         avisosFiscaisConfirmados: [
-          AVISO_6403_CST60,
+          AVISO_6404_CST60,
         ],
       }),
       itemDaTela({ cfop: "6102", cst: "00", valorUnitario: 1000 }),
@@ -655,7 +711,7 @@ describe("IBS/CBS — base pela composição oficial (UB16-10) nos fluxos", () =
   });
 
   it("VENDA CST 60 da NF-e 136: sem ICMS próprio, a base é o valor da operação", async () => {
-    const resultado = await salvarNFeDeOrigem("VENDA", 164, {
+    const resultado = await comCiencia(venda, {
       itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
       configuracaoFiscal: configuracaoVenda,
     });
@@ -703,10 +759,20 @@ describe("AVULSA — DIFAL antes do IBS/CBS", () => {
     itens: [itemDaTela({ cfop: "6102", cst: "00", aliquotaIcms: "12", ...item, sourceItemId: item.sourceItemId ?? undefined })],
   });
 
-  it("sem alíquota interna e FCP configurados, a nota não é gerada (a tabela por UF é só referência)", async () => {
+  it("sem regra fiscal cadastrada e sem FCP informado, a nota não é gerada", async () => {
     const resultado = await salvarNFeAvulsaDraft(draft({}));
     assert.equal(resultado.ok, false);
-    assert.ok(resultado.errors.some((erro) => (erro as { code?: string }).code === "NFE_DIFAL_CONFIGURACAO_REQUIRED"));
+    const codigos = resultado.errors.map((erro) => (erro as { code?: string }).code);
+    // Cada pendência tem código próprio: antes um bloqueio genérico não dizia
+    // se faltava a alíquota interna, o FCP, ou se havia conflito de regra.
+    assert.ok(
+      codigos.includes("NFE_DIFAL_ALIQUOTA_INTERNA_SEM_REGRA"),
+      `esperava o bloqueio do fallback de tabela; veio ${JSON.stringify(codigos)}`,
+    );
+    assert.ok(
+      codigos.includes("NFE_DIFAL_FCP_NAO_DETERMINADO"),
+      `esperava o bloqueio do FCP indeterminado; veio ${JSON.stringify(codigos)}`,
+    );
   });
 
   it("com DIFAL configurado, a base do IBS/CBS desconta vICMSUFDest e vFCPUFDest", async () => {
@@ -720,5 +786,223 @@ describe("AVULSA — DIFAL antes do IBS/CBS", () => {
     const esperado = Number((11000 - 1320 - vICMSUFDest - vFCPUFDest).toFixed(2));
     assert.deepEqual(baseIbsCbsNoXml(nota.xml), { item: esperado, total: esperado });
     assert.equal(nota.itens[0].tributacao_snapshot.difalDecisao.origemAliquotaInterna, "ITEM");
+  });
+});
+
+describe("descrição do item é o xProd da nota", () => {
+  const draftComDescricao = (descricao: string) => ({
+    operacao: {
+      tipoOperacao: "SAIDA" as const,
+      naturezaOperacao: "VENDA",
+      finalidade: "NORMAL" as const,
+      destinoMercadoria: "USO_CONSUMO" as const,
+      indicadorPresenca: "1",
+    },
+    destinatario: {
+      clienteId: null, tipoPessoa: "FISICA" as const, cpfCnpj: "12345678909",
+      nomeRazaoSocial: "CONSUMIDOR PB", indicadorIe: "9", endereco: "RUA", numero: "1",
+      bairro: "CENTRO", cidade: "JOAO PESSOA", estado: "PB", cep: "58000000",
+      codigoMunicipio: "2507507",
+    },
+    pagamentos: [{ meio: "01", valor: 11000, tipoIntegracao: "2" }],
+    transporte: { modFrete: "9" },
+    itens: [itemDaTela({ cfop: "5102", cst: "00", aliquotaIcms: "12", descricao })],
+  });
+
+  it("o texto ajustado na emissão vai para o XML, sem alterar o produto", async () => {
+    // O cadastro continua "UNIDADE DE CONTROLE VALVULA APM"; a nota sai com o
+    // texto que o operador escreveu para este documento.
+    const ajustada = "MODULO INJECAO VOLVO FH 6792 - RECONDICIONADO";
+    const resultado = await salvarNFeAvulsaDraft(draftComDescricao(ajustada));
+
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    const nota = notaGravada(resultado.nfeId);
+    assert.match(nota.xml, new RegExp(`<xProd>${ajustada}</xProd>`));
+    assert.notEqual(ajustada, produto.titulo);
+  });
+
+  it("descrição vazia não gera nota", async () => {
+    const resultado = await salvarNFeAvulsaDraft(draftComDescricao("   "));
+    assert.equal(resultado.ok, false);
+    assert.ok(
+      resultado.errors.some((erro) => (erro as { field?: string }).field === "descricao"),
+    );
+  });
+
+  it("descrição acima do limite do leiaute é recusada antes da SEFAZ", async () => {
+    // xProd tem 120 caracteres. Enquanto a descrição vinha do cadastro isso
+    // nunca acontecia; digitada na emissão, passa a ser possível.
+    const resultado = await salvarNFeAvulsaDraft(draftComDescricao("A".repeat(121)));
+
+    assert.equal(resultado.ok, false);
+    const erro = resultado.errors.find((e) => (e as { field?: string }).field === "descricao");
+    assert.ok(erro, JSON.stringify(resultado.errors));
+    assert.match((erro as { message: string }).message, /120 caracteres/);
+  });
+
+  it("exatamente no limite é aceita", async () => {
+    const resultado = await salvarNFeAvulsaDraft(draftComDescricao("A".repeat(120)));
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+  });
+});
+
+describe("ciência de aviso registrada pelo servidor", () => {
+  const input = () => ({
+    itens: [itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
+    configuracaoFiscal: configuracaoVenda,
+    cienciaEscopo: randomUUID(),
+  });
+  const pedido6403 = () => {
+    const [code, fingerprint] = AVISO_6403_CST60.split("@");
+    return { itemIndex: 0, code, fingerprint };
+  };
+
+  it("a chave certa no payload, sem registro no servidor, não libera a nota", async () => {
+    const resultado = await venda(input());
+    assert.equal(resultado.ok, false);
+    const [erro] = resultado.errors as Array<{ code?: string; requerCiencia?: boolean }>;
+    assert.equal(erro.code, "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO");
+    assert.equal(erro.requerCiencia, true);
+    assert.equal(banco.tabela("nfe").length, 0);
+  });
+
+  it("registra quem, quando, a mensagem, os dados e a regra, sem gravar nada da NF-e", async () => {
+    const dados = input();
+    const registro = await venda(dados, { registrarCiencia: { atorId: ATOR, pedidos: [pedido6403()] } });
+    const ciencia = (registro as { ciencia?: ResultadoRegistroCiencia }).ciencia;
+    assert.equal(registro.ok, false);
+    assert.deepEqual(ciencia?.registradas.map((item) => item.code), ["NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO"]);
+    assert.equal(banco.tabela("nfe").length, 0);
+    assert.equal(banco.tabela("nfe_item").length, 0);
+
+    const [linha] = banco.tabela("nfe_ciencia_aviso");
+    assert.equal(linha.usuario_id, ATOR);
+    assert.equal(linha.escopo, dados.cienciaEscopo);
+    assert.equal(linha.item_ref, "venda:164:183");
+    assert.equal(linha.origem_tipo, "VENDA");
+    assert.equal(linha.origem_id, 164);
+    assert.equal(`${linha.code}@${linha.fingerprint}`, AVISO_6403_CST60);
+    assert.match(linha.mensagem, /6403/);
+    assert.equal(linha.dados.cfop, "6403");
+    assert.equal(linha.dados.codigoIcms, "60");
+    assert.ok(linha.fontes.length > 0);
+    assert.match(linha.versao_regra, /^regras_nfe@/);
+    assert.equal(linha.nfe_id, null);
+
+    const salvo = await venda(dados);
+    assert.ok(salvo.ok, JSON.stringify(!salvo.ok && salvo.errors));
+    assert.equal(banco.tabela("nfe_ciencia_aviso")[0].nfe_id, salvo.nfeId);
+  });
+
+  it("repetir o clique não duplica a ciência", async () => {
+    const dados = input();
+    await venda(dados, { registrarCiencia: { atorId: ATOR, pedidos: [pedido6403()] } });
+    const segunda = await venda(dados, { registrarCiencia: { atorId: ATOR, pedidos: [pedido6403()] } });
+    const ciencia = (segunda as { ciencia?: ResultadoRegistroCiencia }).ciencia;
+    assert.equal(ciencia?.registradas.length, 0);
+    assert.equal(ciencia?.jaRegistradas.length, 1);
+    assert.equal(banco.tabela("nfe_ciencia_aviso").length, 1);
+  });
+
+  it("pedido forjado (fingerprint de outra situação, item inexistente, INFO) é recusado e não grava", async () => {
+    const [code6404, fp6404] = AVISO_6404_CST60.split("@");
+    const registro = await venda(input(), {
+      registrarCiencia: {
+        atorId: ATOR,
+        pedidos: [
+          { itemIndex: 0, code: code6404, fingerprint: fp6404 },
+          { itemIndex: 7, code: "NFE_CFOP_ST_SUBSTITUTO_SEM_RETENCAO", fingerprint: pedido6403().fingerprint },
+          { itemIndex: 0, code: "NFE_ST_RETIDA_POLITICA_UF", fingerprint: "fp1.qualquer" },
+        ],
+      },
+    });
+    const ciencia = (registro as { ciencia?: ResultadoRegistroCiencia }).ciencia;
+    assert.equal(ciencia?.recusadas.length, 3);
+    assert.equal(ciencia?.registradas.length, 0);
+    assert.equal(banco.tabela("nfe_ciencia_aviso").length, 0);
+  });
+
+  it("ciência de outra sessão de emissão não vale para esta", async () => {
+    const primeira = input();
+    await venda(primeira, { registrarCiencia: { atorId: ATOR, pedidos: [pedido6403()] } });
+    const outraSessao = { ...primeira, cienciaEscopo: randomUUID() };
+    const resultado = await venda(outraSessao);
+    assert.equal(resultado.ok, false);
+  });
+
+  it("reabrir a nota salva aceita a ciência já ligada a ela", async () => {
+    const dados = input();
+    const salvo = await comCiencia(venda, dados);
+    assert.ok(salvo.ok);
+    const reaberto = await venda({ ...dados, nfeId: salvo.nfeId, cienciaEscopo: randomUUID() });
+    assert.ok(reaberto.ok, JSON.stringify(!reaberto.ok && reaberto.errors));
+  });
+
+  /** O usuário muda o item e confirma o aviso novo, como a tela faria. */
+  async function confirmarPendenteDoServidor(dados: NFeOrigemDraftInput) {
+    const pendente = await venda(dados);
+    assert.equal(pendente.ok, false);
+    const [erro] = pendente.errors as unknown as Array<{ code: string; fingerprint: string; requerCiencia?: boolean }>;
+    assert.equal(erro.requerCiencia, true, JSON.stringify(pendente.errors));
+    await venda(dados, {
+      registrarCiencia: { atorId: ATOR, pedidos: [{ itemIndex: 0, code: erro.code, fingerprint: erro.fingerprint }] },
+    });
+    return `${erro.code}@${erro.fingerprint}`;
+  }
+
+  it("só a ciência usada na situação final é ligada à NF-e; a de uma situação abandonada fica sem nota", async () => {
+    // 1-2. 6403 + CST 60: aviso A, confirmado.
+    const dados = input();
+    await venda(dados, { registrarCiencia: { atorId: ATOR, pedidos: [pedido6403()] } });
+    // 3-4. O usuário troca o CST: A some, aparece B (mesmo código, outra situação).
+    const cst00 = { ...dados, itens: [itemDaTela({ cst: "00", avisosFiscaisConfirmados: [] })] };
+    const chaveB = await confirmarPendenteDoServidor(cst00);
+    assert.notEqual(chaveB, AVISO_6403_CST60);
+    // 5. Salva.
+    const salvo = await venda(cst00);
+    assert.ok(salvo.ok, JSON.stringify(!salvo.ok && salvo.errors));
+
+    const linhas = banco.tabela("nfe_ciencia_aviso");
+    const a = linhas.find((linha) => `${linha.code}@${linha.fingerprint}` === AVISO_6403_CST60);
+    const b = linhas.find((linha) => `${linha.code}@${linha.fingerprint}` === chaveB);
+    assert.ok(a && b);
+    assert.equal(a.nfe_id, null, "ciência de situação abandonada não pode aparecer como usada na nota");
+    assert.equal(b.nfe_id, salvo.nfeId);
+    // Tabela e snapshot contam a mesma história.
+    const nota = notaGravada(salvo.nfeId);
+    assert.deepEqual(
+      nota.itens[0].tributacao_snapshot.icmsDecisao.avisosConfirmados.map(
+        (aviso: { ciencia: { id: number } }) => aviso.ciencia.id,
+      ),
+      [b.id],
+    );
+  });
+
+  it("ciência registrada ao editar uma nota salva só é ligada a ela quando libera o aviso", async () => {
+    const dados = input();
+    const salvo = await comCiencia(venda, dados);
+    assert.ok(salvo.ok);
+    const edicao = {
+      ...dados,
+      nfeId: salvo.nfeId,
+      cienciaEscopo: randomUUID(),
+      itens: [itemDaTela({ cst: "00", avisosFiscaisConfirmados: [] })],
+    };
+    const chaveB = await confirmarPendenteDoServidor(edicao);
+    const b = () => banco.tabela("nfe_ciencia_aviso").find((linha) => `${linha.code}@${linha.fingerprint}` === chaveB);
+    assert.equal(b()?.nfe_id, null);
+    const resalvo = await venda(edicao);
+    assert.ok(resalvo.ok, JSON.stringify(!resalvo.ok && resalvo.errors));
+    assert.equal(b()?.nfe_id, salvo.nfeId);
+  });
+
+  it("registro com o motor bloqueado devolve os erros e não grava ciência", async () => {
+    const registro = await venda(
+      { ...input(), configuracaoFiscal: { ...configuracaoVenda, destinoMercadoria: null } },
+      { registrarCiencia: { atorId: ATOR, pedidos: [pedido6403()] } },
+    );
+    assert.equal((registro as { ciencia?: unknown }).ciencia, undefined);
+    assert.ok(registro.errors.length > 0);
+    assert.equal(banco.tabela("nfe_ciencia_aviso").length, 0);
   });
 });

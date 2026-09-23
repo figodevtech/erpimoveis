@@ -123,6 +123,24 @@ export async function GET(req: NextRequest) {
 
     const eventos = await comCriadoPor(data ?? []);
 
+    // A view traz o contexto da OS em JSON, sem a conclusão. Busca as datas
+    // das OS da página em lote, na mesma fonte usada pela Central Pessoal.
+    const osIds = [...new Set(eventos
+      .map((evento) => evento.ordemservicoid as number | null)
+      .filter((id): id is number => id != null))];
+    const conclusoes = new Map<number, string | null>();
+    if (osIds.length > 0) {
+      const { data: ordens, error: erroOrdens } = await supabaseAdmin
+        .from("ordemservico")
+        .select("id, execucao_fim_em")
+        .in("id", osIds)
+        .eq("is_deleted", false);
+      if (erroOrdens) throw erroOrdens;
+      for (const ordem of ordens ?? []) {
+        conclusoes.set(ordem.id, ordem.execucao_fim_em);
+      }
+    }
+
     // Os totais valem para o filtro inteiro, não para a página: o financeiro abre
     // a tela para saber quanto falta lançar, e o número da página responderia
     // outra pergunta. Vem sem `range` e só com as colunas da soma.
@@ -149,7 +167,13 @@ export async function GET(req: NextRequest) {
     ).length;
 
     return NextResponse.json({
-      data: eventos,
+      data: eventos.map((evento) => ({
+        ...evento,
+        ordem: evento.ordem ? {
+          ...evento.ordem,
+          execucao_fim_em: conclusoes.get(evento.ordemservicoid) ?? null,
+        } : null,
+      })),
       pagination: {
         total: count ?? 0,
         page,

@@ -39,6 +39,8 @@ export type ItemProdutoAvulso = {
   subtotal: number;
   descontoTipo?: TipoDesconto | null;
   desconto?: number;
+  descontoInformativoTipo?: TipoDesconto | null;
+  descontoInformativo?: number;
 };
 
 export type ItemServico = {

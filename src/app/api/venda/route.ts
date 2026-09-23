@@ -4,7 +4,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { idDeBusca } from "@/lib/busca-numerica";
+import { planoBuscaVendas } from "@/lib/vendas/busca";
 import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms";
 import { carregarAutores } from "@/lib/movement-authors";
@@ -87,7 +87,7 @@ const VENDA_SELECT = `
   id,
   clienteid,
   cliente:cliente (
-  id, nomerazaosocial, telefone ),
+  id, nomerazaosocial, cpfcnpj, telefone, email ),
   status,
   statusaprovacao,
   categoriavendaid,
@@ -212,17 +212,29 @@ export async function GET(req: Request) {
     const statusFilter = STATUS_SET.has(statusParam as Status)
       ? (statusParam as Status)
       : null;
+    if (valorMin !== null && valorMax !== null && valorMin > valorMax) {
+      return NextResponse.json({ error: "O valor mínimo não pode superar o máximo." }, { status: 400 });
+    }
+    const dataValida = (data: string) => /^\d{4}-\d{2}-\d{2}$/.test(data) && Number.isFinite(Date.parse(data)) && new Date(data).toISOString().slice(0, 10) === data;
+    if ((dateFrom && !dataValida(dateFrom)) || (dateTo && !dataValida(dateTo)) || (dateFrom && dateTo && dateFrom > dateTo)) {
+      return NextResponse.json({ error: "Informe um período válido, com início anterior ao fim." }, { status: 400 });
+    }
     // Paginação (para lista)
-    const page = Math.max(Number(searchParams.get("page") ?? 1), 1);
+    const pageValue = Number(searchParams.get("page") ?? 1);
+    const page = Number.isSafeInteger(pageValue) && pageValue > 0 ? pageValue : 1;
     const q = (
       searchParams.get("search") ??
       searchParams.get("q") ??
       ""
     ).trim();
+    if ([q, cliente, notaNumero].some((termo) => termo.length > 200)) {
+      return NextResponse.json({ error: "Use até 200 caracteres em cada campo de busca." }, { status: 400 });
+    }
 
     const limitRaw =
       searchParams.get("limit") ?? searchParams.get("pageSize") ?? "20";
-    const limit = Math.min(Math.max(Number(limitRaw), 1), 100);
+    const limitValue = Number(limitRaw);
+    const limit = Number.isSafeInteger(limitValue) && limitValue > 0 ? Math.min(limitValue, 100) : 20;
 
     const emptyResponse = () =>
       NextResponse.json({
@@ -282,9 +294,15 @@ export async function GET(req: Request) {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
+    const plano = planoBuscaVendas(q, cliente, notaNumero);
+    // O PostgREST devolve a consulta em Content-Location. Limita o tamanho
+    // antes de exceder o limite de cabeçalhos HTTP do transporte.
+    if (encodeURIComponent(JSON.stringify(plano)).length > 10000) {
+      return NextResponse.json({ error: "Busca muito longa. Use um trecho do nome, documento ou descrição." }, { status: 400 });
+    }
     let query = supabaseAdmin
       .from("venda")
-      .select(VENDA_SELECT, { count: "exact" })
+      .select([VENDA_SELECT, ...plano.select].join(","), { count: "exact" })
       .order("id", { ascending: false })
       .range(from, to);
 
@@ -298,69 +316,18 @@ export async function GET(req: Request) {
 
     let clienteIdNum: number | null = null;
 
-    if (q) {
-      const orFilters: string[] = [];
-      const safeText = q.replace(/[,%()]/g, " ").trim();
-
-      if (safeText) {
-        const { data: clientesBusca, error: clientesBuscaError } = await supabaseAdmin
-          .from("cliente")
-          .select("id")
-          .or(
-            `nomerazaosocial.ilike.%${safeText}%,cpfcnpj.ilike.%${safeText}%,telefone.ilike.%${safeText}%`
-          )
-          .limit(200);
-
-        if (clientesBuscaError) throw clientesBuscaError;
-        const clienteIdsBusca = (clientesBusca ?? [])
-          .map((item) => Number(item.id))
-          .filter(Number.isFinite);
-        if (clienteIdsBusca.length > 0) {
-          orFilters.push(`clienteid.in.(${clienteIdsBusca.join(",")})`);
-        }
-      }
-
-      const digits = q.replace(/\D/g, "");
-      if (digits) {
-        const { data: notasBusca, error: notasBuscaError } = await supabaseAdmin
-          .from("nfe")
-          .select("vendaid")
-          .eq("numero", Number(digits))
-          .not("vendaid", "is", null)
-          .limit(200);
-
-        if (notasBuscaError) throw notasBuscaError;
-        const vendaIdsNota = (notasBusca ?? [])
-          .map((item) => Number(item.vendaid))
-          .filter(Number.isFinite);
-        if (vendaIdsNota.length > 0) {
-          orFilters.push(`id.in.(${vendaIdsNota.join(",")})`);
-        }
-      }
-
-      const normalizedMoney = q
-        .replace(/[^\d,.-]/g, "")
-        .replace(/\.(?=\d{3}(?:\D|$))/g, "")
-        .replace(",", ".");
-      const numericValue = Number(normalizedMoney);
-      if (Number.isFinite(numericValue)) {
-        orFilters.push(`valortotal.eq.${numericValue}`);
-      }
-      const idVenda = /^\d+$/.test(q) ? idDeBusca(q) : null;
-      if (idVenda !== null) {
-        orFilters.push(`id.eq.${idVenda}`);
-      }
-
-      if (orFilters.length === 0) return emptyResponse();
-      query = query.or(orFilters.join(","));
+    for (const filtro of plano.filtros) {
+      query = query.or(filtro.expressao, { referencedTable: filtro.relacao });
     }
+    if (plano.or.length) query = query.or(plano.or.join(","));
+    for (const obrigatoria of plano.obrigatorias) query = query.or(obrigatoria);
 
     if (dateFrom) {
-      query = query.gte("datavenda", `${dateFrom}T00:00:00.000Z`);
+      query = query.gte("datavenda", `${dateFrom}T00:00:00.000-03:00`);
     }
 
     if (dateTo) {
-      query = query.lte("datavenda", `${dateTo}T23:59:59.999Z`);
+      query = query.lte("datavenda", `${dateTo}T23:59:59.999-03:00`);
     }
 
     if (clienteId) {
@@ -374,59 +341,13 @@ export async function GET(req: Request) {
       query = query.eq("clienteid", clienteIdNum);
     }
 
-    if (cliente) {
-      const { data: clientesData, error: clientesError } = await supabaseAdmin
-        .from("cliente")
-        .select("id")
-        .or(
-          `nomerazaosocial.ilike.%${cliente}%,cpfcnpj.ilike.%${cliente}%,telefone.ilike.%${cliente}%`
-        )
-        .limit(200);
-
-      if (clientesError) {
-        throw clientesError;
-      }
-
-      const clienteIds = (clientesData ?? []).map((item) => item.id);
-      if (clienteIds.length === 0) {
-        return emptyResponse();
-      }
-
-      query = query.in("clienteid", clienteIds);
-    }
-
-    if (notaNumero) {
-      const notaNumeroValue = Number(notaNumero.replace(/\D/g, ""));
-
-      if (!Number.isFinite(notaNumeroValue)) {
-        return emptyResponse();
-      }
-
-      const { data: notasData, error: notasError } = await supabaseAdmin
-        .from("nfe")
-        .select("vendaid")
-        .eq("numero", notaNumeroValue)
-        .not("vendaid", "is", null)
-        .limit(200);
-
-      if (notasError) {
-        throw notasError;
-      }
-
-      const vendaIds = (notasData ?? [])
-        .map((item) => item.vendaid)
-        .filter((value): value is number => Number.isFinite(Number(value)));
-
-      if (vendaIds.length === 0) {
-        return emptyResponse();
-      }
-
-      query = query.in("id", vendaIds);
-    }
-
     if (statusFilter) {
       query = query.eq("status", statusFilter);
     }
+
+    const entrega = searchParams.get("statusEntrega");
+    if (entrega === "NAO_INICIADA") query = query.is("status_entrega", null).in("canal", ["ONLINE", "MERCADO_LIVRE", "SHOPEE"]);
+    else if (["SEPARACAO", "ENVIO", "ENTREGUE"].includes(entrega ?? "")) query = query.eq("status_entrega", entrega!);
 
     if (canal) query = query.eq("canal", canal);
     if (categoriaVendaId) query = query.eq("categoriavendaid", categoriaVendaId);
@@ -444,7 +365,13 @@ export async function GET(req: Request) {
       );
     }
 
-    const items = data ?? [];
+    const items = (data ?? []) as any[];
+    // Relações auxiliares de busca não fazem parte da resposta da listagem.
+    for (const item of items) {
+      for (const key of Object.keys(item)) {
+        if (key.startsWith("busca_") || key.startsWith("filtro_")) delete item[key];
+      }
+    }
 
     // `transacao.baixado_por` e um uuid solto (sem FK para `usuario`), entao o nome
     // de quem executou a baixa e resolvido em lote.

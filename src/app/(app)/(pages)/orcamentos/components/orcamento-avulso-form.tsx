@@ -273,6 +273,8 @@ export const OrcamentoAvulsoForm = forwardRef<OrcamentoAvulsoFormHandle, Orcamen
           desconto: item.desconto ?? 0,
         })),
         produtosAvulsos: itensProdutoAvulso.map((item) => ({
+          descontoInformativoTipo: item.descontoInformativoTipo ?? null,
+          descontoInformativo: item.descontoInformativo ?? 0,
           titulo: item.titulo,
           quantidade: item.quantidade,
           precounitario: item.precounitario,
