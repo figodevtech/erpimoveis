@@ -1,4 +1,6 @@
 "use client";
+import { PendingVideos, useVideoEnabled } from "@/components/checklist-videos";
+import { uploadVideo } from "@/lib/videos/client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DialogShell } from "./dialog-shell";
@@ -37,6 +39,9 @@ type ExistingImage = {
 
 export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
   const [saving, setSaving] = useState(false);
+  const videoEnabled = useVideoEnabled(open);
+  const [videosByItem, setVideosByItem] = useState<Record<string, File[]>>({});
+  const [videoProgress, setVideoProgress] = useState("");
   const [loadingExisting, setLoadingExisting] = useState(false);
   const [existingError, setExistingError] = useState<string | null>(null);
 
@@ -99,7 +104,7 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
     [checklist, obsByItem, templateId, templateItems]
   );
 
-  const hasAnyNewImage = useMemo(() => Object.values(imagesByItem).some((arr) => (arr?.length ?? 0) > 0), [imagesByItem]);
+  const hasAnyNewImage = useMemo(() => [...Object.values(imagesByItem), ...Object.values(videosByItem)].some(arr => arr.length > 0), [imagesByItem, videosByItem]);
   const isDirty = useMemo(() => computeSnapshot() !== initialSnapshotRef.current, [computeSnapshot]);
 
   const resetForm = useCallback(() => {
@@ -110,6 +115,8 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
     setChecklist({});
     setObsByItem({});
     setImagesByItem({});
+    setVideosByItem({});
+    setVideoProgress("");
     setPreviewUrlsByItem((prev) => {
       Object.values(prev).flat().forEach((url) => URL.revokeObjectURL(url));
       return {};
@@ -184,6 +191,7 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
       setChecklist(novoChecklist);
       setObsByItem(novoObs);
       setImagesByItem(novoImgs);
+      setVideosByItem({});
       setPreviewUrlsByItem((prev) => {
         Object.values(prev).flat().forEach((url) => URL.revokeObjectURL(url));
         return {};
@@ -391,6 +399,8 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
 
   const salvar = async () => {
     if (saving) return;
+    const unmarkedVideo = Object.entries(videosByItem).find(([title, files]) => files.length && !toDbStatus(checklist[title]));
+    if (unmarkedVideo) { toast.error(`Marque o item ${unmarkedVideo[0]} antes de enviar o vídeo.`); return; }
 
     const err = validateAll();
     if (err) {
@@ -458,6 +468,16 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
         });
       }
 
+      setImagesByItem({});
+      // Checklist is already saved. Successful files are removed from the retry queue.
+      for (const [title, files] of Object.entries(videosByItem)) {
+        const itemId = mapItemToChecklistId[title];
+        if (files.length && !itemId) throw new Error(`Marque o item ${title} para anexar vídeos.`);
+        for (const file of files) {
+          await uploadVideo(file, { osId, itemId, kind: "entrada" }, setVideoProgress);
+          setVideosByItem(prev => ({ ...prev, [title]: (prev[title] ?? []).filter(f => f !== file) }));
+        }
+      }
       toast.success("Checklist atualizado com sucesso.");
       window.dispatchEvent(new CustomEvent("os:refresh"));
 
@@ -623,6 +643,8 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
 
                   <div className="mt-3 space-y-2">
                     <Label className="text-xs text-muted-foreground">Imagens do item (opcional)</Label>
+                    {videoEnabled && <PendingVideos disabled={saving} files={videosByItem[key] ?? []} onChange={files => setVideosByItem(prev => ({ ...prev, [key]: files }))} />}
+                    {videoProgress && <p role="status" className="text-sm">{videoProgress}</p>}
 
                     {(existingImgs.length > 0 || files.length > 0) && (
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">

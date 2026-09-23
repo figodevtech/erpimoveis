@@ -1,4 +1,6 @@
 "use client";
+import { PendingVideos, useVideoEnabled } from "@/components/checklist-videos";
+import { uploadVideo } from "@/lib/videos/client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DialogShell } from "./dialog-shell";
@@ -31,6 +33,9 @@ type Props = {
 
 export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
   const [saving, setSaving] = useState(false);
+  const videoEnabled = useVideoEnabled(open);
+  const [videosByItem, setVideosByItem] = useState<Record<string, File[]>>({});
+  const [videoProgress, setVideoProgress] = useState("");
 
   // modelos
   const [templates, setTemplates] = useState<ChecklistTemplateModel[]>([]);
@@ -67,6 +72,8 @@ export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
     setChecklist({});
     setObsByItem({});
     setImagesByItem({});
+    setVideosByItem({});
+    setVideoProgress("");
     setPreviewUrlsByItem((prev) => {
       Object.values(prev).flat().forEach((url) => URL.revokeObjectURL(url));
       return {};
@@ -129,6 +136,7 @@ export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
       setChecklist(novoChecklist);
       setObsByItem(novoObs);
       setImagesByItem(novoImgs);
+      setVideosByItem({});
       setPreviewUrlsByItem((prev) => {
         Object.values(prev).flat().forEach((url) => URL.revokeObjectURL(url));
         return {};
@@ -192,6 +200,8 @@ export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
 
   const salvar = async () => {
     if (saving || submitDoneRef.current) return;
+    const unmarkedVideo = Object.entries(videosByItem).find(([title, files]) => files.length && !toDbStatus(checklist[title]));
+    if (unmarkedVideo) { toast.error(`Marque o item ${unmarkedVideo[0]} antes de enviar o vídeo.`); return; }
 
     const err = validateAll();
     if (err) {
@@ -253,6 +263,16 @@ export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
         });
       }
 
+      setImagesByItem({});
+      // Checklist is already saved. Successful files are removed from the retry queue.
+      for (const [title, files] of Object.entries(videosByItem)) {
+        const itemId = mapItemToChecklistId[title];
+        if (files.length && !itemId) throw new Error(`Marque o item ${title} para anexar vídeos.`);
+        for (const file of files) {
+          await uploadVideo(file, { osId, itemId, kind: "entrada" }, setVideoProgress);
+          setVideosByItem(prev => ({ ...prev, [title]: (prev[title] ?? []).filter(f => f !== file) }));
+        }
+      }
       submitDoneRef.current = true;
       toast.success("Checklist salvo com sucesso.");
       window.dispatchEvent(new CustomEvent("os:refresh"));
@@ -404,6 +424,8 @@ export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
 
                   <div className="mt-3 space-y-2">
                     <Label className="text-xs text-muted-foreground">Imagens do item (opcional)</Label>
+                    {videoEnabled && <PendingVideos disabled={saving} files={videosByItem[key] ?? []} onChange={files => setVideosByItem(prev => ({ ...prev, [key]: files }))} />}
+                    {videoProgress && <p role="status" className="text-sm">{videoProgress}</p>}
 
                     <div className="flex flex-wrap items-center gap-2">
                       <label className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer hover:bg-muted">

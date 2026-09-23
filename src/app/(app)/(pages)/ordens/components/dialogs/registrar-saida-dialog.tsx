@@ -1,6 +1,8 @@
 "use client";
+import { PendingVideos, useVideoEnabled } from "@/components/checklist-videos";
+import { uploadVideo } from "@/lib/videos/client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { Calendar } from "@/components/ui/calendar";
@@ -29,18 +31,22 @@ function LocalImagePreview({ file }: { file: File }) {
   return <ChecklistImagePreview src={url} alt={file.name} />;
 }
 
-function ChecklistSaidaDialog({ open, onOpenChange, templates, templateId, marks, images, onApply }: {
+function ChecklistSaidaDialog({ open, onOpenChange, templates, templateId, marks, images, videos, onVideos, videoEnabled, onApply }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   templates: Template[];
   templateId: string;
   marks: Record<string, Mark>;
   images: Record<string, File[]>;
+  videos: Record<string, File[]>;
+  onVideos: (value: Record<string, File[]>) => void;
+  videoEnabled: boolean;
   onApply: (templateId: string, marks: Record<string, Mark>, images: Record<string, File[]>) => void;
 }) {
   const [draftTemplateId, setDraftTemplateId] = useState(templateId);
   const [draftMarks, setDraftMarks] = useState<Record<string, Mark>>(marks);
   const [draftImages, setDraftImages] = useState<Record<string, File[]>>(images);
+  const [draftVideos, setDraftVideos] = useState<Record<string, File[]>>(videos);
   const template = useMemo(() => templates.find((item) => item.id === draftTemplateId), [templates, draftTemplateId]);
 
   function selectTemplate(value: string) {
@@ -48,6 +54,7 @@ function ChecklistSaidaDialog({ open, onOpenChange, templates, templateId, marks
     const selected = templates.find((item) => item.id === value);
     setDraftMarks(Object.fromEntries((selected?.itens ?? []).map((item) => [item.id, { status: "", observacao: "" }])));
     setDraftImages({});
+    setDraftVideos({});
   }
 
   function apply() {
@@ -56,6 +63,7 @@ function ChecklistSaidaDialog({ open, onOpenChange, templates, templateId, marks
       return toast.error("Informe a situação de todos os itens do checklist de saída.");
     }
     onApply(draftTemplateId, draftMarks, draftImages);
+    onVideos(draftVideos);
     onOpenChange(false);
   }
 
@@ -100,6 +108,7 @@ function ChecklistSaidaDialog({ open, onOpenChange, templates, templateId, marks
           </div>
           <div className="mt-3 space-y-2">
             <Label className="text-xs text-muted-foreground">Imagens do item (opcional)</Label>
+            {videoEnabled && <PendingVideos files={draftVideos[item.titulo] ?? []} onChange={files => setDraftVideos(current => ({ ...current, [item.titulo]: files }))} />}
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted">
               <UploadCloud className="h-4 w-4" />Adicionar imagens
               <input type="file" accept="image/*" multiple className="hidden" onChange={(event) => {
@@ -140,6 +149,10 @@ export function RegistrarSaidaDialog({ open, onOpenChange, osId, onSuccess }: {
   const [imagesByItem, setImagesByItem] = useState<Record<string, File[]>>({});
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const videoEnabled = useVideoEnabled(open);
+  const [videosByItem, setVideosByItem] = useState<Record<string, File[]>>({});
+  const [videoProgress, setVideoProgress] = useState("");
+  const savedExit = useRef<{ checklistCreated: Array<{ titulo: string; id: number }> } | null>(null);
   const template = useMemo(() => templates.find((item) => item.id === templateId), [templates, templateId]);
   const checklistPreenchido = Boolean(templateId && template && template.itens.every((item) => marks[item.id]?.status));
 
@@ -151,6 +164,8 @@ export function RegistrarSaidaDialog({ open, onOpenChange, osId, onSuccess }: {
     setTemplateId("");
     setMarks({});
     setImagesByItem({});
+    setVideosByItem({});
+    savedExit.current = null;
     void fetch("/api/checklist-modelos?ativos=1", { cache: "no-store" })
       .then(async (response) => {
         const json = await response.json();
@@ -177,9 +192,13 @@ export function RegistrarSaidaDialog({ open, onOpenChange, osId, onSuccess }: {
 
   async function submit() {
     if (!osId || Number.isNaN(saidaEm.getTime())) return;
+    if (Object.values(videosByItem).some(files => files.length) && !checklistPreenchido && !savedExit.current) {
+      toast.error("Preencha o checklist antes de anexar vídeos à saída.");
+      return;
+    }
     setSaving(true);
     try {
-      const response = await fetch(`/api/ordens/${osId}/saida`, {
+      const response = savedExit.current ? null : await fetch(`/api/ordens/${osId}/saida`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -193,8 +212,9 @@ export function RegistrarSaidaDialog({ open, onOpenChange, osId, onSuccess }: {
           })) : [],
         }),
       });
-      const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json?.error || "Falha ao registrar saída.");
+      const json = savedExit.current ?? await response!.json().catch(() => ({}));
+      if (response && !response.ok) throw new Error(json?.error || "Falha ao registrar saída.");
+      savedExit.current = json;
       const idsByTitle = new Map<string, number>((json?.checklistCreated ?? []).map((item: any) => [String(item.titulo), Number(item.id)]));
       for (const [titulo, files] of Object.entries(imagesByItem)) {
         const checklistItemId = idsByTitle.get(titulo);
@@ -204,6 +224,15 @@ export function RegistrarSaidaDialog({ open, onOpenChange, osId, onSuccess }: {
         const upload = await fetch(`/api/ordens/saida-checklist/${checklistItemId}/images`, { method: "POST", body: form });
         const uploadJson = await upload.json().catch(() => ({}));
         if (!upload.ok) throw new Error(uploadJson?.error || `Falha ao enviar imagens de ${titulo}.`);
+        setImagesByItem(prev => ({ ...prev, [titulo]: [] }));
+      }
+      for (const [title, files] of Object.entries(videosByItem)) {
+        const itemId = idsByTitle.get(title);
+        if (files.length && !itemId) throw new Error(`Preencha o checklist para anexar vídeos em ${title}.`);
+        for (const file of files) {
+          await uploadVideo(file, { osId, itemId: itemId!, kind: "saida" }, setVideoProgress);
+          setVideosByItem(prev => ({ ...prev, [title]: (prev[title] ?? []).filter(f => f !== file) }));
+        }
       }
       toast.success(`Saída da OS #${osId} registrada.`);
       onOpenChange(false);
@@ -242,12 +271,13 @@ export function RegistrarSaidaDialog({ open, onOpenChange, osId, onSuccess }: {
           <div className="space-y-2 sm:col-span-2"><Label>Documento ou observação (opcional)</Label><Textarea value={observacao} onChange={(event) => setObservacao(event.target.value)} maxLength={1000} /></div>
           <div className="flex items-center justify-between gap-3 rounded-md border p-3 sm:col-span-2">
             <div><p className="text-sm font-medium">Checklist de saída</p><p className="text-xs text-muted-foreground">{checklistPreenchido ? `${template?.nome} · ${template?.itens.length ?? 0} itens preenchidos` : "Opcional e independente do checklist de entrada"}</p></div>
-            <Button type="button" variant="outline" onClick={() => setChecklistOpen(true)}>{checklistPreenchido ? "Editar checklist" : "Preencher checklist"}</Button>
+            <Button type="button" variant="outline" disabled={saving || Boolean(savedExit.current)} onClick={() => setChecklistOpen(true)}>{checklistPreenchido ? "Editar checklist" : "Preencher checklist"}</Button>
           </div>
         </div>
+        {videoProgress && <p role="status">{videoProgress}</p>}
         <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancelar</Button><Button onClick={submit} disabled={saving}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Confirmar saída</Button></DialogFooter>
       </DialogContent>
     </Dialog>
-    {checklistOpen && <ChecklistSaidaDialog open onOpenChange={setChecklistOpen} templates={templates} templateId={templateId} marks={marks} images={imagesByItem} onApply={(nextTemplateId, nextMarks, nextImages) => { setTemplateId(nextTemplateId); setMarks(nextMarks); setImagesByItem(nextImages); }} />}
+    {checklistOpen && <ChecklistSaidaDialog videos={videosByItem} onVideos={setVideosByItem} videoEnabled={videoEnabled} open onOpenChange={setChecklistOpen} templates={templates} templateId={templateId} marks={marks} images={imagesByItem} onApply={(nextTemplateId, nextMarks, nextImages) => { setTemplateId(nextTemplateId); setMarks(nextMarks); setImagesByItem(nextImages); }} />}
   </>;
 }

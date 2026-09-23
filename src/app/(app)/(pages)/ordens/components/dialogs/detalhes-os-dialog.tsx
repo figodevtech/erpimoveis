@@ -1,5 +1,6 @@
 // ./src/app/(app)/(pages)/ordens/components/dialogs/detalhes-os-dialog.tsx
 "use client";
+import { ChecklistVideos } from "@/components/checklist-videos";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -2984,6 +2985,7 @@ export function OSDetalhesDialog({
                                       {item.status}
                                     </Badge>
                                   </div>
+                                  <ChecklistVideos osId={osId!} itemId={Number(item.id)} kind="saida" />
                                   {(item.imagens ?? []).length > 0 && (
                                     <div className="mt-3 space-y-1.5">
                                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -3079,6 +3081,7 @@ export function OSDetalhesDialog({
                                     </Badge>
                                   </div>
 
+                                  <ChecklistVideos osId={osId!} itemId={Number(c.id)} kind="entrada" />
                                   {Array.isArray(c.imagens) && c.imagens.length > 0 && (
                                     <div className="mt-3 space-y-1.5">
                                       <div className="flex items-center gap-2 text-xs text-muted-foreground">

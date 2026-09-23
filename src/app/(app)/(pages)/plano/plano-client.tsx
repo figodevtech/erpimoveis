@@ -1,4 +1,5 @@
 "use client";
+import { VideoUsage } from "@/components/checklist-videos";
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -50,6 +51,7 @@ export function PlanoClient({ value, stale }: { value: PlatformSubscription; sta
 
   return (
     <div className="w-full space-y-4">
+      {value.videos && value.videos.capacityBytes > 0 && <div className="rounded-xl border p-4"><VideoUsage service={value.videos} /><p className="text-sm mt-2">Adicional de vídeos: {money(value.videos.monthlyAmountCents)}/mês{value.videos.scheduled ? ` · Próximo valor: ${money(value.videos.scheduled.amount_cents)} em ${date(value.videos.scheduled.competence)}` : ""}</p></div>}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-medium text-primary">Assinatura do sistema</p>

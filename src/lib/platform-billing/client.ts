@@ -13,6 +13,7 @@ const chargeSchema = z.object({
 });
 
 const subscriptionSchema = z.object({
+  videos: z.object({ enabled: z.boolean(), capacityBytes: z.number(), usedBytes: z.number(), reservedBytes: z.number(), monthlyAmountCents: z.number(), scheduled: z.object({ competence: z.string(), amount_cents: z.number() }).nullable() }).optional(),
   company: z.object({ name: z.string().nullable(), billingEmail: z.string().nullable() }),
   subscription: z.object({
     status: z.enum(["ACTIVE", "PAST_DUE", "BLOCKED", "CANCELED"]),

@@ -16,6 +16,7 @@ export type PlatformCharge = {
 };
 
 export type PlatformSubscription = {
+  videos?: { enabled: boolean; capacityBytes: number; usedBytes: number; reservedBytes: number; monthlyAmountCents: number; scheduled: { competence: string; amount_cents: number } | null };
   company: { name: string | null; billingEmail: string | null };
   subscription: {
     status: "ACTIVE" | "PAST_DUE" | "BLOCKED" | "CANCELED";
