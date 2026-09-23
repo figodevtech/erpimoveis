@@ -39,7 +39,19 @@ export const PERMS = {
   USOCONSUMO_SAIDA: "usoconsumo:saida",
   USOCONSUMO_CANCELAR: "usoconsumo:cancelar_movimento",
 
+  // Acesso base: os dados financeiros que aparecem dentro da OS e da venda, e
+  // as APIs que as telas do financeiro compartilham. Sozinha nao abre nenhuma
+  // tela do menu Financeiro — cada uma tem a sua, logo abaixo.
   FINANCEIRO: "financeiro:visualizar",
+  // Uma por tela do menu Financeiro. Cada uma inclui o acesso base
+  // (IMPLIED_PERMISSIONS): marcar "Bancos" basta para abrir Bancos.
+  FINANCEIRO_FLUXO_DE_CAIXA: "financeiro:fluxo_de_caixa",
+  FINANCEIRO_BANCOS: "financeiro:bancos",
+  FINANCEIRO_EVENTOS_DE_ORDENS: "financeiro:eventos_de_ordens",
+  FINANCEIRO_PAGAMENTO_DE_ORDENS: "financeiro:pagamento_de_ordens",
+  FINANCEIRO_PAGAMENTO_DE_VENDAS: "financeiro:pagamento_de_vendas",
+  FINANCEIRO_ACOMPANHAMENTO: "financeiro:acompanhamento",
+  FINANCEIRO_DRE: "financeiro:dre",
   FINANCEIRO_CRIAR: "financeiro:criar",
   FINANCEIRO_EDITAR: "financeiro:editar",
   FINANCEIRO_EXCLUIR: "financeiro:excluir",
@@ -109,6 +121,40 @@ export const PERMS = {
 
 export type Permission = (typeof PERMS)[keyof typeof PERMS];
 
+/**
+ * As telas do menu Financeiro que ganharam permissao propria. Fiscal e SPED
+ * ja tinham a sua (`financeiro:notas_fiscais`, `fiscal:sped`).
+ */
+export const PERMS_TELAS_FINANCEIRO: Permission[] = [
+  PERMS.FINANCEIRO_FLUXO_DE_CAIXA,
+  PERMS.FINANCEIRO_BANCOS,
+  PERMS.FINANCEIRO_EVENTOS_DE_ORDENS,
+  PERMS.FINANCEIRO_PAGAMENTO_DE_ORDENS,
+  PERMS.FINANCEIRO_PAGAMENTO_DE_VENDAS,
+  PERMS.FINANCEIRO_ACOMPANHAMENTO,
+  PERMS.FINANCEIRO_DRE,
+];
+
+/**
+ * Versao do formato das permissoes gravadas no token de sessao.
+ *
+ * 2: `financeiro:visualizar` deixou de abrir as telas do financeiro. Um token
+ * emitido antes disso (sem versao) guarda so `financeiro:visualizar` e duraria
+ * ate 24h sem as permissoes novas — quem estivesse logado no deploy perderia o
+ * Fluxo de Caixa ate sair e entrar. `permissoesDoToken` le esse token como o
+ * sistema o lia quando ele foi emitido.
+ */
+export const VERSAO_PERMISSOES_TOKEN = 2;
+
+export function permissoesDoToken(permissoes: unknown, versao: unknown): string[] {
+  const lista = Array.isArray(permissoes) ? (permissoes as unknown[]).map(String) : [];
+  if (Number(versao) >= VERSAO_PERMISSOES_TOKEN) return lista;
+
+  const normalizadas = new Set(lista.map(normalizePermission));
+  if (!normalizadas.has(normalizePermission(PERMS.FINANCEIRO))) return lista;
+  return [...lista, ...PERMS_TELAS_FINANCEIRO.map(normalizePermission)];
+}
+
 export function normalizePermission(perm: unknown) {
   return String(perm ?? "").trim().toUpperCase();
 }
@@ -117,6 +163,11 @@ const IMPLIED_PERMISSIONS: Record<string, Permission[]> = {
   [normalizePermission(PERMS.FISCAL_SPED_GERENCIAR)]: [PERMS.FISCAL_SPED],
   [normalizePermission(PERMS.FISCAL_DIFAL_GERENCIAR)]: [PERMS.FISCAL_DIFAL],
   [normalizePermission(PERMS.FINANCEIRO_NOTAS_FISCAIS)]: [PERMS.FINANCEIRO],
+  // Cada tela do financeiro precisa das APIs compartilhadas (lista de bancos,
+  // transacao, eventos), que seguem pedindo o acesso base.
+  ...Object.fromEntries(
+    PERMS_TELAS_FINANCEIRO.map((perm) => [normalizePermission(perm), [PERMS.FINANCEIRO]]),
+  ),
   [normalizePermission(PERMS.ESTOQUE)]: [PERMS.USOCONSUMO],
   [normalizePermission(PERMS.ESTOQUE_CRIAR)]: [PERMS.USOCONSUMO_CRIAR, PERMS.USOCONSUMO_ENTRADA],
   [normalizePermission(PERMS.ESTOQUE_EDITAR)]: [

@@ -19,7 +19,7 @@ import {
 import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exigirAcessoATransacao } from "../../_lib/autoria";
+import { exigirAcessoATransacao, exigirLeituraDeTransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 const SELECT_FIELDS =
@@ -39,7 +39,7 @@ async function transactionId(ctx: Params) {
   return parsePositiveId(id, "ID da transação");
 }
 
-async function ensureTransactionExists(id: number) {
+async function ensureTransactionExists(id: number, modo: "ler" | "alterar") {
   const { data, error } = await supabaseAdmin
     .from("transacao")
     .select("id")
@@ -53,14 +53,16 @@ async function ensureTransactionExists(id: number) {
     throw notFound;
   }
   // Aqui, e nao em cada handler: GET e POST passam os dois por esta funcao.
-  await exigirAcessoATransacao(id);
+  // Ler abre tambem a transacao alheia de OS; anexar exige o dono.
+  if (modo === "ler") await exigirLeituraDeTransacao(id);
+  else await exigirAcessoATransacao(id);
 }
 
 export async function GET(_request: NextRequest, ctx: Params) {
   try {
     await requireFinanceirosAccess();
     const id = await transactionId(ctx);
-    await ensureTransactionExists(id);
+    await ensureTransactionExists(id, "ler");
 
     const { data, error } = await supabaseAdmin
       .from("transacao_anexo")
@@ -88,7 +90,7 @@ export async function POST(request: NextRequest, ctx: Params) {
     if (bloqueio) return bloqueio;
 
     const id = await transactionId(ctx);
-    await ensureTransactionExists(id);
+    await ensureTransactionExists(id, "alterar");
 
     const { count, error: countError } = await supabaseAdmin
       .from("transacao_anexo")

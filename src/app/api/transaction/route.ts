@@ -12,9 +12,11 @@ import { aplicarCamposBandeira, erroDeBandeira, resolverBandeira } from "./_lib/
 import { filtroDeBusca } from "./_lib/busca";
 import {
   aplicarRecorteDeAutoria,
+  criterioDeAlteracao,
   leApenasMinhas,
   recorteDeAutoria,
 } from "./_lib/autoria";
+import { hasOSAccess, hasVendasAccess } from "@/app/api/_authz/perms";
 import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 import { reportErpDiagnostic } from "@/lib/monitoring/erp-diagnostic";
 
@@ -316,7 +318,20 @@ export async function GET(req: Request) {
      * nada nesse caso: quem nao pode ver tudo nao ganha uma chave para desligar
      * o proprio limite. Para quem tem a permissao, ele e o recorte opcional.
      */
-    const recorte = await recorteDeAutoria(leApenasMinhas(searchParams.get("apenasMinhas")));
+    const apenasMinhas = leApenasMinhas(searchParams.get("apenasMinhas"));
+    /*
+     * A lista de UMA OS ou de UMA venda nao sofre o recorte: e o que as telas de
+     * Pagamento de Ordens e de Vendas pedem, e ali todo pagamento do documento
+     * aparece, de quem quer que seja — o mesmo que a aba Financeiro da OS
+     * mostra. Alterar continua preso ao dono (`pode_alterar` em cada linha).
+     */
+    const listaDeUmDocumento =
+      !apenasMinhas &&
+      ((Boolean(ordemservicoid) && (await hasOSAccess())) ||
+        (Boolean(vendaid) && (await hasVendasAccess())));
+    const recorte = listaDeUmDocumento
+      ? { restrito: false, usuarioId: null }
+      : await recorteDeAutoria(apenasMinhas);
 
     // Padrão: mais novo primeiro (extrato). "asc" serve às visões de contas a
     // pagar/receber, onde o que vence antes precisa aparecer antes.
@@ -425,7 +440,13 @@ export async function GET(req: Request) {
     if (error) throw error;
     diagnosticStage = undefined;
 
-    const items = data ?? [];
+    // A tela usa isto para abrir so para leitura a transacao de outra pessoa,
+    // em vez de oferecer botoes que a rota recusa com 403.
+    const podeAlterar = await criterioDeAlteracao();
+    const items = (data ?? []).map((linha: any) => ({
+      ...linha,
+      pode_alterar: podeAlterar(linha.created_by ?? null),
+    }));
     const total = count ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / limit));
 

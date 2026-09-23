@@ -478,14 +478,16 @@ partir de um extrato.
 ## 12. As APIs
 
 Todas usam a infraestrutura de permissões financeiras que já existia. Não há
-autenticação paralela.
+autenticação paralela. Desde 23/09/2026 toda rota de `/api/financeiro/conciliacao`
+exige também `financeiro:fluxo_de_caixa`, a permissão da tela onde a conciliação
+mora (regra no `middleware.ts`); ela inclui `financeiro:visualizar`.
 
 | Método e rota | Permissão | Entrada | Escreve? |
 |---|---|---|---|
-| `POST /api/financeiro/conciliacao/ofx/preview` | `financeiro:visualizar` | `multipart`: `arquivo`, `bancoId` | **Não** |
+| `POST /api/financeiro/conciliacao/ofx/preview` | `financeiro:fluxo_de_caixa` | `multipart`: `arquivo`, `bancoId` | **Não** |
 | `POST /api/financeiro/conciliacao/ofx/importar` | `financeiro:criar` (+ `financeiro:editar` se houver `VINCULAR`/`LIQUIDAR`) | `multipart`: `arquivo`, `bancoId`, `decisoes` (JSON) | Sim |
-| `GET /api/financeiro/conciliacao/ofx` | `financeiro:visualizar` | `page`, `limit`, `bancoId` | Não |
-| `GET /api/financeiro/conciliacao/ofx/[id]` | `financeiro:visualizar` | — | Não |
+| `GET /api/financeiro/conciliacao/ofx` | `financeiro:fluxo_de_caixa` | `page`, `limit`, `bancoId` | Não |
+| `GET /api/financeiro/conciliacao/ofx/[id]` | `financeiro:fluxo_de_caixa` | — | Não |
 | `POST /api/financeiro/conciliacao/ofx/[id]/conciliar` | `financeiro:criar` (+ `financeiro:editar` conforme a ação) | `{ decisoes: [...] }` | Sim |
 
 ### Forma de uma decisão

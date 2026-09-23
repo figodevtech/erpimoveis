@@ -7,6 +7,7 @@ import {
   requireFinanceirosAccess,
   requireOSAccess,
 } from "@/app/api/_authz/perms";
+import { criterioDeAlteracao } from "@/app/api/transaction/_lib/autoria";
 import { calcularResumoFinanceiroOs } from "@/lib/ordens/financeiro";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -60,7 +61,7 @@ export async function GET(_: Request, { params }: Params) {
           metodopagamento, categoria, categoria_id, plano_de_conta,
           plano_de_conta_id, centro_custo, centro_custo_id, tipo, pendente,
           cliente_id, banco_id, ordemservicoid, evento_financeiro_id,
-          created_at, updated_at, pagamento_multiplo_id,
+          created_by, created_at, updated_at, pagamento_multiplo_id,
           banco:bancoconta!transacao_banco_id_fkey ( id, titulo ),
           pagamento_multiplo:pagamento_multiplo_id (
             id, descricao, modo, valor_total, data
@@ -109,6 +110,10 @@ export async function GET(_: Request, { params }: Params) {
       for (const [grupo, conjunto] of vistos) documentosPorGrupo.set(grupo, conjunto.size);
     }
 
+    // A lista mostra tudo; alterar segue a trava do dono. A tela usa isto para
+    // abrir a alheia so para leitura, em vez de oferecer botoes que dao 403.
+    const podeAlterar = await criterioDeAlteracao();
+
     const transacoes = (transacoesResult.data ?? []).map((transacao: any) => {
       // Na transação de pagamento múltiplo, o valor da linha é o recebimento
       // inteiro — que cobre outras OS. Para esta OS vale a fatia dela; sem essa
@@ -126,6 +131,7 @@ export async function GET(_: Request, { params }: Params) {
         valor_descontos: fatia != null ? 0 : Number(transacao.valor_descontos ?? 0),
         pendente: transacao.pendente === true,
         valor_rateado: fatia != null,
+        pode_alterar: podeAlterar(transacao.created_by ?? null),
         pagamento_multiplo: transacao.pagamento_multiplo
           ? {
               ...transacao.pagamento_multiplo,

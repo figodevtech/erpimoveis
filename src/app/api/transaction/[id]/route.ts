@@ -9,7 +9,7 @@ import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { paraCentavos } from "@/lib/financeiro/rateio";
 import { origemDaTransacao, rotuloDaOrigem } from "@/lib/financeiro/transacao";
 import { excluirTransacao } from "../_lib/exclusao";
-import { exigirAcessoATransacao } from "../_lib/autoria";
+import { exigirAcessoATransacao, exigirLeituraDeTransacao } from "../_lib/autoria";
 import {
   aplicarCamposDocumento,
   CAMPOS_DOCUMENTO,
@@ -421,8 +421,9 @@ export async function GET(_: Request, ctx: Params) {
     await requireFinanceirosAccess();
     const id = await parseId(ctx);
     // Esconder a linha da lista nao bastava: bastava saber o id para abrir,
-    // editar ou excluir por aqui.
-    await exigirAcessoATransacao(id);
+    // editar ou excluir por aqui. Abrir, porem, vale tambem para a transacao
+    // alheia de OS — a aba Financeiro da OS ja a lista.
+    await exigirLeituraDeTransacao(id);
 
     const { data, error } = await supabaseAdmin
       .from("transacao")

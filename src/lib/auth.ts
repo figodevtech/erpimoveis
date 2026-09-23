@@ -3,7 +3,11 @@ import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { expandPermissions } from "@/app/api/_authz/permission-constants";
+import {
+  expandPermissions,
+  permissoesDoToken,
+  VERSAO_PERMISSOES_TOKEN,
+} from "@/app/api/_authz/permission-constants";
 import { isEmailIdentifier, normalizeLoginIdentifier } from "@/lib/auth-identifier";
 import {
   buildLoginRateLimitKeys,
@@ -84,6 +88,7 @@ async function atualizarTokenComUsuarioAtual(token: any) {
   token.setorId = usuario.setorId;
   token.ativo = usuario.ativo;
   token.permissoes = usuario.permissoes;
+  token.permissoesVersao = VERSAO_PERMISSOES_TOKEN;
 
   return token;
 }
@@ -248,6 +253,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (token as any).ativo = (user as any).ativo ?? true;
         (token as any).permissoes = Array.isArray((user as any).permissoes) ? (user as any).permissoes : [];
         (token as any).permissoesRefreshedAt = Date.now();
+        (token as any).permissoesVersao = VERSAO_PERMISSOES_TOKEN;
         (token as any).supabaseAccessToken = (user as any).supabaseAccessToken ?? null;
         (token as any).supabaseRefreshToken = (user as any).supabaseRefreshToken ?? null;
         (token as any).supabaseAccessTokenExpiresAt = (user as any).supabaseAccessTokenExpiresAt ?? null;
@@ -275,7 +281,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         (session.user as any).perfilId = (token as any).perfilId ?? null;
         (session.user as any).setorId = (token as any).setorId ?? null;
         (session.user as any).ativo = (token as any).ativo ?? true;
-        (session.user as any).permissoes = (token as any).permissoes ?? [];
+        (session.user as any).permissoes = permissoesDoToken(
+          (token as any).permissoes,
+          (token as any).permissoesVersao,
+        );
         (session.user as any).permissoesRefreshedAt = (token as any).permissoesRefreshedAt ?? null;
         (session.user as any).supabaseAccessToken = (token as any).supabaseAccessToken ?? null;
         (session.user as any).supabaseAccessTokenExpiresAt = (token as any).supabaseAccessTokenExpiresAt ?? null;

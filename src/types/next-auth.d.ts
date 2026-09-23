@@ -43,6 +43,8 @@ declare module "next-auth/jwt" {
     ativo?: boolean;
     permissoes?: string[];
     permissoesRefreshedAt?: number | null;
+    /** Ausente em token emitido antes de VERSAO_PERMISSOES_TOKEN. */
+    permissoesVersao?: number | null;
     supabaseAccessToken?: string | null;
     supabaseRefreshToken?: string | null;
     supabaseAccessTokenExpiresAt?: number | null;
