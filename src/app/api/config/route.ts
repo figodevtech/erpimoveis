@@ -4,6 +4,7 @@ import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { requireConfigEdit } from "@/app/api/_authz/perms";
 import { normalizarRegrasDestaque } from "@/lib/ordens/destaque";
 import { validarAlteracaoFaturamento } from "@/lib/config/faturamento-patch";
+import { normalizarStatusEmissaoOS, statusOSEmissaoValido } from "@/lib/nfe/elegibilidadeEmissao";
 
 // Evita cache no App Router
 export const revalidate = 0;
@@ -35,7 +36,8 @@ const CONFIG_SELECT_COMPLETO_LEGADO = `${CONFIG_SELECT_BASE_LEGADO}, ${CONFIG_SE
 const CONFIG_SELECT_SEM_MODO_BAIXA = `${CONFIG_SELECT_BASE_SEM_MODO_BAIXA}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_DESTAQUE_STATUS = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_FATURAMENTO = `${CONFIG_SELECT_SEM_DESTAQUE_STATUS}, destaque_os_por_status`;
-const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_FATURAMENTO}, habilitar_faturamento_os`;
+const CONFIG_SELECT_SEM_STATUS_EMISSAO = `${CONFIG_SELECT_SEM_FATURAMENTO}, habilitar_faturamento_os`;
+const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_STATUS_EMISSAO}, emissao_nf_status_os`;
 
 function colunaNaoExiste(error: any) {
   return error?.code === "42703";
@@ -103,6 +105,7 @@ function comPadroesAgendamento(config: any) {
       ? Number(config.setor_padrao_os_id)
       : null,
     destaque_os_por_status: normalizarRegrasDestaque(config.destaque_os_por_status),
+    emissao_nf_status_os: normalizarStatusEmissaoOS(config.emissao_nf_status_os, config.emissao_nf_ordens_nao_pagas),
   };
 }
 
@@ -117,6 +120,11 @@ async function buscarConfigAtual() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semStatusEmissao = await supabase.from("config_geral")
+    .select(CONFIG_SELECT_SEM_STATUS_EMISSAO).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (!semStatusEmissao.error) return comPadroesAgendamento(semStatusEmissao.data);
+  if (!colunaNaoExiste(semStatusEmissao.error)) throw semStatusEmissao.error;
 
   const semFaturamento = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_FATURAMENTO).order("id", { ascending: false }).limit(1).maybeSingle();
@@ -216,6 +224,11 @@ async function criarConfigPadraoSeNaoExistir() {
 
   if (!error) return comPadroesAgendamento(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semStatusEmissao = await supabase.from("config_geral")
+    .select(CONFIG_SELECT_SEM_STATUS_EMISSAO).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (!semStatusEmissao.error) return comPadroesAgendamento(semStatusEmissao.data);
+  if (!colunaNaoExiste(semStatusEmissao.error)) throw semStatusEmissao.error;
 
   const semFaturamento = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_FATURAMENTO).order("id", { ascending: false }).limit(1).maybeSingle();
@@ -325,7 +338,6 @@ export async function PUT(request: Request) {
       "habilitar_emissao_nfe",
       "emissao_nf_no_modulo_ordens",
       "emissao_nf_no_modulo_vendas",
-      "emissao_nf_ordens_nao_pagas",
       "emissao_nf_vendas_nao_pagas",
       "produto_preco_medio_compra_obrigatorio",
       "produto_ncm_obrigatorio",
@@ -440,6 +452,18 @@ export async function PUT(request: Request) {
         );
       }
       patch.destaque_os_por_status = regras;
+    }
+
+    if (body.emissao_nf_status_os !== undefined) {
+      // Como no destaque: o PUT recusa em vez de salvar menos do que foi marcado.
+      const bruto = body.emissao_nf_status_os;
+      if (!Array.isArray(bruto) || bruto.length === 0) {
+        return respostaJSON({ error: "Selecione pelo menos um status de OS que permite emitir nota." }, 400);
+      }
+      if (!bruto.every(statusOSEmissaoValido)) {
+        return respostaJSON({ error: "Há status de OS inválido na lista de emissão de nota." }, 400);
+      }
+      patch.emissao_nf_status_os = normalizarStatusEmissaoOS(bruto);
     }
 
     if (Object.keys(patch).length === 0) {

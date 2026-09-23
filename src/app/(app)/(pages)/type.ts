@@ -11,6 +11,8 @@ export interface Config {
     emissao_nf_no_modulo_vendas: boolean;
     emissao_nf_ordens_nao_pagas: boolean;
     emissao_nf_vendas_nao_pagas: boolean;
+    /** Status de OS em que a emissão de nota é liberada. */
+    emissao_nf_status_os: string[];
     habilitar_drawers: boolean;
     agendamento_intervalo_minutos: number;
     agendamento_hora_inicio: string;

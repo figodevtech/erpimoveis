@@ -9,6 +9,7 @@ import { Settings } from "@/components/animate-ui/icons/settings";
 import { Config } from "./type";
 import { ConfigProvider } from "./config-context";
 import { UserPreferencesProvider } from "../components/user-preferences-provider";
+import { STATUS_OS_EMISSAO_PADRAO } from "@/lib/nfe/elegibilidadeEmissao";
 
 const CONFIG_CACHE_KEY = "erpoficina:config-cache";
 
@@ -23,6 +24,7 @@ const DEFAULT_CONFIG: Config = {
   emissao_nf_no_modulo_vendas: false,
   emissao_nf_ordens_nao_pagas: false,
   emissao_nf_vendas_nao_pagas: false,
+  emissao_nf_status_os: [...STATUS_OS_EMISSAO_PADRAO],
   habilitar_drawers: true,
   agendamento_intervalo_minutos: 60,
   agendamento_hora_inicio: "08:00",

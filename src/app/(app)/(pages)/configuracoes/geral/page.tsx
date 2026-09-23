@@ -88,6 +88,11 @@ import {
   type RegrasDestaqueStatus,
   type StatusOSValido,
 } from "@/lib/ordens/destaque";
+import {
+  STATUS_OS_EMISSAO_OPCOES,
+  STATUS_OS_EMISSAO_PADRAO,
+} from "@/lib/nfe/elegibilidadeEmissao";
+import { Checkbox } from "@/components/ui/checkbox";
 import { TermosImpressaoOSCard } from "./components/termos-impressao-os-card";
 
 const SHOPEE_INTEGRATION_ENABLED =
@@ -883,6 +888,7 @@ export default function ConfigGeralPage() {
       emissao_nf_no_modulo_vendas: false,
       emissao_nf_ordens_nao_pagas: false,
       emissao_nf_vendas_nao_pagas: false,
+      emissao_nf_status_os: [...STATUS_OS_EMISSAO_PADRAO],
       agendamento_intervalo_minutos: 60,
       agendamento_hora_inicio: "08:00",
       agendamento_hora_fim: "18:00",
@@ -1904,19 +1910,48 @@ export default function ConfigGeralPage() {
                     }
                   />
                 </div>
-                <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border">
+                <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
                   <div className="flex flex-col space-y-1">
-                    <Label>Emitir sem Pagamento</Label>
+                    <Label>Status que permitem emitir nota</Label>
                     <span className="text-xs text-muted-foreground">
-                      Permite emissão de NF de OS antes do financeiro baixar.
+                      A emissão de NF da OS só aparece nos status marcados.
                     </span>
                   </div>
-                  <Switch
-                    checked={watch("emissao_nf_ordens_nao_pagas")}
-                    onCheckedChange={(v) =>
-                      setValue("emissao_nf_ordens_nao_pagas", v)
-                    }
-                  />
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {STATUS_OS_EMISSAO_OPCOES.map((status) => {
+                      const marcados = watch("emissao_nf_status_os") ?? [];
+                      const marcado = marcados.includes(status);
+                      const ultimo = marcado && marcados.length === 1;
+                      const id = `emissao-status-os-${status}`;
+                      return (
+                        <div key={status} className="flex items-start gap-2">
+                          <Checkbox
+                            id={id}
+                            checked={marcado}
+                            disabled={ultimo}
+                            title={ultimo ? "Selecione pelo menos um status." : undefined}
+                            onCheckedChange={(v) =>
+                              setValue(
+                                "emissao_nf_status_os",
+                                v === true
+                                  ? STATUS_OS_EMISSAO_OPCOES.filter((s) => s === status || marcados.includes(s))
+                                  : marcados.filter((s) => s !== status),
+                                { shouldDirty: true },
+                              )
+                            }
+                          />
+                          <Label htmlFor={id} className="flex flex-col gap-0.5 text-sm font-normal leading-tight">
+                            {rotuloStatusOS(status)}
+                            {status === "FATURAMENTO" ? (
+                              <span className="text-xs text-muted-foreground">
+                                Só ocorre com o faturamento de OS ligado.
+                              </span>
+                            ) : null}
+                          </Label>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
                   <div className="flex flex-col space-y-1">
