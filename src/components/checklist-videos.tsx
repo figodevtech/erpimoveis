@@ -1,7 +1,9 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Film, Play, Download, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { uploadVideo, videoRequest } from "@/lib/videos/client";
+import { ChecklistVideoCamera } from "@/components/checklist-video-camera";
 
 export function useVideoEnabled(open: boolean) {
   const [enabled, setEnabled] = useState(false);
@@ -16,11 +18,39 @@ export function useVideoEnabled(open: boolean) {
 
 export function PendingVideos({ files, onChange, disabled = false }: { files: File[]; onChange: (files: File[]) => void; disabled?: boolean }) {
   return <div className="space-y-2 py-2">
-    <label className="inline-flex items-center rounded-md border px-3 py-2 text-sm cursor-pointer">Adicionar vídeo
-      <input className="sr-only" aria-label="Adicionar vídeo de até 2 minutos" disabled={disabled} type="file" accept="video/*" multiple onChange={e => { onChange([...files, ...Array.from(e.target.files ?? [])]); e.target.value = ""; }} />
-    </label>
-    <p className="text-xs text-muted-foreground">Até 2 minutos e 250 MB por vídeo. O envio ocorre após salvar o checklist.</p>
-    {files.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center gap-2 text-sm"><span className="truncate">{file.name} · {(file.size / 1e6).toFixed(1)} MB</span><Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(files.filter((_, i) => i !== index))}>Remover</Button></div>)}
+    <div className="flex flex-wrap items-center gap-2">
+    <ChecklistVideoCamera disabled={disabled} onCapture={file => onChange([...files, file])} />
+    <VideoGallery disabled={disabled} onFiles={picked => onChange([...files, ...picked])} />
+    </div>
+    <p className="text-xs text-muted-foreground">Até 2 minutos e 250 MB. Confira o original abaixo; o vídeo será otimizado somente ao salvar.</p>
+    <div className="grid gap-3 sm:grid-cols-2">{files.map((file, index) => <PendingVideoPreview key={`${file.name}-${file.lastModified}-${index}`} file={file} disabled={disabled} onRemove={() => onChange(files.filter((_, i) => i !== index))} />)}</div>
+  </div>;
+}
+
+function VideoGallery({ disabled, onFiles, multiple = true }: { disabled?: boolean; onFiles: (files: File[]) => void; multiple?: boolean }) {
+  const input = useRef<HTMLInputElement>(null);
+  return <>
+    <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => input.current?.click()}><Film className="size-4 shrink-0" />Selecionar vídeo</Button>
+    <input ref={input} hidden type="file" accept="video/*" multiple={multiple} disabled={disabled} onChange={event => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; if (files.length) onFiles(files); }} />
+  </>;
+}
+
+function PendingVideoPreview({ file, disabled, onRemove }: { file: File; disabled: boolean; onRemove: () => void }) {
+  const player = useRef<HTMLVideoElement>(null);
+  const [details, setDetails] = useState("");
+  const [error, setError] = useState(false);
+  const [lowResolution, setLowResolution] = useState(false);
+  useEffect(() => {
+    const source = URL.createObjectURL(file);
+    const video = player.current;
+    if (video) video.src = source;
+    return () => { if (video) { video.pause(); video.removeAttribute("src"); video.load(); } URL.revokeObjectURL(source); };
+  }, [file]);
+  return <div className="min-w-0 overflow-hidden rounded-lg border bg-background">
+    <video ref={player} controls playsInline preload="metadata" className="aspect-video w-full bg-black object-contain" onError={() => setError(true)} onLoadedMetadata={event => { const video = event.currentTarget; setError(false); setLowResolution(Math.min(video.videoWidth, video.videoHeight) < 720); setDetails(`${video.videoWidth} × ${video.videoHeight}${Number.isFinite(video.duration) ? ` · ${Math.round(video.duration)} s` : ""}`); }} />
+    <div className="flex items-center gap-2 p-2"><div className="min-w-0 flex-1"><p className="truncate text-xs font-medium" title={file.name}>{file.name}</p><p className="text-xs text-muted-foreground">{(file.size / 1e6).toFixed(1)} MB{details ? ` · ${details}` : ""}</p></div><Button type="button" size="icon" variant="ghost" disabled={disabled} aria-label={`Remover vídeo ${file.name}`} onClick={onRemove}><Trash2 className="size-4" /></Button></div>
+    {error && <p className="px-2 pb-2 text-xs text-muted-foreground">Este navegador não conseguiu mostrar a prévia deste formato.</p>}
+    {lowResolution && <p role="alert" className="px-2 pb-2 text-xs text-destructive">Original abaixo de HD. Grave no aplicativo Câmera em 1080p e anexe por Selecionar vídeo. Este arquivo não será enviado.</p>}
   </div>;
 }
 type Asset = { id: string; item_id: number; kind: "entrada" | "saida"; name: string; size_bytes: number; duration_seconds: number };
@@ -58,6 +88,7 @@ export function ChecklistVideos({ osId, itemId, kind }: { osId: number; itemId: 
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [playing, setPlaying] = useState<{ id: string; url: string } | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const refresh = useCallback(async (force = false) => {
     const json = await loadVideos(osId, force);
     setItems(json.items.filter((v: Asset) => v.item_id === itemId && v.kind === kind)); setService(json.service); setCanDelete(json.canDelete);
@@ -67,20 +98,27 @@ export function ChecklistVideos({ osId, itemId, kind }: { osId: number; itemId: 
   if (!service) return null;
   if (!service.enabled && !items.length) return null;
   return <section className="mt-3 space-y-2 rounded-lg border p-3" aria-label="Vídeos do item">
-    <VideoUsage service={service} />
-    {service.enabled && <label className="inline-block cursor-pointer rounded border p-2 text-sm">Adicionar vídeo<input aria-label="Anexar vídeo ao item" type="file" accept="video/*" disabled={!!busy} className="sr-only" onChange={e => {
-      const file = e.target.files?.[0]; e.target.value = "";
-      if (file) void run(async () => { await uploadVideo(file, { osId, itemId, kind }, setBusy); await refresh(true); });
-    }} /></label>}
+    <p className="flex items-center gap-2 text-sm font-medium"><Film className="size-4" />Vídeos anexados{items.length > 0 ? ` (${items.length})` : ""}</p>
+    <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Uso do armazenamento</summary><div className="mt-2"><VideoUsage service={service} /></div></details>
+    {service.enabled && <>
+      <PendingVideos files={pendingFiles} onChange={setPendingFiles} disabled={!!busy} />
+      {pendingFiles.length > 0 && <Button type="button" size="sm" disabled={!!busy} onClick={() => void run(async () => {
+        for (const file of pendingFiles) {
+          await uploadVideo(file, { osId, itemId, kind }, setBusy);
+          setPendingFiles(current => current.filter(item => item !== file));
+        }
+        await refresh(true);
+      })}>Salvar vídeos</Button>}
+    </>}
     {busy && <p role="status">{busy}</p>}{error && <p role="alert" className="text-destructive">{error}</p>}
     {items.map(asset => <div key={asset.id} className="rounded border p-2 space-y-2">
       <p className="truncate text-sm">{asset.name} · {Math.round(asset.duration_seconds)} s · {(asset.size_bytes / 1e6).toFixed(1)} MB</p>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void run(async () => { setBusy("Abrindo vídeo…"); const result = await videoRequest({ action: "access", id: asset.id, osId, itemId, kind }); setPlaying({ id: asset.id, url: result.url }); })}>Assistir</Button>
-        <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void run(async () => { setBusy("Preparando download…"); const result = await videoRequest({ action: "access", id: asset.id, osId, itemId, kind, download: true }); const a = document.createElement("a"); a.href = result.url; a.download = "video-checklist.mp4"; a.click(); })}>Baixar</Button>
+        <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void run(async () => { setBusy("Abrindo vídeo…"); const result = await videoRequest({ action: "access", id: asset.id, osId, itemId, kind }); setPlaying({ id: asset.id, url: result.url }); })}><Play className="size-4" />Assistir</Button>
+        <Button type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => void run(async () => { setBusy("Preparando download…"); const result = await videoRequest({ action: "access", id: asset.id, osId, itemId, kind, download: true }); const a = document.createElement("a"); a.href = result.url; a.download = "video-checklist.mp4"; a.click(); })}><Download className="size-4" />Baixar</Button>
         {canDelete && <Button type="button" size="sm" variant="destructive" disabled={!!busy} onClick={() => {
           if (window.confirm("Excluir permanentemente este vídeo? Esta ação não pode ser desfeita.")) void run(async () => { setBusy("Excluindo…"); await videoRequest({ action: "delete", id: asset.id, osId, itemId, kind }); setPlaying(null); await refresh(true); });
-        }}>Excluir</Button>}
+        }}><Trash2 className="size-4" />Excluir</Button>}
       </div>
       {playing?.id === asset.id && <video className="max-h-96 w-full" controls playsInline preload="metadata" src={playing.url} onError={() => setError("Não foi possível reproduzir. Clique em Assistir para renovar o acesso.")} />}
     </div>)}

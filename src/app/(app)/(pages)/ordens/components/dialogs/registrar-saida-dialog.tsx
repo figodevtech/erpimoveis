@@ -107,10 +107,10 @@ function ChecklistSaidaDialog({ open, onOpenChange, templates, templateId, marks
             <Textarea rows={3} placeholder="Observações sobre o item..." value={draftMarks[item.id]?.observacao ?? ""} onChange={(event) => setDraftMarks((current) => ({ ...current, [item.id]: { ...current[item.id], observacao: event.target.value } }))} />
           </div>
           <div className="mt-3 space-y-2">
-            <Label className="text-xs text-muted-foreground">Imagens do item (opcional)</Label>
+            <Label className="text-xs text-muted-foreground">Anexos do item (opcional)</Label>
             {videoEnabled && <PendingVideos files={draftVideos[item.titulo] ?? []} onChange={files => setDraftVideos(current => ({ ...current, [item.titulo]: files }))} />}
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted">
-              <UploadCloud className="h-4 w-4" />Adicionar imagens
+            <label className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium hover:bg-muted">
+              <UploadCloud className="h-4 w-4 shrink-0" />Adicionar fotos
               <input type="file" accept="image/*" multiple className="hidden" onChange={(event) => {
                 const selected = Array.from(event.target.files ?? []);
                 setDraftImages((current) => ({ ...current, [item.titulo]: [...(current[item.titulo] ?? []), ...selected].slice(0, 10) }));

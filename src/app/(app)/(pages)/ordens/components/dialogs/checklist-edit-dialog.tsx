@@ -642,7 +642,7 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
                   </div>
 
                   <div className="mt-3 space-y-2">
-                    <Label className="text-xs text-muted-foreground">Imagens do item (opcional)</Label>
+                    <Label className="text-xs text-muted-foreground">Anexos do item (opcional)</Label>
                     {videoEnabled && <PendingVideos disabled={saving} files={videosByItem[key] ?? []} onChange={files => setVideosByItem(prev => ({ ...prev, [key]: files }))} />}
                     {videoProgress && <p role="status" className="text-sm">{videoProgress}</p>}
 
@@ -702,9 +702,9 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
                     )}
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm cursor-pointer hover:bg-muted">
-                        <UploadCloud className="h-4 w-4" />
-                        Adicionar imagens
+                      <label className="inline-flex h-8 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium cursor-pointer hover:bg-muted">
+                        <UploadCloud className="h-4 w-4 shrink-0" />
+                        Adicionar fotos
                         <input
                           type="file"
                           accept="image/*"

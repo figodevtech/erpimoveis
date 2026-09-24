@@ -1,6 +1,6 @@
 export const runtime = "nodejs";
 
-import crypto from "crypto";
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ itemId
       if (file.size > MAX_FILE_SIZE) return NextResponse.json({ error: `${file.name}: a imagem excede 5 MB.` }, { status: 413 });
       const original = safeName(file.name);
       const extension = original.includes(".") ? original.split(".").pop() : "";
-      const path = `os-saida/${item.data.os_saida_id}/${id}/${crypto.randomUUID()}${extension ? `.${extension}` : ""}`;
+      const path = `os-saida/${item.data.os_saida_id}/${id}/${randomUUID()}${extension ? `.${extension}` : ""}`;
       const upload = await supabaseAdmin.storage.from(BUCKET).upload(path, Buffer.from(await file.arrayBuffer()), { contentType: file.type, upsert: false });
       if (upload.error) throw upload.error;
       const { data: publicData } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);

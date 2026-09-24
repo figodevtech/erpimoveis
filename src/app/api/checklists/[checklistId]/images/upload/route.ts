@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import crypto from "crypto";
+import { randomUUID } from "node:crypto";
 
 type Params = { checklistId: string };
 const BUCKET = "vistoria";
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
     for (const file of files) {
       const originalName = sanitizeFileName(file.name);
       const ext = originalName.includes(".") ? originalName.split(".").pop() : "";
-      const finalName = `${crypto.randomUUID()}${ext ? "." + ext : ""}`;
+      const finalName = `${randomUUID()}${ext ? "." + ext : ""}`;
 
       const path = `checklist/${checklistIdNum}/${finalName}`;
       const buf = Buffer.from(await file.arrayBuffer());

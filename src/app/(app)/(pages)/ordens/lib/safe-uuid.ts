@@ -3,12 +3,12 @@ export function safeUUID(): string {
   const g: any = globalThis as any;
 
   // 1) Browser moderno
-  if (g?.crypto?.randomUUID) {
+  if (typeof g?.crypto?.randomUUID === "function") {
     return g.crypto.randomUUID();
   }
 
   // 2) Web Crypto sem randomUUID
-  if (g?.crypto?.getRandomValues) {
+  if (typeof g?.crypto?.getRandomValues === "function") {
     const arr = new Uint8Array(16);
     g.crypto.getRandomValues(arr);
     // RFC 4122 v4

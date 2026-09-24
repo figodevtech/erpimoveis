@@ -1,3 +1,4 @@
+import { createUploadId } from "./upload-id";
 const pendingCompletions = new WeakMap<File, { id: string; osId: number; itemId: number; kind: "entrada" | "saida" }>();
 export async function videoRequest(body: Record<string, unknown>) {
   const response = await fetch("/api/checklist-videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -27,6 +28,11 @@ export async function uploadVideo(file: File, target: { osId: number; itemId: nu
     if (!Number.isFinite(duration) || duration <= 0 || duration > 120.1) throw new Error("Selecione um vídeo de até 2 minutos.");
     const video = await input.getPrimaryVideoTrack();
     const audio = await input.getPrimaryAudioTrack();
+    if (video) {
+      const width = await video.getDisplayWidth();
+      const height = await video.getDisplayHeight();
+      if (Math.min(width, height) < 720) throw new Error(`O vídeo original está em ${width} × ${height}, abaixo de HD. Grave pelo aplicativo Câmera do celular em 1080p e use Selecionar vídeo. A otimização não recupera a resolução perdida na captura.`);
+    }
     compatible = (await input.getFormat()).name === "MP4" && video?.codec === "avc" && (!audio || audio.codec === "aac");
   } finally { input.dispose(); }
   onProgress("Otimizando vídeo…");
@@ -49,7 +55,7 @@ export async function uploadVideo(file: File, target: { osId: number; itemId: nu
     worker.postMessage(file);
   });
   if (blob.size > 250000000) throw new Error("O vídeo final excede 250 MB.");
-  const id = crypto.randomUUID();
+  const id = createUploadId();
   const body = { id, ...target };
   let completing = false;
   try {
@@ -58,11 +64,13 @@ export async function uploadVideo(file: File, target: { osId: number; itemId: nu
       onProgress(`Enviando: ${Math.round(i / reservation.urls.length * 100)}%`);
       const part = blob.slice(i * reservation.partSize, (i + 1) * reservation.partSize);
       let sent = false;
+      let status: number | undefined;
       for (let attempt = 0; attempt < 3 && !sent; attempt++) {
         const response = await fetch(reservation.urls[i], { method: "PUT", body: part }).catch(() => null);
         sent = response?.ok ?? false;
+        status = response?.status;
       }
-      if (!sent) throw new Error("Falha no envio. Verifique a conexão e tente novamente.");
+      if (!sent) throw new Error(status ? `O armazenamento recusou o envio (HTTP ${status}). Tente novamente; se persistir, contate o suporte.` : `O navegador não conseguiu acessar o armazenamento. Confira a conexão e se o CORS do bucket permite a origem ${window.location.origin}.`);
     }
     onProgress("Validando vídeo…"); completing = true;
     pendingCompletions.set(file, body);

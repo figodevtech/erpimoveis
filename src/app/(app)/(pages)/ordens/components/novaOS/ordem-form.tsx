@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { safeUUID } from "../../lib/safe-uuid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -160,7 +161,7 @@ export function FormularioNovaOS({
     const nome = pNome.trim();
     if (!nome) return null;
     return {
-      id: crypto.randomUUID(),
+      id: safeUUID(),
       nome,
       descricao: pDesc.trim() || null,
       lacre: pLacre.trim() || null,
