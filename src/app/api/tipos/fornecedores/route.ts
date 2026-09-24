@@ -23,6 +23,28 @@ function removeAccents(str: string): string {
     .toLowerCase();
 }
 
+const searchableColumns = [
+  "cpfcnpj",
+  "inscricaoestadual",
+  "nomerazaosocial",
+  "nomefantasia",
+  "endereco",
+  "endereconumero",
+  "enderecocomplemento",
+  "cidade",
+  "bairro",
+  "codigomunicipio",
+  "estado",
+  "cep",
+  "contato",
+];
+
+function searchConditions(value: string): string[] {
+  // Valores do filtro OR seguem a sintaxe do PostgREST; aspas preservam pontuação da busca.
+  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return searchableColumns.map((column) => `${column}.ilike."%${escaped}%"`);
+}
+
 // GET /api/tipos/fornecedores
 export async function GET(req: Request) {
   try {
@@ -101,22 +123,18 @@ export async function GET(req: Request) {
           conditions.push(`id.eq.${idNumerico}`);
         }
 
-        conditions.push(`nomerazaosocial.ilike.%${cleanQ}%`);
-        conditions.push(`nomefantasia.ilike.%${cleanQ}%`);
-        conditions.push(`cpfcnpj.ilike.%${cleanQ}%`);
-        conditions.push(`contato.ilike.%${cleanQ}%`);
-        conditions.push(`cidade.ilike.%${cleanQ}%`);
+        conditions.push(...searchConditions(cleanQ));
 
         if (hasDiffAccents) {
-          conditions.push(`nomerazaosocial.ilike.%${unaccentedQ}%`);
-          conditions.push(`nomefantasia.ilike.%${unaccentedQ}%`);
-          conditions.push(`cidade.ilike.%${unaccentedQ}%`);
+          conditions.push(...searchConditions(unaccentedQ));
         }
 
         if (onlyDigitsQ && onlyDigitsQ.length >= 3 && onlyDigitsQ !== cleanQ) {
-          conditions.push(`cpfcnpj.ilike.%${onlyDigitsQ}%`);
-          conditions.push(`contato.ilike.%${onlyDigitsQ}%`);
+          conditions.push(...searchConditions(onlyDigitsQ));
         }
+
+        if (unaccentedQ === "ativo") conditions.push("ativo.eq.true");
+        if (unaccentedQ === "inativo") conditions.push("ativo.eq.false");
 
         query = query.or(conditions.join(","));
       }
