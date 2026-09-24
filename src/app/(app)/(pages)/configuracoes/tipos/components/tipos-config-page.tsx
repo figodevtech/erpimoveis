@@ -2,6 +2,7 @@
 "use client";
 
 import { useState } from "react";
+import { permissionSetHas, tipoPermission, type TipoId } from "@/app/api/_authz/permission-constants";
 import {
   PackageSearch,
   Ruler,
@@ -35,24 +36,9 @@ import MotivosSaidaSection from "./motivos-saida-section";
 import TiposEntradaSection from "./tipos-entrada-section";
 import BandeirasSection from "./bandeiras-section";
 
-type TabId =
-  | "grupos"
-  | "grupos_usoconsumo"
-  | "unidades"
-  | "servicos"
-  | "fornecedores"
-  | "setores"
-  | "bancos"
-  | "categorias"
-  | "bandeiras"
-  | "planos_conta"
-  | "centros_custo"
-  | "categorias_venda"
-  | "cores_veiculos"
-  | "tipos_entrada"
-  | "motivos_saida";
+type TabId = TipoId;
 
-export default function TiposConfigPage() {
+export default function TiposConfigPage({ permissoes }: { permissoes: string[] }) {
   const [activeTab, setActiveTab] = useState<TabId>("grupos");
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -154,7 +140,11 @@ export default function TiposConfigPage() {
     },
   ];
 
+  const visibleTabs = tabs.filter((tab) => permissionSetHas(permissoes, tipoPermission(tab.id, "visualizar")));
+  const selectedTab = visibleTabs.some((tab) => tab.id === activeTab) ? activeTab : visibleTabs[0]?.id;
+
   function handleSelect(tab: TabId) {
+    if (!visibleTabs.some((item) => item.id === tab)) return;
     setActiveTab(tab);
     setMobileOpen(false);
   }
@@ -171,9 +161,9 @@ export default function TiposConfigPage() {
           >
             <div className="flex flex-col text-left">
               <span className="text-sm font-semibold">
-                {tabs.find((t) => t.id === activeTab)?.title ?? "Selecione uma seção"}
+                {tabs.find((t) => t.id === selectedTab)?.title ?? "Selecione uma seção"}
               </span>
-              <span className="text-xs text-muted-foreground">{tabs.find((t) => t.id === activeTab)?.subtitle}</span>
+              <span className="text-xs text-muted-foreground">{tabs.find((t) => t.id === selectedTab)?.subtitle}</span>
             </div>
             <ChevronDown className={`h-4 w-4 transition-transform ${mobileOpen ? "rotate-180" : "rotate-0"}`} />
           </button>
@@ -189,10 +179,10 @@ export default function TiposConfigPage() {
                 Cadastros
               </div>
               <nav className="flex flex-col overflow-y-auto overscroll-contain">
-                {tabs.map((tab) => (
+                {visibleTabs.map((tab) => (
                   <TabButton
                     key={tab.id}
-                    active={activeTab === tab.id}
+                    active={selectedTab === tab.id}
                     icon={tab.icon}
                     title={tab.title}
                     subtitle={tab.subtitle}
@@ -208,10 +198,10 @@ export default function TiposConfigPage() {
         <div className="hidden lg:block w-full lg:w-64 border rounded-md overflow-hidden bg-card">
           <div className="bg-muted/60 border-b px-3 py-2 text-xs font-semibold uppercase tracking-wide">Cadastros</div>
           <nav className="flex flex-col">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <TabButton
                 key={tab.id}
-                active={activeTab === tab.id}
+                active={selectedTab === tab.id}
                 icon={tab.icon}
                 title={tab.title}
                 subtitle={tab.subtitle}
@@ -223,21 +213,22 @@ export default function TiposConfigPage() {
 
         {/* Conteúdo */}
         <div className="flex-1 min-w-0">
-          {activeTab === "grupos" && <GruposProdutoSection />}
-          {activeTab === "grupos_usoconsumo" && <GruposUsoConsumoSection />}
-          {activeTab === "unidades" && <UnidadesMedidaSection />}
-          {activeTab === "servicos" && <ServicosSection />}
-          {activeTab === "fornecedores" && <FornecedoresSection />}
-          {activeTab === "setores" && <SetoresSection />}
-          {activeTab === "bancos" && <BancosSection />}
-          {activeTab === "categorias" && <CategoriasTransacaoSection />}
-          {activeTab === "bandeiras" && <BandeirasSection />}
-          {activeTab === "planos_conta" && <PlanosDeContaSection />}
-          {activeTab === "centros_custo" && <CentrosCustoSection />}
-          {activeTab === "categorias_venda" && <CategoriasVendaSection />}
-          {activeTab === "cores_veiculos" && <CoresVeiculosSection />}
-          {activeTab === "tipos_entrada" && <TiposEntradaSection />}
-          {activeTab === "motivos_saida" && <MotivosSaidaSection />}
+          {!selectedTab && <p className="text-sm text-muted-foreground">Nenhum tipo disponível para este perfil.</p>}
+          {selectedTab === "grupos" && <GruposProdutoSection />}
+          {selectedTab === "grupos_usoconsumo" && <GruposUsoConsumoSection />}
+          {selectedTab === "unidades" && <UnidadesMedidaSection />}
+          {selectedTab === "servicos" && <ServicosSection />}
+          {selectedTab === "fornecedores" && <FornecedoresSection permissoes={permissoes} />}
+          {selectedTab === "setores" && <SetoresSection />}
+          {selectedTab === "bancos" && <BancosSection />}
+          {selectedTab === "categorias" && <CategoriasTransacaoSection />}
+          {selectedTab === "bandeiras" && <BandeirasSection />}
+          {selectedTab === "planos_conta" && <PlanosDeContaSection />}
+          {selectedTab === "centros_custo" && <CentrosCustoSection />}
+          {selectedTab === "categorias_venda" && <CategoriasVendaSection />}
+          {selectedTab === "cores_veiculos" && <CoresVeiculosSection />}
+          {selectedTab === "tipos_entrada" && <TiposEntradaSection />}
+          {selectedTab === "motivos_saida" && <MotivosSaidaSection />}
         </div>
       </div>
     </div>

@@ -4,6 +4,7 @@ import axios, { isAxiosError } from "axios";
 import { escopoDeEntradaDe, type UsoConsumoEscopo } from "@/lib/usoconsumo/escopo";
 import { addMonths, format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import {
   Building2,
   Eye,
@@ -101,6 +102,7 @@ import type { Banco } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/types"
 import type { UsoConsumoGrupo, UsoConsumoItem } from "@/types/usoconsumo";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
+import { permissionSetHas, tipoPermission } from "@/app/api/_authz/permission-constants";
 
 import {
   apenasDigitos,
@@ -195,6 +197,11 @@ export function EntradaFiscalDialog({
   escopo = "USOCONSUMO",
   onSaved,
 }: Props) {
+  const { data: session } = useSession();
+  const canCreateFornecedor = permissionSetHas(
+    session?.user?.permissoes,
+    tipoPermission("fornecedores", "criar"),
+  );
   const [parsed, setParsed] = useState<NotaFiscalParseada | null>(null);
   const { options: metodosPagamento } = usePaymentMethodOptions();
   const [file, setFile] = useState<File>();
@@ -1713,7 +1720,8 @@ export function EntradaFiscalDialog({
                               </span>
                             </div>
                           )}
-                          {!parsed.fornecedorReferenteId &&
+                          {canCreateFornecedor &&
+                          !parsed.fornecedorReferenteId &&
                           !buscandoFornecedor ? (
                             <FornecedorDialog
                               dialogOpen={fornecedorDialogOpen}

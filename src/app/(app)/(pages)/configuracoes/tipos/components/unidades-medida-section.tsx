@@ -1,6 +1,8 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/unidades-medida-section.tsx
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -46,6 +48,7 @@ const emptyForm: UnidadeForm = {
 const DEFAULT_LIMIT = 10;
 
 export default function UnidadesMedidaSection() {
+  const { canCreate, canEdit } = useTipoAccess("unidades");
   const [unidades, setUnidades] = useState<UnidadeMedida[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -222,7 +225,7 @@ export default function UnidadesMedidaSection() {
             }}
           >
             <DialogTrigger asChild>
-              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
+              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo} disabled={!canCreate}>
                 <Plus className="mr-1 h-4 w-4" />
                 Unidade
               </Button>
@@ -342,7 +345,7 @@ export default function UnidadesMedidaSection() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-32">
-                        <DropdownMenuItem onClick={() => openEditar(u)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem disabled={!canEdit} onClick={() => openEditar(u)}>Editar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

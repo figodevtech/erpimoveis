@@ -1,6 +1,8 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/setores-section.tsx
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -71,6 +73,7 @@ const emptyForm: SetorForm = {
 };
 
 export default function SetoresSection() {
+  const { canCreate, canEdit } = useTipoAccess("setores");
   const [setores, setSetores] = useState<Setor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -246,7 +249,7 @@ export default function SetoresSection() {
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" onClick={openNovo} className="hover:cursor-pointer">
+              <Button size="sm" onClick={openNovo} disabled={!canCreate} className="hover:cursor-pointer">
                 <Plus className="mr-1 h-4 w-4" />
                 Setor
               </Button>
@@ -377,7 +380,7 @@ export default function SetoresSection() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-32">
-                        <DropdownMenuItem onClick={() => openEditar(s)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem disabled={!canEdit} onClick={() => openEditar(s)}>Editar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

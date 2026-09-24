@@ -1,6 +1,8 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/bandeiras-section.tsx
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import { Loader2, Minus, MoreHorizontal, Plus } from "lucide-react";
@@ -84,6 +86,7 @@ function porcentagem(valor: number) {
  * de faixas que é o coração do cadastro.
  */
 export default function BandeirasSection() {
+  const { canCreate, canEdit, canDelete } = useTipoAccess("bandeiras");
   const [bandeiras, setBandeiras] = useState<BandeiraItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -301,7 +304,7 @@ export default function BandeirasSection() {
             }}
           >
             <DialogTrigger asChild>
-              <Button size="sm" className="hover:cursor-pointer" onClick={abrirNova}>
+              <Button size="sm" className="hover:cursor-pointer" onClick={abrirNova} disabled={!canCreate}>
                 <Plus className="mr-1 h-4 w-4" />
                 Bandeira
               </Button>
@@ -528,12 +531,13 @@ export default function BandeirasSection() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-36">
-                        <DropdownMenuItem onClick={() => abrirEdicao(bandeira)}>
+                        <DropdownMenuItem disabled={!canEdit} onClick={() => abrirEdicao(bandeira)}>
                           Editar
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive"
                           onClick={() => excluir(bandeira)}
+                          disabled={!canDelete}
                         >
                           Excluir
                         </DropdownMenuItem>

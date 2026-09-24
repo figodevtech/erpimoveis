@@ -1,6 +1,8 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/tipos-entrada-section.tsx
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -74,6 +76,7 @@ const ESCOPO_LABELS: Record<Escopo, string> = {
 const DEFAULT_LIMIT = 10;
 
 export default function TiposEntradaSection() {
+  const { canCreate, canEdit } = useTipoAccess("tipos_entrada");
   const [tipos, setTipos] = useState<TipoEntrada[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -256,7 +259,7 @@ export default function TiposEntradaSection() {
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
+              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo} disabled={!canCreate}>
                 <Plus className="mr-1 h-4 w-4" />
                 Tipo
               </Button>
@@ -430,7 +433,7 @@ export default function TiposEntradaSection() {
                         {t.sistema ? (
                           <DropdownMenuItem disabled>Tipo do sistema</DropdownMenuItem>
                         ) : (
-                          <DropdownMenuItem onClick={() => openEditar(t)}>Editar</DropdownMenuItem>
+                          <DropdownMenuItem disabled={!canEdit} onClick={() => openEditar(t)}>Editar</DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>

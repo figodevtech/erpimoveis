@@ -312,7 +312,7 @@ const data = {
           title: "Tipos",
           url: "/configuracoes/tipos",
           icon: Type,
-          perm: PERMS.CONFIG,
+          perm: PERMS.TIPOS,
         },
 
         {

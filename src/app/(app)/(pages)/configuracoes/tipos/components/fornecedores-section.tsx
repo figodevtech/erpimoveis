@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
+import { permissionSetHas, tipoPermission } from "@/app/api/_authz/permission-constants";
 import {
   ChevronsLeft,
   ChevronLeft as ChevronLeftIcon,
@@ -59,7 +60,10 @@ type Fornecedor = {
 
 const DEFAULT_LIMIT = 50;
 
-export default function FornecedoresSection() {
+export default function FornecedoresSection({ permissoes }: { permissoes: string[] }) {
+  const canCreate = permissionSetHas(permissoes, tipoPermission("fornecedores", "criar"));
+  const canEdit = permissionSetHas(permissoes, tipoPermission("fornecedores", "editar"));
+  const canDelete = permissionSetHas(permissoes, tipoPermission("fornecedores", "excluir"));
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -239,16 +243,22 @@ export default function FornecedoresSection() {
             </CardDescription>
           </div>
 
-          <FornecedorDialog
-            dialogOpen={dialogOpen}
-            setDialogOpen={setDialogOpen}
-            loadFornecedores={loadFornecedores}
-            fornecedorToEdit={editing}
-            setFornecedorToEdit={setEditing}
-          ><Button size="sm" className="hover:cursor-pointer">
-            <Plus className="mr-1 h-4 w-4" />
-            Fornecedor
-          </Button></FornecedorDialog>
+          {canCreate || canEdit ? (
+            <FornecedorDialog
+              dialogOpen={dialogOpen}
+              setDialogOpen={setDialogOpen}
+              loadFornecedores={loadFornecedores}
+              fornecedorToEdit={editing}
+              setFornecedorToEdit={setEditing}
+            >
+              {canCreate ? (
+                <Button size="sm" className="hover:cursor-pointer">
+                  <Plus className="mr-1 h-4 w-4" />
+                  Fornecedor
+                </Button>
+              ) : null}
+            </FornecedorDialog>
+          ) : null}
         </div>
         <div className="relative w-full max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
@@ -333,23 +343,23 @@ export default function FornecedoresSection() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <DropdownMenu>
+                    {(canEdit || canDelete) && <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" className="h-8 w-8 p-0 hover:cursor-pointer">
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-36">
-                        <DropdownMenuItem onClick={() => openEditar(f)}>Editar</DropdownMenuItem>
-                        <DropdownMenuItem
+                        {canEdit && <DropdownMenuItem onClick={() => openEditar(f)}>Editar</DropdownMenuItem>}
+                        {canDelete && <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onClick={() => setFornecedorExcluir(f)}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           Excluir
-                        </DropdownMenuItem>
+                        </DropdownMenuItem>}
                       </DropdownMenuContent>
-                    </DropdownMenu>
+                    </DropdownMenu>}
                   </TableCell>
                 </TableRow>
               ))

@@ -1,6 +1,8 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/cores-veiculos-section.tsx
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -53,6 +55,7 @@ const emptyForm: CorVeiculoForm = {
 const DEFAULT_LIMIT = 10;
 
 export default function CoresVeiculosSection() {
+  const { canCreate, canEdit } = useTipoAccess("cores_veiculos");
   const [cores, setCores] = useState<CorVeiculo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -215,7 +218,7 @@ export default function CoresVeiculosSection() {
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
+              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo} disabled={!canCreate}>
                 <Plus className="mr-1 h-4 w-4" />
                 Cor
               </Button>
@@ -322,7 +325,7 @@ export default function CoresVeiculosSection() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-32">
-                        <DropdownMenuItem onClick={() => openEditar(c)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem disabled={!canEdit} onClick={() => openEditar(c)}>Editar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

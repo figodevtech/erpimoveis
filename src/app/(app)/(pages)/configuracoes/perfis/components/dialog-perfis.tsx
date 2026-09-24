@@ -69,10 +69,30 @@ const PERMISSION_LABELS: Record<string, string> = {
 const MODULE_LABELS: Record<string, string> = {
   usoconsumo: "Uso/Consumo",
   radios: "Rádio",
+  configuracoes: "Configurações gerais",
+};
+
+const TIPO_LABELS: Record<string, string> = {
+  grupos: "Grupos de Produtos",
+  grupos_usoconsumo: "Grupos de Uso/Consumo",
+  unidades: "Unidades de Medida",
+  servicos: "Serviços",
+  fornecedores: "Fornecedores",
+  setores: "Setores",
+  bancos: "Contas bancárias",
+  categorias: "Categorias de transação",
+  bandeiras: "Bandeiras de cartão",
+  planos_conta: "Planos de conta",
+  centros_custo: "Centros de custo",
+  categorias_venda: "Categorias de venda",
+  cores_veiculos: "Cores de veículos",
+  tipos_entrada: "Motivos de entrada",
+  motivos_saida: "Motivos de saída",
 };
 
 function formatModulo(nome: string) {
-  const [modulo] = nome.split(":");
+  const [modulo, tipo] = nome.split(":");
+  if (modulo === "tipos") return tipo && TIPO_LABELS[tipo] ? `Configurações > Tipos > ${TIPO_LABELS[tipo]}` : "Configurações > Tipos";
   if (MODULE_LABELS[modulo]) return MODULE_LABELS[modulo];
   return modulo
     .replace(/_/g, " ")
@@ -81,7 +101,7 @@ function formatModulo(nome: string) {
 
 function formatAcao(nome: string) {
   if (PERMISSION_LABELS[nome]) return PERMISSION_LABELS[nome];
-  const acao = nome.split(":")[1] ?? nome;
+  const acao = nome.split(":").at(-1) ?? nome;
   const label = ACTION_LABELS[acao] ?? acao.replace(/_/g, " ");
   return label.charAt(0).toUpperCase() + label.slice(1);
 }

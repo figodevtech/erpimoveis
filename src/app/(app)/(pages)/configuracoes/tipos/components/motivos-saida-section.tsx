@@ -1,6 +1,8 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/motivos-saida-section.tsx
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -69,6 +71,7 @@ const ESCOPO_LABELS: Record<Escopo, string> = {
 const DEFAULT_LIMIT = 10;
 
 export default function MotivosSaidaSection() {
+  const { canCreate, canEdit } = useTipoAccess("motivos_saida");
   const [motivos, setMotivos] = useState<MotivoSaida[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -244,7 +247,7 @@ export default function MotivosSaidaSection() {
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
+              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo} disabled={!canCreate}>
                 <Plus className="mr-1 h-4 w-4" />
                 Motivo
               </Button>
@@ -387,7 +390,7 @@ export default function MotivosSaidaSection() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-32">
-                        <DropdownMenuItem onClick={() => openEditar(m)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem disabled={!canEdit} onClick={() => openEditar(m)}>Editar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

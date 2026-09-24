@@ -1,7 +1,8 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireConfigEdit } from "@/app/api/_authz/perms";
+import { requirePerm } from "@/app/api/_authz/perms";
+import { tipoPermission } from "@/app/api/_authz/permission-constants";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mensagemDoErro, statusDoErro } from "@/lib/financeiro/plano-contas/erros";
 import { mapearGrupo, type LinhaVisaoGrupo } from "../_mapa";
@@ -31,7 +32,7 @@ async function reler(id: number) {
  */
 export async function PUT(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    await requireConfigEdit();
+    await requirePerm(tipoPermission("planos_conta", "editar"));
 
     const { id: bruto } = await context.params;
     const id = parseId(bruto);

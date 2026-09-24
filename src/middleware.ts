@@ -2,7 +2,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth-edge";
-import { expandPermissions, normalizePermission, PERMS, permissionSetHas, type Permission } from "@/app/api/_authz/permission-constants";
+import { expandPermissions, normalizePermission, PERMS, permissionSetHas, TIPO_PERMISSIONS, type Permission } from "@/app/api/_authz/permission-constants";
+import { tipoMutationPermission } from "@/app/api/_authz/tipos-permission";
 import { getDefaultRouteForPerms } from "@/app/api/_authz/default-route";
 import { permissionForAction } from "@/app/api/_authz/action-permission";
 
@@ -132,6 +133,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/relatorios", perm: PERMS.RELATORIOS },
 
   { prefix: "/configuracoes/perfis", perm: PERMS.PERMISSOES },
+  { prefix: "/configuracoes/tipos", perm: PERMS.TIPOS },
   { prefix: "/configuracoes", perm: PERMS.CONFIG },
   { prefix: "/usuarios", perm: PERMS.USUARIOS },
   { prefix: "/acompanhamento", perm: PERMS.ACOMPANHAMENTO },
@@ -194,14 +196,13 @@ const API_ACTION_PERMS: Array<{
   { prefix: "/api/banks", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },
   { prefix: "/api/users", read: PERMS.USUARIOS, create: PERMS.USUARIOS_CRIAR, edit: PERMS.USUARIOS_EDITAR, delete: PERMS.USUARIOS_EXCLUIR },
   { prefix: "/api/perfis", read: PERMS.PERMISSOES, create: PERMS.PERMISSOES_CRIAR, edit: PERMS.PERMISSOES_EDITAR, delete: PERMS.PERMISSOES_EXCLUIR },
-  { prefix: "/api/config", read: PERMS.CONFIG, edit: PERMS.CONFIG_EDITAR },
-  { prefix: "/api/empresa", read: PERMS.CONFIG, create: PERMS.CONFIG_EDITAR, edit: PERMS.CONFIG_EDITAR, delete: PERMS.CONFIG_EDITAR },
+  { prefix: "/api/config", read: PERMS.CONFIG, create: PERMS.CONFIG_CRIAR, edit: PERMS.CONFIG_EDITAR, delete: PERMS.CONFIG_EXCLUIR },
+  { prefix: "/api/empresa", read: PERMS.CONFIG, create: PERMS.CONFIG_CRIAR, edit: PERMS.CONFIG_EDITAR, delete: PERMS.CONFIG_EXCLUIR },
 ];
 
 const API_MUTATION_PERMS: Array<{ prefix: string; perm: Permission }> = [
   // As listas auxiliares abastecem formulários de várias áreas e continuam
   // legíveis para usuários logados. Somente a configuração pode alterá-las.
-  { prefix: "/api/tipos", perm: PERMS.CONFIG_EDITAR },
   { prefix: "/api/checklist-modelos", perm: PERMS.CONFIG_EDITAR },
 ];
 
@@ -228,6 +229,7 @@ function matchApiActionRule(pathname: string, method: string) {
 
 function matchApiMutationRule(pathname: string, method: string) {
   if (["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return null;
+  if (pathname.startsWith("/api/tipos/")) return tipoMutationPermission(pathname, method);
   if (/^\/api\/checklist-modelos\/[^/]+\/aplicar$/.test(pathname)) {
     return PERMS.ORDENS_EDITAR;
   }
@@ -251,7 +253,7 @@ function isExecutorOnly(user: any) {
   // Ver outros perfis so muda o que aparece em /meu-perfil, que o executor ja
   // acessa: nao pode tira-lo da tela de execucao.
   const mantemModoExecutor = [PERMS.EXECUCAO_OS, PERMS.USUARIOS_VER_PERFIS].map((p) => normalizePermission(p));
-  const appPerms = Object.values(PERMS).map((p) => normalizePermission(p));
+  const appPerms = [...Object.values(PERMS), ...TIPO_PERMISSIONS].map((p) => normalizePermission(p));
   return perms.every((p) => mantemModoExecutor.includes(p) || !appPerms.includes(p));
 }
 

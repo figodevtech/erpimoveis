@@ -22,6 +22,7 @@ const ROUTE_PRIORITY: Array<{ perm: string; href: string }> = [
   { perm: PERMS.ACOMPANHAMENTO, href: "/acompanhamento" },
   { perm: PERMS.RELATORIOS, href: "/relatorios" },
   { perm: PERMS.CONFIG, href: "/configuracoes/geral" },
+  { perm: PERMS.TIPOS, href: "/configuracoes/tipos" },
   { perm: PERMS.USUARIOS, href: "/usuarios" },
 ];
 

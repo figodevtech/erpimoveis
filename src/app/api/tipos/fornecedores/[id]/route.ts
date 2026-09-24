@@ -2,7 +2,8 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuthenticated } from "@/app/api/_authz/perms";
+import { requireAuthenticated, requirePerm } from "@/app/api/_authz/perms";
+import { tipoPermission } from "@/app/api/_authz/permission-constants";
 import {
   isValidCnpj,
   isValidCpf,
@@ -27,6 +28,7 @@ export async function PUT(
 ) {
   try {
     await ensureAuth();
+    await requirePerm(tipoPermission("fornecedores", "editar"));
 
     const { id } = await context.params;
     const fornecedorId = parseId(id);
@@ -156,7 +158,8 @@ export async function PUT(
     console.error("[/api/tipos/fornecedores/:id PUT] error:", e);
     const msg = String(e?.message ?? "");
     const status =
-      /auth|unauth|não autenticado/i.test(msg) ? 401 :
+      e?.statusCode === 403 ? 403 :
+        /auth|unauth|não autenticado/i.test(msg) ? 401 :
         /duplicate|unique|fornecedor_cnpj_key/i.test(msg) ? 409 :
           500;
 
@@ -173,6 +176,7 @@ export async function PATCH(
 ) {
   try {
     await ensureAuth();
+    await requirePerm(tipoPermission("fornecedores", "editar"));
 
     const { id } = await context.params;
     const fornecedorId = parseId(id);
@@ -240,7 +244,7 @@ export async function PATCH(
     return NextResponse.json({ item });
   } catch (e: any) {
     console.error("[/api/tipos/fornecedores/:id PATCH] error:", e);
-    const status = /auth|unauth|não autenticado/i.test(String(e?.message)) ? 401 : 500;
+    const status = e?.statusCode === 403 ? 403 : /auth|unauth|não autenticado/i.test(String(e?.message)) ? 401 : 500;
     return NextResponse.json(
       { error: e?.message ?? "Erro ao atualizar status do fornecedor" },
       { status }
@@ -351,6 +355,7 @@ export async function DELETE(
 ) {
   try {
     await ensureAuth();
+    await requirePerm(tipoPermission("fornecedores", "excluir"));
 
     const { id } = await context.params;
     const fornecedorId = parseId(id);
@@ -423,7 +428,7 @@ export async function DELETE(
   } catch (e: any) {
     console.error("[/api/tipos/fornecedores/:id DELETE] error:", e);
     const msg = String(e?.message ?? "");
-    const status = /auth|unauth|não autenticado/i.test(msg) ? 401 : 500;
+    const status = e?.statusCode === 403 ? 403 : /auth|unauth|não autenticado/i.test(msg) ? 401 : 500;
     return NextResponse.json(
       { error: e?.message ?? "Erro ao excluir fornecedor" },
       { status }

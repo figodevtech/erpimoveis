@@ -1,5 +1,7 @@
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -45,6 +47,7 @@ const emptyForm: CategoriaForm = {
 const DEFAULT_LIMIT = 10;
 
 export default function CategoriasVendaSection() {
+  const { canCreate, canEdit } = useTipoAccess("categorias_venda");
   const [categorias, setCategorias] = useState<CategoriaVenda[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -216,7 +219,7 @@ export default function CategoriasVendaSection() {
             }}
           >
             <DialogTrigger asChild>
-              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
+              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo} disabled={!canCreate}>
                 <Plus className="mr-1 h-4 w-4" />
                 Categoria
               </Button>
@@ -328,7 +331,7 @@ export default function CategoriasVendaSection() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-32">
-                        <DropdownMenuItem onClick={() => openEditar(c)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem disabled={!canEdit} onClick={() => openEditar(c)}>Editar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

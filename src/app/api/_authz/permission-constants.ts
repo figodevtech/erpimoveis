@@ -80,7 +80,10 @@ export const PERMS = {
   AGENDAMENTOS_EXCLUIR: "agendamentos:excluir",
 
   CONFIG: "configuracoes:visualizar",
+  CONFIG_CRIAR: "configuracoes:criar",
   CONFIG_EDITAR: "configuracoes:editar",
+  CONFIG_EXCLUIR: "configuracoes:excluir",
+  TIPOS: "tipos:visualizar",
 
   USUARIOS: "usuarios:visualizar",
   USUARIOS_CRIAR: "usuarios:criar",
@@ -119,7 +122,24 @@ export const PERMS = {
   EXECUCAO_OS_EDITAR: "execucao_os:editar",
 } as const;
 
-export type Permission = (typeof PERMS)[keyof typeof PERMS];
+export const TIPO_IDS = [
+  "grupos", "grupos_usoconsumo", "unidades", "servicos", "fornecedores",
+  "setores", "bancos", "categorias", "bandeiras", "planos_conta",
+  "centros_custo", "categorias_venda", "cores_veiculos", "tipos_entrada", "motivos_saida",
+] as const;
+
+export type TipoId = (typeof TIPO_IDS)[number];
+export type TipoAction = "visualizar" | "criar" | "editar" | "excluir";
+export type TipoPermission = `tipos:${TipoId}:${TipoAction}`;
+export type Permission = (typeof PERMS)[keyof typeof PERMS] | TipoPermission;
+
+export function tipoPermission(id: TipoId, action: TipoAction): TipoPermission {
+  return `tipos:${id}:${action}`;
+}
+
+export const TIPO_PERMISSIONS = TIPO_IDS.flatMap((id) =>
+  (["visualizar", "criar", "editar", "excluir"] as const).map((action) => tipoPermission(id, action)),
+);
 
 /**
  * As telas do menu Financeiro que ganharam permissao propria. Fiscal e SPED
@@ -160,6 +180,9 @@ export function normalizePermission(perm: unknown) {
 }
 
 const IMPLIED_PERMISSIONS: Record<string, Permission[]> = {
+  ...Object.fromEntries(
+    TIPO_IDS.map((id) => [normalizePermission(tipoPermission(id, "visualizar")), [PERMS.TIPOS]]),
+  ),
   [normalizePermission(PERMS.FISCAL_SPED_GERENCIAR)]: [PERMS.FISCAL_SPED],
   [normalizePermission(PERMS.FISCAL_DIFAL_GERENCIAR)]: [PERMS.FISCAL_DIFAL],
   [normalizePermission(PERMS.FINANCEIRO_NOTAS_FISCAIS)]: [PERMS.FINANCEIRO],

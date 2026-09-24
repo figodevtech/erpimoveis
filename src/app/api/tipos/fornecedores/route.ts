@@ -2,7 +2,8 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { requireAuthenticated } from "@/app/api/_authz/perms";
+import { requireAuthenticated, requirePerm } from "@/app/api/_authz/perms";
+import { tipoPermission } from "@/app/api/_authz/permission-constants";
 import {
   isValidCnpj,
   isValidCpf,
@@ -199,6 +200,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     await ensureAuth();
+    await requirePerm(tipoPermission("fornecedores", "criar"));
 
     const body = await req.json().catch(() => ({}));
     const {
@@ -310,7 +312,8 @@ export async function POST(req: Request) {
 
     const msg = String(e?.message ?? "");
     const status =
-      /auth|unauth|não autenticado/i.test(msg) ? 401 :
+      e?.statusCode === 403 ? 403 :
+        /auth|unauth|não autenticado/i.test(msg) ? 401 :
         /duplicate|unique|fornecedor_cnpj_key/i.test(msg) ? 409 :
           500;
 

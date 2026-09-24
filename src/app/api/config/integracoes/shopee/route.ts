@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireConfigAccess, requireConfigEdit } from "@/app/api/_authz/perms";
+import { requireConfigAccess, requireConfigDelete } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { disconnectShopeeGateway, getShopeeGatewayConfig, getShopeeGatewayConnection } from "@/lib/integrations/shopee";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -57,7 +57,7 @@ export async function GET() {
 
 export async function DELETE() {
   try {
-    await requireConfigEdit();
+    await requireConfigDelete();
     const empresaId = await requireEmpresaId();
     await disconnectShopeeGateway();
     const { data: account, error: accountError } = await supabaseAdmin

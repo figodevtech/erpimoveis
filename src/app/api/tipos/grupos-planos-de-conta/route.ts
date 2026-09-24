@@ -1,7 +1,8 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuthenticated, requireConfigEdit } from "@/app/api/_authz/perms";
+import { requireAuthenticated, requirePerm } from "@/app/api/_authz/perms";
+import { tipoPermission } from "@/app/api/_authz/permission-constants";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { mensagemDoErro, statusDoErro } from "@/lib/financeiro/plano-contas/erros";
 import { mapearGrupo, type LinhaVisaoGrupo } from "./_mapa";
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    await requireConfigEdit();
+    await requirePerm(tipoPermission("planos_conta", "criar"));
 
     const body = await req.json().catch(() => ({}));
     const codigo = String(body.codigo ?? "").trim();
