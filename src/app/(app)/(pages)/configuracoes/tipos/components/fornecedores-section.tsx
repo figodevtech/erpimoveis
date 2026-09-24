@@ -1,7 +1,7 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/fornecedores-section.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
   ChevronsLeft,
@@ -57,8 +57,10 @@ const DEFAULT_LIMIT = 10;
 
 export default function FornecedoresSection() {
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
+  const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Fornecedor | null>(null);
@@ -68,16 +70,10 @@ export default function FornecedoresSection() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
 
-  const total = fornecedores.length;
   const totalPages = Math.max(1, Math.ceil(total / limit));
-
-  useEffect(() => {
-    if (page > totalPages) setPage(1);
-  }, [totalPages, page]);
 
   const start = (page - 1) * limit;
   const end = Math.min(total, start + limit);
-  const pageItems = useMemo(() => fornecedores.slice(start, end), [fornecedores, start, end]);
 
   const linhasSkeleton = useMemo(
     () =>
@@ -106,13 +102,24 @@ export default function FornecedoresSection() {
     [limit]
   );
 
-  async function loadFornecedores() {
+  const loadFornecedores = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     try {
       setIsLoading(true);
       setErro(null);
-      const res = await fetch("/api/tipos/fornecedores", { cache: "no-store" });
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      const res = await fetch(`/api/tipos/fornecedores?${params}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Erro ao carregar fornecedores");
+
+      if (currentRequest !== requestId.current) return;
+
+      const nextTotal = Number(json.pagination?.total ?? 0);
+      const lastPage = Math.max(1, Math.ceil(nextTotal / limit));
+      if (page > lastPage) {
+        setPage(lastPage);
+        return;
+      }
 
       const items: Fornecedor[] = (json.items ?? json.data ?? []).map((f: any) => ({
         id: Number(f.id),
@@ -130,19 +137,23 @@ export default function FornecedoresSection() {
         ativo: typeof f.ativo === "boolean" ? (f.ativo as boolean) : true,
       }));
       setFornecedores(items);
+      setTotal(nextTotal);
     } catch (err: any) {
+      if (currentRequest !== requestId.current) return;
       const msg = err?.message || "Erro ao carregar fornecedores";
       setErro(msg);
       toast.error(msg);
       setFornecedores([]);
+      setTotal(0);
     } finally {
-      setIsLoading(false);
+      if (currentRequest === requestId.current) setIsLoading(false);
     }
-  }
+  }, [page, limit]);
 
   useEffect(() => {
-    loadFornecedores();
-  }, []);
+    void loadFornecedores();
+    return () => { requestId.current += 1; };
+  }, [loadFornecedores]);
 
   function openEditar(f: Fornecedor) {
     setEditing(f);
@@ -195,7 +206,7 @@ export default function FornecedoresSection() {
             <CardTitle>Fornecedores</CardTitle>
             <CardDescription className="flex items-center gap-2">
               <button
-                onClick={loadFornecedores}
+                onClick={() => void loadFornecedores()}
                 className="inline-flex items-center gap-1 text-foreground/50 hover:text-foreground/70 text-xs"
               >
                 <span>Recarregar</span>
@@ -258,7 +269,7 @@ export default function FornecedoresSection() {
                 </TableCell>
               </TableRow>
             ) : (
-              pageItems.map((f) => (
+              fornecedores.map((f) => (
                 <TableRow key={f.id} className="hover:cursor-default">
                   <TableCell className="font-medium">
                     {f.nomerazaosocial}
