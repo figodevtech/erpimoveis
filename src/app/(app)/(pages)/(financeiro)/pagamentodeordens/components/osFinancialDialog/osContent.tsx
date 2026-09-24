@@ -218,6 +218,11 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
   );
   // A mesma trava do fluxo de caixa: sem ela o dialog abre em modo leitura.
   const podeEditarTransacao = canEdit && config?.habilitar_edicao_transacoes === true;
+  // Pagamento lancado por outra pessoa aparece e abre, mas so para leitura
+  // quando quem ve nao pode ver todas as transacoes.
+  const transacaoSelecionada = transactions?.find((t) => t.id === selectedTransactionId);
+  const dialogEditavel =
+    podeEditarTransacao && (!transacaoSelecionada || transacaoSelecionada.pode_alterar !== false);
 
   const totalPago = resumoFinanceiro?.valorComprometido ??
     (transactions?.reduce((acc, transaction) => acc + valorDeFace(transaction), 0) ?? 0);
@@ -1202,7 +1207,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                       setOpen={setOpen}
                       selectedTransactionId={selectedTransactionId}
                       setSelectedTransactionId={setSelectedTransactionId}
-                      editable={podeEditarTransacao}
+                      editable={dialogEditavel}
                     >
                       <Button
                         disabled={Boolean(bloqueioNovoPagamento)}
@@ -1262,6 +1267,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                         const group = t.pagamento_multiplo;
                         const previousGroupId = transactions[index - 1]?.pagamento_multiplo?.id;
                         const startsGroup = group && group.id !== previousGroupId;
+                        const alteravel = t.pode_alterar !== false;
                         const receiptContext = {
                           transaction: t,
                           documentType: "Ordem de serviço" as const,
@@ -1347,10 +1353,11 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem onClick={() => { setSelectedTransactionId(t.id); setOpen(true); }}>
-                                      {podeEditarTransacao ? <Pencil className="mr-2 size-4" /> : <Eye className="mr-2 size-4" />}
-                                      {podeEditarTransacao ? "Editar lançamento" : "Visualizar lançamento"}
+                                      {podeEditarTransacao && alteravel ? <Pencil className="mr-2 size-4" /> : <Eye className="mr-2 size-4" />}
+                                      {podeEditarTransacao && alteravel ? "Editar lançamento" : "Visualizar lançamento"}
                                     </DropdownMenuItem>
                                     {canEdit &&
+                                      alteravel &&
                                       t.pendente === true &&
                                       !t.adiantamento_id &&
                                       !t.eh_adiantamento &&
@@ -1368,22 +1375,28 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
                                         </DropdownMenuItem>
                                       </TransactionAbonoAlert>
                                     )}
-                                    <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction} onDeleteGrupo={handleDeleteGrupo} onEstornar={handleEstornarBaixa}>
-                                      <Button variant="ghost" className="h-9 w-full justify-start rounded-none px-2 text-destructive hover:bg-destructive/10 hover:text-destructive">
-                                        {t.pagamento_multiplo || t.pendente === false ? (
-                                          <RotateCcw className="mr-2 size-4" />
-                                        ) : (
-                                          <Trash2Icon className="mr-2 size-4" />
-                                        )}
-                                        {t.pagamento_multiplo
-                                          ? "Desfazer pagamento múltiplo"
-                                          : t.pendente === false
-                                            ? t.abonado
-                                              ? "Desfazer abono"
-                                              : "Estornar pagamento"
-                                            : "Excluir lançamento"}
-                                      </Button>
-                                    </TransactionDeleteAlert>
+                                    {!alteravel ? (
+                                      <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                                        Lançado por outra pessoa — só ela ou quem pode ver todas as transações altera.
+                                      </p>
+                                    ) : (
+                                      <TransactionDeleteAlert transactionId={t.id} onDelete={handleDeleteTransaction} onDeleteGrupo={handleDeleteGrupo} onEstornar={handleEstornarBaixa}>
+                                        <Button variant="ghost" className="h-9 w-full justify-start rounded-none px-2 text-destructive hover:bg-destructive/10 hover:text-destructive">
+                                          {t.pagamento_multiplo || t.pendente === false ? (
+                                            <RotateCcw className="mr-2 size-4" />
+                                          ) : (
+                                            <Trash2Icon className="mr-2 size-4" />
+                                          )}
+                                          {t.pagamento_multiplo
+                                            ? "Desfazer pagamento múltiplo"
+                                            : t.pendente === false
+                                              ? t.abonado
+                                                ? "Desfazer abono"
+                                                : "Estornar pagamento"
+                                              : "Excluir lançamento"}
+                                        </Button>
+                                      </TransactionDeleteAlert>
+                                    )}
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               </TableCell>

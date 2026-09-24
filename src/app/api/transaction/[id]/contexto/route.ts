@@ -8,7 +8,7 @@ import { carregarAutores } from "@/lib/movement-authors";
 import { modoDeReparcelamento } from "@/lib/financeiro/reparcelamento-modo";
 import { tipoEhEntradaDeCaixa, valorDeFace } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exigirAcessoATransacao } from "../../_lib/autoria";
+import { exigirLeituraDeTransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -103,7 +103,7 @@ export async function GET(_: Request, { params }: Params) {
       return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
     }
 
-    await exigirAcessoATransacao(id);
+    await exigirLeituraDeTransacao(id);
 
     /* ---------- Lancamentos relacionados ---------- */
 

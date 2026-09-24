@@ -94,7 +94,13 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/api/veiculos", perm: PERMS.VEICULOS },
   { prefix: "/api/venda", perm: PERMS.VENDAS },
   { prefix: "/api/transaction", perm: PERMS.FINANCEIRO },
-  { prefix: "/api/dre", perm: PERMS.FINANCEIRO },
+  // APIs que so a propria tela usa seguem a permissao da tela. As
+  // compartilhadas (transacao, bancos, pagamentos, eventos) ficam no acesso
+  // base, que toda tela do financeiro inclui.
+  { prefix: "/api/dre", perm: PERMS.FINANCEIRO_DRE },
+  { prefix: "/api/bancos", perm: PERMS.FINANCEIRO_BANCOS },
+  { prefix: "/api/acompanhamento/financeiro", perm: PERMS.FINANCEIRO_ACOMPANHAMENTO },
+  { prefix: "/api/financeiro/conciliacao", perm: PERMS.FINANCEIRO_FLUXO_DE_CAIXA },
   { prefix: "/api/pagamentos", perm: PERMS.FINANCEIRO },
   { prefix: "/api/banks", perm: PERMS.FINANCEIRO },
   { prefix: "/api/fiscal", perm: PERMS.FINANCEIRO_NOTAS_FISCAIS },
@@ -131,11 +137,13 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/acompanhamento", perm: PERMS.ACOMPANHAMENTO },
   { prefix: "/central-operacional", perm: PERMS.ACOMPANHAMENTO },
 
-  { prefix: "/dre", perm: PERMS.FINANCEIRO },
-  { prefix: "/fluxodecaixa", perm: PERMS.FINANCEIRO },
-  { prefix: "/pagamentodeordens", perm: PERMS.FINANCEIRO },
-  { prefix: "/pagamentodevendas", perm: PERMS.FINANCEIRO },
-  { prefix: "/eventos-financeiros", perm: PERMS.FINANCEIRO },
+  { prefix: "/dre", perm: PERMS.FINANCEIRO_DRE },
+  { prefix: "/fluxodecaixa", perm: PERMS.FINANCEIRO_FLUXO_DE_CAIXA },
+  { prefix: "/bancos", perm: PERMS.FINANCEIRO_BANCOS },
+  { prefix: "/pagamentodeordens", perm: PERMS.FINANCEIRO_PAGAMENTO_DE_ORDENS },
+  { prefix: "/pagamentodevendas", perm: PERMS.FINANCEIRO_PAGAMENTO_DE_VENDAS },
+  { prefix: "/eventos-financeiros", perm: PERMS.FINANCEIRO_EVENTOS_DE_ORDENS },
+  { prefix: "/acompanhamento-financeiro", perm: PERMS.FINANCEIRO_ACOMPANHAMENTO },
   { prefix: "/fiscal", perm: PERMS.FINANCEIRO_NOTAS_FISCAIS },
 
   { prefix: "/historicovendas", perm: PERMS.VENDAS },

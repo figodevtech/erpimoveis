@@ -8,7 +8,7 @@ import { normalizarAjustes } from "@/app/api/transaction/_lib/ajustes";
 import { sincronizarTaxaRecebimento } from "@/app/api/transaction/_lib/taxa";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exigirAcessoATransacao } from "../../_lib/autoria";
+import { exigirAcessoATransacao, exigirLeituraDeTransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -61,7 +61,7 @@ export async function GET(_: NextRequest, ctx: Params) {
   try {
     await requireFinanceirosAccess();
     const id = parseId((await ctx.params).id);
-    await exigirAcessoATransacao(id);
+    await exigirLeituraDeTransacao(id);
 
     const { data, error } = await supabaseAdmin
       .from("transacao_ajuste")

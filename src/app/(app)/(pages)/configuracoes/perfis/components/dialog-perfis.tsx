@@ -49,6 +49,21 @@ const ACTION_LABELS: Record<string, string> = {
   alterar_criador: "Alterar criador da OS",
   alterar_vendedor: "Alterar vendedor da venda",
   "ver-perfis": "Ver perfis de outros usuários",
+  fluxo_de_caixa: "Fluxo de Caixa",
+  bancos: "Bancos",
+  eventos_de_ordens: "Eventos de Ordens",
+  pagamento_de_ordens: "Pagamento de Ordens",
+  pagamento_de_vendas: "Pagamento de Vendas",
+  acompanhamento: "Acompanhamento",
+  dre: "DRE",
+};
+
+/**
+ * Quando o nome da acao nao basta. No financeiro, "Visualizar" deixou de abrir
+ * as telas — cada uma tem a sua — e virou o acesso base.
+ */
+const PERMISSION_LABELS: Record<string, string> = {
+  "financeiro:visualizar": "Acesso base (financeiro na OS e na venda)",
 };
 
 const MODULE_LABELS: Record<string, string> = {
@@ -65,6 +80,7 @@ function formatModulo(nome: string) {
 }
 
 function formatAcao(nome: string) {
+  if (PERMISSION_LABELS[nome]) return PERMISSION_LABELS[nome];
   const acao = nome.split(":")[1] ?? nome;
   const label = ACTION_LABELS[acao] ?? acao.replace(/_/g, " ");
   return label.charAt(0).toUpperCase() + label.slice(1);

@@ -74,7 +74,20 @@ type TransacaoOs = Transaction & {
   pago_em?: string | null;
   banco?: { id: number; titulo: string } | null;
   pagamento_multiplo?: PagamentoMultiploDaLinha | null;
+  /**
+   * Falso quando a transacao foi lancada por outra pessoa e quem esta vendo nao
+   * tem "ver todas as transacoes": ela aparece e abre, mas so para leitura.
+   */
+  pode_alterar?: boolean;
 };
+
+const MOTIVO_SO_LEITURA =
+  "Lançada por outra pessoa — só ela ou quem pode ver todas as transações altera.";
+
+/** Ausente conta como alteravel: e o que a rota devolvia antes do campo. */
+function alteravel(transacao: TransacaoOs) {
+  return transacao.pode_alterar !== false;
+}
 
 /**
  * Selo do rateio.
@@ -345,6 +358,9 @@ export function FinanceiroOsTab({
     podeRegistrarPagamentoOs(statusAtual, config?.habilitar_faturamento_os) &&
     Number(payload?.resumo?.saldoDisponivelParaLancamento ?? 0) > 0;
   const transacoes = payload?.transacoes ?? [];
+  const transacaoSelecionada = transacoes.find((t) => t.id === selectedTransactionId);
+  // Sem selecao e registro novo: vale so a permissao da tela.
+  const dialogEditavel = podeEditar && (!transacaoSelecionada || alteravel(transacaoSelecionada));
   const resumo = payload?.resumo;
   const valorInicial = Number(resumo?.saldoDisponivelParaLancamento ?? 0);
   const initialTransaction = useMemo(
@@ -511,7 +527,7 @@ export function FinanceiroOsTab({
             setSelectedTransactionId={setSelectedTransactionId}
             handleGetTransactions={() => void recarregarTudo()}
             initialTransaction={initialTransaction}
-            editable={podeEditar}
+            editable={dialogEditavel}
           >
             {podeCriar ? (
               <Button
@@ -657,10 +673,10 @@ export function FinanceiroOsTab({
                                 setDialogOpen(true);
                               }}
                             >
-                              {podeEditar ? <Pencil className="mr-2 size-4" /> : <Eye className="mr-2 size-4" />}
-                              {podeEditar ? "Editar" : "Visualizar"}
+                              {podeEditar && alteravel(transacao) ? <Pencil className="mr-2 size-4" /> : <Eye className="mr-2 size-4" />}
+                              {podeEditar && alteravel(transacao) ? "Editar" : "Visualizar"}
                             </DropdownMenuItem>
-                            {transacao.pendente && podeEditar ? (
+                            {transacao.pendente && podeEditar && alteravel(transacao) ? (
                               <DropdownMenuItem
                                 onSelect={() => {
                                   setTransacaoParaBaixa(transacao);
@@ -671,7 +687,7 @@ export function FinanceiroOsTab({
                                 Dar baixa
                               </DropdownMenuItem>
                             ) : null}
-                            {podeExcluir ? (
+                            {podeExcluir && alteravel(transacao) ? (
                               <>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
@@ -680,6 +696,12 @@ export function FinanceiroOsTab({
                                 >
                                   <Trash2 className="mr-2 size-4" /> Excluir
                                 </DropdownMenuItem>
+                              </>
+                            ) : null}
+                            {(podeEditar || podeExcluir) && !alteravel(transacao) ? (
+                              <>
+                                <DropdownMenuSeparator />
+                                <p className="px-2 py-1.5 text-xs text-muted-foreground">{MOTIVO_SO_LEITURA}</p>
                               </>
                             ) : null}
                           </DropdownMenuContent>
@@ -744,10 +766,10 @@ export function FinanceiroOsTab({
                             setDialogOpen(true);
                           }}
                         >
-                          {podeEditar ? <Pencil className="mr-2 size-4" /> : <Eye className="mr-2 size-4" />}
-                          {podeEditar ? "Editar" : "Visualizar"}
+                          {podeEditar && alteravel(transacao) ? <Pencil className="mr-2 size-4" /> : <Eye className="mr-2 size-4" />}
+                          {podeEditar && alteravel(transacao) ? "Editar" : "Visualizar"}
                         </DropdownMenuItem>
-                        {transacao.pendente && podeEditar ? (
+                        {transacao.pendente && podeEditar && alteravel(transacao) ? (
                           <DropdownMenuItem
                             onSelect={() => {
                               setTransacaoParaBaixa(transacao);
@@ -758,7 +780,7 @@ export function FinanceiroOsTab({
                             Dar baixa
                           </DropdownMenuItem>
                         ) : null}
-                        {podeExcluir ? (
+                        {podeExcluir && alteravel(transacao) ? (
                           <>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
@@ -767,6 +789,12 @@ export function FinanceiroOsTab({
                             >
                               <Trash2 className="mr-2 size-4" /> Excluir
                             </DropdownMenuItem>
+                          </>
+                        ) : null}
+                        {(podeEditar || podeExcluir) && !alteravel(transacao) ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <p className="px-2 py-1.5 text-xs text-muted-foreground">{MOTIVO_SO_LEITURA}</p>
                           </>
                         ) : null}
                       </DropdownMenuContent>
@@ -800,7 +828,7 @@ export function FinanceiroOsTab({
                       <ValoresDaTransacao transacao={transacao} compacto />
                     </div>
 
-                    {transacao.pendente && podeEditar ? (
+                    {transacao.pendente && podeEditar && alteravel(transacao) ? (
                       <Button
                         size="sm"
                         variant="outline"

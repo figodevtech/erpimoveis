@@ -13,6 +13,7 @@ import {
   type NFSeModeloEmissao,
 } from "@/lib/services/fiscais/nfse-service";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
+import { verificarStatusOSParaEmissao } from "@/lib/nfe/elegibilidadeEmissaoServidor";
 
 export const runtime = "nodejs";
 
@@ -62,6 +63,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const servicosRequisitados = validarServicosRequisitados(body?.servicos);
     if (!servicosRequisitados.ok) {
       return NextResponse.json({ ok: false, message: servicosRequisitados.message }, { status: 400 });
+    }
+
+    // Na emissão agrupada, cada OS do grupo precisa estar num status liberado.
+    const statusOk = await verificarStatusOSParaEmissao([
+      osId,
+      ...(Array.isArray(body?.osIdsAdicionais) ? body!.osIdsAdicionais : []).map(Number),
+    ]);
+    if (!statusOk.ok) {
+      return NextResponse.json({ ok: false, message: statusOk.message }, { status: 422 });
     }
 
     const { data: os, error: osError } = await supabaseAdmin

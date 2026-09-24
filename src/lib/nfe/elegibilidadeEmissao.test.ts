@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   motivoForaDaEmissaoEmLote,
+  normalizarStatusEmissaoOS,
   osPodeEmitirNota,
+  STATUS_OS_EMISSAO_OPCOES,
   podeEntrarNaEmissaoEmLote,
   vendaPodeEmitirNota,
 } from "./elegibilidadeEmissao";
@@ -16,19 +18,46 @@ test("sem a chave geral, nada emite", () => {
   assert.equal(osPodeEmitirNota("CONCLUIDO", null), false);
 });
 
-test("no padrão, a OS só emite depois de concluída", () => {
+test("sem lista no banco e com o switch desligado, a OS só emite depois de concluída", () => {
   assert.equal(osPodeEmitirNota("CONCLUIDO", ligado), true);
   assert.equal(osPodeEmitirNota("PAGAMENTO", ligado), false);
   assert.equal(osPodeEmitirNota("FATURAMENTO", ligado), false);
   assert.equal(osPodeEmitirNota("EM_ANDAMENTO", ligado), false);
 });
 
-test("com faturamento antes do pagamento, a OS emite em PAGAMENTO e FATURAMENTO", () => {
+test("sem lista no banco e com o switch ligado, a OS emite em PAGAMENTO e FATURAMENTO", () => {
   const config = { ...ligado, emissao_nf_ordens_nao_pagas: true };
   assert.equal(osPodeEmitirNota("PAGAMENTO", config), true);
   assert.equal(osPodeEmitirNota("FATURAMENTO", config), true);
   assert.equal(osPodeEmitirNota("CONCLUIDO", config), true);
   assert.equal(osPodeEmitirNota("EM_ANDAMENTO", config), false);
+});
+
+test("a lista escolhida nas configurações manda, e o switch antigo deixa de valer", () => {
+  const config = { ...ligado, emissao_nf_status_os: ["EM_ANDAMENTO"], emissao_nf_ordens_nao_pagas: true };
+  assert.equal(osPodeEmitirNota("EM_ANDAMENTO", config), true);
+  assert.equal(osPodeEmitirNota("CONCLUIDO", config), false);
+  assert.equal(osPodeEmitirNota("PAGAMENTO", config), false);
+});
+
+test("lista vazia ou só com lixo cai no switch antigo", () => {
+  assert.deepEqual(normalizarStatusEmissaoOS([], false), ["CONCLUIDO"]);
+  assert.deepEqual(normalizarStatusEmissaoOS(["XPTO"], true), ["PAGAMENTO", "FATURAMENTO", "CONCLUIDO"]);
+  assert.deepEqual(normalizarStatusEmissaoOS(null, undefined), ["CONCLUIDO"]);
+});
+
+test("a normalização descarta CANCELADO e repetições", () => {
+  assert.deepEqual(
+    normalizarStatusEmissaoOS([" pagamento", "PAGAMENTO", "CANCELADO", "SEM_COBRANCA"]),
+    ["PAGAMENTO", "SEM_COBRANCA"],
+  );
+  assert.equal((STATUS_OS_EMISSAO_OPCOES as readonly string[]).includes("CANCELADO"), false);
+});
+
+test("o lote segue a lista escolhida", () => {
+  const config = { ...ligado, emissao_nf_status_os: ["PAGAMENTO"] };
+  assert.equal(podeEntrarNaEmissaoEmLote({ status: "PAGAMENTO" }, config, "OS"), true);
+  assert.equal(podeEntrarNaEmissaoEmLote({ status: "CONCLUIDO" }, config, "OS"), false);
 });
 
 test("a venda segue a mesma lógica com os status dela", () => {

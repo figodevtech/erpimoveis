@@ -43,6 +43,41 @@ export function expressaoDeAutoria(usuarioId: string | null): string {
   return usuarioId ? `created_by.eq.${usuarioId},created_by.is.null` : "created_by.is.null";
 }
 
+/** Documento a que um pagamento pertence: o que a tela de cada um lista. */
+export type DocumentoDoPagamento = "OS" | "VENDA";
+
+/** O que pesa para decidir o acesso a uma transacao pelo id. */
+export type AcessoPorId = {
+  podeVerTudo: boolean;
+  usuarioId: string | null;
+  createdBy: string | null;
+  /** OS e vendas a que aponta, direto ou pelo rateio de um pagamento multiplo. */
+  documentos: DocumentoDoPagamento[];
+  /** A quais desses modulos a pessoa tem acesso. */
+  acessoA: Record<DocumentoDoPagamento, boolean>;
+};
+
+/**
+ * Alterar exige ser o dono — ou nao haver dono, ou poder ver tudo.
+ *
+ * Editar, excluir e dar baixa sao as acoes que este recorte existe para travar.
+ */
+export function podeAlterarTransacao(a: Pick<AcessoPorId, "podeVerTudo" | "usuarioId" | "createdBy">): boolean {
+  if (a.podeVerTudo || a.createdBy == null) return true;
+  return a.createdBy === a.usuarioId;
+}
+
+/**
+ * Ler vai alem de alterar num caso so: o pagamento de uma OS ou de uma venda,
+ * para quem abre aquele modulo. As telas da OS e de pagamento de vendas ja
+ * listam todos eles, de proposito — travar a abertura so trocava a linha
+ * visivel por um 403 no clique.
+ */
+export function podeLerTransacao(a: AcessoPorId): boolean {
+  if (podeAlterarTransacao(a)) return true;
+  return a.documentos.some((documento) => a.acessoA[documento]);
+}
+
 /** Le `apenasMinhas` aceitando as formas que o axios e o fetch produzem. */
 export function leApenasMinhas(valor: string | null): boolean {
   const texto = String(valor ?? "").trim().toLowerCase();

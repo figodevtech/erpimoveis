@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { useConfig } from "../../config-context";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import { osPodeEmitirNota } from "@/lib/nfe/elegibilidadeEmissao";
 
 /** Tipo base mínimo da linha */
 export type RowBase = {
@@ -168,7 +169,7 @@ export function RowActions<TRow extends RowBase>({
   // Enviar p/ aprovação
   const showSendToApproval = canEdit && policy.showSendToApproval && (st === "ORCAMENTO" || st === "ORCAMENTO_RECUSADO");
 
-  const showEmissaoDeNota = !migrada && (config?.emissao_nf_ordens_nao_pagas ? st === "CONCLUIDO" || st === "PAGAMENTO" || st === "FATURAMENTO" : st === "CONCLUIDO");
+  const showEmissaoDeNota = !migrada && osPodeEmitirNota(st, config);
 
   // Produção / Pagamento
   const showStart = canEdit && policy.showStart && st === "ORCAMENTO_APROVADO";

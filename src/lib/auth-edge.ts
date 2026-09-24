@@ -1,5 +1,6 @@
 import type { NextAuthConfig } from "next-auth";
 import NextAuth from "next-auth";
+import { permissoesDoToken } from "@/app/api/_authz/permission-constants";
 
 const MAX_AGE_SECONDS = 60 * 60 * 24;
 
@@ -22,7 +23,12 @@ const authConfig: NextAuthConfig = {
         (session.user as any).perfilId = (token as any).perfilId ?? null;
         (session.user as any).setorId = (token as any).setorId ?? null;
         (session.user as any).ativo = (token as any).ativo ?? true;
-        (session.user as any).permissoes = (token as any).permissoes ?? [];
+        // O middleware decide por aqui: um token de antes da versao atual e lido
+        // como o sistema o lia quando foi emitido.
+        (session.user as any).permissoes = permissoesDoToken(
+          (token as any).permissoes,
+          (token as any).permissoesVersao,
+        );
         (session.user as any).permissoesRefreshedAt = (token as any).permissoesRefreshedAt ?? null;
         (session.user as any).supabaseAccessToken = (token as any).supabaseAccessToken ?? null;
         (session.user as any).supabaseAccessTokenExpiresAt = (token as any).supabaseAccessTokenExpiresAt ?? null;

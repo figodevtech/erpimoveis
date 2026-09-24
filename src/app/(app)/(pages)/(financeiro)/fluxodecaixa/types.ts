@@ -293,6 +293,11 @@ export interface Transaction {
   created_by?: string | null
   criador?: { id: string; nome: string | null } | null
   /**
+   * Falso quando a transacao e de outra pessoa e quem ve nao pode ver todas:
+   * ela abre, mas so para leitura. Ausente conta como alteravel.
+   */
+  pode_alterar?: boolean
+  /**
    * Título a receber perdoado sem passar pelo banco. `pendente=false` e
    * `banco_id=null`, igual ao título quitado por antecipação — a diferença é
    * que aqui nenhum dinheiro entrou em lugar nenhum.
