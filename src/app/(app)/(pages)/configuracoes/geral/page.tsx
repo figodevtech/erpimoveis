@@ -235,7 +235,7 @@ function MarketplaceConnectionCard({
   settingsHref?: string;
 }) {
   return (
-    <section className="flex min-h-36 flex-col justify-between gap-3 border-b p-4 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
+    <section className="flex min-h-36 min-w-0 flex-col justify-between gap-3 border-b p-4 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
       <div className="flex items-start gap-3">
         <span
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconClass}`}
@@ -243,12 +243,12 @@ function MarketplaceConnectionCard({
           {icon}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {name}
             </p>
             <span
-              className={`inline-flex items-center gap-1.5 text-xs font-medium ${connected ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}
+              className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-medium ${connected ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}
             >
               <span
                 className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-muted-foreground/50"}`}
@@ -257,7 +257,7 @@ function MarketplaceConnectionCard({
             </span>
           </div>
           <p className="mt-1 truncate text-base font-semibold">{title}</p>
-          <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
             {description}
           </p>
           {badges?.length ? (
@@ -273,14 +273,14 @@ function MarketplaceConnectionCard({
             </div>
           ) : null}
           {details ? (
-            <p className="mt-2 flex items-center gap-1.5 text-xs text-foreground/70">
-              <KeyRound className="h-3 w-3" />
+            <p className="mt-2 flex min-w-0 items-start gap-1.5 break-words text-xs text-foreground/70">
+              <KeyRound className="h-3 w-3 shrink-0" />
               {details}
             </p>
           ) : null}
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex min-w-0 flex-wrap gap-2">
         {connectDisabled ? (
           <Button size="sm" disabled>
             {connectLabel}
@@ -403,7 +403,7 @@ function MercadoLivreOperationSettingsCard({
     <>
       <Card
         id="marketplace-settings"
-        className="scroll-mt-4 overflow-hidden border-primary/10 p-0 shadow-sm"
+        className="min-w-0 scroll-mt-4 overflow-hidden border-primary/10 p-0 shadow-sm"
       >
         <CardHeader className="bg-primary/5 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -418,7 +418,7 @@ function MercadoLivreOperationSettingsCard({
               </CardDescription>
             </div>
             <span
-              className={`rounded-full border px-2.5 py-1 text-xs font-medium ${connected ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}`}
+              className={`max-w-full break-all rounded-full border px-2.5 py-1 text-xs font-medium ${connected ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}`}
             >
               {connected
                 ? account?.nickname || `Usuário ${account?.userId}`
@@ -447,7 +447,7 @@ function MercadoLivreOperationSettingsCard({
               </Button>
             </div>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-3">
+            <div className="grid min-w-0 gap-4 lg:grid-cols-3">
               <section className="space-y-3 rounded-lg border bg-muted/20 p-4">
                 <div>
                   <p className="text-sm font-medium">Publicação padrão</p>
@@ -518,7 +518,7 @@ function MercadoLivreOperationSettingsCard({
                 ) : null}
               </section>
 
-              <section className="space-y-3 rounded-lg border bg-muted/20 p-4 lg:col-span-3">
+              <section className="min-w-0 space-y-3 rounded-lg border bg-muted/20 p-4 lg:col-span-3">
                 <div>
                   <p className="text-sm font-medium">Avisos do Mercado Livre</p>
                   <p className="text-xs text-muted-foreground">
@@ -592,7 +592,7 @@ function MercadoLivreOperationSettingsCard({
                 ) : null}
               </section>
 
-              <section className="rounded-lg border bg-muted/20 p-4 lg:col-span-3">
+              <section className="min-w-0 rounded-lg border bg-muted/20 p-4 lg:col-span-3">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
@@ -606,8 +606,8 @@ function MercadoLivreOperationSettingsCard({
                       </div>
                       {shippingAddress ? (
                         <div className="mt-2 space-y-1 text-sm">
-                          {shippingAddress.addressLine ? <p>{shippingAddress.addressLine}</p> : null}
-                          <p className="text-muted-foreground">
+                          {shippingAddress.addressLine ? <p className="break-words">{shippingAddress.addressLine}</p> : null}
+                          <p className="break-words text-muted-foreground">
                             {[shippingAddress.neighborhood, shippingLocation].filter(Boolean).join(" · ") || "Localização não informada"}
                             {shippingAddress.zipCode ? ` · CEP ${shippingAddress.zipCode}` : ""}
                           </p>
@@ -1288,14 +1288,14 @@ export default function ConfigGeralPage() {
       : 100;
 
   return (
-    <div className="container mx-auto max-w-7xl space-y-6 px-4 py-1 animate-in fade-in duration-500 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 rounded-lg border bg-card px-5 py-4 shadow-sm md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <Settings className="h-8 w-8 text-primary" />
+    <div className="container mx-auto min-w-0 max-w-7xl space-y-5 px-3 py-1 animate-in fade-in duration-500 sm:space-y-6 sm:px-6 lg:px-8">
+      <div className="flex min-w-0 flex-col gap-4 rounded-lg border bg-card px-4 py-4 shadow-sm sm:px-5 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">
+            <Settings className="size-6 shrink-0 text-primary sm:size-8" />
             Configurações Gerais
           </h1>
-          <p className="text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground sm:text-base">
             Gerencie o comportamento global do sistema, módulos fiscais e
             alertas do PDV.
           </p>
@@ -1303,7 +1303,7 @@ export default function ConfigGeralPage() {
         <Button
           onClick={handleSubmit(onSalvar)}
           disabled={salvando}
-          className="shadow-md hover:shadow-lg transition-all"
+          className="w-full shrink-0 shadow-md transition-all hover:shadow-lg sm:w-auto"
         >
           {salvando ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1314,7 +1314,7 @@ export default function ConfigGeralPage() {
         </Button>
       </div>
 
-      <Card className="overflow-hidden border-primary/10 p-0 shadow-sm">
+      <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm">
         <CardHeader className="bg-primary/5 py-4">
           <div className="flex items-center gap-2">
             <Store className="h-5 w-5 text-primary" />
@@ -1325,9 +1325,9 @@ export default function ConfigGeralPage() {
           </CardDescription>
         </CardHeader>
         <CardContent
-          className={`grid gap-0 p-0 ${SHOPEE_INTEGRATION_ENABLED ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}
+          className={`grid min-w-0 gap-0 p-0 ${SHOPEE_INTEGRATION_ENABLED ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}
         >
-          <section className="flex min-h-36 flex-col justify-between gap-3 border-b p-4 lg:border-b-0 lg:border-r">
+          <section className="flex min-h-36 min-w-0 flex-col justify-between gap-3 border-b p-4 lg:border-b-0 lg:border-r">
             <div className="flex items-start gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Building2 className="h-5 w-5" />
@@ -1348,7 +1348,7 @@ export default function ConfigGeralPage() {
               asChild
               variant="outline"
               size="sm"
-              className="w-fit bg-transparent"
+              className="h-auto w-full min-w-0 whitespace-normal bg-transparent py-2 text-center sm:w-fit"
             >
               <Link href="/configuracoes/empresa">
                 Alterar dados da empresa
@@ -1472,8 +1472,8 @@ export default function ConfigGeralPage() {
         onRefreshAccount={atualizarDadosMercadoLivre}
       />
 
-      <div className="grid items-start gap-6 lg:grid-cols-12">
-        <Card className="overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-5">
+      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-12 lg:gap-6">
+        <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-5">
           <CardHeader className="bg-primary/5 py-4">
             <div className="flex items-center gap-2">
               <Search className="h-5 w-5 text-primary" />
@@ -1532,7 +1532,7 @@ export default function ConfigGeralPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-7">
+        <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-7">
           <CardHeader className="bg-primary/5 py-4">
             <div className="flex items-center gap-2">
               <CalendarDays className="h-5 w-5 text-primary" />
@@ -1638,7 +1638,7 @@ export default function ConfigGeralPage() {
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
+        <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
           <CardHeader className="bg-primary/5 py-4">
             <div className="flex items-center gap-2">
               <Palette className="h-5 w-5 text-primary" />
@@ -1649,9 +1649,9 @@ export default function ConfigGeralPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 py-6 md:grid-cols-3">
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label>Cor primaria</Label>
-              <div className="flex gap-3">
+              <div className="flex min-w-0 gap-3">
                 <Input
                   type="color"
                   className="h-10 w-14 shrink-0 p-1"
@@ -1675,9 +1675,9 @@ export default function ConfigGeralPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label>Cor secundaria</Label>
-              <div className="flex gap-3">
+              <div className="flex min-w-0 gap-3">
                 <Input
                   type="color"
                   className="h-10 w-14 shrink-0 p-1"
@@ -1701,9 +1701,9 @@ export default function ConfigGeralPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label>Cor do texto</Label>
-              <div className="flex gap-3">
+              <div className="flex min-w-0 gap-3">
                 <Input
                   type="color"
                   className="h-10 w-14 shrink-0 p-1"
@@ -1767,7 +1767,7 @@ export default function ConfigGeralPage() {
         <TermosImpressaoOSCard />
 
         {/* MÓDULO FISCAL */}
-        <Card className="overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
+        <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
           <CardHeader className="bg-primary/5 py-4">
             <div className="flex items-center gap-2">
               <Receipt className="h-5 w-5 text-primary" />
@@ -1780,7 +1780,7 @@ export default function ConfigGeralPage() {
           </CardHeader>
           <CardContent className="grid gap-6 py-6">
             <div className="flex items-center justify-between space-x-2">
-              <div className="flex flex-col space-y-1">
+              <div className="min-w-0 flex-1 space-y-1">
                 <Label className="text-base">Habilitar Emissão de NF</Label>
                 <span className="text-sm text-muted-foreground">
                   Habilita globalmente os botões e recursos de emissão de NF-e e
@@ -1807,7 +1807,7 @@ export default function ConfigGeralPage() {
                   <FileText className="h-4 w-4" /> Módulo de Vendas
                 </div>
                 <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border">
-                  <div className="flex flex-col space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label>Exibir no Módulo</Label>
                     <span className="text-xs text-muted-foreground">
                       Botão de emissão de NF é exibido no módulo de Vendas.
@@ -1821,7 +1821,7 @@ export default function ConfigGeralPage() {
                   />
                 </div>
                 <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border">
-                  <div className="flex flex-col space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label>Emitir sem Pagamento</Label>
                     <span className="text-xs text-muted-foreground">
                       Permite emissão de NF de Vendas antes do financeiro
@@ -1836,7 +1836,7 @@ export default function ConfigGeralPage() {
                   />
                 </div>
                 <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="flex flex-col space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label htmlFor="garantia-venda-nfe">
                       Incluir informações de garantia na emissão de NF-e
                     </Label>
@@ -1857,7 +1857,7 @@ export default function ConfigGeralPage() {
                   />
                 </div>
                 <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="flex flex-col space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label
                       htmlFor="garantia-venda-nfce"
                       className={
@@ -1897,7 +1897,7 @@ export default function ConfigGeralPage() {
                   <ClipboardCheck className="h-4 w-4" /> Módulo de Ordens (OS)
                 </div>
                 <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border">
-                  <div className="flex flex-col space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label>Exibir no Módulo</Label>
                     <span className="text-xs text-muted-foreground">
                       Botão de emissão de NF é exibido no módulo de Ordens.
@@ -1911,7 +1911,7 @@ export default function ConfigGeralPage() {
                   />
                 </div>
                 <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-                  <div className="flex flex-col space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label>Status que permitem emitir nota</Label>
                     <span className="text-xs text-muted-foreground">
                       A emissão de NF da OS só aparece nos status marcados.
@@ -1954,7 +1954,7 @@ export default function ConfigGeralPage() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="flex flex-col space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label htmlFor="garantia-os-nfe">
                       Incluir informações de garantia na emissão de NF-e
                     </Label>
@@ -1975,7 +1975,7 @@ export default function ConfigGeralPage() {
                   />
                 </div>
                 <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="flex flex-col space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label
                       htmlFor="garantia-os-nfce"
                       className={
@@ -2009,7 +2009,7 @@ export default function ConfigGeralPage() {
                   />
                 </div>
                 <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="flex flex-col space-y-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <Label htmlFor="garantia-os-nfse">
                       Carregar informações de garantia para NFS-e
                     </Label>
@@ -2037,7 +2037,7 @@ export default function ConfigGeralPage() {
 
         {/* SISTEMA E INTERFACE */}
         <div className="space-y-6 lg:col-span-5">
-          <Card className="border-primary/10 shadow-sm">
+          <Card className="min-w-0 border-primary/10 shadow-sm">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <ShoppingCart className="h-5 w-5 text-primary" />
@@ -2049,7 +2049,7 @@ export default function ConfigGeralPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center justify-between">
-                <div className="flex flex-col space-y-1">
+                <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-center gap-2">
                     <Label>Alerta de Estoque PDV</Label>
                     <Package className="h-3 w-3 text-muted-foreground" />
@@ -2065,7 +2065,7 @@ export default function ConfigGeralPage() {
               </div>
               <Separator />
               <div className="flex items-center justify-between gap-4">
-                <div className="flex flex-col space-y-1">
+                <div className="min-w-0 flex-1 space-y-1">
                   <Label>Habilitar edição de transações</Label>
                   <span className="text-xs text-muted-foreground">
                     Permite alterar transações já cadastradas no fluxo de caixa.
@@ -2084,7 +2084,7 @@ export default function ConfigGeralPage() {
           </Card>
         </div>
 
-        <Card className="border-primary/10 shadow-sm lg:col-span-7">
+        <Card className="min-w-0 border-primary/10 shadow-sm lg:col-span-7">
           <CardHeader>
             <div className="flex items-center gap-2">
               <Boxes className="h-5 w-5 text-primary" />
@@ -2142,7 +2142,7 @@ export default function ConfigGeralPage() {
             </div>
             <Separator />
             <div className="flex items-center justify-between gap-4">
-              <div className="flex flex-col space-y-1">
+              <div className="min-w-0 flex-1 space-y-1">
                 <Label htmlFor="habilitar-faturamento-os">Habilitar etapa de faturamento nas OS</Label>
                 <span className="text-xs text-muted-foreground">
                   Separa a espera pelo pagamento do registro financeiro. Ao ativar,
@@ -2160,7 +2160,7 @@ export default function ConfigGeralPage() {
             </div>
             <Separator />
             <div className="flex items-center justify-between gap-4">
-              <div className="flex flex-col space-y-1">
+              <div className="min-w-0 flex-1 space-y-1">
                 <Label>Permitir produto avulso em OS</Label>
                 <span className="text-xs text-muted-foreground">
                   Permite orçar itens temporários, que devem ser cadastrados ou
@@ -2178,7 +2178,7 @@ export default function ConfigGeralPage() {
             </div>
             <Separator />
             <div className="flex items-center justify-between gap-4">
-              <div className="flex flex-col space-y-1">
+              <div className="min-w-0 flex-1 space-y-1">
                 <Label>Valor médio de compra obrigatório</Label>
                 <span className="text-xs text-muted-foreground">
                   Exige um custo médio maior que zero ao cadastrar ou editar
@@ -2196,7 +2196,7 @@ export default function ConfigGeralPage() {
             </div>
             <Separator />
             <div className="flex items-center justify-between gap-4">
-              <div className="flex flex-col space-y-1">
+              <div className="min-w-0 flex-1 space-y-1">
                 <Label>NCM obrigatório</Label>
                 <span className="text-xs text-muted-foreground">
                   Exige o NCM com 8 dígitos ao cadastrar ou editar produtos.
@@ -2239,7 +2239,7 @@ export default function ConfigGeralPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-primary/10 shadow-sm lg:col-span-12">
+        <Card className="min-w-0 border-primary/10 shadow-sm lg:col-span-12">
           <CardHeader>
             <div className="flex items-center gap-2">
               <Highlighter className="h-5 w-5 text-primary" />
@@ -2413,7 +2413,7 @@ export default function ConfigGeralPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-primary/10 shadow-sm lg:col-span-12">
+        <Card className="min-w-0 border-primary/10 shadow-sm lg:col-span-12">
           <CardHeader>
             <div className="flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-primary" />
@@ -2425,7 +2425,7 @@ export default function ConfigGeralPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex items-center justify-between">
-              <div className="flex flex-col space-y-1">
+              <div className="min-w-0 flex-1 space-y-1">
                 <Label>Checklist de Entrada Obrigatório</Label>
                 <span className="text-xs text-muted-foreground">
                   Impede o início de uma OS sem que o veículo passe pelo

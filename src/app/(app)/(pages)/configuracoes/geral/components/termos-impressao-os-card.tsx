@@ -253,14 +253,14 @@ export function TermosImpressaoOSCard() {
   };
 
   return (
-    <Card className="border-primary/10 shadow-sm lg:col-span-12">
+    <Card className="min-w-0 border-primary/10 shadow-sm lg:col-span-12">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <FileSignature className="h-5 w-5 text-primary" />
+          <div className="flex min-w-0 items-start gap-2">
+            <FileSignature className="h-5 w-5 shrink-0 text-primary" />
             <CardTitle>Dizeres da impressão da ordem de serviço</CardTitle>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <Button
               type="button"
               variant="ghost"
@@ -311,7 +311,7 @@ export function TermosImpressaoOSCard() {
         ) : (
           <div className="space-y-3">
             {termos.map((termo, indice) => (
-              <div key={termo.uid} className="rounded-lg border bg-muted/20 p-3">
+              <div key={termo.uid} className="min-w-0 rounded-lg border bg-muted/20 p-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 space-y-2">
                     <p className="font-medium leading-tight">{termo.titulo}</p>
@@ -346,7 +346,7 @@ export function TermosImpressaoOSCard() {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     <Button
                       type="button"
                       variant="ghost"
@@ -400,7 +400,7 @@ export function TermosImpressaoOSCard() {
       </CardContent>
 
       <Dialog open={dialogAberto} onOpenChange={setDialogAberto}>
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <DialogContent className="max-h-[90dvh] max-w-3xl overflow-x-hidden overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {editandoUid ? "Editar bloco de dizeres" : "Novo bloco de dizeres"}
@@ -451,8 +451,9 @@ export function TermosImpressaoOSCard() {
               </div>
 
               {rascunho.itens.map((item, indice) => (
-                <div key={indice} className="flex items-start gap-2">
+                <div key={indice} className="flex min-w-0 items-start gap-2">
                   <Textarea
+                    className="min-w-0 flex-1"
                     value={item}
                     rows={3}
                     maxLength={TERMO_ITEM_MAX}
@@ -464,7 +465,7 @@ export function TermosImpressaoOSCard() {
                       }))
                     }
                   />
-                  <div className="flex flex-col gap-1">
+                  <div className="flex shrink-0 flex-col gap-1">
                     <Button
                       type="button"
                       variant="ghost"
@@ -545,7 +546,7 @@ export function TermosImpressaoOSCard() {
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label>Status da OS</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {GRUPOS_STATUS_TERMO.map((grupo) => (
                     <Button
                       key={grupo.id}
@@ -587,7 +588,7 @@ export function TermosImpressaoOSCard() {
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label>Pré-visualização</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {ALVOS_TERMO.map((alvo) => (
                     <Button
                       key={alvo.valor}
