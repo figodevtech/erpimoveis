@@ -51,6 +51,8 @@ export interface NotaFiscal {
   chave_acesso: string;
   ambiente: string;
   status: string;
+  codigo_rejeicao?: string | null;
+  motivo_rejeicao?: string | null;
   dataemissao: string;
   dataautorizacao: string | null;
   protocolo: string | null;

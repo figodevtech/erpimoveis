@@ -72,6 +72,7 @@ import {
 } from "@/lib/usoconsumo/escopo";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
+import { aplicarClassificacaoAtualAoRascunho } from "@/lib/nfe/revisarDestinatarioRejeitado";
 import type { Fornecedor, Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { isValidCnpj } from "@/lib/nfe/recipientNormalization";
@@ -1202,6 +1203,10 @@ export default function NFeAvulsaPage() {
   const draftIdParam = searchParams.get("id");
   const [setup, setSetup] = React.useState<SetupResponse | null>(null);
   const [draft, setDraft] = React.useState<DraftPayload>(initialDraft);
+  const [cadastroAtualDestinatario, setCadastroAtualDestinatario] = React.useState<{
+    indicador: number;
+    inscricaoEstadual: string;
+  } | null>(null);
   const [documentState, setDocumentState] = React.useState<NFeDocumentState>({
     status: null,
     chave: null,
@@ -1331,6 +1336,26 @@ export default function NFeAvulsaPage() {
   const isAutorizada = String(documentState.status ?? "").toUpperCase() === "AUTORIZADA";
   const consultaDifal = parametrosDifalDaAvulsa(draft, setup, dataEmissaoFiscal);
   const assinaturaDifal = assinaturaDifalDe(consultaDifal);
+
+  React.useEffect(() => {
+    const clienteId = draft.destinatario.clienteId;
+    if (!draft.nfeId || !clienteId || String(documentState.status).toUpperCase() !== 'REJEITADA') {
+      setCadastroAtualDestinatario(null);
+      return;
+    }
+    let cancelled = false;
+    void axios.get<{ data: Customer }>(`/api/customers/${clienteId}`)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const indicador = normalizarIndIEDest(data.data.ind_ie_dest);
+        setCadastroAtualDestinatario(indicador == null ? null : {
+          indicador,
+          inscricaoEstadual: data.data.inscricaoestadual ?? '',
+        });
+      })
+      .catch(() => { if (!cancelled) setCadastroAtualDestinatario(null); });
+    return () => { cancelled = true; };
+  }, [draft.nfeId, draft.destinatario.clienteId, documentState.status]);
 
   React.useEffect(() => {
     if (loading || !setup?.empresa?.uf || isAutorizada || !consultaDifal.itens.length) return;
@@ -2772,6 +2797,22 @@ export default function NFeAvulsaPage() {
                     </Button>
                   )}
                 </div>
+                {cadastroAtualDestinatario
+                  && String(cadastroAtualDestinatario.indicador) !== String(draft.destinatario.indicadorIe) ? (
+                    <div className="rounded border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
+                      <p>Os dados fiscais do cadastro mudaram desde esta tentativa: nota {draft.destinatario.indicadorIe}, cadastro {cadastroAtualDestinatario.indicador}.</p>
+                      <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => {
+                        const indicador = cadastroAtualDestinatario.indicador;
+                        updateDraft((current) => aplicarClassificacaoAtualAoRascunho(current, {
+                          indicador: indicador as 1 | 2 | 9,
+                          inscricaoEstadual: cadastroAtualDestinatario.inscricaoEstadual,
+                        }));
+                        setErrors([]);
+                      }}>
+                        Usar classificação atual do cadastro
+                      </Button>
+                    </div>
+                  ) : null}
 
                 <div className="grid gap-4 md:grid-cols-3">
                   <Field label="Tipo de pessoa" required>

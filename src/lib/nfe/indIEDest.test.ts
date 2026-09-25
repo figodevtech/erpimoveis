@@ -6,6 +6,7 @@ import {
   MENSAGEM_INDICADOR_AUSENTE,
   deveEnviarIeDoDestinatario,
   ehRejeicaoIeDestinatarioInativa,
+  ehRejeicaoIndIeDestIsentoNaoPermitido,
   normalizarIndIEDest,
   sugerirIndIEDest,
   validarInscricaoEstadualDestinatario,
@@ -201,4 +202,11 @@ test("reconhece a rejeição 306 vinda como texto ou número", () => {
   assert.equal(ehRejeicaoIeDestinatarioInativa(" 306 "), true);
   assert.equal(ehRejeicaoIeDestinatarioInativa("204"), false);
   assert.equal(ehRejeicaoIeDestinatarioInativa(null), false);
+});
+
+test('reconhece a rejeição 805 vinda como texto ou número', () => {
+  assert.equal(ehRejeicaoIndIeDestIsentoNaoPermitido('805'), true);
+  assert.equal(ehRejeicaoIndIeDestIsentoNaoPermitido(805), true);
+  assert.equal(ehRejeicaoIndIeDestIsentoNaoPermitido(' 805 '), true);
+  assert.equal(ehRejeicaoIndIeDestIsentoNaoPermitido('306'), false);
 });

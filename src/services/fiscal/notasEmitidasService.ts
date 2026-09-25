@@ -36,6 +36,8 @@ export type NotaFiscalListItem = {
   chave_acesso: string;
   ambiente: string;
   status: string;
+  codigo_rejeicao?: string | null;
+  motivo_rejeicao?: string | null;
   dataemissao: string;
   dataautorizacao: string | null;
   protocolo: string | null;
@@ -80,6 +82,8 @@ const SELECT_NOTAS = `
   chave_acesso,
   ambiente,
   status,
+  codigo_rejeicao,
+  motivo_rejeicao,
   dataemissao,
   dataautorizacao,
   protocolo,
@@ -218,6 +222,8 @@ function mapNotaFiscal(row: any): NotaFiscalListItem {
     chave_acesso: String(row.chave_acesso ?? ""),
     ambiente: String(row.ambiente ?? ""),
     status: String(row.status ?? ""),
+    codigo_rejeicao: row.codigo_rejeicao == null ? null : String(row.codigo_rejeicao),
+    motivo_rejeicao: row.motivo_rejeicao ?? null,
     dataemissao: String(row.dataemissao ?? ""),
     dataautorizacao: row.dataautorizacao ?? null,
     protocolo: row.protocolo ?? null,

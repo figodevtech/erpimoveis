@@ -22,7 +22,9 @@ import { BadgeAgrupada, VinculosNota } from "@/components/fiscal/badges-nota";
 import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
 import {
   ehRejeicaoIeDestinatarioInativa,
+  ehRejeicaoIndIeDestIsentoNaoPermitido,
   MENSAGEM_REJEICAO_306,
+  MENSAGEM_REJEICAO_805,
 } from "@/lib/nfe/indIEDest";
 import { EmissaoNfseDialog } from "./emissao-nfse-dialog/emissao-nfse-dialog";
 import { CancelarNfeButton } from "./cancelarNfeButton";
@@ -1318,7 +1320,7 @@ export function EmissaoNotaDialog({
                                           {isRejeitada ? "Corrigir dados" : "Revisar emissão"}
                                         </Button>
                                       ) : null}
-                                      <AutorizarNfeButton
+                                      {!(isRejeitada && ehRejeicaoIndIeDestIsentoNaoPermitido(nfe.codigo_rejeicao)) ? <AutorizarNfeButton
                                         nfeId={nfe.id}
                                         size="sm"
                                         variant="outline"
@@ -1331,7 +1333,7 @@ export function EmissaoNotaDialog({
                                           : isRejeitada
                                             ? "Reenviar sem alterar"
                                             : `Autorizar ${nfe.modelo === "NFCE" ? "NFC-e" : "NF-e"}`}
-                                      </AutorizarNfeButton>
+                                      </AutorizarNfeButton> : null}
 
                                       {/* Só aparece depois de uma falha de rede
                                           comprovada nesta nota. */}
@@ -1581,10 +1583,13 @@ export function EmissaoNotaDialog({
                                     {nfe.motivo_rejeicao?.trim()
                                       || "Não registrado. Reenvie a nota para obter o retorno atualizado da SEFAZ."}
                                   </p>
-                                  {ehRejeicaoIeDestinatarioInativa(nfe.codigo_rejeicao) ? (
+                                  {ehRejeicaoIeDestinatarioInativa(nfe.codigo_rejeicao)
+                                    || ehRejeicaoIndIeDestIsentoNaoPermitido(nfe.codigo_rejeicao) ? (
                                     <div className="mt-2 space-y-2 border-l-2 border-l-amber-500 bg-amber-500/5 p-2">
                                       <p className="whitespace-pre-line text-[11px]">
-                                        {MENSAGEM_REJEICAO_306}
+                                        {ehRejeicaoIndIeDestIsentoNaoPermitido(nfe.codigo_rejeicao)
+                                          ? MENSAGEM_REJEICAO_805
+                                          : MENSAGEM_REJEICAO_306}
                                       </p>
                                       {nfe.clienteid ? (
                                         <Button

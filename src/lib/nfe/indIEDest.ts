@@ -122,3 +122,14 @@ export function ehRejeicaoIeDestinatarioInativa(
 ): boolean {
   return String(codigo ?? "").trim() === CSTAT_IE_DESTINATARIO_INATIVA;
 }
+
+/** Rejeição 805: a UF destinatária não aceita contribuinte isento nesta operação. */
+export const CSTAT_IND_IE_DEST_ISENTO_NAO_PERMITIDO = '805';
+export const MENSAGEM_REJEICAO_805 =
+  'Esta UF não aceitou o destinatário como “Contribuinte isento de IE”. Confira a situação fiscal antes de reenviar. Se for contribuinte, informe indicador 1 e IE ativa; se não for contribuinte, informe indicador 9.';
+
+export function ehRejeicaoIndIeDestIsentoNaoPermitido(
+  codigo: string | number | null | undefined,
+): boolean {
+  return String(codigo ?? '').trim() === CSTAT_IND_IE_DEST_ISENTO_NAO_PERMITIDO;
+}
