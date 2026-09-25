@@ -305,7 +305,7 @@ export default function FornecedorDialog({
         }
       }}
     >
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
 
       <DialogContent className="h-svh min-w-screen p-0 overflow-hidden sm:max-w-[500px] sm:max-h-[600px] sm:w-[55vw] sm:min-w-0">
       <div className="flex h-full min-h-0 flex-col">

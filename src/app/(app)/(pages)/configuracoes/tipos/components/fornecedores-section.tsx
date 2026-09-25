@@ -1,8 +1,9 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/fornecedores-section.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
+import { permissionSetHas, tipoPermission } from "@/app/api/_authz/permission-constants";
 import {
   ChevronsLeft,
   ChevronLeft as ChevronLeftIcon,
@@ -11,12 +12,15 @@ import {
   Loader2,
   MoreHorizontal,
   Plus,
+  Search,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -40,6 +44,7 @@ import {
 type Fornecedor = {
   id: number;
   cpfcnpj: string;
+  inscricaoestadual?: string | null;
   nomerazaosocial: string;
   nomefantasia: string | null;
   endereco: string | null;
@@ -53,12 +58,17 @@ type Fornecedor = {
   ativo: boolean | null;
 };
 
-const DEFAULT_LIMIT = 10;
+const DEFAULT_LIMIT = 50;
 
-export default function FornecedoresSection() {
+export default function FornecedoresSection({ permissoes }: { permissoes: string[] }) {
+  const canCreate = permissionSetHas(permissoes, tipoPermission("fornecedores", "criar"));
+  const canEdit = permissionSetHas(permissoes, tipoPermission("fornecedores", "editar"));
+  const canDelete = permissionSetHas(permissoes, tipoPermission("fornecedores", "excluir"));
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
+  const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+  const requestId = useRef(0);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Fornecedor | null>(null);
@@ -67,17 +77,21 @@ export default function FornecedoresSection() {
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
-
-  const total = fornecedores.length;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
-    if (page > totalPages) setPage(1);
-  }, [totalPages, page]);
+    const timeout = setTimeout(() => {
+      setPage(1);
+      setSearch(searchInput.trim());
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [searchInput]);
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
 
   const start = (page - 1) * limit;
   const end = Math.min(total, start + limit);
-  const pageItems = useMemo(() => fornecedores.slice(start, end), [fornecedores, start, end]);
 
   const linhasSkeleton = useMemo(
     () =>
@@ -106,17 +120,30 @@ export default function FornecedoresSection() {
     [limit]
   );
 
-  async function loadFornecedores() {
+  const loadFornecedores = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     try {
       setIsLoading(true);
       setErro(null);
-      const res = await fetch("/api/tipos/fornecedores", { cache: "no-store" });
+      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (search) params.set("search", search);
+      const res = await fetch(`/api/tipos/fornecedores?${params}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Erro ao carregar fornecedores");
+
+      if (currentRequest !== requestId.current) return;
+
+      const nextTotal = Number(json.pagination?.total ?? 0);
+      const lastPage = Math.max(1, Math.ceil(nextTotal / limit));
+      if (page > lastPage) {
+        setPage(lastPage);
+        return;
+      }
 
       const items: Fornecedor[] = (json.items ?? json.data ?? []).map((f: any) => ({
         id: Number(f.id),
         cpfcnpj: String(f.cpfcnpj ?? ""),
+        inscricaoestadual: (f.inscricaoestadual as string | null) ?? null,
         nomerazaosocial: String(f.nomerazaosocial ?? ""),
         nomefantasia: (f.nomefantasia as string | null) ?? null,
         endereco: (f.endereco as string | null) ?? null,
@@ -130,19 +157,23 @@ export default function FornecedoresSection() {
         ativo: typeof f.ativo === "boolean" ? (f.ativo as boolean) : true,
       }));
       setFornecedores(items);
+      setTotal(nextTotal);
     } catch (err: any) {
+      if (currentRequest !== requestId.current) return;
       const msg = err?.message || "Erro ao carregar fornecedores";
       setErro(msg);
       toast.error(msg);
       setFornecedores([]);
+      setTotal(0);
     } finally {
-      setIsLoading(false);
+      if (currentRequest === requestId.current) setIsLoading(false);
     }
-  }
+  }, [page, limit, search]);
 
   useEffect(() => {
-    loadFornecedores();
-  }, []);
+    void loadFornecedores();
+    return () => { requestId.current += 1; };
+  }, [loadFornecedores]);
 
   function openEditar(f: Fornecedor) {
     setEditing(f);
@@ -195,7 +226,7 @@ export default function FornecedoresSection() {
             <CardTitle>Fornecedores</CardTitle>
             <CardDescription className="flex items-center gap-2">
               <button
-                onClick={loadFornecedores}
+                onClick={() => void loadFornecedores()}
                 className="inline-flex items-center gap-1 text-foreground/50 hover:text-foreground/70 text-xs"
               >
                 <span>Recarregar</span>
@@ -212,20 +243,47 @@ export default function FornecedoresSection() {
             </CardDescription>
           </div>
 
-          <FornecedorDialog
-            dialogOpen={dialogOpen}
-            setDialogOpen={setDialogOpen}
-            loadFornecedores={loadFornecedores}
-            fornecedorToEdit={editing}
-            setFornecedorToEdit={setEditing}
-          ><Button size="sm" className="hover:cursor-pointer">
-            <Plus className="mr-1 h-4 w-4" />
-            Fornecedor
-          </Button></FornecedorDialog>
+          {canCreate || canEdit ? (
+            <FornecedorDialog
+              dialogOpen={dialogOpen}
+              setDialogOpen={setDialogOpen}
+              loadFornecedores={loadFornecedores}
+              fornecedorToEdit={editing}
+              setFornecedorToEdit={setEditing}
+            >
+              {canCreate ? (
+                <Button size="sm" className="hover:cursor-pointer">
+                  <Plus className="mr-1 h-4 w-4" />
+                  Fornecedor
+                </Button>
+              ) : null}
+            </FornecedorDialog>
+          ) : null}
+        </div>
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input
+            type="text"
+            aria-label="Pesquisar fornecedores"
+            placeholder="Buscar em qualquer campo do fornecedor"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            className="pl-9 pr-9"
+          />
+          {searchInput && (
+            <button
+              type="button"
+              aria-label="Limpar pesquisa"
+              onClick={() => { setSearchInput(""); setSearch(""); setPage(1); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </CardHeader>
 
-      <CardContent className="min-h-[190px] -mt-[24px] px-4 pb-4 pt-0 sm:px-6 relative">
+      <CardContent className="min-h-[190px] px-4 pb-4 pt-0 sm:px-6 relative">
         <div
           className={`${isLoading ? "opacity-100" : ""
             } transition-all opacity-0 h-0.5 bg-slate-400 w-full overflow-hidden absolute left-0 right-0 top-0`}
@@ -254,11 +312,13 @@ export default function FornecedoresSection() {
             ) : total === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
-                  Nenhum fornecedor cadastrado. Clique em <b>+ Fornecedor</b> para cadastrar.
+                  {search
+                    ? "Nenhum fornecedor encontrado para esta pesquisa."
+                    : <>Nenhum fornecedor cadastrado. Clique em <b>+ Fornecedor</b> para cadastrar.</>}
                 </TableCell>
               </TableRow>
             ) : (
-              pageItems.map((f) => (
+              fornecedores.map((f) => (
                 <TableRow key={f.id} className="hover:cursor-default">
                   <TableCell className="font-medium">
                     {f.nomerazaosocial}
@@ -283,23 +343,23 @@ export default function FornecedoresSection() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <DropdownMenu>
+                    {(canEdit || canDelete) && <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" className="h-8 w-8 p-0 hover:cursor-pointer">
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-36">
-                        <DropdownMenuItem onClick={() => openEditar(f)}>Editar</DropdownMenuItem>
-                        <DropdownMenuItem
+                        {canEdit && <DropdownMenuItem onClick={() => openEditar(f)}>Editar</DropdownMenuItem>}
+                        {canDelete && <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onClick={() => setFornecedorExcluir(f)}
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           Excluir
-                        </DropdownMenuItem>
+                        </DropdownMenuItem>}
                       </DropdownMenuContent>
-                    </DropdownMenu>
+                    </DropdownMenu>}
                   </TableCell>
                 </TableRow>
               ))
@@ -376,12 +436,6 @@ export default function FornecedoresSection() {
                 <SelectValue placeholder={DEFAULT_LIMIT} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="10" className="hover:cursor-pointer">
-                  10
-                </SelectItem>
-                <SelectItem value="20" className="hover:cursor-pointer">
-                  20
-                </SelectItem>
                 <SelectItem value="50" className="hover:cursor-pointer">
                   50
                 </SelectItem>

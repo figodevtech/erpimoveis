@@ -162,6 +162,9 @@ export async function requireConfigAccess() {
 export async function requireConfigEdit() {
   return requirePerm(PERMS.CONFIG_EDITAR);
 }
+export async function requireConfigDelete() {
+  return requirePerm(PERMS.CONFIG_EXCLUIR);
+}
 
 // Estoque
 export async function hasEstoqueAccess() {

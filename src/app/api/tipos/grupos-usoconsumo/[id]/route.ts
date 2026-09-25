@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireConfigEdit } from "@/app/api/_authz/perms";
+import { requirePerm } from "@/app/api/_authz/perms";
+import { tipoPermission } from "@/app/api/_authz/permission-constants";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { usoConsumoError } from "@/lib/usoconsumo/api";
 import { grupoUsoConsumoSchema, zodMessage } from "@/lib/usoconsumo/schemas";
@@ -8,7 +9,7 @@ type Context = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: NextRequest, { params }: Context) {
   try {
-    await requireConfigEdit();
+    await requirePerm(tipoPermission("grupos_usoconsumo", "editar"));
     const id = Number((await params).id);
     if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Grupo inválido." }, { status: 400 });
     const parsed = grupoUsoConsumoSchema.partial().safeParse(await req.json());

@@ -2,7 +2,8 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { requireAuthenticated } from "@/app/api/_authz/perms";
+import { requireAuthenticated, requirePerm } from "@/app/api/_authz/perms";
+import { tipoPermission } from "@/app/api/_authz/permission-constants";
 import {
   isValidCnpj,
   isValidCpf,
@@ -21,6 +22,28 @@ function removeAccents(str: string): string {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+const searchableColumns = [
+  "cpfcnpj",
+  "inscricaoestadual",
+  "nomerazaosocial",
+  "nomefantasia",
+  "endereco",
+  "endereconumero",
+  "enderecocomplemento",
+  "cidade",
+  "bairro",
+  "codigomunicipio",
+  "estado",
+  "cep",
+  "contato",
+];
+
+function searchConditions(value: string): string[] {
+  // Valores do filtro OR seguem a sintaxe do PostgREST; aspas preservam pontuação da busca.
+  const escaped = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return searchableColumns.map((column) => `${column}.ilike."%${escaped}%"`);
 }
 
 // GET /api/tipos/fornecedores
@@ -101,22 +124,18 @@ export async function GET(req: Request) {
           conditions.push(`id.eq.${idNumerico}`);
         }
 
-        conditions.push(`nomerazaosocial.ilike.%${cleanQ}%`);
-        conditions.push(`nomefantasia.ilike.%${cleanQ}%`);
-        conditions.push(`cpfcnpj.ilike.%${cleanQ}%`);
-        conditions.push(`contato.ilike.%${cleanQ}%`);
-        conditions.push(`cidade.ilike.%${cleanQ}%`);
+        conditions.push(...searchConditions(cleanQ));
 
         if (hasDiffAccents) {
-          conditions.push(`nomerazaosocial.ilike.%${unaccentedQ}%`);
-          conditions.push(`nomefantasia.ilike.%${unaccentedQ}%`);
-          conditions.push(`cidade.ilike.%${unaccentedQ}%`);
+          conditions.push(...searchConditions(unaccentedQ));
         }
 
         if (onlyDigitsQ && onlyDigitsQ.length >= 3 && onlyDigitsQ !== cleanQ) {
-          conditions.push(`cpfcnpj.ilike.%${onlyDigitsQ}%`);
-          conditions.push(`contato.ilike.%${onlyDigitsQ}%`);
+          conditions.push(...searchConditions(onlyDigitsQ));
         }
+
+        if (unaccentedQ === "ativo") conditions.push("ativo.eq.true");
+        if (unaccentedQ === "inativo") conditions.push("ativo.eq.false");
 
         query = query.or(conditions.join(","));
       }
@@ -181,6 +200,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     await ensureAuth();
+    await requirePerm(tipoPermission("fornecedores", "criar"));
 
     const body = await req.json().catch(() => ({}));
     const {
@@ -292,7 +312,8 @@ export async function POST(req: Request) {
 
     const msg = String(e?.message ?? "");
     const status =
-      /auth|unauth|não autenticado/i.test(msg) ? 401 :
+      e?.statusCode === 403 ? 403 :
+        /auth|unauth|não autenticado/i.test(msg) ? 401 :
         /duplicate|unique|fornecedor_cnpj_key/i.test(msg) ? 409 :
           500;
 

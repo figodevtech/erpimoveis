@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireConfigAccess, requireConfigEdit } from "@/app/api/_authz/perms";
+import { requirePerm } from "@/app/api/_authz/perms";
+import { tipoPermission } from "@/app/api/_authz/permission-constants";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { usoConsumoError } from "@/lib/usoconsumo/api";
 import { grupoUsoConsumoSchema, zodMessage } from "@/lib/usoconsumo/schemas";
 
 export async function GET() {
   try {
-    await requireConfigAccess();
+    await requirePerm(tipoPermission("grupos_usoconsumo", "visualizar"));
     const { data, error } = await supabaseAdmin.from("usoconsumo_grupo").select("*").order("nome");
     if (error) throw error;
     return NextResponse.json({ data });
@@ -17,7 +18,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireConfigEdit();
+    await requirePerm(tipoPermission("grupos_usoconsumo", "criar"));
     const parsed = grupoUsoConsumoSchema.safeParse(await req.json());
     if (!parsed.success) return NextResponse.json({ error: zodMessage(parsed.error) }, { status: 400 });
     const { data, error } = await supabaseAdmin.from("usoconsumo_grupo").insert(parsed.data).select().single();

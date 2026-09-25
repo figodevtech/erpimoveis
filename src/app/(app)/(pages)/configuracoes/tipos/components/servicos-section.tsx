@@ -1,6 +1,8 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/servicos-section.tsx
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -63,6 +65,7 @@ const emptyForm: ServicoForm = {
 const DEFAULT_LIMIT = 10;
 
 export default function ServicosSection() {
+  const { canCreate, canEdit } = useTipoAccess("servicos");
   const [servicos, setServicos] = useState<Servico[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -190,7 +193,7 @@ export default function ServicosSection() {
             </CardDescription>
           </div>
 
-          <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
+          <Button size="sm" className="hover:cursor-pointer" onClick={openNovo} disabled={!canCreate}>
             <Plus className="mr-1 h-4 w-4" />
             Serviço
           </Button>
@@ -261,7 +264,7 @@ export default function ServicosSection() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-32">
-                        <DropdownMenuItem onClick={() => openEditar(s)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem disabled={!canEdit} onClick={() => openEditar(s)}>Editar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

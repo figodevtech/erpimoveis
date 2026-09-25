@@ -1,5 +1,7 @@
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import axios, { isAxiosError } from "axios";
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, MoreHorizontal, Plus } from "lucide-react";
@@ -23,6 +25,7 @@ function errorText(error: unknown) {
 }
 
 export default function GruposUsoConsumoSection() {
+  const { canCreate, canEdit } = useTipoAccess("grupos_usoconsumo");
   const [groups, setGroups] = useState<UsoConsumoGrupo[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -91,7 +94,7 @@ export default function GruposUsoConsumoSection() {
             <CardTitle>Grupos de uso/consumo</CardTitle>
             <CardDescription>{groups.length} grupo{groups.length === 1 ? "" : "s"} cadastrado{groups.length === 1 ? "" : "s"}</CardDescription>
           </div>
-          <Button size="sm" onClick={create}><Plus className="mr-1 h-4 w-4" />Grupo</Button>
+          <Button size="sm" onClick={create} disabled={!canCreate}><Plus className="mr-1 h-4 w-4" />Grupo</Button>
         </div>
       </CardHeader>
       <CardContent className="p-4 sm:p-6">
@@ -106,7 +109,7 @@ export default function GruposUsoConsumoSection() {
                 <TableCell className="text-muted-foreground">{group.descricao || "—"}</TableCell>
                 <TableCell><Badge variant={group.ativo ? "default" : "outline"}>{group.ativo ? "Ativo" : "Inativo"}</Badge></TableCell>
                 <TableCell className="text-right">
-                  <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => edit(group)}>Editar</DropdownMenuItem><DropdownMenuItem onClick={() => void toggle(group)}>{group.ativo ? "Inativar" : "Reativar"}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+                  <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" disabled={!canEdit}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onClick={() => edit(group)} disabled={!canEdit}>Editar</DropdownMenuItem><DropdownMenuItem onClick={() => void toggle(group)} disabled={!canEdit}>{group.ativo ? "Inativar" : "Reativar"}</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
                 </TableCell>
               </TableRow>
             )) : null}
@@ -122,7 +125,7 @@ export default function GruposUsoConsumoSection() {
             <div className="space-y-2"><Label htmlFor="grupo-usoconsumo-descricao">Descrição</Label><Input id="grupo-usoconsumo-descricao" value={form.descricao} maxLength={500} onChange={(event) => setForm((current) => ({ ...current, descricao: event.target.value }))} placeholder="Descrição opcional" /></div>
             <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3"><div><Label>Status do grupo</Label><p className="text-xs text-muted-foreground">Grupos inativos não aparecem no cadastro de itens.</p></div><Switch checked={form.ativo} onCheckedChange={(ativo) => setForm((current) => ({ ...current, ativo }))} /></div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancelar</Button><Button onClick={() => void save()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Salvar</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancelar</Button><Button onClick={() => void save()} disabled={saving || !(editing ? canEdit : canCreate)}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Salvar</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </Card>

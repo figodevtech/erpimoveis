@@ -1,5 +1,7 @@
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
@@ -170,6 +172,7 @@ function vigenciaDoEnvio(form: Pick<GroupForm, "vigencia_modo" | "vigencia_inici
 }
 
 export default function PlanosDeContaSection() {
+  const { canCreate, canEdit } = useTipoAccess("planos_conta");
   const [groups, setGroups] = useState<PlanoContaGrupo[]>([]);
   const [plans, setPlans] = useState<PlanoConta[]>([]);
   const [catalogo, setCatalogo] = useState<ClassificacaoCatalogo[]>([]);
@@ -488,7 +491,7 @@ export default function PlanosDeContaSection() {
               {pendentes > 0 ? ` · ${pendentes} sem linha da DRE` : ""}
             </CardDescription>
           </div>
-          <Button size="sm" onClick={openNewGroup}>
+          <Button size="sm" onClick={openNewGroup} disabled={!canCreate}>
             <Plus className="mr-1 h-4 w-4" /> Novo grupo
           </Button>
         </div>
@@ -587,7 +590,7 @@ export default function PlanosDeContaSection() {
                   </button>
                 </CollapsibleTrigger>
                 <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">
-                  <Button type="button" size="sm" variant="outline" onClick={() => openNewPlan(group)}>
+                  <Button type="button" size="sm" variant="outline" onClick={() => openNewPlan(group)} disabled={!canCreate}>
                     <Plus className="mr-1 h-4 w-4" /> Plano de conta
                   </Button>
                   <DropdownMenu>
@@ -597,7 +600,7 @@ export default function PlanosDeContaSection() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => openEditGroup(group)}>
+                      <DropdownMenuItem onClick={() => openEditGroup(group)} disabled={!canEdit}>
                         <Pencil className="mr-2 h-4 w-4" /> Editar grupo
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -657,6 +660,7 @@ export default function PlanosDeContaSection() {
                             variant="ghost"
                             size="icon"
                             onClick={() => openEditPlan(plan)}
+                            disabled={!canEdit}
                             title="Editar plano de conta"
                           >
                             <Pencil className="h-4 w-4" />

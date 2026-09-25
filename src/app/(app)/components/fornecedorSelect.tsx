@@ -16,6 +16,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import axios from "axios";
+import { useSession } from "next-auth/react";
+import { permissionSetHas, tipoPermission } from "@/app/api/_authz/permission-constants";
 import { ReactNode, useEffect, useRef, useState } from "react";
 
 import {
@@ -25,7 +27,6 @@ import {
   ChevronRightIcon,
   ChevronsLeft,
   ChevronsRight,
-  FileText,
   LayoutGrid,
   List,
   Loader2,
@@ -71,6 +72,11 @@ export default function FornecedorSelect({
   setOpen,
   open,
 }: FornecedorSelectProps) {
+  const { data: session } = useSession();
+  const canCreateFornecedor = permissionSetHas(
+    (session?.user as { permissoes?: string[] } | undefined)?.permissoes,
+    tipoPermission("fornecedores", "criar"),
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [pagination, setPagination] = useState<Pagination>({
     total: 0,
@@ -198,7 +204,7 @@ export default function FornecedorSelect({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            {canCreateFornecedor && <div className="flex items-center gap-2">
               <Button
                 type="button"
                 onClick={() => setOpenFornecedor(true)}
@@ -220,7 +226,7 @@ export default function FornecedorSelect({
                   )
                 }
               />
-            </div>
+            </div>}
           </div>
         </DialogHeader>
 

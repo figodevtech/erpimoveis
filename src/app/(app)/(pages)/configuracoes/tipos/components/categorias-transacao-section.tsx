@@ -1,6 +1,9 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/categorias-transacao-section.tsx
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+import type { TipoId } from "@/app/api/_authz/permission-constants";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -69,6 +72,7 @@ const emptyForm: CategoriaForm = {
 const DEFAULT_LIMIT = 10;
 
 type AssignmentTypeSectionConfig = {
+  tipoId: TipoId;
   endpoint: string;
   title: string;
   singular: string;
@@ -78,6 +82,7 @@ type AssignmentTypeSectionConfig = {
 };
 
 const CATEGORY_CONFIG: AssignmentTypeSectionConfig = {
+  tipoId: "categorias",
   endpoint: "/api/tipos/categorias-transacao",
   title: "Categorias de transação",
   singular: "categoria",
@@ -95,6 +100,7 @@ export default function CategoriasTransacaoSection({
 }: {
   config?: AssignmentTypeSectionConfig;
 }) {
+  const { canCreate, canEdit } = useTipoAccess(config.tipoId);
   const [categorias, setCategorias] = useState<CategoriaTransacao[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -284,7 +290,7 @@ export default function CategoriasTransacaoSection({
             }}
           >
             <DialogTrigger asChild>
-              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
+              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo} disabled={!canCreate}>
                 <Plus className="mr-1 h-4 w-4" />
                 {capitalize(config.singular)}
               </Button>
@@ -463,7 +469,7 @@ export default function CategoriasTransacaoSection({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-32">
-                        <DropdownMenuItem onClick={() => openEditar(c)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEditar(c)} disabled={!canEdit}>Editar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

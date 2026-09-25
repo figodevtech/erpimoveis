@@ -1,6 +1,7 @@
 // src/app/api/tipos/setores/route.ts
 import { NextResponse } from "next/server";
-import { requireAuthenticated, requireConfigEdit } from "@/app/api/_authz/perms";
+import { requireAuthenticated, requirePerm } from "@/app/api/_authz/perms";
+import { tipoPermission } from "@/app/api/_authz/permission-constants";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await requireConfigEdit();
+    await requirePerm(tipoPermission("setores", "criar"));
     const body = await request.json();
     const nome = (body?.nome ?? "").trim();
     const descricao = (body?.descricao ?? null) as string | null;

@@ -1,6 +1,8 @@
 // src/app/(app)/(pages)/configuracoes/tipos/components/contas-bancarias-section.tsx
 "use client";
 
+import { useTipoAccess } from "./use-tipo-access";
+
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 import {
@@ -78,6 +80,7 @@ const valorFormatter = new Intl.NumberFormat("pt-BR", {
 });
 
 export default function ContasBancariasSection() {
+  const { canCreate, canEdit } = useTipoAccess("bancos");
   const [contas, setContas] = useState<ContaBancaria[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -266,7 +269,7 @@ export default function ContasBancariasSection() {
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo}>
+              <Button size="sm" className="hover:cursor-pointer" onClick={openNovo} disabled={!canCreate}>
                 <Plus className="mr-1 h-4 w-4" />
                 Conta
               </Button>
@@ -436,7 +439,7 @@ export default function ContasBancariasSection() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-32">
-                        <DropdownMenuItem onClick={() => openEditar(c)}>Editar</DropdownMenuItem>
+                        <DropdownMenuItem disabled={!canEdit} onClick={() => openEditar(c)}>Editar</DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>

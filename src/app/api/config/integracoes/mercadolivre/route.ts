@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireConfigAccess, requireConfigEdit } from "@/app/api/_authz/perms";
+import { requireConfigAccess, requireConfigDelete, requireConfigEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
@@ -204,7 +204,7 @@ async function getAddressSummaryFromLatestListing(empresaId: number | string) {
 
 export async function DELETE() {
   try {
-    await requireConfigEdit();
+    await requireConfigDelete();
     const empresaId = await requireEmpresaId();
     const { data: account, error: accountError } = await supabaseAdmin
       .from("mercadolivre_account")
