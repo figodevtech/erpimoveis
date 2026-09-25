@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomUUID } from "node:crypto";
+import { requireOSEdit } from "@/app/api/_authz/perms";
 
 type Params = { checklistId: string };
 const BUCKET = "vistoria";
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
   try {
     const session = await auth();
     if (!session?.user) return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+    await requireOSEdit();
 
     const { checklistId } = await context.params;
     const checklistIdNum = Number(checklistId);
@@ -95,6 +97,6 @@ export async function POST(req: NextRequest, context: { params: Promise<Params> 
     return NextResponse.json({ items: inserted }, { status: 201 });
   } catch (err: any) {
     console.error("[POST] /api/checklists/[checklistId]/images/upload", err);
-    return NextResponse.json({ error: err?.message || "Falha ao enviar imagens" }, { status: 500 });
+    return NextResponse.json({ error: err?.message || "Falha ao enviar imagens" }, { status: err?.statusCode === 403 ? 403 : 500 });
   }
 }

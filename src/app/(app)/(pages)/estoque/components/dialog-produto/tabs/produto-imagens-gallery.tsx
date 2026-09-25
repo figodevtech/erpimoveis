@@ -25,6 +25,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Badge } from "@/components/ui/badge";
+import { EntityVideoPreview } from "@/components/entity-video-preview";
+import type { EntityVideo } from "@/lib/videos/use-entity-videos";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -36,7 +38,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Image as ImageIcon, Loader2, Trash2, UploadCloud, X } from "lucide-react";
+import { Download, Image as ImageIcon, Loader2, Trash2, UploadCloud, X } from "lucide-react";
 
 export type GaleriaImagem = {
   id: number;
@@ -56,6 +58,11 @@ type GalleryItem =
   | { key: string; type: "saved"; image: GaleriaImagem };
 
 type Props = {
+  videos?: EntityVideo[];
+  videoAccess?: (id: string) => Promise<{ url: string }>;
+  videoOpen?: (id: string) => void;
+  videoDownload?: (id: string) => Promise<void>;
+  videoRemove?: (id: string) => Promise<void>;
   imagens?: GaleriaImagem[];
   pendentes: ProdutoImagemPendente[];
   orderKeys?: string[];
@@ -252,6 +259,11 @@ function SortableImageCard(props: ImageCardProps & { item: GalleryItem; disabled
 }
 
 export function ProdutoImagensGallery({
+  videos = [],
+  videoAccess,
+  videoOpen,
+  videoDownload,
+  videoRemove,
   imagens = [],
   pendentes,
   orderKeys,
@@ -277,7 +289,7 @@ export function ProdutoImagensGallery({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeActionsKey, setActiveActionsKey] = useState<string | null>(null);
   const confirmImage = imagens.find((img) => img.id === confirmRemoveId);
-  const hasImages = imagens.length > 0 || pendentes.length > 0;
+  const hasImages = imagens.length > 0 || pendentes.length > 0 || videos.length > 0;
   const uploadDisabled = !onUpload || pendentes.length === 0 || uploading || saving || savingOrder;
   const busy = uploading || saving || savingOrder;
 
@@ -399,6 +411,19 @@ export function ProdutoImagensGallery({
                     />
                   );
                 })}
+                {videos.map(video => (
+                  <div key={`video-${video.id}`} className="relative aspect-square overflow-hidden rounded-md border bg-muted/20">
+                    {videoAccess && videoOpen && <EntityVideoPreview id={video.id} name={video.name} access={videoAccess} open={videoOpen} />}
+                    <Badge className="absolute left-2 top-2">Vídeo</Badge>
+                    <div className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-background/85 p-1.5">
+                      <span className="min-w-0 flex-1 truncate text-xs" title={video.name}>{video.name}</span>
+                      {videoDownload && <button type="button" aria-label={`Baixar vídeo ${video.name}`} className="rounded p-1" onClick={() => void videoDownload(video.id).catch(() => undefined)}><Download className="size-4" /></button>}
+                      {videoRemove && <button type="button" aria-label={`Remover vídeo ${video.name}`} className="rounded p-1 text-destructive" onClick={() => {
+                        if (window.confirm("Excluir permanentemente este vídeo?")) void videoRemove(video.id).catch(() => undefined);
+                      }}><Trash2 className="size-4" /></button>}
+                    </div>
+                  </div>
+                ))}
               </div>
             </SortableContext>
 

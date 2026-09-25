@@ -1,6 +1,8 @@
 // ./src/app/(app)/(pages)/ordens/components/dialogs/detalhes-os-dialog.tsx
 "use client";
-import { ChecklistVideos } from "@/components/checklist-videos";
+import { ChecklistVideos, ChecklistAttachmentsScope } from "@/components/checklist-videos";
+import { useEntityVideos } from "@/lib/videos/use-entity-videos";
+import { EntityVideoPreview } from "@/components/entity-video-preview";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +34,6 @@ import {
   ExternalLink,
   FileText,
   History,
-  ImageIcon,
   Link2,
   ListChecks,
   ListTree,
@@ -101,7 +102,6 @@ import { DialogProduto } from "../../../estoque/components/dialog-produto/dialog
 import { ConsumoEstoqueOsDialog } from "./consumo-estoque-os-dialog";
 import { type Transaction } from "../../../(financeiro)/fluxodecaixa/types";
 import { formatPaymentMethodLabel, type PlannedPayment } from "@/lib/payment-methods";
-import { ChecklistImagePreview } from "./checklist-image-preview";
 import {
   createChecklistDocumentWithProgress,
   prepareChecklistDocumentWindow,
@@ -953,6 +953,7 @@ export function OSDetalhesDialog({
   const [salvandoDestaque, setSalvandoDestaque] = useState(false);
 
   const [responsaveis, setResponsaveis] = useState<UsuarioAtivo[]>([]);
+  const [checklistExpanded, setChecklistExpanded] = useState<string[]>(["entrada", "saida"]);
   const [loadingResponsaveis, setLoadingResponsaveis] = useState(false);
   const [savingResponsavelKey, setSavingResponsavelKey] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState("resumo");
@@ -962,6 +963,7 @@ export function OSDetalhesDialog({
   const [despesaParaBaixa, setDespesaParaBaixa] = useState<Transaction | null>(null);
   const [consumoDialogOpen, setConsumoDialogOpen] = useState(false);
   const [anexos, setAnexos] = useState<OsAnexo[]>([]);
+  const osVideos = useEntityVideos(osId, "os", open);
   const [anexoCategoria, setAnexoCategoria] = useState<OsAnexoCategoria>("OUTROS");
   const [loadingAnexos, setLoadingAnexos] = useState(false);
   const [uploadingAnexo, setUploadingAnexo] = useState(false);
@@ -1546,6 +1548,12 @@ export function OSDetalhesDialog({
     event.target.value = "";
 
     if (!file || !osId) return;
+
+    if (file.type.startsWith("video/")) {
+      try { await osVideos.upload(file, anexoCategoria); toast.success("Vídeo anexado"); }
+      catch (error) { toast.error(error instanceof Error ? error.message : "Falha ao anexar vídeo"); }
+      return;
+    }
 
     if (anexos.length >= maxAnexosPorOs) {
       toast.error(`Limite de ${maxAnexosPorOs} anexos por OS atingido.`);
@@ -2922,7 +2930,8 @@ export function OSDetalhesDialog({
                 ) : null}
 
                 <TabsContent value="checklist" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">
-                  <Accordion type="multiple" defaultValue={["entrada", "saida"]} className="space-y-4">
+                  <ChecklistAttachmentsScope key={osId}>
+                  <Accordion type="multiple" value={checklistExpanded} onValueChange={setChecklistExpanded} className="space-y-4">
                     <AccordionItem value="saida" className="rounded-lg border bg-card px-4">
                       <div className="flex items-center gap-1">
                         <div className="min-w-0 flex-1">
@@ -2963,7 +2972,7 @@ export function OSDetalhesDialog({
                           />
                         </div>
                       </div>
-                      <AccordionContent>
+                      <AccordionContent forceMount style={{ animation: "none", height: "auto", display: checklistExpanded.includes("saida") ? "block" : "none" }}>
                         {!data.saida || !(data.saida.itens ?? []).length ? (
                           <p className="text-sm text-muted-foreground">Checklist de saída não preenchido.</p>
                         ) : (
@@ -2971,7 +2980,7 @@ export function OSDetalhesDialog({
                             {(data.saida.itens ?? []).map((item, index) => (
                               <Fragment key={item.id}>
                                 {index > 0 && <Separator className="my-0" />}
-                                <li className="py-4">
+                                <li className="min-w-0 py-4">
                                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="min-w-0">
                                       <div className="truncate font-medium">{item.titulo}</div>
@@ -2985,31 +2994,7 @@ export function OSDetalhesDialog({
                                       {item.status}
                                     </Badge>
                                   </div>
-                                  <ChecklistVideos osId={osId!} itemId={Number(item.id)} kind="saida" />
-                                  {(item.imagens ?? []).length > 0 && (
-                                    <div className="mt-3 space-y-1.5">
-                                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                        <ImageIcon className="h-3.5 w-3.5" />
-                                        Imagens anexadas
-                                      </div>
-                                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                                        {(item.imagens ?? []).map((imagem) => {
-                                          const name = imagem.descricao || fileNameFromUrl(imagem.url) || item.titulo;
-                                          return (
-                                            <div key={imagem.id} className="group relative overflow-hidden rounded-md border bg-muted/20 transition-colors hover:bg-muted">
-                                              <div className="aspect-square w-full overflow-hidden bg-muted">
-                                                <ChecklistImagePreview src={imagem.url} alt={name} imageClassName="transition-transform group-hover:scale-[1.02]" />
-                                              </div>
-                                              <a href={imagem.url} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 px-2 py-1.5 text-[11px] text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary" title="Abrir imagem original em nova aba">
-                                                <span className="truncate">{name}</span><ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
-                                              </a>
-                                              <button type="button" className="absolute bottom-8 right-2 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary" title="Baixar imagem" aria-label="Baixar imagem" onClick={() => void baixarImagem(imagem.url, name)}><Download className="h-4 w-4" /></button>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
+                                  <ChecklistVideos key={`saida-${osId}-${item.id}`} osId={osId!} itemId={Number(item.id)} kind="saida" images={item.imagens ?? []} canEdit={podeEditarOS} onDownloadImage={baixarImagem} />
                                 </li>
                               </Fragment>
                             ))}
@@ -3058,7 +3043,7 @@ export function OSDetalhesDialog({
                           />
                         </div>
                       </div>
-                      <AccordionContent>
+                      <AccordionContent forceMount style={{ animation: "none", height: "auto", display: checklistExpanded.includes("entrada") ? "block" : "none" }}>
                         {(data.checklist ?? []).length === 0 ? (
                           <div className="text-sm text-muted-foreground">—</div>
                         ) : (
@@ -3066,7 +3051,7 @@ export function OSDetalhesDialog({
                             {data.checklist.map((c, idx) => (
                               <Fragment key={c.id}>
                                 {idx > 0 && <Separator className="my-0" />}
-                                <li className="py-4">
+                                <li className="min-w-0 py-4">
                                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="min-w-0">
                                       <div className="font-medium truncate">{c.item}</div>
@@ -3081,53 +3066,7 @@ export function OSDetalhesDialog({
                                     </Badge>
                                   </div>
 
-                                  <ChecklistVideos osId={osId!} itemId={Number(c.id)} kind="entrada" />
-                                  {Array.isArray(c.imagens) && c.imagens.length > 0 && (
-                                    <div className="mt-3 space-y-1.5">
-                                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                        <ImageIcon className="h-3.5 w-3.5" />
-                                        Imagens anexadas
-                                      </div>
-                                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                                        {c.imagens.map((img) => {
-                                          const name = fileNameFromUrl(img.url);
-                                          return (
-                                            <div
-                                              key={img.id}
-                                              className="group relative overflow-hidden rounded-md border bg-muted/20 transition-colors hover:bg-muted"
-                                            >
-                                              <span className="block aspect-square w-full overflow-hidden bg-muted">
-                                                <ChecklistImagePreview
-                                                  src={img.url}
-                                                  alt={img.descricao || name}
-                                                  imageClassName="transition-transform group-hover:scale-[1.02]"
-                                                />
-                                              </span>
-                                              <a
-                                                href={img.url}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="flex min-w-0 items-center gap-1 px-2 py-1.5 text-[11px] text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                                                title="Abrir imagem original em nova aba"
-                                              >
-                                                <span className="truncate">{img.descricao || name}</span>
-                                                <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
-                                              </a>
-                                              <button
-                                                type="button"
-                                                className="absolute hover:cursor-pointer right-2 bottom-8 inline-flex h-8 w-8 items-center justify-center rounded-full border bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                                                title="Baixar imagem"
-                                                aria-label="Baixar imagem"
-                                                onClick={() => void baixarImagem(img.url, name)}
-                                              >
-                                                <Download className="h-4 w-4" />
-                                              </button>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
+                                  <ChecklistVideos key={`entrada-${osId}-${c.id}`} osId={osId!} itemId={Number(c.id)} kind="entrada" images={c.imagens ?? []} canEdit={podeEditarOS} onDownloadImage={baixarImagem} />
                                 </li>
                               </Fragment>
                             ))}
@@ -3136,6 +3075,7 @@ export function OSDetalhesDialog({
                       </AccordionContent>
                     </AccordionItem>
                   </Accordion>
+                  </ChecklistAttachmentsScope>
 
                   {/* Links de aprovação */}
                 </TabsContent>
@@ -3147,10 +3087,10 @@ export function OSDetalhesDialog({
                         <div className="flex flex-wrap items-center gap-2">
                           <Paperclip className="h-4 w-4 text-primary" />
                           <span className="text-sm font-medium">Anexos da OS</span>
-                          <Badge variant="outline">{anexos.length}/{maxAnexosPorOs}</Badge>
+                          <Badge variant="outline">{anexos.length + osVideos.videos.length} anexos</Badge>
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Envie imagens ou PDFs relacionados a esta ordem de serviço, com o tipo de documento definido.
+                          Envie imagens, PDFs ou vídeos relacionados a esta ordem de serviço.
                         </div>
                       </div>
 
@@ -3174,7 +3114,7 @@ export function OSDetalhesDialog({
                         <input
                           ref={fileInputRef}
                           type="file"
-                          accept="image/*,application/pdf"
+                          accept={osVideos.enabled ? "image/*,application/pdf,video/*" : "image/*,application/pdf"}
                           className="hidden"
                           onChange={handleAnexoChange}
                         />
@@ -3182,7 +3122,7 @@ export function OSDetalhesDialog({
                           type="button"
                           variant="outline"
                           className="gap-2"
-                          disabled={uploadingAnexo || loadingAnexos || anexos.length >= maxAnexosPorOs}
+                          disabled={uploadingAnexo || loadingAnexos || !!osVideos.busy || (anexos.length >= maxAnexosPorOs && !osVideos.enabled) || !podeEditarOS}
                           onClick={() => fileInputRef.current?.click()}
                         >
                           {uploadingAnexo ? (
@@ -3192,21 +3132,20 @@ export function OSDetalhesDialog({
                           )}
                           {uploadingAnexo
                             ? "Enviando..."
-                            : anexos.length >= maxAnexosPorOs
-                              ? "Limite atingido"
-                              : "Adicionar anexo"}
+                            : osVideos.busy || "Adicionar anexo"}
                         </Button>
+                        {osVideos.error && <p role="alert" className="text-xs text-destructive">{osVideos.error}</p>}
                       </div>
                     </div>
                   </section>
 
                   <section className="rounded-lg border bg-card p-4">
-                    {loadingAnexos ? (
+                    {loadingAnexos || osVideos.loading ? (
                       <div className="flex min-h-[180px] items-center justify-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Carregando anexos...
                       </div>
-                    ) : anexos.length === 0 ? (
+                    ) : anexos.length === 0 && osVideos.videos.length === 0 ? (
                       <div className="flex min-h-[180px] items-center justify-center rounded-md border border-dashed bg-muted/20 px-4 text-center text-sm text-muted-foreground">
                         Nenhum anexo adicionado nesta OS.
                       </div>
@@ -3277,6 +3216,25 @@ export function OSDetalhesDialog({
                             </div>
                           );
                         })}
+                        {osVideos.videos.map((video) => (
+                          <div key={`video-${video.id}`} className="flex min-w-0 flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center">
+                            <div className="h-12 w-16 shrink-0 overflow-hidden rounded-md border">
+                              <EntityVideoPreview id={video.id} name={video.name} access={osVideos.access} open={osVideos.open} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <Badge variant="secondary" className="mb-1">{getOsAnexoCategoriaLabel(video.category as OsAnexoCategoria || "OUTROS")} · Vídeo</Badge>
+                              <p className="truncate text-sm font-medium" title={video.name}>{video.name}</p>
+                              <p className="text-xs text-muted-foreground">{fmtFileSize(video.size_bytes)} · {fmtDate(video.created_at)}</p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                              <Button type="button" variant="outline" size="sm" onClick={() => osVideos.open(video.id)}>Abrir</Button>
+                              <Button type="button" variant="ghost" size="icon" aria-label="Baixar vídeo" onClick={() => void osVideos.download(video.id).catch(error => toast.error(error.message))}><Download className="h-4 w-4" /></Button>
+                              {osVideos.canDelete && podeEditarOS && <Button type="button" variant="ghost" size="icon" aria-label="Remover vídeo" disabled={!!osVideos.busy} onClick={() => {
+                                if (window.confirm("Excluir permanentemente este vídeo?")) void osVideos.remove(video.id).catch(error => toast.error(error.message));
+                              }}><Trash2 className="h-4 w-4 text-destructive" /></Button>}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </section>

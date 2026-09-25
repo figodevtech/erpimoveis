@@ -1,4 +1,6 @@
 "use client"
+import { useEntityVideos } from "@/lib/videos/use-entity-videos";
+import { EntityVideoPreview } from "@/components/entity-video-preview";
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react"
 import { useSession } from "next-auth/react"
@@ -17,6 +19,7 @@ import {
   AlertCircle,
   Truck,
   FileText,
+  Download,
   Save,
   Search,
   Paperclip,
@@ -470,6 +473,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
   const [categoriasVenda, setCategoriasVenda] = useState<CategoriaVenda[]>([])
   const [loadingCategoriasVenda, setLoadingCategoriasVenda] = useState(false)
   const [anexos, setAnexos] = useState<VendaAnexo[]>([])
+  const vendaVideos = useEntityVideos(vendaId, "venda", open)
   const [loadingAnexos, setLoadingAnexos] = useState(false)
   const [uploadingAnexo, setUploadingAnexo] = useState(false)
   const [deletingAnexoId, setDeletingAnexoId] = useState<number | null>(null)
@@ -806,6 +810,12 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file || !vendaId) return
+
+    if (file.type.startsWith("video/")) {
+      try { await vendaVideos.upload(file, anexoCategoria); toast.success("Vídeo anexado") }
+      catch (error) { toast.error("Erro", { description: error instanceof Error ? error.message : "Falha ao anexar vídeo" }) }
+      return
+    }
 
     if (anexos.length >= MAX_ANEXOS_POR_VENDA) {
       toast.error("Limite de anexos atingido", {
@@ -1565,10 +1575,10 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                 </h3>
                               </div>
                               <p className="text-xs text-muted-foreground">
-                                Anexe imagem ou PDF relacionado a esta venda, com categoria definida. Imagens são otimizadas automaticamente.
+                                Anexe imagem, PDF ou vídeo relacionado a esta venda. Imagens e vídeos são otimizados automaticamente.
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                {anexos.length}/{MAX_ANEXOS_POR_VENDA} anexos utilizados.
+                                {anexos.length + vendaVideos.videos.length} anexos · limite de {MAX_ANEXOS_POR_VENDA} para imagens e PDFs.
                               </p>
                             </div>
                             <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[280px]">
@@ -1591,14 +1601,14 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                 ref={fileInputRef}
                                 type="file"
                                 className="hidden"
-                                accept="image/*,application/pdf"
+                                accept={vendaVideos.enabled && vendaVideos.canEdit ? "image/*,application/pdf,video/*" : "image/*,application/pdf"}
                                 onChange={handleAnexoChange}
                               />
                               <Button
                                 type="button"
                                 variant="outline"
                                 className="gap-2"
-                                disabled={uploadingAnexo || loadingAnexos || anexos.length >= MAX_ANEXOS_POR_VENDA}
+                                disabled={uploadingAnexo || loadingAnexos || !!vendaVideos.busy || (anexos.length >= MAX_ANEXOS_POR_VENDA && !vendaVideos.enabled)}
                                 onClick={() => fileInputRef.current?.click()}
                               >
                                 {uploadingAnexo ? (
@@ -1608,19 +1618,18 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                 )}
                                 {uploadingAnexo
                                   ? "Enviando..."
-                                  : anexos.length >= MAX_ANEXOS_POR_VENDA
-                                    ? "Limite atingido"
-                                    : "Adicionar anexo"}
+                                  : vendaVideos.busy || "Adicionar anexo"}
                               </Button>
+                              {vendaVideos.error && <p role="alert" className="text-xs text-destructive">{vendaVideos.error}</p>}
                             </div>
                           </div>
 
-                          {loadingAnexos ? (
+                          {loadingAnexos || vendaVideos.loading ? (
                             <div className="flex min-h-[160px] flex-col items-center justify-center gap-3 rounded-lg border text-muted-foreground">
                               <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-primary" />
                               <p className="text-sm">Carregando anexos...</p>
                             </div>
-                          ) : anexos.length === 0 ? (
+                          ) : anexos.length === 0 && vendaVideos.videos.length === 0 ? (
                             <div className="flex min-h-[160px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed text-center text-muted-foreground">
                               <Paperclip className="h-10 w-10 opacity-25" />
                               <p className="text-sm">Nenhum anexo vinculado.</p>
@@ -1677,6 +1686,23 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                         )}
                                         Remover
                                       </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                              {vendaVideos.videos.map((video) => (
+                                <div key={`video-${video.id}`} className="overflow-hidden rounded-lg border bg-card">
+                                  <div className="h-32 w-full"><EntityVideoPreview id={video.id} name={video.name} access={vendaVideos.access} open={vendaVideos.open} /></div>
+                                  <div className="space-y-2 p-3">
+                                    <Badge variant="secondary">{getVendaAnexoCategoriaLabel(video.category as VendaAnexoCategoria || "COMPROVANTE_PAGAMENTO")} · Vídeo</Badge>
+                                    <p className="truncate text-sm font-semibold" title={video.name}>{video.name}</p>
+                                    <p className="text-xs text-muted-foreground">{formatFileSize(video.size_bytes)}{video.created_at ? ` - ${formatDate(video.created_at)}` : ""}</p>
+                                    <div className="flex items-center justify-end gap-2">
+                                      <Button type="button" variant="outline" size="sm" onClick={() => vendaVideos.open(video.id)}><ExternalLink className="h-4 w-4" />Abrir</Button>
+                                      <Button type="button" variant="outline" size="sm" aria-label="Baixar vídeo" onClick={() => void vendaVideos.download(video.id).catch(error => toast.error("Erro", { description: error.message }))}><Download className="h-4 w-4" /></Button>
+                                      {vendaVideos.canDelete && vendaVideos.canEdit && <Button type="button" variant="outline" size="sm" className="text-destructive hover:text-destructive" disabled={!!vendaVideos.busy} onClick={() => {
+                                        if (window.confirm("Excluir permanentemente este vídeo?")) void vendaVideos.remove(video.id).catch(error => toast.error("Erro", { description: error.message }));
+                                      }}><Trash2 className="h-4 w-4" />Remover</Button>}
                                     </div>
                                   </div>
                                 </div>

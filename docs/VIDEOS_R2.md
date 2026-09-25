@@ -87,3 +87,39 @@ As chaves R2 ficam somente na central. O navegador recebe URLs temporárias e en
 ## Reversão
 
 Desabilitar novos envios pela central; manter rotas de consulta e acesso para preservar o acervo. Não remover tabelas/bucket como reversão. Credenciais, links assinados e conteúdo de vídeos não devem ser registrados em logs.
+
+
+## Videos em OS, produtos e vendas (24/09/2026)
+
+A mesma liberacao e cota da empresa atende checklist, anexos gerais da OS,
+produto (aba Fotos e videos na edicao) e anexos da venda. O seletor de arquivos
+de cada tela aceita video e a miniatura aparece na lista existente de anexos.
+Na OS e na venda, o video guarda a categoria escolhida no momento do envio.
+Nao e necessario
+criar buckets ou planos adicionais. Os videos continuam privados no R2.
+
+Videos selecionados podem ter qualquer resolucao valida. A otimizacao preserva
+resolucoes menores e reduz originais maiores para no maximo Full HD. A exigencia
+de Full HD se aplica apenas a camera interna usada para gravar novos videos.
+O original pode ter ate 1 GB; apos otimizar, o arquivo enviado deve ter ate
+250 MB e durar no maximo 2 minutos.
+
+Ordem de atualizacao:
+1. Central: aplicar `20260924120000_video_attachment_scopes.sql` e publicar a Central.
+2. ERP de cada cliente: aplicar `20260924121000_entity_videos.sql` e publicar o ERP.
+3. Validar gravacao/selecao, envio, miniatura, reproducao em outra aba e download
+   em cada tela com um usuario que tenha permissao de editar o respectivo modulo.
+   Apenas administradores com essa permissao podem excluir videos.
+
+A Central mantem os nomes legados da tabela e do campo `os_id` na API de videos.
+Para anexos gerais, esse campo representa o ID do cadastro e `kind` define o
+namespace (`os`, `produto`, `venda`). Listagens sempre filtram esse namespace;
+checklist sem parametro `scope` continua limitado a entrada/saida. A reserva de
+cota permanece atomica e soma todos os tipos. No ERP, `entity_video` vincula os
+novos videos com chaves estrangeiras ao respectivo cadastro. Cadastre o produto
+antes de anexar videos na sua tela de edicao.
+
+Validacao manual apos deploy: usar OS, produto e venda com o mesmo ID e verificar
+que cada tela mostra apenas seus videos; usuario sem editar deve poder consultar
+sem enviar/excluir; plano desabilitado deve impedir novos envios; atingir a cota
+em uma tela deve impedir excedente nas demais. Testar tambem Safari no iPhone.

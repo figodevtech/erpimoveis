@@ -1,5 +1,6 @@
 "use client";
 
+import { useEntityVideos } from "@/lib/videos/use-entity-videos";
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
@@ -8,6 +9,7 @@ import type { ProdutoImagem } from "../hooks/use-produto-imagens";
 import { ProdutoImagensGallery, type ProdutoImagemPendente } from "./produto-imagens-gallery";
 
 type Props = {
+  productId: number;
   carregando: boolean;
   subindo: boolean;
   salvandoOrdem?: boolean;
@@ -27,6 +29,7 @@ type Props = {
 };
 
 export function TabImagensEdit({
+  productId,
   carregando,
   subindo,
   salvandoOrdem,
@@ -46,6 +49,17 @@ export function TabImagensEdit({
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const productVideos = useEntityVideos(productId, "produto");
+
+  const pick = (files: File[]) => {
+    onPick(files.filter(file => file.type.startsWith("image/")));
+    void (async () => {
+      for (const file of files.filter(item => item.type.startsWith("video/"))) {
+        try { await productVideos.upload(file); }
+        catch { break; }
+      }
+    })();
+  };
 
   return (
     <TabsContent value="Imagens" className="h-full min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto dark:bg-muted-foreground/5 px-2 py-3 md:px-6 md:py-6">
@@ -55,14 +69,14 @@ export function TabImagensEdit({
             <div className="flex items-center gap-2">
               <ImageIcon className="h-4 w-4 text-muted-foreground" />
               <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Imagens do produto
+                Fotos e vídeos do produto
               </h3>
             </div>
             <p className="text-xs text-muted-foreground">
-              Adicione imagens relacionadas a este produto. Revise a selecao antes de realizar o upload.
+              Adicione fotos ou vídeos relacionados a este produto. Revise as fotos antes de enviar.
             </p>
             <p className="text-xs text-muted-foreground">
-              {imagens.length} {imagens.length === 1 ? "imagem cadastrada" : "imagens cadastradas"}
+              {imagens.length + productVideos.videos.length} anexos cadastrados
               {pendentes.length > 0 ? `, ${pendentes.length} pendente(s)` : ""}.
             </p>
           </div>
@@ -77,10 +91,10 @@ export function TabImagensEdit({
               ref={fileInputRef}
               type="file"
               className="hidden"
-              accept="image/*"
+              accept={productVideos.enabled && productVideos.canEdit ? "image/*,video/*" : "image/*"}
               multiple
               onChange={(e) => {
-                onPick(Array.from(e.target.files ?? []));
+                pick(Array.from(e.target.files ?? []));
                 e.currentTarget.value = "";
               }}
             />
@@ -91,7 +105,7 @@ export function TabImagensEdit({
               accept="image/*"
               capture="environment"
               onChange={(e) => {
-                onPick(Array.from(e.target.files ?? []));
+                pick(Array.from(e.target.files ?? []));
                 e.currentTarget.value = "";
               }}
             />
@@ -99,7 +113,7 @@ export function TabImagensEdit({
               type="button"
               variant="outline"
               className="gap-2"
-              disabled={subindo || carregando}
+              disabled={subindo || carregando || !!productVideos.busy}
               onClick={() => cameraInputRef.current?.click()}
             >
               <Camera className="h-4 w-4" />
@@ -109,22 +123,28 @@ export function TabImagensEdit({
               type="button"
               variant="outline"
               className="gap-2"
-              disabled={subindo || carregando}
+              disabled={subindo || carregando || !!productVideos.busy}
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload className="h-4 w-4" />
-              Enviar imagens
+              {productVideos.busy || (productVideos.enabled && productVideos.canEdit ? "Adicionar foto ou vídeo" : "Enviar imagens")}
             </Button>
+            {productVideos.error && <p role="alert" className="text-xs text-destructive">{productVideos.error}</p>}
           </div>
         </div>
 
-        {carregando ? (
+        {carregando || productVideos.loading ? (
           <div className="flex min-h-[160px] flex-col items-center justify-center gap-3 rounded-lg border text-muted-foreground">
             <div className="h-6 w-6 animate-spin rounded-full border-b-2 border-primary" />
-            <p className="text-sm">Carregando imagens...</p>
+            <p className="text-sm">Carregando fotos e vídeos...</p>
           </div>
         ) : (
-          <ProdutoImagensGallery
+            <ProdutoImagensGallery
+              videos={productVideos.videos}
+              videoAccess={productVideos.access}
+              videoOpen={productVideos.open}
+              videoDownload={productVideos.download}
+              videoRemove={productVideos.canDelete && productVideos.canEdit ? productVideos.remove : undefined}
             imagens={imagens}
             pendentes={pendentes}
             orderKeys={ordemItens}

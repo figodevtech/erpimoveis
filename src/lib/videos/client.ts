@@ -1,15 +1,16 @@
+import type { VideoTarget } from "./types";
 import { createUploadId } from "./upload-id";
-const pendingCompletions = new WeakMap<File, { id: string; osId: number; itemId: number; kind: "entrada" | "saida" }>();
+const pendingCompletions = new WeakMap<File, VideoTarget & { id: string }>();
 export async function videoRequest(body: Record<string, unknown>) {
   const response = await fetch("/api/checklist-videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const json = await response.json();
   if (!response.ok) throw Object.assign(new Error(json.error || "Falha no serviço de vídeos."), { code: json.code });
   return json;
 }
-export async function uploadVideo(file: File, target: { osId: number; itemId: number; kind: "entrada" | "saida" }, onProgress: (s: string) => void) {
+export async function uploadVideo(file: File, target: VideoTarget, onProgress: (s: string) => void) {
   const pending = pendingCompletions.get(file);
   if (pending) {
-    if (pending.osId !== target.osId || pending.itemId !== target.itemId || pending.kind !== target.kind) throw new Error("Conclua o envio no item original antes de reutilizar este arquivo.");
+    if (pending.osId !== target.osId || pending.itemId !== target.itemId || pending.kind !== target.kind || pending.category !== target.category) throw new Error("Conclua o envio no item original antes de reutilizar este arquivo.");
     onProgress("Concluindo envio anterior…");
     try { await videoRequest({ ...pending, action: "complete" }); }
     catch (error) {
@@ -19,7 +20,7 @@ export async function uploadVideo(file: File, target: { osId: number; itemId: nu
     pendingCompletions.delete(file);
     return;
   }
-  if (file.size > 250000000) throw new Error("O vídeo excede 250 MB.");
+  if (file.size > 1000000000) throw new Error("O arquivo original excede 1 GB. Selecione um vídeo menor para otimizar no aparelho.");
   const { Input, BlobSource, ALL_FORMATS } = await import("mediabunny");
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
   let compatible = false;
@@ -28,17 +29,13 @@ export async function uploadVideo(file: File, target: { osId: number; itemId: nu
     if (!Number.isFinite(duration) || duration <= 0 || duration > 120.1) throw new Error("Selecione um vídeo de até 2 minutos.");
     const video = await input.getPrimaryVideoTrack();
     const audio = await input.getPrimaryAudioTrack();
-    if (video) {
-      const width = await video.getDisplayWidth();
-      const height = await video.getDisplayHeight();
-      if (Math.min(width, height) < 720) throw new Error(`O vídeo original está em ${width} × ${height}, abaixo de HD. Grave pelo aplicativo Câmera do celular em 1080p e use Selecionar vídeo. A otimização não recupera a resolução perdida na captura.`);
-    }
+    if (!video) throw new Error("O arquivo selecionado não contém vídeo.");
     compatible = (await input.getFormat()).name === "MP4" && video?.codec === "avc" && (!audio || audio.codec === "aac");
   } finally { input.dispose(); }
   onProgress("Otimizando vídeo…");
   const blob = await new Promise<Blob>((resolve, reject) => {
     const fallback = (message: string) => {
-      if (compatible && window.confirm(`${message}\nEnviar sem otimizar (${(file.size / 1e6).toFixed(1)} MB)?`)) resolve(file);
+      if (compatible && file.size <= 250000000 && window.confirm(`${message}\nEnviar sem otimizar (${(file.size / 1e6).toFixed(1)} MB)?`)) resolve(file);
       else reject(new Error(message));
     };
     let worker: Worker;
@@ -69,8 +66,11 @@ export async function uploadVideo(file: File, target: { osId: number; itemId: nu
         const response = await fetch(reservation.urls[i], { method: "PUT", body: part }).catch(() => null);
         sent = response?.ok ?? false;
         status = response?.status;
+        if (!sent && attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
       }
-      if (!sent) throw new Error(status ? `O armazenamento recusou o envio (HTTP ${status}). Tente novamente; se persistir, contate o suporte.` : `O navegador não conseguiu acessar o armazenamento. Confira a conexão e se o CORS do bucket permite a origem ${window.location.origin}.`);
+      if (!sent) throw new Error(status
+        ? `O armazenamento recusou a parte ${i + 1} de ${reservation.urls.length} (HTTP ${status}). Tente novamente; se persistir, contate o suporte.`
+        : `O envio da parte ${i + 1} de ${reservation.urls.length} foi interrompido. Verifique a conexão e tente novamente; se persistir, informe o suporte.`);
     }
     onProgress("Validando vídeo…"); completing = true;
     pendingCompletions.set(file, body);

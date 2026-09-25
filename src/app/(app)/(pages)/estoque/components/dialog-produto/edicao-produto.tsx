@@ -292,7 +292,7 @@ export default function EdicaoProduto({
       <TabsTrigger onClick={()=>setCurrentTab("Imagens")} value="Imagens" className={"hover:cursor-pointer" + tabTheme}>
         <span className="flex items-center gap-2">
           <ImageIcon className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-          Imagens
+          Fotos e vídeos
         </span>
       </TabsTrigger>
       <TabsTrigger onClick={()=>setCurrentTab("Etiquetas")} value="Etiquetas" className={"hover:cursor-pointer" + tabTheme}>
@@ -377,6 +377,7 @@ export default function EdicaoProduto({
             <TabMarketplace produto={selectedProduct} onChange={handleChange} />
 
             <TabImagensEdit
+              productId={productId}
               carregando={imagensHook.carregandoImagens}
               subindo={imagensHook.subindoImagens}
               salvandoOrdem={imagensHook.salvandoOrdem}
