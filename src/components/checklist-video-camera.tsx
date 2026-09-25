@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 export function ChecklistVideoCamera({ disabled, onCapture, compact = false }: { disabled?: boolean; compact?: boolean; onCapture: (file: File) => void }) {
   const [open, setOpen] = useState(false);
   return <>
-    <Button type="button" size="sm" variant="outline" className={compact ? "h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5" : undefined} disabled={disabled} onClick={() => setOpen(true)}><Video className="size-4" />Gravar vídeo</Button>
+    <Button type="button" size="sm" variant="outline" className={compact ? "h-7 w-auto flex-none gap-1.5 px-2 text-xs has-[>svg]:px-2 [&_svg]:size-3.5" : undefined} disabled={disabled} onClick={() => setOpen(true)}><Video className="size-4" />Gravar vídeo</Button>
     <Dialog open={open} onOpenChange={setOpen}>{open && <Recorder onClose={() => setOpen(false)} onCapture={file => { setOpen(false); onCapture(file); }} />}</Dialog>
   </>;
 }

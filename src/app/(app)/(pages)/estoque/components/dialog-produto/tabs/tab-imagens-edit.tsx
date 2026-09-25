@@ -83,7 +83,7 @@ export function TabImagensEdit({
             </p>
           </div>
 
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:max-w-md">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 sm:w-auto sm:max-w-md">
             <input
               ref={fileInputRef}
               type="file"
@@ -109,7 +109,7 @@ export function TabImagensEdit({
             <Button
               type="button"
               variant="outline"
-              size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5"
+              size="sm" className="h-7 w-auto flex-none gap-1.5 px-2 text-xs has-[>svg]:px-2 [&_svg]:size-3.5"
               disabled={subindo || carregando || !!productVideos.busy}
               onClick={() => fileInputRef.current?.click()}
             >
@@ -119,12 +119,12 @@ export function TabImagensEdit({
             {productVideos.enabled && productVideos.canEdit && <><Button
               type="button"
               variant="outline"
-              size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5"
+              size="sm" className="h-7 w-auto flex-none gap-1.5 px-2 text-xs has-[>svg]:px-2 [&_svg]:size-3.5"
               disabled={subindo || carregando || !!productVideos.busy}
               onClick={() => videoInputRef.current?.click()}
             >
               <Film className="h-4 w-4" />
-              {productVideos.busy || "Escolher vídeo salvo"}
+              {productVideos.busy || "Vídeo salvo"}
             </Button>
             <ChecklistVideoCamera compact disabled={subindo || carregando || !!productVideos.busy} onCapture={file => { void productVideos.upload(file).catch(() => undefined); }} />
             <p className="basis-full text-xs text-muted-foreground">Para gravar em Full HD, use Gravar vídeo aqui no ERP. No seletor do iPhone, escolha Fototeca ou Arquivos.</p></>}
