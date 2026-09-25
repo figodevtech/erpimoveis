@@ -1,10 +1,12 @@
 "use client";
 
+import { ChecklistVideoCamera } from "@/components/checklist-video-camera";
 import { useEntityVideos } from "@/lib/videos/use-entity-videos";
+import { VideoViewerDialog } from "@/components/video-viewer-dialog";
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
-import { Camera, Image as ImageIcon, Upload } from "lucide-react";
+import { Film, Image as ImageIcon, Upload } from "lucide-react";
 import type { ProdutoImagem } from "../hooks/use-produto-imagens";
 import { ProdutoImagensGallery, type ProdutoImagemPendente } from "./produto-imagens-gallery";
 
@@ -48,7 +50,7 @@ export function TabImagensEdit({
   onRemover,
 }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const productVideos = useEntityVideos(productId, "produto");
 
   const pick = (files: File[]) => {
@@ -81,17 +83,12 @@ export function TabImagensEdit({
             </p>
           </div>
 
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[240px]">
-            {/* Dois inputs de proposito. O Android 13+ atende `accept="image/*"`
-                com o seletor de fotos do sistema, que nao oferece camera nem
-                escolha de aplicativo; so `capture` abre a camera direto. E
-                `capture` nao aceita `multiple`, entao o envio em lote continua
-                no input de cima. */}
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:max-w-md">
             <input
               ref={fileInputRef}
               type="file"
               className="hidden"
-              accept={productVideos.enabled && productVideos.canEdit ? "image/*,video/*" : "image/*"}
+              accept="image/*"
               multiple
               onChange={(e) => {
                 pick(Array.from(e.target.files ?? []));
@@ -99,11 +96,11 @@ export function TabImagensEdit({
               }}
             />
             <input
-              ref={cameraInputRef}
+              ref={videoInputRef}
               type="file"
               className="hidden"
-              accept="image/*"
-              capture="environment"
+              accept="video/*"
+              multiple
               onChange={(e) => {
                 pick(Array.from(e.target.files ?? []));
                 e.currentTarget.value = "";
@@ -112,23 +109,25 @@ export function TabImagensEdit({
             <Button
               type="button"
               variant="outline"
-              className="gap-2"
-              disabled={subindo || carregando || !!productVideos.busy}
-              onClick={() => cameraInputRef.current?.click()}
-            >
-              <Camera className="h-4 w-4" />
-              Tirar foto
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2"
+              size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5"
               disabled={subindo || carregando || !!productVideos.busy}
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload className="h-4 w-4" />
-              {productVideos.busy || (productVideos.enabled && productVideos.canEdit ? "Adicionar foto ou vídeo" : "Enviar imagens")}
+              Selecionar fotos
             </Button>
+            {productVideos.enabled && productVideos.canEdit && <><Button
+              type="button"
+              variant="outline"
+              size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5"
+              disabled={subindo || carregando || !!productVideos.busy}
+              onClick={() => videoInputRef.current?.click()}
+            >
+              <Film className="h-4 w-4" />
+              {productVideos.busy || "Escolher vídeo salvo"}
+            </Button>
+            <ChecklistVideoCamera compact disabled={subindo || carregando || !!productVideos.busy} onCapture={file => { void productVideos.upload(file).catch(() => undefined); }} />
+            <p className="basis-full text-xs text-muted-foreground">Para gravar em Full HD, use Gravar vídeo aqui no ERP. No seletor do iPhone, escolha Fototeca ou Arquivos.</p></>}
             {productVideos.error && <p role="alert" className="text-xs text-destructive">{productVideos.error}</p>}
           </div>
         </div>
@@ -162,6 +161,7 @@ export function TabImagensEdit({
             onRemoverImagem={onRemover}
           />
         )}
+        {productVideos.viewing && <VideoViewerDialog key={productVideos.viewing.id} id={productVideos.viewing.id} name={productVideos.viewing.name} access={productVideos.access} onClose={productVideos.closeViewer} />}
       </div>
     </TabsContent>
   );

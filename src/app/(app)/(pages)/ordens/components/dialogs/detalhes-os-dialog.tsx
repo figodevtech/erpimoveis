@@ -1,8 +1,10 @@
 // ./src/app/(app)/(pages)/ordens/components/dialogs/detalhes-os-dialog.tsx
 "use client";
+import { ChecklistVideoCamera } from "@/components/checklist-video-camera";
 import { ChecklistVideos, ChecklistAttachmentsScope } from "@/components/checklist-videos";
 import { useEntityVideos } from "@/lib/videos/use-entity-videos";
 import { EntityVideoPreview } from "@/components/entity-video-preview";
+import { VideoViewerDialog } from "@/components/video-viewer-dialog";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -972,6 +974,7 @@ export function OSDetalhesDialog({
   const [loadingChecklistDocuments, setLoadingChecklistDocuments] = useState(false);
   const [creatingChecklistType, setCreatingChecklistType] = useState<ChecklistTipo | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
   const destaqueSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const destaqueEdicaoVersaoRef = useRef(0);
   const destaqueOsIdAtualRef = useRef<number | null>(osId);
@@ -2992,7 +2995,7 @@ export function OSDetalhesDialog({
                                       {item.status}
                                     </Badge>
                                   </div>
-                                  <ChecklistVideos key={`saida-${osId}-${item.id}`} osId={osId!} itemId={Number(item.id)} kind="saida" images={item.imagens ?? []} canEdit={podeEditarOS} onDownloadImage={baixarImagem} />
+                                  <ChecklistVideos key={`saida-${osId}-${item.id}`} osId={osId!} itemId={Number(item.id)} kind="saida" images={item.imagens ?? []} canEdit={podeEditarOS} active={open && checklistExpanded.includes("saida")} onDownloadImage={baixarImagem} />
                                 </li>
                               </Fragment>
                             ))}
@@ -3064,7 +3067,7 @@ export function OSDetalhesDialog({
                                     </Badge>
                                   </div>
 
-                                  <ChecklistVideos key={`entrada-${osId}-${c.id}`} osId={osId!} itemId={Number(c.id)} kind="entrada" images={c.imagens ?? []} canEdit={podeEditarOS} onDownloadImage={baixarImagem} />
+                                  <ChecklistVideos key={`entrada-${osId}-${c.id}`} osId={osId!} itemId={Number(c.id)} kind="entrada" images={c.imagens ?? []} canEdit={podeEditarOS} active={open && checklistExpanded.includes("entrada")} onDownloadImage={baixarImagem} />
                                 </li>
                               </Fragment>
                             ))}
@@ -3112,15 +3115,15 @@ export function OSDetalhesDialog({
                         <input
                           ref={fileInputRef}
                           type="file"
-                          accept={osVideos.enabled ? "image/*,application/pdf,video/*" : "image/*,application/pdf"}
+                          accept="image/*,application/pdf"
                           className="hidden"
                           onChange={handleAnexoChange}
                         />
                         <Button
                           type="button"
                           variant="outline"
-                          className="gap-2"
-                          disabled={uploadingAnexo || loadingAnexos || !!osVideos.busy || (anexos.length >= maxAnexosPorOs && !osVideos.enabled) || !podeEditarOS}
+                          size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5"
+                          disabled={uploadingAnexo || loadingAnexos || !!osVideos.busy || anexos.length >= maxAnexosPorOs || !podeEditarOS}
                           onClick={() => fileInputRef.current?.click()}
                         >
                           {uploadingAnexo ? (
@@ -3128,10 +3131,16 @@ export function OSDetalhesDialog({
                           ) : (
                             <Upload className="h-4 w-4" />
                           )}
-                          {uploadingAnexo
-                            ? "Enviando..."
-                            : osVideos.busy || "Adicionar anexo"}
+                          {uploadingAnexo ? "Enviando..." : "Adicionar foto ou PDF"}
                         </Button>
+                        {osVideos.enabled && osVideos.canEdit && <>
+                          <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleAnexoChange} />
+                          <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5" disabled={uploadingAnexo || loadingAnexos || !!osVideos.busy || !podeEditarOS} onClick={() => videoInputRef.current?.click()}>
+                            <Upload className="h-4 w-4" />{osVideos.busy || "Escolher vídeo salvo"}
+                          </Button>
+            <ChecklistVideoCamera compact disabled={uploadingAnexo || loadingAnexos || !!osVideos.busy || !podeEditarOS} onCapture={file => { void osVideos.upload(file, anexoCategoria).catch(() => undefined); }} />
+            <p className="basis-full text-xs text-muted-foreground">Para gravar em Full HD, use Gravar vídeo aqui no ERP. No seletor do iPhone, escolha Fototeca ou Arquivos.</p>
+                        </>}
                         {osVideos.error && <p role="alert" className="text-xs text-destructive">{osVideos.error}</p>}
                       </div>
                     </div>
@@ -3225,7 +3234,7 @@ export function OSDetalhesDialog({
                               <p className="text-xs text-muted-foreground">{fmtFileSize(video.size_bytes)} · {fmtDate(video.created_at)}</p>
                             </div>
                             <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
-                              <Button type="button" variant="outline" size="sm" onClick={() => osVideos.open(video.id)}>Abrir</Button>
+                              <Button type="button" variant="outline" size="sm" onClick={() => osVideos.open(video.id)}>Visualizar</Button>
                               <Button type="button" variant="ghost" size="icon" aria-label="Baixar vídeo" onClick={() => void osVideos.download(video.id).catch(error => toast.error(error.message))}><Download className="h-4 w-4" /></Button>
                               {osVideos.canDelete && podeEditarOS && <Button type="button" variant="ghost" size="icon" aria-label="Remover vídeo" disabled={!!osVideos.busy} onClick={() => {
                                 if (window.confirm("Excluir permanentemente este vídeo?")) void osVideos.remove(video.id).catch(error => toast.error(error.message));
@@ -3236,6 +3245,7 @@ export function OSDetalhesDialog({
                       </div>
                     )}
                   </section>
+                  {osVideos.viewing && <VideoViewerDialog key={osVideos.viewing.id} id={osVideos.viewing.id} name={osVideos.viewing.name} access={osVideos.access} onClose={osVideos.closeViewer} />}
                 </TabsContent>
 
                 <TabsContent value="aprovacao" className="mt-0 h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6 sm:py-5">

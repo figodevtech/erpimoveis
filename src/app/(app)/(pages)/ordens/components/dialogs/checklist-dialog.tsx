@@ -1,5 +1,5 @@
 "use client";
-import { PendingVideos, useVideoEnabled } from "@/components/checklist-videos";
+import { downloadChecklistFile, ChecklistPhotoCard, PendingVideos, useVideoEnabled } from "@/components/checklist-videos";
 import { uploadVideo } from "@/lib/videos/client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { UploadCloud, X, CarFront, ClipboardList, Loader2 } from "lucide-react";
+import { CarFront, ClipboardList, Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 
 import { uploadChecklistImages } from "../../lib/upload-checklist-images";
@@ -171,7 +171,7 @@ export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
     return null;
   };
 
-  const onPickFiles = (itemTitle: string, files: FileList | null) => {
+  const onPickFiles = (itemTitle: string, files: FileList | File[] | null) => {
     if (!files?.length) return;
     const picked = Array.from(files);
     setImagesByItem((prev) => ({
@@ -367,7 +367,7 @@ export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
               const obs = obsByItem[key] ?? "";
 
               return (
-                <div key={key} className="p-3 rounded-lg border bg-muted/50 border-border text-foreground">
+                <div key={key} className="min-w-0 p-3 rounded-lg border bg-muted/50 border-border text-foreground">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="text-sm font-medium">{it.titulo}</div>
@@ -424,57 +424,12 @@ export function ChecklistDialog({ open, onOpenChange, osId }: Props) {
 
                   <div className="mt-3 space-y-2">
                     <Label className="text-xs text-muted-foreground">Anexos do item (opcional)</Label>
-                    {videoEnabled && <PendingVideos disabled={saving} files={videosByItem[key] ?? []} onChange={files => setVideosByItem(prev => ({ ...prev, [key]: files }))} />}
+                    <PendingVideos disabled={saving} videosEnabled={videoEnabled} files={videosByItem[key] ?? []} onChange={files => setVideosByItem(prev => ({ ...prev, [key]: files }))} onPhotos={selected => onPickFiles(key, selected)} photoCount={files.length} photoCards={files.map((file, index) => <ChecklistPhotoCard key={`${file.name}-${index}`} name={file.name} onDownload={() => downloadChecklistFile(file, file.name)} pending disabled={saving} onRemove={() => removeFile(key, index)}>{previewUrls[index] && <ChecklistImagePreview src={previewUrls[index]} alt={file.name} />}</ChecklistPhotoCard>)} />
                     {videoProgress && <p role="status" className="text-sm">{videoProgress}</p>}
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="inline-flex h-8 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium cursor-pointer hover:bg-muted">
-                        <UploadCloud className="h-4 w-4 shrink-0" />
-                        Adicionar fotos
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => onPickFiles(key, e.target.files)}
-                          disabled={saving}
-                        />
-                      </label>
+                    {files.length > 0 && <p className="text-xs text-muted-foreground">{files.length} arquivo(s) selecionado(s)</p>}
 
-                      {files.length > 0 && (
-                        <span className="text-xs text-muted-foreground">{files.length} arquivo(s) selecionado(s)</span>
-                      )}
-                    </div>
 
-                    {files.length > 0 && (
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                        {files.map((f, idx) => (
-                          <div
-                            key={`${f.name}-${idx}`}
-                            className="relative overflow-hidden rounded-md border bg-muted/20"
-                          >
-                            <div className="aspect-square w-full overflow-hidden bg-muted">
-                              {previewUrls[idx] ? (
-                                <ChecklistImagePreview
-                                  src={previewUrls[idx]}
-                                  alt={f.name}
-                                />
-                              ) : null}
-                            </div>
-                            <div className="truncate px-2 py-1.5 text-[11px] text-muted-foreground">{f.name}</div>
-                            <button
-                              type="button"
-                              className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background/90 shadow-sm hover:bg-background"
-                              onClick={() => removeFile(key, idx)}
-                              title="Remover"
-                              disabled={saving}
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
               );

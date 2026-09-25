@@ -1,5 +1,5 @@
 "use client";
-import { PendingVideos, useVideoEnabled } from "@/components/checklist-videos";
+import { downloadChecklistFile, ChecklistPhotoCard, PendingVideos, useVideoEnabled } from "@/components/checklist-videos";
 import { uploadVideo } from "@/lib/videos/client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { UploadCloud, X, CarFront, ClipboardList, Loader2 } from "lucide-react";
+import { CarFront, ClipboardList, Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 
 import { uploadChecklistImages } from "../../lib/upload-checklist-images";
@@ -60,6 +60,11 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
   const [imagesByItem, setImagesByItem] = useState<Record<string, File[]>>({});
   const [previewUrlsByItem, setPreviewUrlsByItem] = useState<Record<string, string[]>>({});
   const [existingImagesByItem, setExistingImagesByItem] = useState<Record<string, ExistingImage[]>>({});
+  const [existingChecklistIds, setExistingChecklistIds] = useState<Record<string, number>>({});
+  const [savedVideos, setSavedVideos] = useState<Array<{ id: string; item_id: number; kind: "entrada"; name: string; size_bytes: number; duration_seconds: number }>>([]);
+  const [canDeleteSavedVideos, setCanDeleteSavedVideos] = useState(false);
+  const [savedVideosLoading, setSavedVideosLoading] = useState(false);
+  const [savedVideosError, setSavedVideosError] = useState("");
 
   const initialSnapshotRef = useRef<string>("");
   const checklistIdByItemRef = useRef<Record<string, number>>({});
@@ -210,14 +215,31 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
   // Carrega checklist existente (se houver) para abrir para edicao
   useEffect(() => {
     if (!open || !osId) return;
+    let active = true;
+    setSavedVideos([]);
+    setSavedVideosError("");
+    setSavedVideosLoading(true);
+    void fetch(`/api/checklist-videos?osId=${osId}&scope=checklist`, { cache: "no-store" })
+      .then(async response => { const body = await response.json(); if (!response.ok) throw new Error(body.error || "Não foi possível carregar os vídeos."); return body; })
+      .then(body => { if (active) { setCanDeleteSavedVideos(body.canDelete === true); setSavedVideos((body.items ?? []).filter((item: { kind: string }) => item.kind === "entrada")); } })
+      .catch(cause => { if (active) setSavedVideosError(cause instanceof Error ? cause.message : "Não foi possível carregar os vídeos."); })
+      .finally(() => { if (active) setSavedVideosLoading(false); });
+    return () => { active = false; };
+  }, [open, osId]);
+
+  useEffect(() => {
+    if (!open || !osId) return;
+    let active = true;
 
     (async () => {
       try {
         setLoadingExisting(true);
         setExistingError(null);
+        setExistingChecklistIds({});
 
         const r = await fetch(`/api/ordens/${osId}`, { cache: "no-store" });
         const j = await r.json().catch(() => ({}));
+        if (!active) return;
         if (!r.ok) throw new Error((j as any)?.error || "Falha ao carregar dados da OS");
 
         const osObj = (j as any)?.os ?? j;
@@ -255,6 +277,7 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
         }
 
         checklistIdByItemRef.current = ckIdByItem;
+        setExistingChecklistIds(ckIdByItem);
         setExistingImagesByItem(imgsByItem);
 
         if (templateFromOs) {
@@ -298,11 +321,12 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
           });
         }
       } catch (e: any) {
-        setExistingError(e?.message ?? "Nao foi possivel carregar o checklist existente.");
+        if (active) setExistingError(e?.message ?? "Nao foi possivel carregar o checklist existente.");
       } finally {
-        setLoadingExisting(false);
+        if (active) setLoadingExisting(false);
       }
     })();
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, osId]);
 
@@ -346,7 +370,7 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
     return null;
   };
 
-  const onPickFiles = (itemTitle: string, files: FileList | null) => {
+  const onPickFiles = (itemTitle: string, files: FileList | File[] | null) => {
     if (!files?.length) return;
     const picked = Array.from(files);
     setImagesByItem((prev) => ({
@@ -380,16 +404,17 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
       return;
     }
 
-    // otimista
-    setExistingImagesByItem((prev) => ({
-      ...prev,
-      [itemTitle]: (prev[itemTitle] ?? []).filter((im) => im.id !== imageId),
-    }));
+    if (!window.confirm("Excluir permanentemente esta foto?")) return;
 
     try {
       const r = await fetch(`/api/checklists/${checklistId}/images/${imageId}`, { method: "DELETE" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((j as any)?.error || "Falha ao excluir imagem");
+    setExistingImagesByItem((prev) => ({
+      ...prev,
+      [itemTitle]: (prev[itemTitle] ?? []).filter((im) => im.id !== imageId),
+    }));
+
       toast.success("Imagem removida.");
     } catch (e: any) {
       toast.error(e?.message || "Erro ao excluir imagem");
@@ -514,6 +539,7 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
               (templateItems.length === 0 && !templateId) ||
               (!isDirty && !hasAnyNewImage) ||
               loadingExisting ||
+              savedVideosLoading ||
               pendingApply
             }
           >
@@ -531,10 +557,11 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
     >
       <div className="space-y-4">
         {existingError ? <p className="text-sm text-red-500">{existingError}</p> : null}
-        {(loadingExisting || pendingApply) ? (
+        {savedVideosError ? <p role="alert" className="text-sm text-destructive">{savedVideosError}</p> : null}
+        {(loadingExisting || savedVideosLoading || pendingApply) ? (
           <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Carregando checklist...
+            Carregando checklist e anexos...
           </div>
         ) : null}
 
@@ -575,7 +602,7 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
         </div>
 
         {/* ITENS DO CHECKLIST */}
-        {templateItems.length > 0 ? (
+        {loadingExisting || savedVideosLoading || pendingApply ? null : templateItems.length > 0 ? (
           <div className="grid grid-cols-1 gap-3">
             {templateItems.map((it) => {
               const key = it.titulo ?? "";
@@ -586,7 +613,7 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
               const obs = obsByItem[key] ?? "";
 
               return (
-                <div key={key} className="p-3 rounded-lg border bg-muted/50 border-border text-foreground">
+                <div key={key} className="min-w-0 p-3 rounded-lg border bg-muted/50 border-border text-foreground">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="text-sm font-medium">{it.titulo}</div>
@@ -643,82 +670,10 @@ export function ChecklistEditDialog({ open, onOpenChange, osId }: Props) {
 
                   <div className="mt-3 space-y-2">
                     <Label className="text-xs text-muted-foreground">Anexos do item (opcional)</Label>
-                    {videoEnabled && <PendingVideos disabled={saving} files={videosByItem[key] ?? []} onChange={files => setVideosByItem(prev => ({ ...prev, [key]: files }))} />}
+                    <PendingVideos disabled={saving} videosEnabled={videoEnabled} files={videosByItem[key] ?? []} onChange={files => setVideosByItem(prev => ({ ...prev, [key]: files }))} onPhotos={selected => onPickFiles(key, selected)} canDeleteSaved={canDeleteSavedVideos} onSavedRemoved={id => setSavedVideos(current => current.filter(video => video.id !== id))} saved={savedVideos.filter(video => Number(video.item_id) === existingChecklistIds[key])} savedTarget={osId && existingChecklistIds[key] ? { osId, itemId: existingChecklistIds[key], kind: "entrada" } : undefined} photoCount={existingImgs.length + files.length} photoCards={<>{existingImgs.map(image => <ChecklistPhotoCard key={`saved-${image.id}`} name={image.descricao || "Foto salva"} onDownload={() => downloadChecklistFile(image.url, image.descricao || "foto")} disabled={saving} onRemove={() => void removeExistingImage(key, image.id)}><ChecklistImagePreview src={image.url} alt={image.descricao || "Foto salva"} /></ChecklistPhotoCard>)}{files.map((file, index) => <ChecklistPhotoCard key={`${file.name}-${index}`} name={file.name} onDownload={() => downloadChecklistFile(file, file.name)} pending disabled={saving} onRemove={() => removeFile(key, index)}>{previewUrls[index] && <ChecklistImagePreview src={previewUrls[index]} alt={file.name} />}</ChecklistPhotoCard>)}</>} />
                     {videoProgress && <p role="status" className="text-sm">{videoProgress}</p>}
 
-                    {(existingImgs.length > 0 || files.length > 0) && (
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-                        {existingImgs.map((im) => (
-                          <div key={im.id} className="relative overflow-hidden rounded-md border bg-muted/20">
-                            <div className="aspect-square w-full overflow-hidden bg-muted">
-                              <ChecklistImagePreview
-                                src={im.url}
-                                alt={im.descricao ?? "Imagem"}
-                              />
-                            </div>
-                            <div className="truncate px-2 py-1.5 text-[11px] text-muted-foreground">
-                              {im.descricao || "Imagem salva"}
-                            </div>
-                            <button
-                              type="button"
-                              className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background/90 shadow-sm hover:bg-background"
-                              onClick={() => removeExistingImage(key, im.id)}
-                              title="Remover imagem"
-                              disabled={saving}
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ))}
-                        {files.map((f, idx) => (
-                          <div
-                            key={`${f.name}-${idx}`}
-                            className="relative overflow-hidden rounded-md border border-primary/70 bg-primary/5 ring-1 ring-primary/25"
-                          >
-                            <Badge className="absolute left-1.5 top-1.5 z-10 bg-primary text-primary-foreground text-[10px]">
-                              Nova
-                            </Badge>
-                            <div className="aspect-square w-full overflow-hidden bg-muted">
-                              {previewUrls[idx] ? (
-                                <ChecklistImagePreview
-                                  src={previewUrls[idx]}
-                                  alt={f.name}
-                                />
-                              ) : null}
-                            </div>
-                            <div className="truncate px-2 py-1.5 text-[11px] text-muted-foreground">{f.name}</div>
-                            <button
-                              type="button"
-                              className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background/90 shadow-sm hover:bg-background"
-                              onClick={() => removeFile(key, idx)}
-                              title="Remover"
-                              disabled={saving}
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="inline-flex h-8 items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium cursor-pointer hover:bg-muted">
-                        <UploadCloud className="h-4 w-4 shrink-0" />
-                        Adicionar fotos
-                        <input
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => onPickFiles(key, e.target.files)}
-                          disabled={saving}
-                        />
-                      </label>
-
-                      {files.length > 0 && (
-                        <span className="text-xs text-muted-foreground">{files.length} nova(s) imagem(ns)</span>
-                      )}
-                    </div>
+                    {files.length > 0 && <p className="text-xs text-muted-foreground">{files.length} nova(s) imagem(ns)</p>}
                   </div>
                 </div>
               );

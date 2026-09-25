@@ -56,3 +56,29 @@ export async function POST(req: NextRequest, context: { params: Promise<{ itemId
     return NextResponse.json({ error: error?.message || "Falha ao enviar imagens." }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest, context: { params: Promise<{ itemId: string }> }) {
+  try {
+    await requireOSEdit();
+    const { itemId } = await context.params;
+    const imageId = Number(req.nextUrl.searchParams.get("imageId"));
+    const id = Number(itemId);
+    if (!Number.isSafeInteger(id) || id <= 0 || !Number.isSafeInteger(imageId) || imageId <= 0) return NextResponse.json({ error: "Imagem invalida." }, { status: 400 });
+    const { data, error } = await supabaseAdmin.from("os_saida_checklist_imagem").select("id, url").eq("id", imageId).eq("checklist_item_id", id).maybeSingle();
+    if (error) throw error;
+    if (!data) return NextResponse.json({ error: "Imagem nao encontrada." }, { status: 404 });
+    const removed = await supabaseAdmin.from("os_saida_checklist_imagem").delete().eq("id", imageId).eq("checklist_item_id", id);
+    if (removed.error) throw removed.error;
+    const marker = `/object/public/${BUCKET}/`;
+    const pathname = new URL(data.url).pathname;
+    const index = pathname.indexOf(marker);
+    if (index >= 0) {
+      const cleanup = await supabaseAdmin.storage.from(BUCKET).remove([decodeURIComponent(pathname.slice(index + marker.length))]);
+      if (cleanup.error) console.warn("Falha ao remover arquivo da foto", cleanup.error.message);
+    }
+    return NextResponse.json({ ok: true });
+  } catch (error: unknown) {
+    const failure = error as { message?: string; statusCode?: number };
+    return NextResponse.json({ error: failure.message || "Falha ao excluir foto." }, { status: failure.statusCode || 500 });
+  }
+}

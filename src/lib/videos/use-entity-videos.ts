@@ -14,6 +14,7 @@ export function useEntityVideos(entityId: number | null | undefined, kind: Entit
   const [canDelete, setCanDelete] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [viewing, setViewing] = useState<{ id: string; name: string } | null>(null);
   const requestId = useRef(0);
   const signedUrls = useRef(new Map<string, { url: string; at: number }>());
   const target = entityId ? { osId: entityId, itemId: entityId, kind } : null;
@@ -41,6 +42,7 @@ export function useEntityVideos(entityId: number | null | undefined, kind: Entit
     setCanEdit(false);
     setCanDelete(false);
     setError("");
+    setViewing(null);
     void refresh()
       .catch(cause => { if (mounted) setError(cause instanceof Error ? cause.message : "Falha ao carregar vídeos."); })
       .finally(() => { if (mounted) setLoading(false); });
@@ -85,19 +87,8 @@ export function useEntityVideos(entityId: number | null | undefined, kind: Entit
   }, [entityId, kind]);
 
   const open = useCallback((id: string) => {
-    const cached = signedUrls.current.get(id);
-    if (cached && Date.now() - cached.at < 10 * 60 * 1000) {
-      window.open(cached.url, "_blank", "noopener,noreferrer");
-      return;
-    }
-    const tab = window.open("about:blank", "_blank");
-    if (!tab) { setError("Permita abrir uma nova aba para assistir ao vídeo."); return; }
-    tab.opener = null;
-    tab.document.title = "Abrindo vídeo";
-    tab.document.body.textContent = "Carregando vídeo...";
-    void access(id).then(({ url }) => { if (!tab.closed) tab.location.replace(url); })
-      .catch(cause => { tab.close(); setError(cause instanceof Error ? cause.message : "Falha ao abrir vídeo."); });
-  }, [access]);
+    setViewing({ id, name: videos.find((video) => video.id === id)?.name ?? "Vídeo" });
+  }, [videos]);
 
   const download = async (id: string) => {
     const { url } = await access(id, true);
@@ -107,5 +98,5 @@ export function useEntityVideos(entityId: number | null | undefined, kind: Entit
     link.click();
   };
 
-  return { videos, loading, enabled, canEdit, canDelete, busy, error, refresh, upload, remove, access, open, download };
+  return { videos, loading, enabled, canEdit, canDelete, busy, error, viewing, closeViewer: () => setViewing(null), refresh, upload, remove, access, open, download };
 }

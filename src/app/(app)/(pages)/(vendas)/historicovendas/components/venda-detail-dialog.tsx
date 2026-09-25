@@ -1,6 +1,8 @@
 "use client"
+import { ChecklistVideoCamera } from "@/components/checklist-video-camera";
 import { useEntityVideos } from "@/lib/videos/use-entity-videos";
 import { EntityVideoPreview } from "@/components/entity-video-preview";
+import { VideoViewerDialog } from "@/components/video-viewer-dialog";
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react"
 import { useSession } from "next-auth/react"
@@ -483,6 +485,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
     dadosParaFinanceiroVazios,
   )
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const videoInputRef = useRef<HTMLInputElement | null>(null)
   const isDesktop = useMediaQuery("(min-width: 768px)")
   const itemEditingLocked = venda
     ? ["PAGO", "FINALIZADA", "CANCELADA", "CANCELADO"].includes(String(venda.status).toUpperCase())
@@ -1601,14 +1604,14 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                 ref={fileInputRef}
                                 type="file"
                                 className="hidden"
-                                accept={vendaVideos.enabled && vendaVideos.canEdit ? "image/*,application/pdf,video/*" : "image/*,application/pdf"}
+                                accept="image/*,application/pdf"
                                 onChange={handleAnexoChange}
                               />
                               <Button
                                 type="button"
                                 variant="outline"
-                                className="gap-2"
-                                disabled={uploadingAnexo || loadingAnexos || !!vendaVideos.busy || (anexos.length >= MAX_ANEXOS_POR_VENDA && !vendaVideos.enabled)}
+                                size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5"
+                                disabled={uploadingAnexo || loadingAnexos || !!vendaVideos.busy || anexos.length >= MAX_ANEXOS_POR_VENDA}
                                 onClick={() => fileInputRef.current?.click()}
                               >
                                 {uploadingAnexo ? (
@@ -1616,10 +1619,16 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                 ) : (
                                   <Upload className="h-4 w-4" />
                                 )}
-                                {uploadingAnexo
-                                  ? "Enviando..."
-                                  : vendaVideos.busy || "Adicionar anexo"}
+                                {uploadingAnexo ? "Enviando..." : "Adicionar foto ou PDF"}
                               </Button>
+                              {vendaVideos.enabled && vendaVideos.canEdit && <>
+                                <input ref={videoInputRef} type="file" className="hidden" accept="video/*" onChange={handleAnexoChange} />
+                                <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5" disabled={uploadingAnexo || loadingAnexos || !!vendaVideos.busy} onClick={() => videoInputRef.current?.click()}>
+                                  <Upload className="h-4 w-4" />{vendaVideos.busy || "Escolher vídeo salvo"}
+                                </Button>
+            <ChecklistVideoCamera compact disabled={uploadingAnexo || loadingAnexos || !!vendaVideos.busy} onCapture={file => { void vendaVideos.upload(file, anexoCategoria).catch(() => undefined); }} />
+            <p className="basis-full text-xs text-muted-foreground">Para gravar em Full HD, use Gravar vídeo aqui no ERP. No seletor do iPhone, escolha Fototeca ou Arquivos.</p>
+                              </>}
                               {vendaVideos.error && <p role="alert" className="text-xs text-destructive">{vendaVideos.error}</p>}
                             </div>
                           </div>
@@ -1698,7 +1707,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                     <p className="truncate text-sm font-semibold" title={video.name}>{video.name}</p>
                                     <p className="text-xs text-muted-foreground">{formatFileSize(video.size_bytes)}{video.created_at ? ` - ${formatDate(video.created_at)}` : ""}</p>
                                     <div className="flex items-center justify-end gap-2">
-                                      <Button type="button" variant="outline" size="sm" onClick={() => vendaVideos.open(video.id)}><ExternalLink className="h-4 w-4" />Abrir</Button>
+                                      <Button type="button" variant="outline" size="sm" onClick={() => vendaVideos.open(video.id)}>Visualizar</Button>
                                       <Button type="button" variant="outline" size="sm" aria-label="Baixar vídeo" onClick={() => void vendaVideos.download(video.id).catch(error => toast.error("Erro", { description: error.message }))}><Download className="h-4 w-4" /></Button>
                                       {vendaVideos.canDelete && vendaVideos.canEdit && <Button type="button" variant="outline" size="sm" className="text-destructive hover:text-destructive" disabled={!!vendaVideos.busy} onClick={() => {
                                         if (window.confirm("Excluir permanentemente este vídeo?")) void vendaVideos.remove(video.id).catch(error => toast.error("Erro", { description: error.message }));
@@ -1710,6 +1719,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                             </div>
                           )}
                         </div>
+                        {vendaVideos.viewing && <VideoViewerDialog key={vendaVideos.viewing.id} id={vendaVideos.viewing.id} name={vendaVideos.viewing.name} access={vendaVideos.access} onClose={vendaVideos.closeViewer} />}
                       </TabsContent>
                     </div>
                   </Tabs>

@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
+import { requireOSEdit } from "@/app/api/_authz/perms";
+
 const BUCKET = "vistoria";
 
 /** Extrai o path no bucket a partir da URL pública */
@@ -18,14 +20,15 @@ function storagePathFromPublicUrl(url: string) {
   }
 }
 
-type Params = { imageId: string };
+type Params = { imageId: string; checklistId: string };
 
 export async function DELETE(
   _req: NextRequest,
   context: { params: Promise<Params> } // <- Next 15: params é Promise
 ) {
   try {
-    const { imageId } = await context.params;
+    await requireOSEdit();
+    const { imageId, checklistId } = await context.params;
 
     const idNum = Number(imageId);
     if (!Number.isFinite(idNum)) {
@@ -36,7 +39,7 @@ export async function DELETE(
     const { data: row, error: selErr } = await supabaseAdmin
       .from("imagemvistoria")
       .select("id, url")
-      .eq("id", idNum)
+      .eq("id", idNum).eq("checklistid", Number(checklistId))
       .single();
 
     if (selErr || !row) {
@@ -50,7 +53,7 @@ export async function DELETE(
     const { error: delErr } = await supabaseAdmin
       .from("imagemvistoria")
       .delete()
-      .eq("id", idNum);
+      .eq("id", idNum).eq("checklistid", Number(checklistId));
 
     if (delErr) {
       return NextResponse.json({ error: delErr.message }, { status: 500 });

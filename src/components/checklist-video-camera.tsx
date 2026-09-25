@@ -5,10 +5,10 @@ import { Video, X, Circle, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
-export function ChecklistVideoCamera({ disabled, onCapture }: { disabled?: boolean; onCapture: (file: File) => void }) {
+export function ChecklistVideoCamera({ disabled, onCapture, compact = false }: { disabled?: boolean; compact?: boolean; onCapture: (file: File) => void }) {
   const [open, setOpen] = useState(false);
   return <>
-    <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => setOpen(true)}><Video className="size-4" />Gravar vídeo</Button>
+    <Button type="button" size="sm" variant="outline" className={compact ? "h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5" : undefined} disabled={disabled} onClick={() => setOpen(true)}><Video className="size-4" />Gravar vídeo</Button>
     <Dialog open={open} onOpenChange={setOpen}>{open && <Recorder onClose={() => setOpen(false)} onCapture={file => { setOpen(false); onCapture(file); }} />}</Dialog>
   </>;
 }
@@ -28,6 +28,7 @@ function Recorder({ onClose, onCapture }: { onClose: () => void; onCapture: (fil
 
   useEffect(() => {
     let cancelled = false;
+    const previewElement = video.current;
     alive.current = true;
     async function open() {
       try {
@@ -67,6 +68,7 @@ function Recorder({ onClose, onCapture }: { onClose: () => void; onCapture: (fil
         recorder.current = null;
       }
       stream.current?.getTracks().forEach(t => t.stop());
+      if (previewElement) { previewElement.onloadedmetadata = null; previewElement.onerror = null; }
       if (recordedUrl.current) { URL.revokeObjectURL(recordedUrl.current); recordedUrl.current = null; }
     };
   }, [attempt]);
@@ -101,8 +103,22 @@ function Recorder({ onClose, onCapture }: { onClose: () => void; onCapture: (fil
         const file = new File([blob], `checklist-${Date.now()}.${blob.type.includes("mp4") ? "mp4" : "webm"}`, { type: blob.type });
         const url = URL.createObjectURL(file);
         recordedUrl.current = url;
-        if (video.current) { video.current.srcObject = null; video.current.src = url; video.current.load(); }
-        setResult(file); setPhase("review");
+        const preview = video.current;
+        if (!preview) { URL.revokeObjectURL(url); recordedUrl.current = null; setError("Não foi possível conferir o vídeo gravado."); setPhase("error"); return; }
+        preview.srcObject = null;
+        preview.onloadedmetadata = () => {
+          if (!alive.current) return;
+          if (Math.min(preview.videoWidth, preview.videoHeight) < 1080 || Math.max(preview.videoWidth, preview.videoHeight) < 1920) {
+            URL.revokeObjectURL(url); recordedUrl.current = null;
+            setError("O navegador gravou abaixo de Full HD. Grave pelo app Câmera e use Selecionar vídeo.");
+            setPhase("error");
+            return;
+          }
+          setResult(file); setPhase("review");
+        };
+        preview.onerror = () => { if (!alive.current) return; URL.revokeObjectURL(url); recordedUrl.current = null; setError("Não foi possível conferir a resolução do vídeo."); setPhase("error"); };
+        preview.src = url;
+        preview.load();
       };
       capture.start(1000); setSeconds(0); setPhase("recording");
       const started = performance.now();

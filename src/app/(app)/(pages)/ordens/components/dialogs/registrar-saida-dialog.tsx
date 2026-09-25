@@ -1,5 +1,5 @@
 "use client";
-import { PendingVideos, useVideoEnabled } from "@/components/checklist-videos";
+import { downloadChecklistFile, ChecklistPhotoCard, PendingVideos, useVideoEnabled } from "@/components/checklist-videos";
 import { uploadVideo } from "@/lib/videos/client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
-import { CalendarClock, ClipboardCheck, Loader2, LogOut, UploadCloud, X } from "lucide-react";
+import { CalendarClock, ClipboardCheck, Loader2, LogOut } from "lucide-react";
 import { ChecklistImagePreview } from "./checklist-image-preview";
 
 type TemplateItem = { id: string; titulo: string; descricao?: string | null; categoria?: string | null; obrigatorio?: boolean; ordem?: number | null };
@@ -81,7 +81,7 @@ function ChecklistSaidaDialog({ open, onOpenChange, templates, templateId, marks
             <SelectContent>{templates.map((item) => <SelectItem key={item.id} value={item.id}>{item.nome}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        {(template?.itens ?? []).map((item) => <div key={item.id} className="rounded-lg border border-border bg-muted/50 p-3 text-foreground">
+        {(template?.itens ?? []).map((item) => <div key={item.id} className="min-w-0 rounded-lg border border-border bg-muted/50 p-3 text-foreground">
           <div className="flex items-start justify-between gap-2">
             <div><p className="text-sm font-medium">{item.titulo}</p>{item.descricao && <p className="mt-1 text-xs text-muted-foreground">{item.descricao}</p>}</div>
             {item.obrigatorio && <Badge variant="secondary" className="text-[11px]">Obrigatório</Badge>}
@@ -108,24 +108,8 @@ function ChecklistSaidaDialog({ open, onOpenChange, templates, templateId, marks
           </div>
           <div className="mt-3 space-y-2">
             <Label className="text-xs text-muted-foreground">Anexos do item (opcional)</Label>
-            {videoEnabled && <PendingVideos files={draftVideos[item.titulo] ?? []} onChange={files => setDraftVideos(current => ({ ...current, [item.titulo]: files }))} />}
-            <label className="inline-flex h-8 cursor-pointer items-center justify-center gap-2 rounded-md border px-3 text-sm font-medium hover:bg-muted">
-              <UploadCloud className="h-4 w-4 shrink-0" />Adicionar fotos
-              <input type="file" accept="image/*" multiple className="hidden" onChange={(event) => {
-                const selected = Array.from(event.target.files ?? []);
-                setDraftImages((current) => ({ ...current, [item.titulo]: [...(current[item.titulo] ?? []), ...selected].slice(0, 10) }));
-                event.target.value = "";
-              }} />
-            </label>
-            {(draftImages[item.titulo] ?? []).length > 0 && <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-              {(draftImages[item.titulo] ?? []).map((file, index) => {
-                return <div key={`${file.name}-${file.lastModified}-${index}`} className="relative overflow-hidden rounded-md border bg-muted/20">
-                  <div className="aspect-square"><LocalImagePreview file={file} /></div>
-                  <div className="truncate px-2 py-1.5 text-[11px] text-muted-foreground">{file.name}</div>
-                  <button type="button" className="absolute right-1.5 top-1.5 inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background/90" onClick={() => setDraftImages((current) => ({ ...current, [item.titulo]: (current[item.titulo] ?? []).filter((_, fileIndex) => fileIndex !== index) }))}><X className="h-4 w-4" /></button>
-                </div>;
-              })}
-            </div>}
+            <PendingVideos videosEnabled={videoEnabled} files={draftVideos[item.titulo] ?? []} onChange={files => setDraftVideos(current => ({ ...current, [item.titulo]: files }))} onPhotos={selected => setDraftImages((current) => ({ ...current, [item.titulo]: [...(current[item.titulo] ?? []), ...selected].slice(0, 10) }))} photoCount={(draftImages[item.titulo] ?? []).length} photoCards={(draftImages[item.titulo] ?? []).map((file, index) => <ChecklistPhotoCard key={`${file.name}-${file.lastModified}-${index}`} name={file.name} onDownload={() => downloadChecklistFile(file, file.name)} pending onRemove={() => setDraftImages(current => ({ ...current, [item.titulo]: (current[item.titulo] ?? []).filter((_, i) => i !== index) }))}><LocalImagePreview file={file} /></ChecklistPhotoCard>)} />
+
           </div>
         </div>)}
       </div>
