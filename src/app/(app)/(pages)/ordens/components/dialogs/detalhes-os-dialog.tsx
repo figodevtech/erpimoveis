@@ -1647,9 +1647,7 @@ export function OSDetalhesDialog({
                     {statusBadge}
                     {prioBadge}
                   </DialogTitle>
-                  <DialogDescription className="text-sm">
-                    Informações completas da OS, itens, checklist, responsáveis e links de aprovação.
-                  </DialogDescription>
+                  <DialogDescription className="sr-only">Detalhes da ordem de serviço.</DialogDescription>
                   {data?.os ? (
                     <div
                       className={`mt-2 flex min-h-9 flex-nowrap items-center gap-1.5 rounded-md border px-2.5 py-1.5 sm:gap-2 transition-colors ${destaqueAtivo
