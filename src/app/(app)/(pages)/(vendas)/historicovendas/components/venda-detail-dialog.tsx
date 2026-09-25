@@ -470,8 +470,9 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
     (session?.user as any)?.permissoes,
     PERMS.VENDAS_ALTERAR_VENDEDOR,
   )
-  const [users, setUsers] = useState<Array<{ id: string; nome: string | null; email?: string }>>([])
+  const [users, setUsers] = useState<Array<{ id: string; nome: string | null }>>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
+  const [usersError, setUsersError] = useState<string | null>(null)
   const [categoriasVenda, setCategoriasVenda] = useState<CategoriaVenda[]>([])
   const [loadingCategoriasVenda, setLoadingCategoriasVenda] = useState(false)
   const [anexos, setAnexos] = useState<VendaAnexo[]>([])
@@ -520,22 +521,25 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
   )
 
   useEffect(() => {
+    if (!open || !podeAlterarVendedor) return
+    let active = true
     const loadUsers = async () => {
       try {
         setLoadingUsers(true)
-        const response = await fetch("/api/users?ativos=1", { cache: "no-store" })
+        setUsersError(null)
+        const response = await fetch("/api/venda/vendedores", { cache: "no-store" })
         const data = await response.json().catch(() => ({}))
-        if (response.ok && Array.isArray(data?.users)) {
-          setUsers(data.users)
-        }
+        if (!response.ok) throw new Error(data?.error || "Erro ao carregar vendedores")
+        if (active) setUsers(Array.isArray(data?.users) ? data.users : [])
       } catch (fetchError) {
-        console.error("Erro ao carregar usuarios:", fetchError)
+        if (active) setUsersError(fetchError instanceof Error ? fetchError.message : "Erro ao carregar vendedores")
       } finally {
-        setLoadingUsers(false)
+        if (active) setLoadingUsers(false)
       }
     }
     loadUsers()
-  }, [])
+    return () => { active = false }
+  }, [open, podeAlterarVendedor])
 
   useEffect(() => {
     const loadCategoriasVenda = async () => {
@@ -1166,6 +1170,8 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                     permissão “Alterar vendedor da venda”.
                                   </p>
                                 </>
+                              ) : usersError ? (
+                                <p className="mt-2 text-sm text-destructive">{usersError}</p>
                               ) : (
                                 <Select
                                   value={venda.vendedor || "unassigned"}
@@ -1178,7 +1184,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                     <SelectItem value="unassigned">Sem vendedor</SelectItem>
                                     {users.map((u) => (
                                       <SelectItem key={u.id} value={u.id}>
-                                        {u.nome || u.email || u.id}
+                                        {u.nome || u.id}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
