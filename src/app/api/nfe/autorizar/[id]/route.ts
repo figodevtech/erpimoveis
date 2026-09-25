@@ -23,8 +23,7 @@ import { consultarProtocoloNfe } from "@/services/fiscal/nfeConsultaProtocoloSer
 import type { ClienteRow, EmpresaRow } from "@/lib/nfe/types";
 import { truncateNfeXNomeInXml } from "@/lib/nfe/xmlUtils";
 import { rascunhoPrecisaSerRegerado } from "@/lib/nfe/taxRules";
-import { avaliarRegraE16a30Xml } from "@/lib/nfe/regraE16a30Xml";
-import { CODE_E16A30, mensagemBloqueioE16a30 } from "@/lib/nfe/regraE16a30";
+import { bloqueioAutorizacaoE16a30 } from "@/lib/nfe/bloqueioAutorizacaoE16a30";
 
 export const runtime = "nodejs";
 
@@ -490,16 +489,9 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     );
     // O XML salvo pode ser anterior à regra ou ter sido editado manualmente.
     // Validar o documento real antes de reservar número, assinar ou transmitir.
-    const e16a30 = avaliarRegraE16a30Xml(xmlRascunhoNormalizado);
-    if (e16a30.bloqueia) {
-      return NextResponse.json({
-        ok: false,
-        code: CODE_E16A30,
-        regra: e16a30.regra,
-        cStat: e16a30.cStat,
-        fonte: e16a30.fonte,
-        mensagem: mensagemBloqueioE16a30(e16a30.ufDestino),
-      }, { status: 422 });
+    const bloqueio805 = bloqueioAutorizacaoE16a30(xmlRascunhoNormalizado);
+    if (bloqueio805) {
+      return NextResponse.json(bloqueio805.body, { status: bloqueio805.status });
     }
     const numeracao = await garantirNumeroDefinitivo(nfeId, xmlRascunhoNormalizado);
     const modeloNota = exigirModelo(nfe.modelo);

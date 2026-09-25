@@ -1,16 +1,22 @@
 import { normalizarIndIEDest } from './indIEDest';
 import type { FonteIssueFiscal, IcmsIssue } from './icms/tipos';
 
-/** Configuração publicada no Portal Nacional; revisar quando uma UF mudar sua adesão. */
+/**
+ * Configuração publicada no Portal Nacional; revisar quando uma UF mudar sua adesão.
+ * Versões anteriores separavam operações interestaduais (E16a-30) e internas
+ * (E16a-35). A NT 2025.001 v1.03 ampliou a E16a-30 para idDest=1 ou 2.
+ * A implantação interna em produção foi adiada até 13/10/2025; em 2026 esse
+ * prazo já passou e não justifica excluir idDest=1.
+ */
 export const REGRA_E16A30 = {
   code: 'E16a-30',
   cStat: '805',
   modelo: 55,
   ufs: ['AL', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MG', 'MS', 'MT', 'PB', 'PE', 'RJ', 'RN', 'RS', 'SE', 'SP'],
   fonte: {
-    titulo: 'Portal Nacional da NF-e — NT 2020.004, identificação do destinatário',
-    versao: 'E16a-30 atualizada pela NT 2025.001 v1.03',
-    url: 'https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=uE+fQh6OuYw%3D',
+    titulo: 'Portal Nacional da NF-e — NT 2025.001 v1.03',
+    versao: 'NT 2025.001 v1.03',
+    url: 'https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=NvuzQGYd6E8%3D',
     regra: 'E16a-30',
     cStat: '805',
     revisadaEm: '2026-09-25',
@@ -57,8 +63,9 @@ function valorDestacado(valor: unknown): boolean {
 
 export function avaliarRegraE16a30(contexto: ContextoE16a30) {
   const uf = String(contexto.ufDestino ?? '').trim().toUpperCase();
+  const idDest = Number(contexto.idDest);
   const aplica = Number(contexto.modelo) === REGRA_E16A30.modelo
-    && Number(contexto.idDest) === 2
+    && (idDest === 1 || idDest === 2)
     && normalizarIndIEDest(contexto.indIEDest) === 2
     && (REGRA_E16A30.ufs as readonly string[]).includes(uf);
   let excecaoAplicada: ExcecaoE16a30 | null = null;
@@ -85,7 +92,7 @@ export function avaliarRegraE16a30(contexto: ContextoE16a30) {
 }
 
 export function mensagemBloqueioE16a30(uf: string): string {
-  return `${uf.toUpperCase()} não permite destinatário classificado como "2 - Contribuinte isento de inscrição estadual" nesta operação interestadual. Confira a situação fiscal do destinatário: se contribuinte do ICMS, use indicador 1 com IE ativa; se não contribuinte, use indicador 9. Regra E16a-30 — rejeição 805 da NF-e.`;
+  return `${uf.toUpperCase()} não permite destinatário classificado como "2 - Contribuinte isento de inscrição estadual" nesta operação. Confira a situação fiscal do destinatário: se contribuinte do ICMS, use indicador 1 com IE ativa; se não contribuinte, use indicador 9. Regra E16a-30 — rejeição 805 da NF-e.`;
 }
 
 export function issueE16a30(contexto: ContextoE16a30): IcmsIssue | null {

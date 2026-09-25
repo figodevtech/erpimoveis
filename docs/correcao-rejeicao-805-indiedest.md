@@ -16,6 +16,8 @@ Antes de alterar qualquer coisa:
 
 > Importante: a regra E16a-30 sofreu atualizações ao longo do tempo. Não copiar a lista de UFs de uma versão antiga do MOC sem confrontá-la com a documentação oficial mais recente publicada no Portal Nacional da NF-e.
 
+> **Atualização de 25/09/2026:** a NT 2025.001 v1.03 ampliou a E16a-30 para operações internas e interestaduais (`idDest=1` ou `2`). A implantação em produção para operações internas foi adiada até 13/10/2025. As passagens históricas deste documento que restringiam a regra a `idDest=2` foram corrigidas abaixo. [Fonte oficial vigente](https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=NvuzQGYd6E8%3D).
+
 ---
 
 ## Contexto real que motivou a correção
@@ -89,7 +91,7 @@ modelo = 55
 +
 indIEDest = 2
 +
-idDest = 2
+idDest = 1 ou 2
 +
 UF destinatária configurada como não permitindo
 Contribuinte Isento de Inscrição Estadual
@@ -303,7 +305,7 @@ Mensagem sugerida:
 ```text
 Alagoas não permite destinatário classificado como
 "2 - Contribuinte isento de inscrição estadual"
-nesta operação interestadual.
+nesta operação.
 
 Confira a situação fiscal do destinatário.
 
@@ -422,8 +424,12 @@ UF fora da configuração atual da E16a-30
 => não inventar bloqueio
 
 CASO K
-idDest != 2
+idDest = 3
 => E16a-30 não se aplica
+
+CASO K2
+idDest = 1, UF configurada, sem exceção
+=> E16a-30 bloqueia com cStat 805
 
 CASO L
 modelo 65
@@ -702,19 +708,19 @@ e apontar para a fonte oficial.
 
 ---
 
-## 17. Não confundir E16a-30 com E16a-35
+## 17. Evolução da E16a-30 e da E16a-35
 
 `E16a-30`:
 
 ```text
-idDest = 2
-operação interestadual
+idDest = 1 ou 2
+operação interna ou interestadual
 modelo 55
 aplicação obrigatória
 cStat 805
 ```
 
-`E16a-35`:
+`E16a-35` na documentação anterior:
 
 ```text
 idDest = 1
@@ -729,7 +735,7 @@ Não implementar:
 if (indIEDest === 2 && ufNaLista) bloqueia;
 ```
 
-Isso aplicaria incorretamente a regra interestadual em operação interna.
+Essa condição isolada continua incorreta porque ignora modelo, `idDest` e exceções. A NT 2025.001 v1.03 incorporou as operações internas à E16a-30. O adiamento em produção até 13/10/2025 já terminou.
 
 Nesta tarefa, implementar corretamente `E16a-30`.
 
@@ -798,7 +804,7 @@ Cobrir:
 - CSOSN 300;
 - CSOSN 400;
 - data histórica;
-- `idDest=1` não passa pela E16a-30;
+- `idDest=1` em UF configurada passa pela E16a-30;
 - `idDest=3` não passa pela E16a-30;
 - modelo 65 não passa pela E16a-30;
 - UF não configurada não recebe regra inventada;
@@ -858,7 +864,7 @@ Informar:
 
 Portal Nacional da Nota Fiscal Eletrônica.
 
-Documento oficial atualizado de Regras de Validação.
+NT 2025.001 v1.03 — alteração vigente da E16a-30.
 
 Consultar:
 
@@ -871,7 +877,7 @@ cStat 805
 
 URL:
 
-https://www.nfe.fazenda.gov.br/PORTal/exibirArquivo.aspx?conteudo=uE+fQh6OuYw%3D
+https://www.nfe.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=NvuzQGYd6E8%3D
 
 Usar esta referência como autoridade principal para:
 
@@ -888,7 +894,7 @@ PB, PE, RJ, RN, RS, SE e SP
 
 ---
 
-## 2. Nota Técnica 2020.004
+## 2. Nota Técnica 2020.004 — referência histórica
 
 Portal Nacional da NF-e.
 
