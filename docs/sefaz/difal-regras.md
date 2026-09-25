@@ -49,7 +49,12 @@ Em ordem de precedência, e as que foram efetivamente usadas:
    e [base legal](https://dfe-portal.svrs.rs.gov.br/Difal/BaseLegal).
 3. **Legislação federal** — [Resolução do Senado nº 13/2012](https://legis.senado.leg.br/norma/586999) (alíquota de 4%),
    [LC 190/2022](https://planalto.gov.br/ccivil_03/leis/lcp/lcp190.htm), EC 87/2015.
-4. **Legislação estadual** citada pelo portal, por UF.
+4. **Legislação estadual** citada pelo portal, por UF. Para AL, a redação
+   histórica e a mudança de 2026 foram conferidas diretamente nas
+   [Leis 8.779/2022](https://sapl.al.al.leg.br/media/sapl/public/normajuridica/2022/2419/lei_no_8.779_de_20_de_dezembro_de_2022.pdf)
+   e [9.776/2025](https://sapl.al.al.leg.br/media/sapl/public/normajuridica/2025/3699/lei_no_9.776_de_22_de_dezembro_de_2025.pdf).
+   O adicional geral do FECOEP consta do art. 2º-A da Lei 6.558/2004,
+   [incluído pela Lei 7.742/2015](https://sapl.al.al.leg.br/media/sapl/public/normajuridica/2015/746/746_texto_integral.pdf).
 
 Blog, portal contábil e tabela comercial não são fonte. Se o valor não está numa
 das quatro, ele não entra como regra ativa.
@@ -117,6 +122,29 @@ Alteração de alíquota **nunca** sobrescreve a linha antiga: fecha a vigência
 dela e insere outra. É isso que permite reemitir e auditar uma nota de 2024 com
 a regra de 2024.
 
+### Alagoas: duas vigências da regra geral
+
+| Data fiscal | ICMS interno | FCP geral | Fundamento |
+| --- | ---: | ---: | --- |
+| 01/04/2023 a 31/03/2026 | 19% | 1% | Lei 8.779/2022, art. 1º; Lei 6.558/2004, art. 2º-A |
+| Desde 01/04/2026 | 20,5% | 1% | Lei 9.776/2025, arts. 1º e 3º; Lei 6.558/2004, art. 2º-A |
+
+A [tabela do Portal Nacional do DIFAL](https://dfe-portal.svrs.rs.gov.br/Difal/aliquotas)
+exibe 20,5% na linha de AL, mas sua observação menciona 19% desde 01/04/2023.
+Essa divergência foi resolvida pelas duas leis estaduais: a Lei 8.779/2022
+fixou 19% para os demais casos naquele período, e a Lei 9.776/2025 passou a
+fixar 20,5% com efeitos em 01/04/2026. A referência antiga de 20% do ERP não
+substitui essas normas. Fontes conferidas em 25/09/2026; o Portal permanece
+como referência auxiliar.
+
+O FCP de 1% é a regra geral para as mercadorias e serviços não sujeitos ao
+adicional de 2% ou às exclusões do art. 2º-A. Há mercadorias e operações
+especiais em AL, inclusive hipóteses citadas na própria
+[Lei 7.742/2015](https://sapl.al.al.leg.br/media/sapl/public/normajuridica/2015/746/746_texto_integral.pdf).
+Elas exigem curadoria específica por NCM/CEST/benefício; quando cadastradas,
+vencem a regra geral pela precedência normal, campo a campo. A regra geral não
+é condicionada a CST 60.
+
 ## `null` não é `0`
 
 A regra mais importante do motor, e a que mais custa se for quebrada:
@@ -170,8 +198,19 @@ Pelo arquivo curado (caminho recomendado, porque fica versionado no git):
 
 1. acrescente a entrada em `data/fiscal/difal/aliquotas-uf.json`, com
    `fundamentoLegal`, `dataFonte` e `notaCuradoria` dizendo de onde veio;
-2. `npm run fiscal:difal -- demir` mostra o diff, sem gravar nada;
-3. `npm run fiscal:difal -- demir --aplicar` grava.
+2. `npm run fiscal:difal -- --todos` mostra o plano para todos os bancos ativos;
+3. após revisar, `npm run fiscal:difal -- --todos --aplicar` grava cada banco
+   em uma transação e mostra a verificação de AL;
+4. execute `npm run fiscal:difal -- --todos` outra vez para confirmar zero
+   inserções e zero alterações. Também é possível selecionar um único banco,
+   por exemplo `npm run fiscal:difal -- demir`.
+
+Os alvos vêm exclusivamente de `loadDatabaseConfigs()` em
+`scripts/db/lib.ts`: Demonstração, Demir e Garage Premium. AlphaGarage foi
+desativado e removido dos alvos em 09/09/2026, conforme
+[`docs/database-migrations.md`](../database-migrations.md). Um novo cliente
+precisa ser registrado nessa lista central e participar do mesmo rollout; a
+presença de uma URL antiga no ambiente não o reativa implicitamente.
 
 O script nunca apaga: linha que existe no banco e não no arquivo é preservada
 (pode ter sido cadastrada direto pelo contador).
@@ -352,21 +391,22 @@ npm run fiscal:ncm -- demir --aplicar    # grava
 Código que sai da NCM recebe `vigencia_fim` em vez de ser apagado: nota antiga
 referencia o NCM que valia na época.
 
-## Estado da carga inicial
+## Estado do catálogo após sincronização
 
-28 regras carregadas, **16 ativas**. Uma regra inativa fica no banco para
+29 regras carregadas, **18 ativas** após a sincronização global. Uma regra inativa fica no banco para
 histórico e auditoria, mas não resolve nada — a emissão para e pede confirmação.
 
-**Resolvem tudo automaticamente (interna + FCP):** PI, RJ, GO, RR.
+**Resolvem tudo automaticamente pela regra geral (interna + FCP):** PI, RJ, GO, RR e AL.
+Para AL, mercadorias especiais ainda exigem curadoria própria; veja acima.
 
 **Resolvem a interna, mas o FCP continua bloqueando:** AC, AP, BA, DF, ES, MG,
 MS, MT, RS, SC, SP — o portal simplesmente não publica o FCP da regra geral
 dessas UFs, e "célula vazia" não é o mesmo que "não há FCP".
 
-**Inativas, exigindo decisão humana:** AL, AM, CE, MA, PA, PB, PE, PR, RN, RO,
+**Inativas, exigindo decisão humana:** AM, CE, MA, PA, PB, PE, PR, RN, RO,
 SE, TO. Os motivos estão em `nota_curadoria`, linha a linha, e são de três
 tipos: o portal está desatualizado em relação à referência histórica do ERP
-(CE, MA, PA, PE, PR, RN, TO); a própria linha do portal se contradiz (AL, RO,
+(CE, MA, PA, PE, PR, RN, TO); a própria linha do portal se contradiz (RO,
 PB); ou o portal não publica regra geral para mercadorias (AM).
 
 Não copiamos os valores antigos do `ALIQUOTA_INTERNA_POR_UF` por cima: onde as
@@ -396,6 +436,7 @@ emissão escolher sozinha.
 
 ```bash
 npx tsx --test src/lib/nfe/difalRegras.test.ts   # 62 casos do motor
+npx tsx --test src/lib/nfe/difalAlagoas.test.ts  # vigências e NF-e 203
 npx tsx --test src/lib/fiscal-date/index.test.ts # data civil do emitente
 npx tsx --test src/lib/fiscal/ncm.test.ts        # normalização e busca de NCM
 npx tsx --test src/components/fiscal/ncm-combobox.test.tsx

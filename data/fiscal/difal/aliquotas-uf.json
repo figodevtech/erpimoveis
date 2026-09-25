@@ -3,7 +3,7 @@
   "fonte": "Portal Nacional do DIFAL (SVRS/ENCAT) — aba Alíquotas",
   "fonteUrl": "https://dfe-portal.svrs.rs.gov.br/Difal/aliquotas",
   "capturadoEm": "2026-09-22",
-  "observacao": "Arquivo curado a partir da tabela oficial. Cada linha reproduz a UF, a alíquota interna, o FCP e o fundamento como o portal publica. aliquotaFcp NULL significa que o portal NÃO declara o FCP da regra geral — não significa zero. Regras com ativo=false entram no banco desativadas de propósito: a tabela oficial diverge da referência histórica do ERP e a escolha exige confirmação humana (veja docs/sefaz/difal-regras.md).",
+  "observacao": "Arquivo fiscal curado e versionado. A tabela do Portal Nacional do DIFAL é referência auxiliar; quando sua observação diverge da linha, a legislação estadual oficial fundamenta a regra. aliquotaFcp NULL significa que a fonte NÃO determina o FCP da regra geral — não significa zero. Regras com ativo=false entram no banco desativadas de propósito quando a divergência ainda exige confirmação (veja docs/sefaz/difal-regras.md).",
   "convencoes": {
     "aliquotaFcp": "número = determinado pela fonte; null = a fonte não determina; 0 = a fonte declara que não há FCP",
     "vigenciaInicio": "quando a UF publica a vigência, é ela; senão, a 'Data da atualização' do portal, que é a data a partir da qual a UF assume o valor publicado",
@@ -223,15 +223,32 @@
     {
       "uf": "AL",
       "tipoRegra": "GERAL",
-      "descricao": "Regra Geral",
-      "aliquotaIcmsInterna": 20.5,
+      "descricao": "Regra geral de Alagoas — demais casos (19%)",
+      "aliquotaIcmsInterna": 19,
       "aliquotaFcp": 1,
       "vigenciaInicio": "2023-04-01",
+      "vigenciaFim": "2026-03-31",
+      "fonte": "Legislação oficial do Estado de Alagoas (Assembleia Legislativa)",
+      "fonteUrl": "https://sapl.al.al.leg.br/media/sapl/public/normajuridica/2022/2419/lei_no_8.779_de_20_de_dezembro_de_2022.pdf",
+      "fundamentoLegal": "Lei nº 8.779/2022, art. 1º, alterando o art. 17, I, b, da Lei nº 5.900/1996; Lei nº 6.558/2004, art. 2º-A (incluído pela Lei nº 7.742/2015)",
+      "dataFonte": "2022-12-22",
+      "ativo": true,
+      "notaCuradoria": "A linha do Portal Nacional do DIFAL mostra 20,5% e a observação menciona 19% desde 01/04/2023. A Lei nº 8.779/2022 resolve a divergência para este período: 19% na regra geral. O FECOEP geral é 1%, ressalvadas mercadorias e operações especiais. Portal auxiliar: https://dfe-portal.svrs.rs.gov.br/Difal/aliquotas"
+    },
+    {
+      "uf": "AL",
+      "tipoRegra": "GERAL",
+      "descricao": "Regra geral de Alagoas — demais casos (20,5%)",
+      "aliquotaIcmsInterna": 20.5,
+      "aliquotaFcp": 1,
+      "vigenciaInicio": "2026-04-01",
       "vigenciaFim": null,
-      "fundamentoLegal": "Art. 17, I, \"b\" da Lei nº 5.900/1996 e art. 2º-A da Lei nº 6.558/2004",
-      "dataFonte": "2023-04-01",
-      "ativo": false,
-      "notaCuradoria": "DESATIVADA: a própria observação do portal se contradiz — declara 20,5% na linha e, no texto, \"a partir de 01/04/2023 a alíquota interna da regra geral é 19%, conforme Lei 8.779/2022\". Referência histórica do ERP usava 20%. Três valores diferentes: exige confirmação humana."
+      "fonte": "Legislação oficial do Estado de Alagoas (Assembleia Legislativa)",
+      "fonteUrl": "https://sapl.al.al.leg.br/media/sapl/public/normajuridica/2025/3699/lei_no_9.776_de_22_de_dezembro_de_2025.pdf",
+      "fundamentoLegal": "Lei nº 9.776/2025, art. 1º e art. 3º, alterando o art. 17, I, b, da Lei nº 5.900/1996; Lei nº 6.558/2004, art. 2º-A (incluído pela Lei nº 7.742/2015)",
+      "dataFonte": "2025-12-23",
+      "ativo": true,
+      "notaCuradoria": "A Lei nº 9.776/2025 fixa 20,5% para os demais casos com efeitos desde 01/04/2026. A linha atual do Portal Nacional do DIFAL coincide com esse valor, mas sua observação sobre 19% descreve a vigência anterior. O FECOEP geral é 1%, ressalvadas mercadorias e operações especiais. Portal auxiliar: https://dfe-portal.svrs.rs.gov.br/Difal/aliquotas"
     },
     {
       "uf": "CE",
