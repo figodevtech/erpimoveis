@@ -78,6 +78,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
+import { ehRejeicaoIndIeDestIsentoNaoPermitido, MENSAGEM_REJEICAO_805 } from "@/lib/nfe/indIEDest";
 import { EntradaFiscalDialog } from "@/components/entrada-fiscal/entrada-fiscal-dialog";
 
 import {
@@ -1139,6 +1140,7 @@ export default function FiscalTable({
               // Rejeição não consome a numeração: o número volta para a fila e é
               // atribuído de novo no próximo envio, desta ou de outra nota.
               const isRejeitada = String(nota.status).toUpperCase() === "REJEITADA";
+              const rejeicao805 = isRejeitada && ehRejeicaoIndIeDestIsentoNaoPermitido(nota.codigo_rejeicao);
               // Enquanto a nota não foi transmitida com sucesso, o número exibido
               // é só uma prévia.
               const numeroProvisorio =
@@ -1198,6 +1200,11 @@ export default function FiscalTable({
                       <Badge variant="outline" className={statusClass(nota.status)}>
                       {traduzStatusNfe(nota.status)}
                     </Badge>
+                      {rejeicao805 ? (
+                        <span className="text-xs text-destructive" title={MENSAGEM_REJEICAO_805}>
+                          Rejeição 805: revise a classificação fiscal do destinatário antes de reenviar.
+                        </span>
+                      ) : null}
                     </div>
                   </TableCell>
 
@@ -1315,10 +1322,10 @@ export default function FiscalTable({
                               <FileCode className="mr-2 h-4 w-4" />
                               Editar XML
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => autorizarNfe(nota.id)}>
+                            {!rejeicao805 ? <DropdownMenuItem onClick={() => autorizarNfe(nota.id)}>
                               <CheckCircle2 className="mr-2 h-4 w-4" />
                               Autorizar NFe
-                            </DropdownMenuItem>
+                            </DropdownMenuItem> : null}
                           </>
                         ) : null}
                         {podeExcluirRascunho ? (

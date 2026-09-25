@@ -205,6 +205,10 @@ export type FonteIssueFiscal = {
   titulo: string;
   versao?: string;
   url?: string;
+  regra?: string;
+  cStat?: string;
+  /** Data da última conferência da publicação oficial (AAAA-MM-DD). */
+  revisadaEm?: string;
   /** AAAA-MM-DD */
   vigenciaDesde?: string;
   /** 'NACIONAL' ou a sigla da UF da política estadual. */

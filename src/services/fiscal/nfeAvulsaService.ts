@@ -14,6 +14,7 @@ import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
+import { issueE16a30 } from "@/lib/nfe/regraE16a30";
 import { chaveCiencia, classificarIssuesFiscais, type CienciaRegistrada } from "@/lib/nfe/issuesFiscais";
 import {
   carregarCiencias,
@@ -1885,6 +1886,24 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
     }),
   );
   const itensXml = preparados.map((preparado) => preparado.nfeItem);
+  const issueDestinatario = issueE16a30({
+    modelo,
+    idDest: isNfce ? 1 : input.destinatario.tipoPessoa === 'ESTRANGEIRO' ? 3 : empresaUf === destinatarioUf ? 1 : 2,
+    ufDestino: destinatarioUf,
+    indIEDest: input.destinatario.indicadorIe ?? '',
+    ambiente: empresa.ambiente ?? 'HOMOLOGACAO',
+    dataEmissao: issueDay,
+    itens: itensXml,
+  });
+  if (issueDestinatario) {
+    return { ok: false as const, errors: [{
+      step: 'recipient',
+      field: 'indicadorIe',
+      code: issueDestinatario.code,
+      message: issueDestinatario.message,
+      fontes: issueDestinatario.fontes,
+    }] as ValidationError[] };
+  }
   for (const item of itensXml) {
     if (!item.rtc) continue;
     const classification = classificationsByCode.get(item.rtc.cClassTrib);

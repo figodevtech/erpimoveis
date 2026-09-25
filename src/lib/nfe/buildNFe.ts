@@ -20,6 +20,8 @@ import { calcularTotaisNFe, normalizarCRT } from './fiscal';
 import { deveGerarICMSUFDest, validarDifalCanonicoDoItem } from './difal';
 import { escapeXml, truncateNfeXNome } from './xmlUtils';
 import { validarInscricaoEstadualDestinatario } from './indIEDest';
+import { avaliarRegraE16a30Xml } from './regraE16a30Xml';
+import { CODE_E16A30, mensagemBloqueioE16a30 } from './regraE16a30';
 import {
   NFCE_HOMOLOGACAO_PRIMEIRO_ITEM_DESCRICAO,
   NFE_HOMOLOGACAO_DESTINATARIO_NOME,
@@ -791,6 +793,11 @@ export function buildNFePreviewXml(
     '<NFe xmlns="http://www.portalfiscal.inf.br/nfe">' +
     infNFeXml +
     '</NFe>';
+
+  const e16a30 = avaliarRegraE16a30Xml(nfeXml);
+  if (e16a30.bloqueia) {
+    throw new Error(`${CODE_E16A30}: ${mensagemBloqueioE16a30(destinatarioUf)}`);
+  }
 
   return { xml: nfeXml, chave, id };
 }

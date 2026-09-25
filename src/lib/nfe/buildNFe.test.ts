@@ -93,6 +93,42 @@ function destinatario(uf: string): NFeDestinatario {
 }
 
 describe("destino da operação na NF-e", () => {
+  it('bloqueia operação interna PB para PB com indIEDest 2 antes de entregar XML', () => {
+    assert.throws(
+      () => buildNFePreviewXml(
+        { ...empresa, uf: 'PB', codigomunicipio: '2507507' },
+        204,
+        3,
+        [item],
+        {
+          ...destinatario('PB'),
+          indIEDest: '2',
+          endereco: {
+            ...destinatario('PB').endereco,
+            codigoMunicipio: '2507507',
+            nomeMunicipio: 'JOAO PESSOA',
+          },
+        },
+        { nomeMunicipioEmitente: 'JOAO PESSOA', indFinal: 0 },
+      ),
+      /NFE_IND_IE_DEST_ISENTO_UF_NAO_PERMITE/,
+    );
+  });
+
+  it('bloqueia AL com indIEDest 2 antes de entregar XML para assinatura', () => {
+    assert.throws(
+      () => buildNFePreviewXml(
+        empresa,
+        203,
+        3,
+        [{ ...item, cfop: '6102' }],
+        { ...destinatario('AL'), indIEDest: '2' },
+        { nomeMunicipioEmitente: 'SAO PAULO', indFinal: 0 },
+      ),
+      /NFE_IND_IE_DEST_ISENTO_UF_NAO_PERMITE/,
+    );
+  });
+
   it("marca operação interna quando emitente e destinatário estão na mesma UF", () => {
     const result = buildNFePreviewXml(empresa, 1, 1, [item], destinatario("SP"), {
       nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
