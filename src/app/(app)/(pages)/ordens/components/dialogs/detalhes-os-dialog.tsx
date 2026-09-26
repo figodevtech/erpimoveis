@@ -3095,12 +3095,12 @@ export function OSDetalhesDialog({
                         </div>
                       </div>
 
-                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[280px]">
+                      <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 sm:w-auto sm:max-w-md">
                         <Select
                           value={anexoCategoria}
                           onValueChange={(value) => setAnexoCategoria(value as OsAnexoCategoria)}
                         >
-                          <SelectTrigger className="w-full">
+                          <SelectTrigger className="h-7 w-full text-xs data-[size=default]:h-7">
                             <SelectValue placeholder="Tipo do documento" />
                           </SelectTrigger>
                           <SelectContent>
@@ -3122,7 +3122,7 @@ export function OSDetalhesDialog({
                         <Button
                           type="button"
                           variant="outline"
-                          size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5"
+                          size="sm" className="h-7 w-auto flex-none gap-1.5 px-2 text-xs has-[>svg]:px-2 [&_svg]:size-3.5"
                           disabled={uploadingAnexo || loadingAnexos || !!osVideos.busy || anexos.length >= maxAnexosPorOs || !podeEditarOS}
                           onClick={() => fileInputRef.current?.click()}
                         >
@@ -3131,12 +3131,12 @@ export function OSDetalhesDialog({
                           ) : (
                             <Upload className="h-4 w-4" />
                           )}
-                          {uploadingAnexo ? "Enviando..." : "Adicionar foto ou PDF"}
+                          {uploadingAnexo ? "Enviando..." : "Foto ou PDF"}
                         </Button>
                         {osVideos.enabled && osVideos.canEdit && <>
                           <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={handleAnexoChange} />
-                          <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5" disabled={uploadingAnexo || loadingAnexos || !!osVideos.busy || !podeEditarOS} onClick={() => videoInputRef.current?.click()}>
-                            <Upload className="h-4 w-4" />{osVideos.busy || "Escolher vídeo salvo"}
+                          <Button type="button" variant="outline" size="sm" className="h-7 w-auto flex-none gap-1.5 px-2 text-xs has-[>svg]:px-2 [&_svg]:size-3.5" disabled={uploadingAnexo || loadingAnexos || !!osVideos.busy || !podeEditarOS} onClick={() => videoInputRef.current?.click()}>
+                            <Upload className="h-4 w-4" />{osVideos.busy || "Vídeo salvo"}
                           </Button>
             <ChecklistVideoCamera compact disabled={uploadingAnexo || loadingAnexos || !!osVideos.busy || !podeEditarOS} onCapture={file => { void osVideos.upload(file, anexoCategoria).catch(() => undefined); }} />
             <p className="basis-full text-xs text-muted-foreground">Para gravar em Full HD, use Gravar vídeo aqui no ERP. No seletor do iPhone, escolha Fototeca ou Arquivos.</p>

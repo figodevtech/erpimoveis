@@ -1584,12 +1584,12 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                 {anexos.length + vendaVideos.videos.length} anexos · limite de {MAX_ANEXOS_POR_VENDA} para imagens e PDFs.
                               </p>
                             </div>
-                            <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[280px]">
+                            <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 sm:w-auto sm:max-w-md">
                               <Select
                                 value={anexoCategoria}
                                 onValueChange={(value) => setAnexoCategoria(value as VendaAnexoCategoria)}
                               >
-                                <SelectTrigger className="w-full">
+                                <SelectTrigger className="h-7 w-full text-xs data-[size=default]:h-7">
                                   <SelectValue placeholder="Categoria do anexo" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -1610,7 +1610,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                               <Button
                                 type="button"
                                 variant="outline"
-                                size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5"
+                                size="sm" className="h-7 w-auto flex-none gap-1.5 px-2 text-xs has-[>svg]:px-2 [&_svg]:size-3.5"
                                 disabled={uploadingAnexo || loadingAnexos || !!vendaVideos.busy || anexos.length >= MAX_ANEXOS_POR_VENDA}
                                 onClick={() => fileInputRef.current?.click()}
                               >
@@ -1619,12 +1619,12 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                 ) : (
                                   <Upload className="h-4 w-4" />
                                 )}
-                                {uploadingAnexo ? "Enviando..." : "Adicionar foto ou PDF"}
+                                {uploadingAnexo ? "Enviando..." : "Foto ou PDF"}
                               </Button>
                               {vendaVideos.enabled && vendaVideos.canEdit && <>
                                 <input ref={videoInputRef} type="file" className="hidden" accept="video/*" onChange={handleAnexoChange} />
-                                <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 px-2.5 text-xs [&_svg]:size-3.5" disabled={uploadingAnexo || loadingAnexos || !!vendaVideos.busy} onClick={() => videoInputRef.current?.click()}>
-                                  <Upload className="h-4 w-4" />{vendaVideos.busy || "Escolher vídeo salvo"}
+                                <Button type="button" variant="outline" size="sm" className="h-7 w-auto flex-none gap-1.5 px-2 text-xs has-[>svg]:px-2 [&_svg]:size-3.5" disabled={uploadingAnexo || loadingAnexos || !!vendaVideos.busy} onClick={() => videoInputRef.current?.click()}>
+                                  <Upload className="h-4 w-4" />{vendaVideos.busy || "Vídeo salvo"}
                                 </Button>
             <ChecklistVideoCamera compact disabled={uploadingAnexo || loadingAnexos || !!vendaVideos.busy} onCapture={file => { void vendaVideos.upload(file, anexoCategoria).catch(() => undefined); }} />
             <p className="basis-full text-xs text-muted-foreground">Para gravar em Full HD, use Gravar vídeo aqui no ERP. No seletor do iPhone, escolha Fototeca ou Arquivos.</p>
