@@ -18,16 +18,21 @@ export function NfeDuplicatasEditor({ value, onChange, valorEsperado, disabled =
   const total = value.reduce((sum, item) => sum + (centavosDaDuplicata(item.valor) || 0), 0);
   const esperado = centavosDaDuplicata(valorEsperado);
   const diferenca = esperado - total;
+  const valorInsuficiente = value.length > 0 && Number.isSafeInteger(esperado) && esperado < value.length;
+  const podeDividir = !disabled && value.length > 0 && Number.isSafeInteger(esperado) && esperado >= value.length;
   const renumerar = (items: NFeDuplicataInput[]) => onChange(items.map((item, index) => ({ ...item, numero: numeroDaDuplicata(index) })));
 
   return <div className="min-w-0 space-y-3 rounded-lg border p-3">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="font-medium">Duplicatas</p>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" disabled={disabled || value.length === 0} onClick={() => onChange(dividirDuplicatasIgualmente(value, valorEsperado))}>Dividir igualmente</Button>
+        <Button type="button" variant="outline" size="sm" disabled={!podeDividir} onClick={() => {
+          if (podeDividir) onChange(dividirDuplicatasIgualmente(value, valorEsperado));
+        }}>Dividir igualmente</Button>
         <Button type="button" variant="outline" size="sm" disabled={disabled || value.length >= MAX_DUPLICATAS_NFE} onClick={() => renumerar([...value, { vencimento: "", valor: 0 }])}>+ Adicionar duplicata</Button>
       </div>
     </div>
+    {valorInsuficiente && <p className="text-xs text-muted-foreground">O valor não pode ser dividido entre estas duplicatas porque alguma parcela ficaria zerada.</p>}
     <div className="space-y-2">
       {value.map((item, index) => <div className="grid min-w-0 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-end gap-2 rounded-md border p-2 sm:grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_auto] sm:rounded-none sm:border-0 sm:border-b sm:px-0" key={index}>
         <span className="self-center text-sm font-medium tabular-nums">{numeroDaDuplicata(index)}</span>

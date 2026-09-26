@@ -6,12 +6,17 @@ import { centavosDaDuplicata, distribuirDuplicatasIgualmente, dividirDuplicatasI
 
 test("divide igualmente em centavos e distribui o resto desde a primeira parcela", () => {
   assert.deepEqual(distribuirDuplicatasIgualmente(3910, 2), [195500, 195500]);
+  assert.deepEqual(distribuirDuplicatasIgualmente(0.01, 1), [1]);
+  assert.deepEqual(distribuirDuplicatasIgualmente(0.02, 2), [1, 1]);
+  assert.deepEqual(distribuirDuplicatasIgualmente(0.03, 2), [2, 1]);
   assert.deepEqual(distribuirDuplicatasIgualmente(100, 3), [3334, 3333, 3333]);
-  assert.deepEqual(distribuirDuplicatasIgualmente(0.01, 3), [1, 0, 0]);
+  assert.throws(() => distribuirDuplicatasIgualmente(0.01, 2), RangeError);
+  assert.throws(() => distribuirDuplicatasIgualmente(0.01, 3), RangeError);
   for (const quantidade of [1, 2, 3, 7, 120]) {
-    for (const valor of [0.01, 100, 3910, 1234.57]) {
+    for (const valor of [quantidade / 100, 100, 3910, 1234.57]) {
       const parcelas = distribuirDuplicatasIgualmente(valor, quantidade);
       assert.equal(parcelas.length, quantidade);
+      assert.ok(parcelas.every((centavos) => Number.isInteger(centavos) && centavos > 0));
       assert.equal(parcelas.reduce((soma, centavos) => soma + centavos, 0), centavosDaDuplicata(valor));
     }
   }

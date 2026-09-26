@@ -110,6 +110,9 @@ export function distribuirDuplicatasIgualmente(valorTotal: string | number, quan
     !Number.isInteger(quantidade) || quantidade < 1 || quantidade > MAX_DUPLICATAS_NFE) {
     throw new RangeError("Valor ou quantidade de duplicatas inválido.");
   }
+  if (totalCentavos < quantidade) {
+    throw new RangeError("Cada duplicata precisa receber pelo menos R$ 0,01.");
+  }
   const base = Math.floor(totalCentavos / quantidade);
   const resto = totalCentavos % quantidade;
   return Array.from({ length: quantidade }, (_, index) => base + (index < resto ? 1 : 0));
