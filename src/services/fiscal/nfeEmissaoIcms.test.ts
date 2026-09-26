@@ -21,7 +21,8 @@ import {
 } from "./nfeAvulsaService";
 import type { ResultadoRegistroCiencia } from "./cienciaAvisoFiscal";
 import { salvarNFeDeOrigem, statusOcupaOrigem, type NFeOrigemDraftInput } from "./nfeOrigemService";
-import { salvarContextoFiscalSaida, salvarNFeDaSaida } from "./nfeSaidaService";
+import { buscarContextoFiscalSaida, buscarEntradasCandidatasDaSaida, salvarContextoFiscalSaida, salvarNFeDaSaida } from "./nfeSaidaService";
+import { blocoDasNotasFiscaisReferencia, concatenarBloco } from "@/lib/fiscal/blocosDeObservacao";
 import { gerarChaveAcesso } from "@/lib/nfe/chaveAcesso";
 import { resolverTratamentoIcms, validarCoerenciaCfopIcms } from "@/lib/nfe/icms";
 import { chaveCiencia, pedidosDeCiencia } from "@/lib/nfe/issuesFiscais";
@@ -600,6 +601,44 @@ describe("SAÍDA DE ESTOQUE — mesmo núcleo", () => {
   const itemSaida = (overrides: SemOrigem = {}) =>
     itemDaTela({ sourceItemId: "saida:80:800", cfop: "6949", ...overrides });
 
+  it("contexto e candidatas carregam dados da NF-e somente com entrada efetivamente vinculada", async () => {
+    const contexto = banco.tabela("estoque_saida_fiscal")[0];
+    contexto.entrada_origem_id = 70;
+    contexto.itens[0].entrada_item_origem_id = 300;
+    contexto.entradaReferencia = {
+      id: 70, notachave: chaveFiscalOrigem, numero_nota: "12345", serie_nota: "1",
+      data_emissao: "2026-09-25T10:00:00-03:00",
+      fornecedor: { nomerazaosocial: "FORNECEDOR MG LTDA" },
+    };
+    const dados = await buscarContextoFiscalSaida(80);
+    assert.deepEqual(dados.notaFiscalReferencia, {
+      entradaId: 70, entradaItemOrigemIds: [300], chaveAcesso: chaveFiscalOrigem,
+      numeroNota: "12345", serieNota: "1", dataEmissao: "2026-09-25T10:00:00-03:00",
+      fornecedor: "FORNECEDOR MG LTDA",
+    });
+    const bloco = blocoDasNotasFiscaisReferencia([dados.notaFiscalReferencia]);
+    assert.ok(bloco?.texto.includes("nº 12345; série 1; emissão 25/09/2026"));
+
+    banco.tabela("entradaitens")[0].entrada = {
+      id: 70, status: "CONFIRMADA", notachave: chaveFiscalOrigem,
+      numero_nota: "12345", serie_nota: "1", data_emissao: "2026-09-25T10:00:00-03:00",
+      fornecedor: { id: 20, nomerazaosocial: "FORNECEDOR MG LTDA" },
+    };
+    const candidatas = await buscarEntradasCandidatasDaSaida(80);
+    const entradaCandidata = candidatas[0].entrada as unknown as {
+      numero_nota: string; serie_nota: string; data_emissao: string;
+    };
+    assert.equal(entradaCandidata.numero_nota, "12345");
+    assert.equal(entradaCandidata.serie_nota, "1");
+    assert.equal(entradaCandidata.data_emissao, "2026-09-25T10:00:00-03:00");
+
+    contexto.itens[0].entrada_item_origem_id = null;
+    assert.equal((await buscarContextoFiscalSaida(80)).notaFiscalReferencia, null);
+    contexto.itens[0].entrada_item_origem_id = 300;
+    contexto.entrada_origem_id = null;
+    assert.equal((await buscarContextoFiscalSaida(80)).notaFiscalReferencia, null);
+  });
+
   function configurarSemOrigem(codigo: string, natureza: string) {
     const contexto = banco.tabela("estoque_saida_fiscal")[0];
     contexto.operacao_fiscal_codigo = codigo;
@@ -689,14 +728,19 @@ describe("SAÍDA DE ESTOQUE — mesmo núcleo", () => {
     contexto.chave_acesso_referenciada = chaveFiscalOrigem;
     contexto.itens[0].numero_item_referenciado = 1;
     contexto.itens[0].entrada_item_origem_id = 300;
+    const bloco = blocoDasNotasFiscaisReferencia([{ chaveAcesso: chaveFiscalOrigem, numeroNota: "12345" }]);
+    assert.ok(bloco);
+    const observacoesFiscais = concatenarBloco("Texto existente", bloco.texto, 500).texto;
     const resultado = await salvarNFeDaSaida(80, {
       itens: [itemSaida({ cfop: "6202", cst: "00" })], destinatario,
       destinoMercadoria: "USO_CONSUMO",
+      observacoesFiscais,
     });
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
     const xml = notaGravada(resultado.nfeId).xml;
     assert.match(xml, new RegExp(`<DFeReferenciado><chaveAcesso>${chaveFiscalOrigem}</chaveAcesso><nItem>1</nItem>`));
     assert.doesNotMatch(xml, /<NFref>/);
+    assert.match(xml, /<infCpl>.*Texto existente NF-e de referencia: n 12345; chave /);
   });
 
   it("o servidor descarta vínculos antigos sem consultar entrada inexistente", async () => {

@@ -257,7 +257,8 @@ async function carregarEntradaItem(entradaItemId: number) {
       id, entrada_id, produto_id, quantidade, valor_unitario_compra, precovenda,
       numero_item_fiscal,
       entrada:entrada_id(
-        id, fiscal, status, notachave, fornecedorid, fiscal_dfe_documento_id, created_at,
+        id, fiscal, status, notachave, numero_nota, serie_nota, data_emissao,
+        fornecedorid, fiscal_dfe_documento_id, created_at,
         fornecedor:fornecedorid(
           id, cpfcnpj, nomerazaosocial, contato, endereco, endereconumero,
           enderecocomplemento, bairro, cidade, estado, cep, codigomunicipio
@@ -274,10 +275,32 @@ export async function buscarContextoFiscalSaida(saidaId: number) {
   const saida = await carregarSaida(saidaId);
   const { data: contexto, error } = await supabaseAdmin
     .from("estoque_saida_fiscal")
-    .select("*, itens:estoque_saida_item_fiscal(*)")
+    .select(`*, itens:estoque_saida_item_fiscal(*),
+      entradaReferencia:entrada_origem_id(
+        id, notachave, numero_nota, serie_nota, data_emissao,
+        fornecedor:fornecedorid(nomerazaosocial)
+      )`)
     .eq("saida_id", saidaId)
     .maybeSingle();
   if (error) throw error;
+
+  const entradaReferencia = relationOne<any>(contexto?.entradaReferencia);
+  const chaveReferencia = onlyDigits(entradaReferencia?.notachave);
+  const entradaItemOrigemIds = (contexto?.itens ?? [])
+    .map((item: any) => Number(item.entrada_item_origem_id ?? 0))
+    .filter((id: number) => id > 0);
+  const notaFiscalReferencia = contexto?.entrada_origem_id && entradaItemOrigemIds.length &&
+    Number(entradaReferencia?.id) === Number(contexto.entrada_origem_id) && chaveReferencia.length === 44
+    ? {
+        entradaId: Number(entradaReferencia.id),
+        entradaItemOrigemIds,
+        chaveAcesso: chaveReferencia,
+        numeroNota: entradaReferencia.numero_nota ?? null,
+        serieNota: entradaReferencia.serie_nota ?? null,
+        dataEmissao: entradaReferencia.data_emissao ?? null,
+        fornecedor: relationOne<any>(entradaReferencia.fornecedor)?.nomerazaosocial ?? null,
+      }
+    : null;
 
   let destinatario = contexto?.destinatario_snapshot ?? null;
   if (!destinatario && contexto?.entrada_origem_id) {
@@ -296,7 +319,7 @@ export async function buscarContextoFiscalSaida(saidaId: number) {
     destinatario = fornecedor ? fornecedorToDestinatario(fornecedor) : null;
   }
 
-  return { saida, contexto, destinatario };
+  return { saida, contexto, destinatario, notaFiscalReferencia };
 }
 
 export async function buscarEntradasCandidatasDaSaida(saidaId: number) {
@@ -310,7 +333,7 @@ export async function buscarEntradasCandidatasDaSaida(saidaId: number) {
       id, entrada_id, produto_id, quantidade, valor_unitario_compra, precovenda, titulo,
       numero_item_fiscal,
       entrada:entrada_id(
-        id, fiscal, status, notachave, created_at, fornecedorid,
+        id, fiscal, status, notachave, numero_nota, serie_nota, data_emissao, created_at, fornecedorid,
         fornecedor:fornecedorid(
           id, cpfcnpj, nomerazaosocial, nomefantasia, contato, endereco,
           endereconumero, enderecocomplemento, bairro, cidade, estado, cep,

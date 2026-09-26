@@ -37,6 +37,9 @@ export type EntradaCandidata = {
   entrada?: {
     id: number;
     notachave?: string | null;
+    numero_nota?: string | null;
+    serie_nota?: string | null;
+    data_emissao?: string | null;
     created_at?: string | null;
     fornecedor?: { id: number; nomerazaosocial?: string | null } | Array<{ id: number; nomerazaosocial?: string | null }> | null;
   } | Array<any> | null;

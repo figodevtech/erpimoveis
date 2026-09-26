@@ -66,6 +66,53 @@ export type BlocoDeObservacao = {
   texto: string;
 };
 
+export type NotaFiscalReferenciaObservacao = {
+  chaveAcesso?: string | null;
+  numeroNota?: string | null;
+  serieNota?: string | null;
+  dataEmissao?: string | null;
+  fornecedor?: string | null;
+};
+
+function dataDeEmissaoDaNota(value: string | null | undefined): string {
+  const entrada = texto(value);
+  const dataCivil = entrada.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dataCivil) return `${dataCivil[3]}/${dataCivil[2]}/${dataCivil[1]}`;
+  const instante = new Date(entrada);
+  return entrada && !Number.isNaN(instante.getTime())
+    ? new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo" }).format(instante)
+    : "";
+}
+
+/** O vínculo com a entrada é verificado pela tela; a chave identifica a NF-e aqui. */
+export function blocoDaNotaFiscalReferencia(nota: NotaFiscalReferenciaObservacao | null | undefined): string {
+  const chave = texto(nota?.chaveAcesso).replace(/\D/g, "");
+  if (chave.length !== 44) return "";
+  return montarBloco("NF-e de referência", "", juntarCampos([
+    ["nº", texto(nota?.numeroNota)],
+    ["série", texto(nota?.serieNota)],
+    ["emissão", dataDeEmissaoDaNota(nota?.dataEmissao)],
+    ["fornecedor", texto(nota?.fornecedor)],
+    ["chave", chave],
+  ]));
+}
+
+export function blocoDasNotasFiscaisReferencia(
+  notas: Array<NotaFiscalReferenciaObservacao | null | undefined>,
+): BlocoDeObservacao | null {
+  const chaves = new Set<string>();
+  const textos: string[] = [];
+  for (const nota of notas) {
+    const chave = texto(nota?.chaveAcesso).replace(/\D/g, "");
+    if (chaves.has(chave)) continue;
+    const bloco = blocoDaNotaFiscalReferencia(nota);
+    if (!bloco) continue;
+    chaves.add(chave);
+    textos.push(bloco);
+  }
+  return textos.length ? { rotulo: "Dados da NF-e de referência", texto: textos.join("\n") } : null;
+}
+
 const ROTULO_DO_ALVO: Record<AlvoTipoFiscal, string> = {
   VEICULO: "Dados do veículo",
   PECA: "Dados da peça",

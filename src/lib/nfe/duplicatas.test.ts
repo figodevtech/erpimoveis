@@ -2,7 +2,34 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { XMLParser } from "fast-xml-parser";
 
-import { extrairCobranca, numeroDaDuplicata, resolverCobrancaNFe, totalDasDuplicatas } from "./duplicatas";
+import { centavosDaDuplicata, distribuirDuplicatasIgualmente, dividirDuplicatasIgualmente, extrairCobranca, numeroDaDuplicata, resolverCobrancaNFe, totalDasDuplicatas } from "./duplicatas";
+
+test("divide igualmente em centavos e distribui o resto desde a primeira parcela", () => {
+  assert.deepEqual(distribuirDuplicatasIgualmente(3910, 2), [195500, 195500]);
+  assert.deepEqual(distribuirDuplicatasIgualmente(100, 3), [3334, 3333, 3333]);
+  assert.deepEqual(distribuirDuplicatasIgualmente(0.01, 3), [1, 0, 0]);
+  for (const quantidade of [1, 2, 3, 7, 120]) {
+    for (const valor of [0.01, 100, 3910, 1234.57]) {
+      const parcelas = distribuirDuplicatasIgualmente(valor, quantidade);
+      assert.equal(parcelas.length, quantidade);
+      assert.equal(parcelas.reduce((soma, centavos) => soma + centavos, 0), centavosDaDuplicata(valor));
+    }
+  }
+  assert.throws(() => distribuirDuplicatasIgualmente(100, 121), RangeError);
+});
+
+test("divisão preserva vencimentos, quantidade e numeração automática", () => {
+  const antes = [
+    { numero: "999", vencimento: "2026-10-25", valor: 1 },
+    { numero: "999", vencimento: "2026-11-25", valor: 2 },
+    { numero: "999", vencimento: "2026-12-25", valor: 3 },
+  ];
+  const depois = dividirDuplicatasIgualmente(antes, 100);
+  assert.deepEqual(depois.map((item) => item.vencimento), antes.map((item) => item.vencimento));
+  assert.deepEqual(depois.map((item) => item.numero), ["001", "002", "003"]);
+  assert.deepEqual(depois.map((item) => centavosDaDuplicata(item.valor)), [3334, 3333, 3333]);
+  assert.deepEqual(antes.map((item) => item.valor), [1, 2, 3]);
+});
 
 const cobrar = (params: Partial<Parameters<typeof resolverCobrancaNFe>[0]> = {}) => resolverCobrancaNFe({
   modelo: 55,

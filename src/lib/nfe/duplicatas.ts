@@ -103,6 +103,30 @@ export function centavosDaDuplicata(valor: string | number | null | undefined): 
   return Number.isFinite(numero) ? Math.round(numero * 100) : NaN;
 }
 
+/** Retorna centavos inteiros; o resto é distribuído a partir da primeira parcela. */
+export function distribuirDuplicatasIgualmente(valorTotal: string | number, quantidade: number): number[] {
+  const totalCentavos = centavosDaDuplicata(valorTotal);
+  if (!Number.isSafeInteger(totalCentavos) || totalCentavos < 0 ||
+    !Number.isInteger(quantidade) || quantidade < 1 || quantidade > MAX_DUPLICATAS_NFE) {
+    throw new RangeError("Valor ou quantidade de duplicatas inválido.");
+  }
+  const base = Math.floor(totalCentavos / quantidade);
+  const resto = totalCentavos % quantidade;
+  return Array.from({ length: quantidade }, (_, index) => base + (index < resto ? 1 : 0));
+}
+
+export function dividirDuplicatasIgualmente(
+  duplicatas: NFeDuplicataInput[], valorTotal: string | number,
+): NFeDuplicataInput[] {
+  if (!duplicatas.length) return duplicatas;
+  const valores = distribuirDuplicatasIgualmente(valorTotal, duplicatas.length);
+  return duplicatas.map((duplicata, index) => ({
+    ...duplicata,
+    numero: numeroDaDuplicata(index),
+    valor: valores[index] / 100,
+  }));
+}
+
 function dataCivilValida(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const [ano, mes, dia] = value.split("-").map(Number);

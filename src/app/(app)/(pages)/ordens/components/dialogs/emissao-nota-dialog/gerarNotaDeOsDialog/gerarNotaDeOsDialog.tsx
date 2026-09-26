@@ -66,9 +66,11 @@ import { toast } from "@/lib/toast";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { resolveCfopForEmission } from "@/lib/nfe/cfopOperation";
 import {
+  blocoDasNotasFiscaisReferencia,
   blocosDeObservacao,
   concatenarBloco,
   type AlvoFiscal,
+  type NotaFiscalReferenciaObservacao,
 } from "@/lib/fiscal/blocosDeObservacao";
 import {
   NFE_FREIGHT_OPTIONS,
@@ -128,6 +130,7 @@ import {
 } from "./nfe-entry-supplier-editor";
 import {
   atualizarDecisaoFiscalSaida,
+  exigeDocumentoDeOrigem,
   NfeSaidaOrigemEditor,
   relacaoUnica,
   validarOrigemFiscalSaida,
@@ -140,6 +143,10 @@ import {
 type SaidaFiscalResponse = {
   ok: boolean;
   message?: string;
+  notaFiscalReferencia?: (NotaFiscalReferenciaObservacao & {
+    entradaId: number;
+    entradaItemOrigemIds: number[];
+  }) | null;
   contexto?: {
     operacao_fiscal_codigo?: string | null;
     natureza_operacao?: string | null;
@@ -509,6 +516,7 @@ export function GerarNotaDeOsDialog({
   const [saidaOrigem, setSaidaOrigem] = useState<SaidaOrigemDraft>(emptySaidaOrigem);
   const [saidaOperacoes, setSaidaOperacoes] = useState<OperacaoFiscalSaidaOption[]>([]);
   const [entradasCandidatas, setEntradasCandidatas] = useState<EntradaCandidata[]>([]);
+  const [notaFiscalReferenciaSalva, setNotaFiscalReferenciaSalva] = useState<SaidaFiscalResponse["notaFiscalReferencia"]>(null);
   const [espelhando, setEspelhando] = useState(false);
   const [buscandoRelacionadas, setBuscandoRelacionadas] = useState(false);
   const [resumoRelacionadas, setResumoRelacionadas] = useState<{
@@ -840,6 +848,7 @@ export function GerarNotaDeOsDialog({
 
         setSaidaOperacoes(operacoes);
         setEntradasCandidatas(saidaJson?.entradasCandidatas ?? []);
+        setNotaFiscalReferenciaSalva(saidaJson.notaFiscalReferencia ?? null);
         const origemCarregada = atualizarDecisaoFiscalSaida({
           operacaoFiscalCodigo: operacaoGravada?.codigo ?? "",
           naturezaOperacao: contexto?.natureza_operacao ?? operacaoGravada?.naturezaOperacao ?? "",
@@ -902,6 +911,7 @@ export function GerarNotaDeOsDialog({
       setSource(null);
       setItems([]);
       setSelectedIds([]);
+      setNotaFiscalReferenciaSalva(null);
       setDescontoGeral(0);
       setResumoRelacionadas(null);
       setEntrySupplier(emptyEntrySupplier);
@@ -1077,10 +1087,34 @@ export function GerarNotaDeOsDialog({
   // Botões do texto livre. O cliente sai do mesmo `source` que alimenta o
   // destinatário da nota, então o texto casa com quem está sendo emitido — e
   // acompanha a edição feita pelo dialog do cliente.
-  const blocosDoTextoLivre = useMemo(
-    () => blocosDeObservacao(source?.alvo, source?.cliente),
-    [source?.alvo, source?.cliente],
-  );
+  const blocosDoTextoLivre = useMemo(() => {
+    const blocos = blocosDeObservacao(source?.alvo, source?.cliente);
+    if (origin !== "SAIDA" || !exigeDocumentoDeOrigem(saidaOrigem)) return blocos;
+
+    const idsVinculados = new Set(saidaOrigem.itens
+      .filter((item) => selectedSet.has(item.sourceItemId) && item.entradaItemOrigemId)
+      .map((item) => Number(item.entradaItemOrigemId)));
+    const notas: NotaFiscalReferenciaObservacao[] = [];
+    if (notaFiscalReferenciaSalva?.entradaItemOrigemIds.some((id) => idsVinculados.has(id))) {
+      notas.push(notaFiscalReferenciaSalva);
+    }
+    for (const candidato of entradasCandidatas) {
+      if (!idsVinculados.has(Number(candidato.id))) continue;
+      const entrada = relacaoUnica(candidato.entrada);
+      if (!entrada) continue;
+      const fornecedor = relacaoUnica(entrada.fornecedor);
+      notas.push({
+        chaveAcesso: entrada.notachave,
+        numeroNota: entrada.numero_nota,
+        serieNota: entrada.serie_nota,
+        dataEmissao: entrada.data_emissao,
+        fornecedor: fornecedor?.nomerazaosocial,
+      });
+    }
+    const referencia = blocoDasNotasFiscaisReferencia(notas);
+    if (referencia) blocos.push(referencia);
+    return blocos;
+  }, [source?.alvo, source?.cliente, origin, saidaOrigem, selectedSet, notaFiscalReferenciaSalva, entradasCandidatas]);
 
   function adicionarBlocoNasObservacoes(bloco: string) {
     const { texto, truncado } = concatenarBloco(observations, bloco, LIMITE_OBSERVACOES);
