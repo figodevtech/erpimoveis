@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { mapPaymentMethodToNFe, mapSalesChannelToPresence } from "./originFiscalDefaults";
+import { NFE_PAYMENT_OPTIONS, mapPaymentMethodToNFe, mapSalesChannelToPresence, paymentOptionsForModel } from "./originFiscalDefaults";
 
 describe("padrões fiscais das origens", () => {
+  it("oferece Duplicata Mercantil como método fiscal separado do boleto", () => {
+    const duplicata = NFE_PAYMENT_OPTIONS.find((option) => option.value === "14");
+    assert.equal(duplicata?.label, "Duplicata Mercantil");
+    assert.ok(NFE_PAYMENT_OPTIONS.findIndex((option) => option.value === "14") < NFE_PAYMENT_OPTIONS.findIndex((option) => option.value === "15"));
+    assert.equal(mapPaymentMethodToNFe("BOLETO"), "15");
+    assert.ok(paymentOptionsForModel(55).some((option) => option.value === "14"));
+    assert.ok(!paymentOptionsForModel(65).some((option) => option.value === "14"));
+  });
   it("converte o canal da venda para indicador de presença", () => {
     assert.equal(mapSalesChannelToPresence("PDV"), "1");
     assert.equal(mapSalesChannelToPresence("MERCADO_LIVRE"), "2");

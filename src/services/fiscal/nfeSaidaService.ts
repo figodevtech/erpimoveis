@@ -73,6 +73,8 @@ export type NFeSaidaDraftInput = {
   cienciaEscopo?: string | null;
   itens: Array<NFeAvulsaItemInput & { sourceItemId: string }>;
   destinatario: NFeAvulsaDraftInput["destinatario"];
+  pagamentos?: NFeAvulsaDraftInput["pagamentos"];
+  cobranca?: NFeAvulsaDraftInput["cobranca"];
   observacoesFiscais?: string | null;
   /**
    * Natureza fiscal, documento de origem e vínculo item↔entrada, escolhidos no
@@ -1078,8 +1080,9 @@ async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput,
         contexto.observacoes_fiscais,
       ),
     },
-    pagamento: { meio: "90", tipoIntegracao: "2" },
-    pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
+    pagamento: { meio: input.pagamentos?.[0]?.meio ?? "90", tipoIntegracao: "2" },
+    pagamentos: input.pagamentos?.length ? input.pagamentos : [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
+    cobranca: input.cobranca ?? null,
     transporte: { modFrete: "9" },
     documentosReferenciados: montarReferenciasFiscaisSaida({
       finalidade: contexto.finalidade,
@@ -1371,8 +1374,9 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
         contexto.observacoes_fiscais,
       ),
     },
-    pagamento: { meio: "90", tipoIntegracao: "2" },
-    pagamentos: [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
+    pagamento: { meio: input.pagamentos?.[0]?.meio ?? "90", tipoIntegracao: "2" },
+    pagamentos: input.pagamentos?.length ? input.pagamentos : [{ meio: "90", valor: 0, tipoIntegracao: "2" }],
+    cobranca: input.cobranca ?? null,
     transporte: { modFrete: "9" },
     documentosReferenciados: montarReferenciasFiscaisSaida({
       finalidade: contexto.finalidade,

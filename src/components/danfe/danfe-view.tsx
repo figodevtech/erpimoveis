@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
+import React, { useEffect, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { Download, Loader2, Printer } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import { encodeCode128C } from "@/lib/nfe/code128";
+import { descreverDocumentoReferenciado } from "@/lib/nfe/danfeDocumentosReferenciados";
 import { formatCnpj, formatCpf, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 import {
   aumentarFonteDanfe,
@@ -67,6 +68,7 @@ export type DanfeViewData = {
   itensDisplay: DanfeItemDisplay[];
   totais: DanfeTaxTotals;
   transporte: DanfeTransport;
+  documentosReferenciados: ParsedDanfeNFe["documentosReferenciados"];
   entrega?: DanfeEntrega | null;
   fatura: ParsedDanfeNFe["fatura"];
   duplicatas: ParsedDanfeNFe["duplicatas"];
@@ -363,6 +365,7 @@ function FirstPageDetails({ data }: { data: DanfeViewData }) {
 function FooterDetails({ data }: { data: DanfeViewData }) {
   const hasIssqn = data.totais.vServ !== 0 || data.totais.vBCISS !== 0 || data.totais.vISS !== 0;
   const hasBilling = data.fatura || data.duplicatas.length > 0;
+  const referencias = data.documentosReferenciados.map(descreverDocumentoReferenciado).filter(Boolean);
   return <div className="footer-details" data-danfe-footer>
     {hasBilling && <div className="footer-segment" data-danfe-footer-segment><div className="block-title outside-title">Fatura / duplicatas</div><div className="billing box">
       {data.fatura && <Cell label={`Fatura ${data.fatura.numero || ""}`}>Original {fmtMoney(data.fatura.valorOriginal)} · Desconto {fmtMoney(data.fatura.desconto)} · Líquido {fmtMoney(data.fatura.valorLiquido)}</Cell>}
@@ -370,6 +373,10 @@ function FooterDetails({ data }: { data: DanfeViewData }) {
     </div></div>}
     {data.pagamentos.length > 0 && <div className="footer-segment" data-danfe-footer-segment><div className="block-title outside-title">Pagamento</div><div className="payments box">{data.pagamentos.map((payment, index) => <Cell key={`${payment.tipo}-${index}`} label={payment.descricao || PAGAMENTO_LABEL[payment.tipo] || `Meio ${payment.tipo}`}>{fmtMoney(payment.valor)}{payment.bandeira ? ` · Bandeira ${payment.bandeira}` : ""}{payment.cnpjCredenciadora ? ` · Credenciadora ${fmtDoc(payment.cnpjCredenciadora)}` : ""}{payment.autorizacao ? ` · Aut. ${payment.autorizacao}` : ""}</Cell>)}</div></div>}
     {hasIssqn && <div className="footer-segment" data-danfe-footer-segment><div className="block-title outside-title">Cálculo do ISSQN</div><div className="issqn box"><Cell label="Inscrição municipal">{data.emitenteIm || "-"}</Cell><Cell label="Valor total dos serviços">{fmtMoney(data.totais.vServ)}</Cell><Cell label="Base de cálculo do ISSQN">{fmtMoney(data.totais.vBCISS)}</Cell><Cell label="Valor do ISSQN">{fmtMoney(data.totais.vISS)}</Cell></div></div>}
+    {referencias.map((referencia, index) => <div className="footer-segment" data-danfe-footer-segment key={`${referencia}-${index}`}>
+      {index === 0 && <div className="block-title outside-title">Documentos fiscais referenciados</div>}
+      <div className="box reference-row">{referencia}</div>
+    </div>)}
     <div className="footer-grid footer-segment" data-danfe-footer-segment>
       <div className="box footer-box"><div className="block-title">Informações complementares</div><div>{data.infCpl || "-"}</div>{data.xmlError && <div className="fallback-warning">Falha ao ler o XML: visualização complementada com dados do banco.</div>}{!data.xmlBaseAvailable && <div className="fallback-warning">XML não armazenado: esta visualização não substitui um DANFE originado do XML autorizado.</div>}</div>
       <div className="box footer-box"><div className="block-title">Reservado ao fisco</div><div>{data.infAdFisco || ""}</div></div>
@@ -693,6 +700,7 @@ const DANFE_STYLES = `
   .billing>.cell,.payments>.cell { flex:1 1 35mm; border-right:1px solid #000; }
   .issqn { display:grid; grid-template-columns:repeat(4,1fr); }
   .footer-segment { min-width:0; break-inside:avoid; page-break-inside:avoid; }
+  .reference-row { padding:1mm 1.5mm; font-size:calc(7px * var(--danfe-font-scale)); overflow-wrap:anywhere; }
   .footer-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:1mm; margin-top:1.5mm; }
   .footer-box { min-height:22mm; padding:1.5mm; white-space:pre-wrap; overflow-wrap:anywhere; }
   .fallback-warning { margin-top:1mm; font-weight:700; }

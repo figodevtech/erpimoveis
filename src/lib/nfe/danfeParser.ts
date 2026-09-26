@@ -147,6 +147,13 @@ export type DanfeEntrega = {
   cep: string;
 };
 
+export type DanfeDocumentoReferenciado = {
+  tipo: "NFE" | "NF_MODELO_1" | "NFP" | "CTE" | "ECF" | "DESCONHECIDO";
+  chave?: string;
+  campos?: Record<string, string>;
+  subtipo?: string;
+};
+
 export type ParsedDanfeNFe = {
   chave: string;
   ide: {
@@ -175,6 +182,7 @@ export type ParsedDanfeNFe = {
   itens: DanfeItem[];
   transporte: DanfeTransport;
   entrega: DanfeEntrega | null;
+  documentosReferenciados: DanfeDocumentoReferenciado[];
   fatura: { numero: string; valorOriginal: number; desconto: number; valorLiquido: number } | null;
   duplicatas: Array<{ numero: string; vencimento: string; valor: number }>;
   pagamentos: Array<{
@@ -277,6 +285,24 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
   if (!infNFe) throw new Error("Tag <infNFe> não encontrada no XML da NF-e.");
 
   const ide = child(infNFe, "ide");
+  const documentosReferenciados = children(ide)
+    .filter((node) => tagName(node) === "NFref")
+    .flatMap((reference): DanfeDocumentoReferenciado[] => {
+      const documentNode = children(reference)[0];
+      if (!documentNode) return [];
+      const name = tagName(documentNode);
+      const tipo: DanfeDocumentoReferenciado["tipo"] = ({
+        refNFe: "NFE", refNF: "NF_MODELO_1", refNFP: "NFP",
+        refCTe: "CTE", refECF: "ECF",
+      } as Record<string, DanfeDocumentoReferenciado["tipo"]>)[name] ?? "DESCONHECIDO";
+      const chave = name === "refNFe" || name === "refCTe" ? String(documentNode.textContent ?? "").trim() : undefined;
+      const fields = children(documentNode);
+      const campos = Object.fromEntries(fields.length
+        ? fields.map((field) => [tagName(field), String(field.textContent ?? "").trim()])
+        : chave ? [] : [["valor", String(documentNode.textContent ?? "").trim()]]);
+      if (!chave && !Object.values(campos).some(Boolean)) return [];
+      return [{ tipo, ...(chave ? { chave } : {}), ...(Object.keys(campos).length ? { campos } : {}), ...(tipo === "DESCONHECIDO" ? { subtipo: name } : {}) }];
+    });
   const prot = first(doc, "infProt");
   const emit = child(infNFe, "emit");
   const dest = child(infNFe, "dest");
@@ -461,6 +487,7 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
       uf: value(entregaNode, "UF"),
       cep: value(entregaNode, "CEP"),
     } : null,
+    documentosReferenciados,
     fatura: fat ? {
       numero: value(fat, "nFat"),
       valorOriginal: numberValue(fat, "vOrig"),

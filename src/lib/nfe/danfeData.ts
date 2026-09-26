@@ -10,6 +10,7 @@ import {
   type ParsedDanfeNFe,
 } from "@/lib/nfe/danfeParser";
 import type { DanfeViewData } from "@/components/danfe/danfe-view";
+import { formatarChaveDanfe } from "@/lib/nfe/danfeDocumentosReferenciados";
 
 /**
  * Monta os dados do DANFE a partir do XML autorizado (com fallback no banco).
@@ -137,8 +138,7 @@ function keyIdentification(key: string) {
 }
 
 function formatKey(key: string) {
-  const digits = onlyDigits(key);
-  return digits ? digits.replace(/(\d{4})(?=\d)/g, "$1 ").trim() : "-";
+  return formatarChaveDanfe(key) || "-";
 }
 
 function formatAddress(address: {
@@ -322,6 +322,7 @@ export async function carregarDadosDanfe(
     itensDisplay: items,
     totais: totals,
     transporte: parsed?.transporte ?? EMPTY_TRANSPORT,
+    documentosReferenciados: parsed?.documentosReferenciados ?? [],
     entrega: parsed?.entrega ?? null,
     fatura: parsed?.fatura ?? null,
     duplicatas: parsed?.duplicatas ?? [],

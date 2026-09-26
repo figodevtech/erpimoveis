@@ -79,3 +79,90 @@ export function totalDasDuplicatas(duplicatas: DuplicataDaNota[]): number {
     0,
   );
 }
+
+/** Entrada fiscal para a emissão. Vencimento é uma data civil, sem conversão de fuso. */
+export type NFeDuplicataInput = {
+  numero?: string | null;
+  vencimento: string;
+  valor: string | number;
+};
+
+export type NFeCobrancaInput = { duplicatas: NFeDuplicataInput[] };
+
+export type NFeDuplicataNormalizada = { numero: string; vencimento: string; valor: number };
+export type NFeCobrancaNormalizada = { duplicatas: NFeDuplicataNormalizada[]; totalCentavos: number };
+
+export const MAX_DUPLICATAS_NFE = 120;
+
+export function numeroDaDuplicata(index: number): string {
+  return String(index + 1).padStart(3, "0");
+}
+
+export function centavosDaDuplicata(valor: string | number | null | undefined): number {
+  const numero = Number(valor);
+  return Number.isFinite(numero) ? Math.round(numero * 100) : NaN;
+}
+
+function dataCivilValida(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [ano, mes, dia] = value.split("-").map(Number);
+  if (ano < 1 || mes < 1 || mes > 12) return false;
+  const bissexto = ano % 4 === 0 && (ano % 100 !== 0 || ano % 400 === 0);
+  const diasNoMes = [31, bissexto ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return dia >= 1 && dia <= diasNoMes[mes - 1];
+}
+
+export function resolverCobrancaNFe(params: {
+  modelo: number;
+  finNFe: number;
+  pagamentos: Array<{ tPag: string; valor?: string | number | null }>;
+  cobranca?: NFeCobrancaInput | null;
+  valorNota: string | number;
+}): { cobranca: NFeCobrancaNormalizada | null; erros: string[] } {
+  const errors: string[] = [];
+  const duplicatas = Array.isArray(params.cobranca?.duplicatas) ? params.cobranca.duplicatas : [];
+  const pagamento14 = params.pagamentos.filter((pagamento) => pagamento.tPag === "14");
+  if (params.modelo === 65 && (pagamento14.length || duplicatas.length)) {
+    errors.push("Duplicata Mercantil não é permitida na NFC-e.");
+  }
+  if ([3, 4].includes(params.finNFe) && (pagamento14.length || duplicatas.length)) {
+    errors.push("Duplicata Mercantil não é permitida para esta finalidade da NF-e.");
+  }
+  if (pagamento14.length && !duplicatas.length) {
+    errors.push("Duplicata Mercantil exige ao menos uma duplicata com vencimento e valor.");
+  }
+  if (duplicatas.length && !pagamento14.length) {
+    errors.push("O grupo de duplicatas só pode ser informado quando a forma de pagamento Duplicata Mercantil estiver presente.");
+  }
+  if (duplicatas.length > MAX_DUPLICATAS_NFE) {
+    errors.push(`Informe no máximo ${MAX_DUPLICATAS_NFE} duplicatas.`);
+  }
+  if (pagamento14.length > 1) errors.push("Informe Duplicata Mercantil apenas uma vez.");
+
+  let anterior = "";
+  const normalizadas = duplicatas.map((duplicata, index): NFeDuplicataNormalizada => {
+    const numero = numeroDaDuplicata(index);
+    const vencimento = String(duplicata?.vencimento ?? "").trim();
+    const centavos = centavosDaDuplicata(duplicata?.valor);
+    if (!vencimento) errors.push(`Informe o vencimento da duplicata ${numero}.`);
+    else if (!dataCivilValida(vencimento)) errors.push(`Informe uma data válida (YYYY-MM-DD) para a duplicata ${numero}.`);
+    else if (anterior && vencimento < anterior) errors.push(`O vencimento da duplicata ${numero} não pode ser anterior ao vencimento da duplicata ${numeroDaDuplicata(index - 1)}.`);
+    if (dataCivilValida(vencimento)) anterior = vencimento;
+    if (!Number.isFinite(centavos) || centavos <= 0) errors.push(`Informe um valor maior que zero para a duplicata ${numero}.`);
+    return { numero, vencimento, valor: Number.isFinite(centavos) ? centavos / 100 : 0 };
+  });
+  const totalCentavos = normalizadas.reduce((sum, duplicata) => sum + centavosDaDuplicata(duplicata.valor), 0);
+  if (pagamento14.length === 1 && duplicatas.length) {
+    const informado = pagamento14[0].valor;
+    const esperado = informado == null && params.pagamentos.length === 1
+      ? centavosDaDuplicata(params.valorNota)
+      : centavosDaDuplicata(informado);
+    if (!Number.isFinite(esperado) || totalCentavos !== esperado) {
+      const dinheiro = (centavos: number) => (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      errors.push(Number.isFinite(esperado)
+        ? `A soma das duplicatas (${dinheiro(totalCentavos)}) deve ser igual ao valor informado em Duplicata Mercantil (${dinheiro(esperado)}).`
+        : "Informe um valor válido para Duplicata Mercantil.");
+    }
+  }
+  return { cobranca: normalizadas.length ? { duplicatas: normalizadas, totalCentavos } : null, erros: errors };
+}

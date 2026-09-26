@@ -238,6 +238,19 @@ const configuracaoVenda = {
   transporte: { modFrete: "9" },
 };
 
+const cobrancaDuplicata = { duplicatas: [
+  { numero: "001", vencimento: "2026-10-25", valor: 5500 },
+  { numero: "002", vencimento: "2026-11-25", valor: 5500 },
+] };
+
+function confirmarDuplicatas(nota: Emitida) {
+  assert.match(nota.xml, /<\/transp><cobr><fat>/);
+  assert.match(nota.xml, /<nDup>001<\/nDup><dVenc>2026-10-25<\/dVenc><vDup>5500\.00<\/vDup>/);
+  assert.match(nota.xml, /<nDup>002<\/nDup><dVenc>2026-11-25<\/dVenc><vDup>5500\.00<\/vDup>/);
+  assert.match(nota.xml, /<\/cobr><pag><detPag><tPag>14<\/tPag><vPag>11000\.00<\/vPag>/);
+  assert.deepEqual(nota.nfe.dados_avulsos.cobranca.duplicatas, cobrancaDuplicata.duplicatas);
+}
+
 type Emitida = {
   xml: string;
   itens: Array<Record<string, any>>;
@@ -316,6 +329,30 @@ function assertRegressao136(nota: Emitida) {
 }
 
 describe("VENDA — regressão da NF-e 136", () => {
+  it("leva Duplicata Mercantil ao XML e ao snapshot", async () => {
+    const resultado = await salvarNFeDeOrigem("VENDA", 164, {
+      itens: [itemDaTela({ cfop: "6102", cst: "00" })],
+      configuracaoFiscal: { ...configuracaoVenda, pagamentos: [{ meio: "14", valor: 11000 }], cobranca: cobrancaDuplicata },
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    confirmarDuplicatas(notaGravada(resultado.nfeId));
+  });
+
+  it("preserva duplicatas ao corrigir a mesma NF-e rejeitada", async () => {
+    const input = {
+      itens: [itemDaTela({ cfop: "6102", cst: "00" })],
+      configuracaoFiscal: { ...configuracaoVenda, pagamentos: [{ meio: "14", valor: 11000 }], cobranca: cobrancaDuplicata },
+    };
+    const primeira = await salvarNFeDeOrigem("VENDA", 164, input);
+    assert.ok(primeira.ok, JSON.stringify(!primeira.ok && primeira.errors));
+    const linha = banco.tabela("nfe").find((nota) => Number(nota.id) === primeira.nfeId);
+    assert.ok(linha);
+    linha.status = "REJEITADA";
+    const segunda = await salvarNFeDeOrigem("VENDA", 164, { ...input, nfeId: primeira.nfeId });
+    assert.ok(segunda.ok, JSON.stringify(!segunda.ok && segunda.errors));
+    assert.equal(segunda.nfeId, primeira.nfeId);
+    confirmarDuplicatas(notaGravada(segunda.nfeId));
+  });
   it("permite novo rascunho quando a mesma venda já tem NF-e autorizada", async () => {
     const input = {
       itens: [itemDaTela({
@@ -416,6 +453,15 @@ describe("VENDA — regressão da NF-e 136", () => {
 describe("OS — mesmo núcleo", () => {
   const itemOs = (overrides: SemOrigem = {}) => itemDaTela({ sourceItemId: "os:50:1964", ...overrides });
 
+  it("leva Duplicata Mercantil ao XML e ao snapshot", async () => {
+    const resultado = await salvarNFeDeOrigem("OS", 50, {
+      itens: [itemOs({ cfop: "6102", cst: "00" })],
+      configuracaoFiscal: { ...configuracaoVenda, pagamentos: [{ meio: "14", valor: 11000 }], cobranca: cobrancaDuplicata },
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    confirmarDuplicatas(notaGravada(resultado.nfeId));
+  });
+
   it("regressão da NF-e 136 pela OS", async () => {
     const resultado = await comCiencia((input: NFeOrigemDraftInput, opcoes?: OpcoesSalvarNFe) =>
       salvarNFeDeOrigem("OS", 50, input, undefined, opcoes), {
@@ -474,6 +520,16 @@ describe("ENTRADA — mesmo núcleo", () => {
   const itemEntrada = (overrides: SemOrigem = {}) =>
     itemDaTela({ sourceItemId: "entrada:70:300", cfop: "2403", ...overrides });
 
+  it("leva Duplicata Mercantil ao XML e ao snapshot", async () => {
+    const resultado = await salvarNFeDeOrigem("ENTRADA", 70, {
+      itens: [itemEntrada({ cfop: "2102", cst: "00", aliquotaIcms: "12" })],
+      destinatario: destinatarioFornecedor,
+      configuracaoFiscal: { pagamentos: [{ meio: "14", valor: 11000 }], cobranca: cobrancaDuplicata },
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    confirmarDuplicatas(notaGravada(resultado.nfeId));
+  });
+
   it("CST 60 na entrada também não ganha ICMS próprio pela alíquota", async () => {
     const resultado = await salvarNFeDeOrigem("ENTRADA", 70, {
       itens: [itemEntrada()],
@@ -516,6 +572,16 @@ describe("SAÍDA DE ESTOQUE — mesmo núcleo", () => {
   };
   const itemSaida = (overrides: SemOrigem = {}) =>
     itemDaTela({ sourceItemId: "saida:80:800", cfop: "6949", ...overrides });
+
+  it("leva Duplicata Mercantil ao XML e ao snapshot", async () => {
+    const resultado = await salvarNFeDaSaida(80, {
+      itens: [itemSaida({ cst: "00" })], destinatario,
+      destinoMercadoria: "USO_CONSUMO",
+      pagamentos: [{ meio: "14", valor: 11000 }], cobranca: cobrancaDuplicata,
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    confirmarDuplicatas(notaGravada(resultado.nfeId));
+  });
 
   it("CST 60 sem ICMS próprio; indFinal vem do destino, não do indicador de IE", async () => {
     const resultado = await salvarNFeDaSaida(80, {
@@ -579,6 +645,15 @@ describe("AVULSA — mesmo núcleo", () => {
       itens,
     };
   }
+
+  it("leva Duplicata Mercantil ao XML e ao snapshot", async () => {
+    const resultado = await salvarNFeAvulsaDraft({
+      ...draftAvulso([itemDaTela({ cfop: "6102", cst: "00" })]),
+      pagamentos: [{ meio: "14", valor: 11000 }], cobranca: cobrancaDuplicata,
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    confirmarDuplicatas(notaGravada(resultado.nfeId));
+  });
 
   it("regressão da NF-e 136 pela avulsa", async () => {
     const resultado = await comCiencia(salvarNFeAvulsaDraft, draftAvulso([itemDaTela({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })]));

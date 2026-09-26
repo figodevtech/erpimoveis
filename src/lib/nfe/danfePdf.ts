@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 
 import { encodeCode128C } from "@/lib/nfe/code128";
+import { descreverDocumentoReferenciado } from "@/lib/nfe/danfeDocumentosReferenciados";
 import { DANFE_DEFAULT_FONT_SCALE, type DanfeFontScale } from "@/lib/nfe/danfeFontScale";
 import type { DanfeViewData } from "@/components/danfe/danfe-view";
 import type { DanfeItem } from "@/lib/nfe/danfeParser";
@@ -649,6 +650,32 @@ function tabelaRtc(ctx: Ctx, itens: DanfeItem[]) {
   }
 }
 
+function documentosReferenciados(ctx: Ctx, data: DanfeViewData) {
+  const referencias = data.documentosReferenciados.map(descreverDocumentoReferenciado).filter(Boolean);
+  if (!referencias.length) return;
+
+  const lineHeight = scaled(ctx, 8);
+  const padding = scaled(ctx, 3);
+  const titleHeight = 1.5 * MM + scaled(ctx, LABEL_SIZE + 1.5);
+  if (ctx.y + titleHeight + lineHeight + padding * 2 > BOTTOM_LIMIT) ctx.novaPagina();
+  tituloBloco(ctx, "Documentos fiscais referenciados");
+
+  for (const referencia of referencias) {
+    const linhas = wrapText(ctx, referencia, ctx.font, VALUE_SIZE, CONTENT_W - 2 * padding);
+    let index = 0;
+    while (index < linhas.length) {
+      if (ctx.y + lineHeight + padding * 2 > BOTTOM_LIMIT) ctx.novaPagina();
+      const availableLines = Math.max(1, Math.floor((BOTTOM_LIMIT - ctx.y - padding * 2) / lineHeight));
+      const parte = linhas.slice(index, index + availableLines);
+      const altura = parte.length * lineHeight + padding * 2;
+      caixa(ctx, MARGIN, ctx.y, CONTENT_W, altura);
+      parte.forEach((linha, offset) => texto(ctx, linha, MARGIN + padding, ctx.y + padding + offset * lineHeight, VALUE_SIZE, ctx.font));
+      ctx.y += altura;
+      index += parte.length;
+    }
+  }
+}
+
 function rodape(ctx: Ctx, data: DanfeViewData) {
   const temFatura = Boolean(data.fatura) || data.duplicatas.length > 0;
 
@@ -695,7 +722,8 @@ function rodape(ctx: Ctx, data: DanfeViewData) {
     ], colunas(CONTENT_W, [1, 1, 1, 1]));
   }
 
-  tituloBloco(ctx, "Dados adicionais");
+  documentosReferenciados(ctx, data);
+
   const [colInfo, colFisco] = colunas(CONTENT_W, [2, 1]);
 
   const avisos: string[] = [];
@@ -708,7 +736,9 @@ function rodape(ctx: Ctx, data: DanfeViewData) {
   const linhasNecessarias = Math.max(linhasInfo.length + linhasAviso.length, linhasFisco.length);
   const altura = Math.max(22 * MM, scaled(ctx, LABEL_SIZE + 6 + linhasNecessarias * (VALUE_SIZE + 1.4)));
 
-  if (ctx.y + altura > BOTTOM_LIMIT) ctx.novaPagina();
+  const titleHeight = 1.5 * MM + scaled(ctx, LABEL_SIZE + 1.5);
+  if (ctx.y + titleHeight + altura > BOTTOM_LIMIT) ctx.novaPagina();
+  tituloBloco(ctx, "Dados adicionais");
 
   caixa(ctx, MARGIN, ctx.y, CONTENT_W, altura);
   linhaVertical(ctx, MARGIN + colInfo, ctx.y, altura);

@@ -27,6 +27,7 @@ import {
 } from "@/services/fiscal/cienciaAvisoFiscal";
 import { calcularTotaisNFe, validarPisCofinsStSuportado } from "@/lib/nfe/fiscal";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
+import { resolverCobrancaNFe, type NFeCobrancaInput } from "@/lib/nfe/duplicatas";
 import { validarNfce } from "@/lib/nfe/nfce/validator";
 import type {
   CRT,
@@ -229,6 +230,7 @@ export type NFeAvulsaDraftInput = {
     autorizacao?: string | null;
     descricao?: string | null;
   }> | null;
+  cobranca?: NFeCobrancaInput | null;
   transporte?: {
     modFrete?: "0" | "1" | "2" | "3" | "4" | "9" | string | null;
     /**
@@ -783,6 +785,13 @@ function getPagamentosFiscais(input: NFeAvulsaDraftInput): NFePagamentoOptions[]
   });
 }
 
+function valorNotaParaCobranca(input: NFeAvulsaDraftInput): number {
+  return input.itens.reduce((total, item) =>
+    total + toDecimalNumber(item.quantidade) * toDecimalNumber(item.valorUnitario)
+      - Math.max(0, toDecimalNumber(item.valorDesconto))
+      + Math.max(0, toDecimalNumber(item.valorFrete)), 0);
+}
+
 function getPagamentoDadosAvulsos(input: NFeAvulsaDraftInput) {
   const pagamento = getPagamentoFiscal(input);
 
@@ -1207,6 +1216,20 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
   });
 
   const pagamentosFiscais = getPagamentosFiscais(input);
+  const pagamentosInformados = input.pagamentos?.length
+    ? input.pagamentos.map((pagamento) => ({ tPag: onlyDigits(pagamento.meio).padStart(2, "0").slice(0, 2) }))
+    : [{ tPag: onlyDigits(input.pagamento?.meio).padStart(2, "0").slice(0, 2) }];
+  if ([3, 4].includes(finalidadeToFinNFe(input.operacao.finalidade)) && pagamentosInformados.some((pagamento) => pagamento.tPag === "14")) {
+    errors.push({ step: "payment", field: "pagamentos", message: "Duplicata Mercantil não é permitida para esta finalidade da NF-e." });
+  }
+  const cobrancaFiscal = resolverCobrancaNFe({
+    modelo: input.modelo ?? MODELO_NFE,
+    finNFe: finalidadeToFinNFe(input.operacao.finalidade),
+    pagamentos: pagamentosFiscais,
+    cobranca: input.cobranca,
+    valorNota: valorNotaParaCobranca(input),
+  });
+  cobrancaFiscal.erros.forEach((message) => errors.push({ step: "payment", field: "cobranca", message }));
 
   pagamentosFiscais.forEach((pagamentoFiscal, paymentIndex) => {
     // PIX entra junto com cartão desde a NT 2025.001 (RV YA04-10/YA05-10).
@@ -2041,6 +2064,14 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
   const destinatario = getDestinatarioSnapshot(input, empresa);
   const pagamento = getPagamentoFiscal(input);
   const pagamentos = getPagamentosFiscais(input);
+  const cobranca = resolverCobrancaNFe({
+    modelo,
+    finNFe: finalidadeToFinNFe(input.operacao.finalidade),
+    pagamentos,
+    cobranca: input.cobranca,
+    valorNota: valorNotaParaCobranca(input),
+  }).cobranca;
+  const cobrancaDadosAvulsos = cobranca ? { duplicatas: cobranca.duplicatas } : null;
   const pagamentoDadosAvulsos = getPagamentoDadosAvulsos(input);
   const pagamentosDadosAvulsos = getPagamentosDadosAvulsos(input);
   const transporte = getTransporteFiscal(input);
@@ -2150,6 +2181,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
       ambiente: empresa.ambiente,
       pagamento,
       pagamentos,
+      cobranca: cobrancaDadosAvulsos,
       transporte,
       entrega,
       documentosReferenciados,
@@ -2194,6 +2226,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
           operacao: operacaoGravada,
           pagamento: pagamentoDadosAvulsos,
           pagamentos: pagamentosDadosAvulsos,
+          cobranca: cobrancaDadosAvulsos,
           transporte: transporteDadosAvulsos,
           entrega: entregaDadosAvulsos,
           destinatario: input.destinatario,
@@ -2299,6 +2332,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
       ambiente: empresa.ambiente,
       pagamento,
       pagamentos,
+      cobranca: cobrancaDadosAvulsos,
       transporte,
       entrega,
       documentosReferenciados,
@@ -2320,6 +2354,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
           operacao: operacaoGravada,
           pagamento: pagamentoDadosAvulsos,
           pagamentos: pagamentosDadosAvulsos,
+          cobranca: cobrancaDadosAvulsos,
           transporte: transporteDadosAvulsos,
           entrega: entregaDadosAvulsos,
           destinatario: input.destinatario,

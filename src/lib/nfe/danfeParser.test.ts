@@ -18,6 +18,31 @@ const common = `
   <dest><CPF>12345678901</CPF><xNome>CLIENTE TESTE</xNome><enderDest><xLgr>RUA B</xLgr><nro>20</nro><xMun>CABEDELO</xMun><UF>PB</UF></enderDest></dest>`;
 
 describe("parseDanfeNFeXml", () => {
+  it("lê a NF-e referenciada do ide, preservando a chave do caso real", () => {
+    const chave = "29260815851413000157550010004179631007316491";
+    const xml = xmlWith(common.replace("</ide>", `<NFref><refNFe>${chave}</refNFe></NFref></ide>`) +
+      `<infAdic><NFref><refNFe>${KEY}</refNFe></NFref></infAdic>`);
+    assert.deepEqual(parseDanfeNFeXml(xml).documentosReferenciados, [{ tipo: "NFE", chave }]);
+  });
+
+  it("retorna várias referências na ordem do ide e preserva outros tipos", () => {
+    const primeira = "29260815851413000157550010004179631007316491";
+    const segunda = "25260912260723000109550030000001461336645454";
+    const ideComReferencias = common.replace("</ide>",
+      `<NFref><refNFe>${primeira}</refNFe></NFref>` +
+      `<NFref><refNF><cUF>25</cUF><AAMM>2609</AAMM><CNPJ>12260723000109</CNPJ><mod>01</mod><serie>3</serie><nNF>146</nNF></refNF></NFref>` +
+      `<NFref><refNFe>${segunda}</refNFe></NFref></ide>`);
+    assert.deepEqual(parseDanfeNFeXml(xmlWith(ideComReferencias)).documentosReferenciados, [
+      { tipo: "NFE", chave: primeira },
+      { tipo: "NF_MODELO_1", campos: { cUF: "25", AAMM: "2609", CNPJ: "12260723000109", mod: "01", serie: "3", nNF: "146" } },
+      { tipo: "NFE", chave: segunda },
+    ]);
+  });
+
+  it("retorna array vazio quando o ide não tem NFref", () => {
+    assert.deepEqual(parseDanfeNFeXml(xmlWith(common)).documentosReferenciados, []);
+  });
+
   it("preserva base de ICMS zero no CSOSN 102 e lê o protocolo autorizado", () => {
     const parsed = parseDanfeNFeXml(xmlWith(`${common}
       <det nItem="1"><prod><cProd>1</cProd><xProd>ARRUELA</xProd><NCM>73182200</NCM><CFOP>5102</CFOP><uCom>UN</uCom><qCom>1.0000</qCom><vUnCom>0.10</vUnCom><vProd>0.10</vProd></prod><imposto><ICMS><ICMSSN102><orig>0</orig><CSOSN>102</CSOSN></ICMSSN102></ICMS><PIS><PISOutr><CST>49</CST><vBC>0.10</vBC><pPIS>0.00</pPIS><vPIS>0.00</vPIS></PISOutr><COFINS><COFINSOutr><CST>49</CST><vBC>0.10</vBC><pCOFINS>0.00</pCOFINS><vCOFINS>0.00</vCOFINS></COFINSOutr></COFINS></imposto></det>

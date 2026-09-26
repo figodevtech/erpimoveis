@@ -98,6 +98,54 @@ describe("emissão avulsa: caminho feliz", () => {
   });
 });
 
+describe("emissão avulsa: Duplicata Mercantil", () => {
+  const umaDuplicata = { duplicatas: [{ numero: "001", vencimento: "2026-10-25", valor: 100 }] };
+
+  it("aceita uma duplicata ou PIX combinado com duplicata", () => {
+    assert.deepEqual(errosDePagamento(draftBase({
+      pagamentos: [{ meio: "14", valor: 100, tipoIntegracao: "2" }], cobranca: umaDuplicata,
+    })), []);
+    assert.deepEqual(errosDePagamento(draftBase({
+      pagamentos: [
+        { meio: "17", valor: 40, tipoIntegracao: "2" },
+        { meio: "14", valor: 60, tipoIntegracao: "2" },
+      ],
+      cobranca: { duplicatas: [{ vencimento: "2026-10-25", valor: 60 }] },
+    })), []);
+  });
+
+  it("bloqueia duplicata sem pagamento, pagamento sem duplicata e soma diferente", () => {
+    assert.match(errosDePagamento(draftBase({ cobranca: umaDuplicata }))[0]?.message ?? "", /só pode ser informado/);
+    assert.match(errosDePagamento(draftBase({ pagamentos: [{ meio: "14", valor: 100 }] }))[0]?.message ?? "", /exige ao menos uma duplicata/);
+    assert.match(errosDePagamento(draftBase({
+      pagamentos: [{ meio: "14", valor: 100 }],
+      cobranca: { duplicatas: [{ vencimento: "2026-10-25", valor: 90 }] },
+    }))[0]?.message ?? "", /soma das duplicatas/);
+  });
+
+  it("não deixa a finalidade de devolução ocultar tPag 14 recebido", () => {
+    const draft = draftBase({
+      operacao: { ...draftBase().operacao, finalidade: "DEVOLUCAO" },
+      pagamentos: [{ meio: "14", valor: 100 }],
+      cobranca: null,
+    });
+    assert.match(errosDePagamento(draft)[0]?.message ?? "", /não é permitida para esta finalidade/);
+  });
+
+  it("recusa Duplicata Mercantil no modelo 65", () => {
+    const draft = draftBase({
+      modelo: 65,
+      pagamentos: [{ meio: "14", valor: 100 }],
+      cobranca: umaDuplicata,
+    });
+    assert.match(errosDePagamento(draft)[0]?.message ?? "", /NFC-e/);
+  });
+
+  it("mantém boleto independente", () => {
+    assert.deepEqual(errosDePagamento(draftBase({ pagamentos: [{ meio: "15", valor: 100 }] })), []);
+  });
+});
+
 describe("emissão avulsa: frete na base do ICMS (LC 87/96, art. 13, §1º, II, b)", () => {
   const comFrete = (transporte: Draft["transporte"]) =>
     draftBase({

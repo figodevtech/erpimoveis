@@ -19,6 +19,7 @@ import { getCodigoUF } from './ufUtils';
 import { calcularTotaisNFe, normalizarCRT } from './fiscal';
 import { deveGerarICMSUFDest, validarDifalCanonicoDoItem } from './difal';
 import { escapeXml, truncateNfeXNome } from './xmlUtils';
+import { resolverCobrancaNFe, type NFeCobrancaInput, type NFeCobrancaNormalizada } from './duplicatas';
 import { validarInscricaoEstadualDestinatario } from './indIEDest';
 import { avaliarRegraE16a30Xml } from './regraE16a30Xml';
 import { CODE_E16A30, mensagemBloqueioE16a30 } from './regraE16a30';
@@ -89,6 +90,7 @@ export interface IdeOptions {
   observacoesFiscais?: string | null;
   pagamento?: NFePagamentoOptions | null;
   pagamentos?: NFePagamentoOptions[] | null;
+  cobranca?: NFeCobrancaInput | null;
   transporte?: NFeTransporteOptions | null;
   /**
    * Local de entrega/retirada, quando diferente do endereço do destinatário
@@ -378,6 +380,18 @@ function buildPagXml(params: {
   const troco = totalPago - Number(params.vNF);
 
   return '<pag>' + detalhes.join('') + (troco > 0.009 ? `<vTroco>${troco.toFixed(2)}</vTroco>` : '') + '</pag>';
+}
+
+export function buildCobrancaXml(cobranca: NFeCobrancaNormalizada | null, numeroNota?: number): string {
+  if (!cobranca) return "";
+  const total = (cobranca.totalCentavos / 100).toFixed(2);
+  const numeroFatura = Number.isInteger(numeroNota) && Number(numeroNota) > 0
+    ? `<nFat>${escapeXml(String(numeroNota))}</nFat>` : "";
+  const fatura = `<fat>${numeroFatura}<vOrig>${total}</vOrig><vDesc>0.00</vDesc><vLiq>${total}</vLiq></fat>`;
+  const duplicatas = cobranca.duplicatas.map((duplicata) =>
+    `<dup><nDup>${escapeXml(duplicata.numero)}</nDup><dVenc>${escapeXml(duplicata.vencimento)}</dVenc><vDup>${duplicata.valor.toFixed(2)}</vDup></dup>`,
+  ).join("");
+  return `<cobr>${fatura}${duplicatas}</cobr>`;
 }
 
 export function criarIdeParaEmpresa(
@@ -744,6 +758,15 @@ export function buildNFePreviewXml(
     vNF,
     finNFe: ide.finNFe,
   });
+  const cobrancaResolvida = resolverCobrancaNFe({
+    modelo,
+    finNFe: ide.finNFe,
+    pagamentos: options?.pagamentos?.length ? options.pagamentos : [options?.pagamento ?? { tPag: "01" }],
+    cobranca: options?.cobranca,
+    valorNota: vNF,
+  });
+  if (cobrancaResolvida.erros.length) throw new Error(cobrancaResolvida.erros[0]);
+  const cobrXml = buildCobrancaXml(cobrancaResolvida.cobranca, numeroNota);
 
   const rotulo = nfce ? 'NFC-e' : 'NF-e';
   const natOpText = options?.natOp
@@ -783,6 +806,7 @@ export function buildNFePreviewXml(
     detXml +
     totalXml +
     transpXml +
+    cobrXml +
     pagXml +
     infAdicXml +
     infRespTec +

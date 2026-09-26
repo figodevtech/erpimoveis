@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { buildNFePreviewXml } from "./buildNFe";
+import { parseDanfeNFeXml } from "./danfeParser";
 import { resolverDifalDoItem } from "./difal";
 import { comAssinaturaXsdTeste, validarNFeContraXsd } from "./icms/__xsdOficial";
 import type { EmpresaRow, NFeDestinatario, NFeItem } from "./types";
@@ -51,6 +52,66 @@ const item: NFeItem = {
   pis: { cst: "07", modo: "NAO_TRIBUTADO" },
   cofins: { cst: "07", modo: "NAO_TRIBUTADO" },
 };
+
+describe("Duplicata Mercantil no XML central", () => {
+  const duplicatas = [
+    { vencimento: "2026-10-25", valor: 3.34 },
+    { vencimento: "2026-11-25", valor: 3.33 },
+    { vencimento: "2026-12-25", valor: 3.33 },
+  ];
+  const opcoes = {
+    nomeMunicipioEmitente: "SAO PAULO",
+    indFinal: 1 as const,
+    pagamentos: [{ tPag: "14", valor: 10 }],
+    cobranca: { duplicatas },
+  };
+
+  it("gera fatura e três parcelas na ordem do XSD; o DANFE lê o mesmo XML", async () => {
+    const { xml } = buildNFePreviewXml(empresa, 123, 1, [item], destinatario("SP"), opcoes);
+    assert.match(xml, /<transp>[\s\S]*<\/transp><cobr><fat><nFat>123<\/nFat><vOrig>10\.00<\/vOrig><vDesc>0\.00<\/vDesc><vLiq>10\.00<\/vLiq><\/fat>/);
+    assert.match(xml, /<\/cobr><pag><detPag><tPag>14<\/tPag><vPag>10\.00<\/vPag><\/detPag><\/pag>/);
+    assert.deepEqual([...xml.matchAll(/<nDup>(\d+)<\/nDup>/g)].map((match) => match[1]), ["001", "002", "003"]);
+    const danfe = parseDanfeNFeXml(xml);
+    assert.equal(danfe.fatura?.valorLiquido, 10);
+    assert.deepEqual(danfe.duplicatas.map((duplicata) => [duplicata.numero, duplicata.vencimento, duplicata.valor]), [
+      ["001", "2026-10-25", 3.34], ["002", "2026-11-25", 3.33], ["003", "2026-12-25", 3.33],
+    ]);
+    const xsd = await validarNFeContraXsd(comAssinaturaXsdTeste(xml));
+    assert.equal(xsd.valido, true, xsd.erros.join("\n"));
+  });
+
+  it("mantém boleto e PIX independentes de cobrança", () => {
+    for (const tPag of ["15", "17"]) {
+      const { xml } = buildNFePreviewXml(empresa, 124, 1, [item], destinatario("SP"), {
+        nomeMunicipioEmitente: "SAO PAULO", indFinal: 1, pagamentos: [{ tPag, valor: 10 }],
+      });
+      assert.doesNotMatch(xml, /<cobr>/);
+      assert.match(xml, new RegExp(`<tPag>${tPag}</tPag>`));
+    }
+  });
+
+  it("em pagamento misto, duplicatas fecham apenas o detPag 14", async () => {
+    const { xml } = buildNFePreviewXml(empresa, 127, 1, [item], destinatario("SP"), {
+      nomeMunicipioEmitente: "SAO PAULO", indFinal: 1,
+      pagamentos: [{ tPag: "17", valor: 2 }, { tPag: "14", valor: 8 }],
+      cobranca: { duplicatas: [{ vencimento: "2026-10-25", valor: 8 }] },
+    });
+    assert.match(xml, /<fat><nFat>127<\/nFat><vOrig>8\.00<\/vOrig>/);
+    assert.match(xml, /<tPag>17<\/tPag><vPag>2\.00<\/vPag>/);
+    assert.match(xml, /<tPag>14<\/tPag><vPag>8\.00<\/vPag>/);
+    const xsd = await validarNFeContraXsd(comAssinaturaXsdTeste(xml));
+    assert.equal(xsd.valido, true, xsd.erros.join("\n"));
+  });
+
+  it("recusa incoerência entre tPag 14 e duplicatas antes de construir XML", () => {
+    assert.throws(() => buildNFePreviewXml(empresa, 125, 1, [item], destinatario("SP"), {
+      ...opcoes, cobranca: null,
+    }), /exige ao menos uma duplicata/);
+    assert.throws(() => buildNFePreviewXml(empresa, 126, 1, [item], destinatario("SP"), {
+      ...opcoes, pagamentos: [{ tPag: "15", valor: 10 }],
+    }), /só pode ser informado/);
+  });
+});
 
 /**
  * Grupo IBS/CBS do ano-teste de 2026, no formato que o motor exige do regime

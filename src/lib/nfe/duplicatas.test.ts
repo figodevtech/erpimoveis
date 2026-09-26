@@ -2,7 +2,58 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { XMLParser } from "fast-xml-parser";
 
-import { extrairCobranca, totalDasDuplicatas } from "./duplicatas";
+import { extrairCobranca, numeroDaDuplicata, resolverCobrancaNFe, totalDasDuplicatas } from "./duplicatas";
+
+const cobrar = (params: Partial<Parameters<typeof resolverCobrancaNFe>[0]> = {}) => resolverCobrancaNFe({
+  modelo: 55,
+  finNFe: 1,
+  pagamentos: [{ tPag: "14", valor: 100 }],
+  cobranca: { duplicatas: [{ vencimento: "2026-10-25", valor: 100 }] },
+  valorNota: 100,
+  ...params,
+});
+
+test("emissão numera e soma duplicatas em centavos", () => {
+  assert.equal(numeroDaDuplicata(9), "010");
+  const result = cobrar({
+    cobranca: { duplicatas: [
+      { numero: "999", vencimento: "2026-10-25", valor: 33.34 },
+      { numero: "999", vencimento: "2026-11-25", valor: 33.33 },
+      { numero: "999", vencimento: "2026-12-25", valor: 33.33 },
+    ] },
+  });
+  assert.deepEqual(result.erros, []);
+  assert.equal(result.cobranca?.totalCentavos, 10000);
+  assert.deepEqual(result.cobranca?.duplicatas.map((item) => item.numero), ["001", "002", "003"]);
+});
+
+test("emissão bloqueia soma, data, valor e quantidade inválidos", () => {
+  assert.match(cobrar({ cobranca: { duplicatas: [{ vencimento: "2026-10-25", valor: 90 }] } }).erros.join(" "), /soma das duplicatas/);
+  assert.match(cobrar({ cobranca: { duplicatas: [{ vencimento: "", valor: 100 }] } }).erros.join(" "), /vencimento da duplicata 001/);
+  assert.match(cobrar({ cobranca: { duplicatas: [{ vencimento: "2026-02-29", valor: 100 }] } }).erros.join(" "), /data válida/);
+  assert.match(cobrar({ cobranca: { duplicatas: [{ vencimento: "2028-02-29", valor: 100 }] } }).erros.join(" "), /^$/);
+  for (const valor of [0, -1]) {
+    assert.match(cobrar({ cobranca: { duplicatas: [{ vencimento: "2026-10-25", valor }] } }).erros.join(" "), /maior que zero/);
+  }
+  assert.match(cobrar({ cobranca: { duplicatas: [
+    { vencimento: "2026-11-25", valor: 50 },
+    { vencimento: "2026-10-25", valor: 50 },
+  ] } }).erros.join(" "), /não pode ser anterior/);
+  assert.match(cobrar({ cobranca: { duplicatas: Array.from({ length: 121 }, () => ({ vencimento: "2026-10-25", valor: 1 })) } }).erros.join(" "), /no máximo 120/);
+  assert.deepEqual(cobrar({
+    pagamentos: [{ tPag: "14", valor: 120 }],
+    cobranca: { duplicatas: Array.from({ length: 120 }, () => ({ vencimento: "2026-10-25", valor: 1 })) },
+  }).erros, []);
+});
+
+test("emissão exige tPag 14 e dup juntos, somente na NF-e com finalidade compatível", () => {
+  assert.match(cobrar({ cobranca: null }).erros.join(" "), /exige ao menos uma duplicata/);
+  assert.match(cobrar({ pagamentos: [{ tPag: "15", valor: 100 }] }).erros.join(" "), /só pode ser informado/);
+  assert.match(cobrar({ modelo: 65 }).erros.join(" "), /NFC-e/);
+  assert.match(cobrar({ finNFe: 4 }).erros.join(" "), /finalidade/);
+  assert.equal(cobrar({ pagamentos: [{ tPag: "15", valor: 100 }], cobranca: null }).cobranca, null);
+  assert.deepEqual(cobrar({ pagamentos: [{ tPag: "17", valor: 50 }, { tPag: "14", valor: 50 }], cobranca: { duplicatas: [{ vencimento: "2026-10-25", valor: 50 }] } }).erros, []);
+});
 
 /**
  * Passa pelo mesmo parser da rota de entrada: é ele que decide se `119.00` chega

@@ -96,6 +96,9 @@ import {
 import { aplicarSugestaoDifal } from "@/lib/nfe/difal-sugestao";
 import { descontoPorItem } from "@/lib/nfe/descontoOrigem";
 import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
+import { NfeDuplicatasEditor } from "@/components/fiscal/nfe-duplicatas-editor";
+import { NFE_PAYMENT_OPTIONS } from "@/lib/nfe/originFiscalDefaults";
+import { numeroDaDuplicata, resolverCobrancaNFe, type NFeCobrancaInput } from "@/lib/nfe/duplicatas";
 import { CfopCombobox } from "@/components/fiscal/cfop-combobox";
 import { NcmCombobox } from "@/components/fiscal/ncm-combobox";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
@@ -393,6 +396,7 @@ type DraftPayload = {
   };
   pagamento: DraftPayment;
   pagamentos: DraftPayment[];
+  cobranca: NFeCobrancaInput | null;
   /**
    * Desconto geral da nota. Não vai para o XML por si: é rateado nos itens e
    * some dentro do vDesc de cada um, porque o leiaute 4.00 não tem desconto de
@@ -532,19 +536,6 @@ function StatusFiscalDoItemAvulso({ issues }: { issues: ValidationError[] }) {
     </div>
   );
 }
-
-const paymentOptions = [
-  { value: "01", label: "Dinheiro" },
-  { value: "02", label: "Cheque" },
-  { value: "03", label: "Cartão de crédito" },
-  { value: "04", label: "Cartão de débito" },
-  { value: "15", label: "Boleto bancário" },
-  { value: "16", label: "Depósito bancário" },
-  { value: "17", label: "PIX" },
-  { value: "18", label: "Transferência bancária" },
-  { value: "90", label: "Sem pagamento" },
-  { value: "99", label: "Outros" },
-];
 
 const freightOptions = [
   { value: "0", label: "Contratação por conta do remetente (CIF)" },
@@ -697,6 +688,7 @@ const initialDraft: DraftPayload = {
     autorizacao: "",
     descricao: "",
   }],
+  cobranca: null,
   descontoGeral: "0",
   transporte: {
     modFrete: "9",
@@ -814,7 +806,7 @@ function formatAmbiente(value?: string | null) {
 }
 
 function getPaymentLabel(value?: string | null) {
-  return paymentOptions.find((option) => option.value === value)?.label ?? value ?? "-";
+  return NFE_PAYMENT_OPTIONS.find((option) => option.value === value)?.label ?? value ?? "-";
 }
 
 function getFreightLabel(value?: string | null) {
@@ -850,6 +842,17 @@ function normalizePagamentos(value: unknown, legacyPayment?: unknown): DraftPaym
     (pagamento, index) => pagamentos.findIndex((item) => item.meio === pagamento.meio) === index,
   );
   return unique.length ? unique : initialDraft.pagamentos.map((pagamento) => ({ ...pagamento }));
+}
+
+function normalizeCobranca(value: unknown): NFeCobrancaInput | null {
+  const duplicatas = value && typeof value === "object"
+    ? (value as { duplicatas?: unknown }).duplicatas : null;
+  if (!Array.isArray(duplicatas)) return null;
+  return { duplicatas: duplicatas.map((item, index) => ({
+    numero: numeroDaDuplicata(index),
+    vencimento: String(item?.vencimento ?? ""),
+    valor: item?.valor ?? 0,
+  })) };
 }
 
 function normalizeTransporte(value: unknown): DraftTransporte {
@@ -928,6 +931,7 @@ function normalizePersistedDraft(value: unknown): DraftPayload | null {
     },
     pagamento: pagamentos[0],
     pagamentos,
+    cobranca: pagamentos.some((item) => item.meio === "14") ? normalizeCobranca(draft.cobranca) : null,
     transporte: normalizeTransporte(draft.transporte),
     entrega: normalizeEntrega(draft.entrega),
     documentosReferenciados: normalizeReferencias(draft.documentosReferenciados),
@@ -1091,6 +1095,7 @@ function mapServerDraftToPayload(value: any): { draft: DraftPayload; document: N
       },
       pagamento: pagamentosOriginais[0],
       pagamentos: pagamentosOriginais,
+      cobranca: pagamentosOriginais.some((item) => item.meio === "14") ? normalizeCobranca(dadosAvulsos.cobranca) : null,
       // Se o rascunho é antigo e não guardou o geral, cai para a soma dos vDesc
       // dos itens — é o número que o usuário reconhece ao reabrir a nota.
       descontoGeral: stringifyNumber(
@@ -1458,8 +1463,18 @@ export default function NFeAvulsaPage() {
         result.push("Informe a descrição da forma de pagamento \"Outros\".");
       }
     });
+    result.push(...resolverCobrancaNFe({
+      modelo: 55,
+      finNFe: 1,
+      pagamentos: draft.pagamentos.map((pagamento) => ({
+        tPag: pagamento.meio,
+        valor: draft.pagamentos.length === 1 && pagamento.meio !== "90" ? totalNota : pagamento.valor,
+      })),
+      cobranca: draft.cobranca,
+      valorNota: totalNota,
+    }).erros);
     return result;
-  }, [draft.pagamentos, isSemPagamentoObrigatorio, totalNota]);
+  }, [draft.pagamentos, draft.cobranca, isSemPagamentoObrigatorio, totalNota]);
   const isSemTransporte = draft.transporte.modFrete === "9";
   const isFreteContratado = ["0", "1", "2"].includes(draft.transporte.modFrete);
   const isTransporteProprio = ["3", "4"].includes(draft.transporte.modFrete);
@@ -1586,8 +1601,10 @@ export default function NFeAvulsaPage() {
       const selected = current.pagamentos.some((pagamento) => pagamento.meio === meio);
       const pagamentos = selected
         ? current.pagamentos.filter((pagamento) => pagamento.meio !== meio)
-        : [
-            ...current.pagamentos,
+        : meio === "90"
+          ? [{ ...initialDraft.pagamento, meio: "90", valor: 0 }]
+          : [
+            ...current.pagamentos.filter((pagamento) => pagamento.meio !== "90"),
             {
               ...initialDraft.pagamento,
               meio,
@@ -1598,6 +1615,9 @@ export default function NFeAvulsaPage() {
         ...current,
         pagamentos,
         pagamento: pagamentos[0] ?? current.pagamento,
+        cobranca: pagamentos.some((pagamento) => pagamento.meio === "14")
+          ? current.cobranca ?? { duplicatas: [{ numero: numeroDaDuplicata(0), vencimento: "", valor: pagamentos.length === 1 ? totalNota : 0 }] }
+          : null,
       };
     });
   }
@@ -1633,6 +1653,7 @@ export default function NFeAvulsaPage() {
       ...current,
       pagamento: pagamentos[0] ?? current.pagamento,
       pagamentos,
+      cobranca: pagamentos.some((item) => item.meio === "14") ? current.cobranca : null,
       // O motor lê o DIFAL sob outros nomes; sem essa tradução o que o usuário
       // digitou seria descartado e recalculado com os padrões.
       itens: current.itens.map((item) => ({
@@ -2564,6 +2585,7 @@ export default function NFeAvulsaPage() {
                           operacao,
                           pagamento: pagamentos[0],
                           pagamentos,
+                          cobranca: semPagamento ? null : current.cobranca,
                         };
                       })
                     }
@@ -3488,7 +3510,7 @@ export default function NFeAvulsaPage() {
                               onWheel={(event) => event.stopPropagation()}
                             >
                               <CommandGroup>
-                                {paymentOptions.map((option) => {
+                                {NFE_PAYMENT_OPTIONS.map((option) => {
                                   const checked = draft.pagamentos.some(
                                     (pagamento) => pagamento.meio === option.value,
                                   );
@@ -3572,6 +3594,14 @@ export default function NFeAvulsaPage() {
                 ) : !isSemPagamentoObrigatorio && paymentErrors.length ? (
                   <p className="text-xs text-destructive">{paymentErrors.join(" ")}</p>
                 ) : null}
+
+                {!isSemPagamentoObrigatorio && draft.pagamentos.some((pagamento) => pagamento.meio === "14") && (
+                  <NfeDuplicatasEditor
+                    value={draft.cobranca?.duplicatas ?? []}
+                    onChange={(duplicatas) => updateDraft((current) => ({ ...current, cobranca: { duplicatas } }))}
+                    valorEsperado={draft.pagamentos.length === 1 ? totalNota : draft.pagamentos.find((pagamento) => pagamento.meio === "14")?.valor ?? 0}
+                  />
+                )}
 
                 {!isSemPagamentoObrigatorio && draft.pagamentos
                   .filter((pagamento) => pagamento.meio === "03" || pagamento.meio === "04")
@@ -3936,6 +3966,16 @@ function NFeAutorizadaView({
   totalProdutos: number;
   totalFrete: number;
 }) {
+  const [danfeDoXml, setDanfeDoXml] = React.useState<DanfeViewData | null>(null);
+  React.useEffect(() => {
+    if (!draft.nfeId) return;
+    const controller = new AbortController();
+    fetch(`/api/nfe/${draft.nfeId}/danfe-dados`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((body) => { if (!controller.signal.aborted) setDanfeDoXml(body?.view ?? null); })
+      .catch(() => { if (!controller.signal.aborted) setDanfeDoXml(null); });
+    return () => controller.abort();
+  }, [draft.nfeId]);
   const totalNota = totalProdutos + totalFrete;
   const pagamentosAtuais = draft.operacao.finalidade === "AJUSTE" || draft.operacao.finalidade === "DEVOLUCAO"
     ? [{ ...initialDraft.pagamento, meio: "90", valor: 0 }]
@@ -4084,6 +4124,10 @@ function NFeAutorizadaView({
     isAutorizada: true,
     xmlError: null,
     xmlBaseAvailable: true,
+    documentosReferenciados: normalizeReferencias(draft.documentosReferenciados).map((referencia) => ({
+      tipo: "NFE",
+      chave: referencia.chaveAcesso,
+    })),
     itensDisplay,
     totais: {
       vBC: totalBcIcms,
@@ -4147,8 +4191,19 @@ function NFeAutorizadaView({
       uf: draft.entrega.estado,
       cep: draft.entrega.cep,
     } : null,
-    fatura: null,
-    duplicatas: [],
+    fatura: pagamentosAtuais.some((pagamento) => pagamento.meio === "14") && draft.cobranca?.duplicatas.length
+      ? {
+          numero: String(documentState.numero ?? draft.nfeId ?? ""),
+          valorOriginal: draft.cobranca.duplicatas.reduce((total, duplicata) => total + Number(duplicata.valor), 0),
+          desconto: 0,
+          valorLiquido: draft.cobranca.duplicatas.reduce((total, duplicata) => total + Number(duplicata.valor), 0),
+        }
+      : null,
+    duplicatas: pagamentosAtuais.some((pagamento) => pagamento.meio === "14")
+      ? (draft.cobranca?.duplicatas ?? []).map((duplicata, index) => ({
+          numero: numeroDaDuplicata(index), vencimento: duplicata.vencimento, valor: Number(duplicata.valor),
+        }))
+      : [],
     pagamentos: pagamentosAtuais.map((pagamento) => ({
       tipo: pagamento.meio,
       valor: pagamento.meio === "90"
@@ -4209,7 +4264,7 @@ function NFeAutorizadaView({
         </AlertDescription>
       </Alert>
 
-      <DanfeView data={danfeData} showActions={false} />
+      <DanfeView data={danfeDoXml ?? danfeData} showActions={false} />
     </div>
   );
 }

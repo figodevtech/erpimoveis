@@ -3,6 +3,7 @@ export const NFE_PAYMENT_OPTIONS = [
   { value: "02", label: "Cheque" },
   { value: "03", label: "Cartão de crédito" },
   { value: "04", label: "Cartão de débito" },
+  { value: "14", label: "Duplicata Mercantil" },
   { value: "15", label: "Boleto bancário" },
   { value: "16", label: "Depósito bancário" },
   { value: "17", label: "PIX" },
@@ -10,6 +11,10 @@ export const NFE_PAYMENT_OPTIONS = [
   { value: "90", label: "Sem pagamento" },
   { value: "99", label: "Outros" },
 ] as const;
+
+export function paymentOptionsForModel(modelo: number) {
+  return NFE_PAYMENT_OPTIONS.filter((option) => modelo !== 65 || option.value !== "14");
+}
 
 export const NFE_PRESENCE_OPTIONS = [
   { value: "0", label: "Não se aplica" },

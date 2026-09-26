@@ -74,6 +74,7 @@ import {
   NFE_FREIGHT_OPTIONS,
   NFE_PAYMENT_OPTIONS,
   NFE_PRESENCE_OPTIONS,
+  paymentOptionsForModel,
 } from "@/lib/nfe/originFiscalDefaults";
 import { isValidCnpj, isValidCpf, normalizeFiscalRecipient } from "@/lib/nfe/recipientNormalization";
 import { normalizarIndIEDest, sugerirIndIEDest } from "@/lib/nfe/indIEDest";
@@ -83,6 +84,8 @@ import {
   type DestinoMercadoria,
 } from "@/lib/nfe/destinoMercadoria";
 import { DestinoMercadoriaField } from "@/components/fiscal/destino-mercadoria-field";
+import { NfeDuplicatasEditor } from "@/components/fiscal/nfe-duplicatas-editor";
+import { numeroDaDuplicata, resolverCobrancaNFe, type NFeCobrancaInput } from "@/lib/nfe/duplicatas";
 import { FiscalInformationBadge } from "@/components/fiscal/fiscal-information-badge";
 import { distribuirDinheiro } from "@/lib/nfe/descontoOrigem";
 import { freteNaBaseIcms } from "@/lib/nfe/icms";
@@ -252,6 +255,7 @@ type AssistedFiscalConfig = {
   freteIntegraBaseIcms: boolean | null;
   indicadorPresenca: string;
   pagamentos: Array<{ meio: string; valor: number }>;
+  cobranca: NFeCobrancaInput | null;
   modFrete: string;
   /** Frete da nota inteira (vai para vFrete, rateado nos itens pelo servidor). */
   valorFrete: number;
@@ -271,6 +275,7 @@ const defaultFiscalConfig: AssistedFiscalConfig = {
   freteIntegraBaseIcms: null,
   indicadorPresenca: "1",
   pagamentos: [],
+  cobranca: null,
   modFrete: "9",
   valorFrete: 0,
   transportadora: {
@@ -609,6 +614,18 @@ export function GerarNotaDeOsDialog({
   const difalAtivo = items.some((item) => item.difalHabilitado);
 
   const origin = osId ? "OS" : vendaId ? "VENDA" : entradaId ? "ENTRADA" : saidaId ? "SAIDA" : null;
+  useEffect(() => {
+    setFiscalConfig((current) => {
+      if (origin === "SAIDA" && ["AJUSTE", "DEVOLUCAO"].includes(saidaOrigem.finalidade)) {
+        if (current.pagamentos.length === 1 && current.pagamentos[0].meio === "90" && !current.cobranca) return current;
+        return { ...current, pagamentos: [{ meio: "90", valor: 0 }], cobranca: null };
+      }
+      if (isNfce && (current.cobranca || current.pagamentos.some((pagamento) => pagamento.meio === "14"))) {
+        return { ...current, pagamentos: current.pagamentos.filter((pagamento) => pagamento.meio !== "14"), cobranca: null };
+      }
+      return current;
+    });
+  }, [isNfce, origin, saidaOrigem.finalidade]);
   const originId = osId ?? vendaId ?? entradaId ?? saidaId ?? null;
   const usesEditableRecipient = origin === "ENTRADA" || origin === "SAIDA";
   const productsEndpoint = useMemo(() => {
@@ -642,7 +659,7 @@ export function GerarNotaDeOsDialog({
     setLoadError(null);
     setServerError(null);
     try {
-      const [productsResponse, setupResponse, saidaFiscalResponse] = await Promise.all([
+      const [productsResponse, setupResponse, saidaFiscalResponse, paymentDraftResponse] = await Promise.all([
         fetch(productsEndpoint, { cache: "no-store", signal }),
         // O modelo vai na query: sem ele o setup responde sempre a NF-e, e a
         // tela da NFC-e mostraria a série, o número e o ambiente do modelo 55.
@@ -656,6 +673,7 @@ export function GerarNotaDeOsDialog({
         origin === "SAIDA"
           ? fetch(`/api/estoque/saidas/${originId}/fiscal`, { cache: "no-store", signal })
           : null,
+        nfeId ? fetch(`/api/nfe/rascunho-pagamento/${nfeId}`, { cache: "no-store", signal }) : null,
       ]);
       const productsJson = (await productsResponse.json().catch(() => null)) as SourceResponse | null;
       const setupJson = (await setupResponse.json().catch(() => null)) as
@@ -672,6 +690,21 @@ export function GerarNotaDeOsDialog({
             "Não foi possível carregar as regras fiscais.",
         );
       }
+      const paymentDraft = paymentDraftResponse
+        ? await paymentDraftResponse.json().catch(() => null) as {
+            pagamentos?: Array<{ meio: string; valor: number }> | null;
+            cobranca?: NFeCobrancaInput | null;
+            error?: string;
+          } | null
+        : null;
+      if (paymentDraftResponse && !paymentDraftResponse.ok) {
+        throw new Error(paymentDraft?.error || "Não foi possível restaurar o pagamento do rascunho.");
+      }
+      const pagamentosSalvos = Array.isArray(paymentDraft?.pagamentos)
+        ? paymentDraft.pagamentos
+            .filter((pagamento) => pagamento && typeof pagamento.meio === "string")
+            .map((pagamento) => ({ meio: pagamento.meio, valor: Number(pagamento.valor) || 0 }))
+        : null;
 
       const fiscalSetup = setupJson as FiscalSetup;
       const parceiro = productsJson.fornecedor ?? productsJson.cliente;
@@ -761,6 +794,9 @@ export function GerarNotaDeOsDialog({
         (total, item) => total + Math.max(0, item.quantidade * item.valorUnitario - item.valorDesconto),
         valorFreteOrigem,
       );
+      const pagamentosIniciais = pagamentosSalvos ?? (productsJson.configuracao_fiscal?.pagamentos?.length
+        ? ratearPagamentosParaTotal(productsJson.configuracao_fiscal.pagamentos, totalFiscalSugerido)
+        : origin === "ENTRADA" || origin === "SAIDA" ? [{ meio: "90", valor: 0 }] : []);
       setFiscalConfig({
         ...defaultFiscalConfig,
         ...productsJson.configuracao_fiscal,
@@ -771,10 +807,8 @@ export function GerarNotaDeOsDialog({
           : destinoMercadoriaInicial(origin, productsJson.configuracao_fiscal?.destinoMercadoria),
         consumidorFinal: null,
         freteIntegraBaseIcms: null,
-        pagamentos: ratearPagamentosParaTotal(
-          productsJson.configuracao_fiscal?.pagamentos ?? [],
-          totalFiscalSugerido,
-        ),
+        pagamentos: isNfce ? pagamentosIniciais.filter((pagamento) => pagamento.meio !== "14") : pagamentosIniciais,
+        cobranca: isNfce ? null : paymentDraftResponse ? paymentDraft?.cobranca ?? null : productsJson.configuracao_fiscal?.cobranca ?? null,
         // Frete cobrado na venda ou na OS. O valor integral é sugerido na NF-e
         // e continua editável antes da emissão.
         valorFrete: valorFreteOrigem,
@@ -1119,20 +1153,32 @@ export function GerarNotaDeOsDialog({
     return errors;
   }, [fiscalConfig.modFrete, fiscalConfig.transportadora, origin, isNfce]);
   const paymentErrors = useMemo(() => {
-    if (!(origin === "OS" || origin === "VENDA")) return [];
     if (fiscalConfig.pagamentos.length === 0) return ["Selecione pelo menos um método de pagamento."];
-    if (fiscalConfig.pagamentos.length === 1) return [];
-
     const errors: string[] = [];
-    if (fiscalConfig.pagamentos.some((pagamento) => pagamento.valor <= 0)) {
+    const exigeSemPagamento = origin === "SAIDA" && ["AJUSTE", "DEVOLUCAO"].includes(saidaOrigem.finalidade);
+    if (exigeSemPagamento && (fiscalConfig.pagamentos.length !== 1 || fiscalConfig.pagamentos[0].meio !== "90")) {
+      errors.push("Esta finalidade exige 90 - Sem pagamento.");
+    }
+    if (fiscalConfig.pagamentos.length > 1 && fiscalConfig.pagamentos.some((pagamento) => pagamento.valor <= 0)) {
       errors.push("Informe um valor maior que zero para cada método.");
     }
     const totalPagamentos = fiscalConfig.pagamentos.reduce((total, pagamento) => total + pagamento.valor, 0);
-    if (Math.abs(totalPagamentos - selectedTotal) > 0.01) {
+    if (fiscalConfig.pagamentos.length > 1 && Math.abs(totalPagamentos - selectedTotal) > 0.01) {
       errors.push(`A soma dos pagamentos deve ser ${fmtMoney(selectedTotal)}.`);
     }
+    const pagamentos = fiscalConfig.pagamentos.map((pagamento) => ({
+      tPag: pagamento.meio,
+      valor: pagamento.meio === "90" ? 0 : fiscalConfig.pagamentos.length === 1 ? selectedTotal : pagamento.valor,
+    }));
+    errors.push(...resolverCobrancaNFe({
+      modelo,
+      finNFe: exigeSemPagamento ? 4 : 1,
+      pagamentos,
+      cobranca: fiscalConfig.cobranca,
+      valorNota: selectedTotal,
+    }).erros);
     return errors;
-  }, [fiscalConfig.pagamentos, origin, selectedTotal]);
+  }, [fiscalConfig.pagamentos, fiscalConfig.cobranca, modelo, origin, saidaOrigem.finalidade, selectedTotal]);
 
   const freteBaseErrors = useMemo(
     () => (freteNaBase.integra === null ? [freteNaBase.motivo] : []),
@@ -1495,12 +1541,21 @@ export function GerarNotaDeOsDialog({
   }
 
   function togglePaymentMethod(meio: string) {
-    setFiscalConfig((current) => ({
-      ...current,
-      pagamentos: current.pagamentos.some((pagamento) => pagamento.meio === meio)
+    setFiscalConfig((current) => {
+      const jaSelecionado = current.pagamentos.some((pagamento) => pagamento.meio === meio);
+      const pagamentos = jaSelecionado
         ? current.pagamentos.filter((pagamento) => pagamento.meio !== meio)
-        : [...current.pagamentos, { meio, valor: 0 }],
-    }));
+        : meio === "90"
+          ? [{ meio: "90", valor: 0 }]
+          : [...current.pagamentos.filter((pagamento) => pagamento.meio !== "90"), { meio, valor: 0 }];
+      return {
+        ...current,
+        pagamentos,
+        cobranca: pagamentos.some((pagamento) => pagamento.meio === "14")
+          ? current.cobranca ?? { duplicatas: [{ numero: numeroDaDuplicata(0), vencimento: "", valor: pagamentos.length === 1 ? selectedTotal : 0 }] }
+          : null,
+      };
+    });
     setServerError(null);
   }
 
@@ -1615,6 +1670,12 @@ export function GerarNotaDeOsDialog({
     setSaving(true);
     setServerError(null);
     try {
+      const pagamentosPayload = fiscalConfig.pagamentos.map((pagamento) => ({
+        meio: pagamento.meio,
+        valor: pagamento.meio === "90" ? 0 : fiscalConfig.pagamentos.length === 1 ? selectedTotal : pagamento.valor,
+        tipoIntegracao: "2",
+      }));
+      const cobrancaPayload = isNfce ? null : fiscalConfig.cobranca;
       const corpo = {
           // Sessão de emissão: o servidor aceita as ciências registradas nela.
           cienciaEscopo,
@@ -1643,6 +1704,8 @@ export function GerarNotaDeOsDialog({
           // PUT anterior feito por outra tela.
           ...(origin === "SAIDA"
             ? {
+                pagamentos: pagamentosPayload,
+                cobranca: cobrancaPayload,
                 destinoMercadoria: fiscalConfig.destinoMercadoria || null,
                 consumidorFinal: fiscalConfig.consumidorFinal,
                 contextoFiscal: {
@@ -1690,11 +1753,8 @@ export function GerarNotaDeOsDialog({
                       ? {}
                       : { consumidorFinal: fiscalConfig.consumidorFinal }),
                   indicadorPresenca: fiscalConfig.indicadorPresenca,
-                  pagamentos: fiscalConfig.pagamentos.map((pagamento) => ({
-                    meio: pagamento.meio,
-                    valor: fiscalConfig.pagamentos.length === 1 ? selectedTotal : pagamento.valor,
-                    tipoIntegracao: "2",
-                  })),
+                  pagamentos: pagamentosPayload,
+                  cobranca: cobrancaPayload,
                   // Transporte não existe na NFC-e; o servidor força modFrete 9
                   // de qualquer forma, mas não faz sentido mandar o bloco.
                   ...(isNfce
@@ -1711,6 +1771,7 @@ export function GerarNotaDeOsDialog({
                 },
               }
             : {}),
+          ...(origin === "ENTRADA" ? { configuracaoFiscal: { pagamentos: pagamentosPayload, cobranca: cobrancaPayload } } : {}),
       };
 
       // "Estou ciente" marcado na tela só vale depois que o servidor recalcula o
@@ -2042,17 +2103,17 @@ export function GerarNotaDeOsDialog({
                   </section>
                 ) : null}
 
-                {origin === "OS" || origin === "VENDA" ? (
+                {origin ? (
                   <section className="min-w-0 space-y-4 border border-l-4 border-l-border bg-card p-3 sm:p-4">
                     <div>
                       <p className="font-medium">Dados da operação</p>
                       <p className="text-xs text-muted-foreground">
-                        Revise os dados trazidos da {origin === "OS" ? "ordem de serviço" : "venda"} antes de gerar a {rotulo}.
+                        Revise os dados fiscais antes de gerar a {rotulo}.
                       </p>
                     </div>
                     <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-2">
                       {/* NFC-e é sempre a consumidor final: não há escolha. */}
-                      {isNfce ? null : (
+                      {isNfce || (origin !== "OS" && origin !== "VENDA") ? null : (
                         <DestinoMercadoriaField
                           destino={fiscalConfig.destinoMercadoria}
                           consumidorFinal={fiscalConfig.consumidorFinal}
@@ -2064,7 +2125,7 @@ export function GerarNotaDeOsDialog({
                           }
                         />
                       )}
-                      <div className="min-w-0 space-y-1.5">
+                      {(origin === "OS" || origin === "VENDA") && <div className="min-w-0 space-y-1.5">
                         <Label>Indicador de presença</Label>
                         <Select
                           value={fiscalConfig.indicadorPresenca}
@@ -2082,7 +2143,7 @@ export function GerarNotaDeOsDialog({
                               ))}
                           </SelectContent>
                         </Select>
-                      </div>
+                      </div>}
                       <div className="min-w-0 space-y-1.5">
                         <Label>Métodos de pagamento</Label>
                         <Popover open={paymentMethodsOpen} onOpenChange={setPaymentMethodsOpen} modal>
@@ -2105,7 +2166,10 @@ export function GerarNotaDeOsDialog({
                                 onWheel={(event) => event.stopPropagation()}
                               >
                                 <CommandGroup>
-                                  {NFE_PAYMENT_OPTIONS.filter((option) => option.value !== "90").map((option) => {
+                                  {paymentOptionsForModel(modelo).filter((option) =>
+                                    !((origin === "OS" || origin === "VENDA") && option.value === "90") &&
+                                    !((origin === "SAIDA" && ["AJUSTE", "DEVOLUCAO"].includes(saidaOrigem.finalidade)) && option.value !== "90"),
+                                  ).map((option) => {
                                     const checked = fiscalConfig.pagamentos.some(
                                       (pagamento) => pagamento.meio === option.value,
                                     );
@@ -2140,7 +2204,7 @@ export function GerarNotaDeOsDialog({
                       </div>
                       {/* Frete e transportadora não existem na NFC-e: venda ao
                           consumidor sai sem ocorrência de transporte. */}
-                      <div className={`min-w-0 space-y-1.5 ${isNfce ? "hidden" : ""}`}>
+                      {(origin === "OS" || origin === "VENDA") && <div className={`min-w-0 space-y-1.5 ${isNfce ? "hidden" : ""}`}>
                         <Label>Modalidade do frete</Label>
                         <Select
                           value={fiscalConfig.modFrete}
@@ -2153,8 +2217,8 @@ export function GerarNotaDeOsDialog({
                             ))}
                           </SelectContent>
                         </Select>
-                      </div>
-                      <div className={`min-w-0 space-y-1.5 ${isNfce ? "hidden" : ""}`}>
+                      </div>}
+                      {(origin === "OS" || origin === "VENDA") && <div className={`min-w-0 space-y-1.5 ${isNfce ? "hidden" : ""}`}>
                         <Label>Valor do frete</Label>
                         <ValueInput
                           price={fiscalConfig.valorFrete}
@@ -2180,9 +2244,9 @@ export function GerarNotaDeOsDialog({
                             art. 13, §1º, II, &quot;b&quot;) e na base da ST.
                           </p>
                         ) : null}
-                      </div>
-                      {freteNaBase.fonte === "INCONSISTENTE" ? <p role="alert" className="text-sm text-destructive">{freteNaBase.motivo}</p> : null}
-                      {!isNfce && (freteNaBase.fonte === "PENDENTE" || freteNaBase.fonte === "USUARIO") ? (
+                      </div>}
+                      {(origin === "OS" || origin === "VENDA") && freteNaBase.fonte === "INCONSISTENTE" ? <p role="alert" className="text-sm text-destructive">{freteNaBase.motivo}</p> : null}
+                      {(origin === "OS" || origin === "VENDA") && !isNfce && (freteNaBase.fonte === "PENDENTE" || freteNaBase.fonte === "USUARIO") ? (
                         <div className="min-w-0 space-y-1.5 sm:col-span-2">
                           <Label>
                             O frete integra a base do ICMS próprio? <span className="text-destructive">*</span>
@@ -2258,7 +2322,18 @@ export function GerarNotaDeOsDialog({
                       <p className="text-xs text-destructive">{paymentErrors.join(" ")}</p>
                     ) : null}
 
-                    {!isNfce && ["0", "1", "2"].includes(fiscalConfig.modFrete) ? (
+                    {!isNfce && fiscalConfig.pagamentos.some((pagamento) => pagamento.meio === "14") &&
+                      !(origin === "SAIDA" && ["AJUSTE", "DEVOLUCAO"].includes(saidaOrigem.finalidade)) ? (
+                      <NfeDuplicatasEditor
+                        value={fiscalConfig.cobranca?.duplicatas ?? []}
+                        valorEsperado={fiscalConfig.pagamentos.length === 1
+                          ? selectedTotal
+                          : fiscalConfig.pagamentos.find((pagamento) => pagamento.meio === "14")?.valor ?? 0}
+                        onChange={(duplicatas) => setFiscalConfig((current) => ({ ...current, cobranca: { duplicatas } }))}
+                      />
+                    ) : null}
+
+                    {(origin === "OS" || origin === "VENDA") && !isNfce && ["0", "1", "2"].includes(fiscalConfig.modFrete) ? (
                       <div className="space-y-3 border-t pt-3">
                         <p className="text-sm font-medium">Transportadora contratada</p>
                         <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">

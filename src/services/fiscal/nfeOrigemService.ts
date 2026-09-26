@@ -146,6 +146,7 @@ export type NFeOrigemDraftInput = {
     consumidorFinal?: boolean;
     indicadorPresenca?: string | null;
     pagamentos?: NonNullable<NFeAvulsaDraftInput["pagamentos"]>;
+    cobranca?: NFeAvulsaDraftInput["cobranca"];
     transporte?: NFeAvulsaDraftInput["transporte"] & {
       /**
        * Frete da nota inteiro, confirmado na tela. Vem da venda, mas continua
@@ -951,20 +952,20 @@ export async function salvarNFeDeOrigem(
     }
   });
 
-  const requestedFiscalConfig = tipo === "ENTRADA" ? undefined : input.configuracaoFiscal;
+  const requestedFiscalConfig = input.configuracaoFiscal;
   const destinoMercadoria = isNfce || tipo === "ENTRADA"
     ? null
     : requestedFiscalConfig?.destinoMercadoria ?? null;
   const consumidorFinal = typeof requestedFiscalConfig?.consumidorFinal === "boolean"
     ? requestedFiscalConfig.consumidorFinal
     : source.consumidorFinal;
-  const indicadorPresenca = String(requestedFiscalConfig?.indicadorPresenca ?? source.indicadorPresenca);
+  const indicadorPresenca = String(tipo === "ENTRADA" ? source.indicadorPresenca : requestedFiscalConfig?.indicadorPresenca ?? source.indicadorPresenca);
   // Venda ao consumidor sai pelo balcão: a NFC-e não carrega frete nem
   // transportadora, e o valor de frete gravado na origem não pode inflar o vNF
   // de um documento que não documenta transporte.
   const transporte = isNfce
     ? { modFrete: "9" as const }
-    : requestedFiscalConfig?.transporte ?? source.transporte;
+    : tipo === "ENTRADA" ? source.transporte : requestedFiscalConfig?.transporte ?? source.transporte;
   const modFrete = String(transporte?.modFrete ?? "9");
 
   // O frete confirmado na tela manda; sem ele, vale o que a origem gravou para
@@ -1000,12 +1001,12 @@ export async function salvarNFeDeOrigem(
     0,
   );
   const totalNota = totalProdutos - totalDesconto + totalFrete;
-  const pagamentos = tipo === "ENTRADA"
+  const pagamentos = tipo === "ENTRADA" && !requestedFiscalConfig?.pagamentos?.length
     ? [{ meio: "90", valor: 0, tipoIntegracao: "2" }]
     : (requestedFiscalConfig?.pagamentos ?? []).map((pagamento) => ({
         ...pagamento,
         meio: String(pagamento.meio ?? ""),
-        valor: requestedFiscalConfig?.pagamentos?.length === 1
+        valor: pagamento.meio === "90" ? 0 : requestedFiscalConfig?.pagamentos?.length === 1
           ? Number(totalNota.toFixed(2))
           : Number(toNumber(pagamento.valor).toFixed(2)),
         tipoIntegracao: "2",
@@ -1026,8 +1027,7 @@ export async function salvarNFeDeOrigem(
   }
   pagamentos.forEach((pagamento, paymentIndex) => {
     if (
-      tipo !== "ENTRADA" &&
-      (pagamento.meio === "90" ||
+      ((tipo !== "ENTRADA" && pagamento.meio === "90") ||
         !NFE_PAYMENT_OPTIONS.some((option) => option.value === pagamento.meio))
     ) {
       errors.push({
@@ -1087,7 +1087,8 @@ export async function salvarNFeDeOrigem(
       meio: pagamentos[0]?.meio ?? "90",
       tipoIntegracao: "2",
     },
-    pagamentos: tipo === "ENTRADA" ? undefined : pagamentos,
+    pagamentos,
+    cobranca: requestedFiscalConfig?.cobranca ?? null,
     // Sem o valor da tela, guarda o que os itens somam — é o mesmo número
     // quando ninguém mexeu no rateio.
     descontoGeral: input.descontoGeral ?? totalDesconto,

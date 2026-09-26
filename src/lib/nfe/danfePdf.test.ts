@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDocument, PDFRawStream, decodePDFRawStream } from "pdf-lib";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
-import type { DanfeViewData } from "@/components/danfe/danfe-view";
+import { DanfeView, type DanfeViewData } from "@/components/danfe/danfe-view";
 import { DANFE_MAX_FONT_SCALE } from "@/lib/nfe/danfeFontScale";
 import type { DanfeItem, DanfeTaxTotals } from "@/lib/nfe/danfeParser";
 import { gerarDanfePdf } from "@/lib/nfe/danfePdf";
+import { descreverDocumentoReferenciado } from "@/lib/nfe/danfeDocumentosReferenciados";
 
 const totaisZerados: DanfeTaxTotals = {
   vBC: 0,
@@ -39,6 +42,23 @@ const totaisZerados: DanfeTaxTotals = {
   vBCISS: 0,
   vISS: 0,
 };
+
+function pdfContent(pdf: PDFDocument) {
+  return pdf.getPages().map((page) => {
+    const streams = page.node.Contents();
+    if (!streams) return "";
+    const entries = streams instanceof PDFArray ? streams.asArray() : [streams];
+    return entries.map((entry) => {
+      const stream = pdf.context.lookup(entry);
+      assert.ok(stream instanceof PDFRawStream);
+      return new TextDecoder("latin1").decode(decodePDFRawStream(stream).decode());
+    }).join("\n");
+  }).join("\n");
+}
+
+function pdfHexText(text: string) {
+  return `<${Buffer.from(text, "latin1").toString("hex").toUpperCase()}> Tj`;
+}
 
 function item(index: number): DanfeItem {
   return {
@@ -128,6 +148,7 @@ test("gera DANFE vetorial com mais de uma folha quando os itens excedem o A4", a
     fatura: null,
     duplicatas: [],
     pagamentos: [],
+    documentosReferenciados: [{ tipo: "NFE", chave: "29260815851413000157550010004179631007316491" }],
     infCpl: "Informacoes complementares de teste.",
     infAdFisco: "",
   };
@@ -141,4 +162,26 @@ test("gera DANFE vetorial com mais de uma folha quando os itens excedem o A4", a
   assert.ok(pdf.getPageCount() > 1);
   assert.ok(bytesComFonteMaxima.byteLength > 1_000);
   assert.ok(pdfComFonteMaxima.getPageCount() > pdf.getPageCount());
+  assert.equal(descreverDocumentoReferenciado(data.documentosReferenciados[0]),
+    "NF-e: 2926 0815 8514 1300 0157 5500 1000 4179 6310 0731 6491");
+  const html = renderToStaticMarkup(createElement(DanfeView, { data, showActions: false }));
+  assert.match(html, /DOCUMENTOS FISCAIS REFERENCIADOS/i);
+  assert.match(html, /NF-e: 2926 0815 8514 1300 0157 5500 1000 4179 6310 0731 6491/);
+
+  assert.ok(pdfContent(pdf).includes(pdfHexText("NF-e: 2926 0815 8514 1300 0157 5500 1000 4179 6310 0731 6491")));
+
+  data.itensDisplay = [];
+  data.documentosReferenciados = [];
+  const htmlSemReferencias = renderToStaticMarkup(createElement(DanfeView, { data, showActions: false }));
+  assert.doesNotMatch(htmlSemReferencias, /DOCUMENTOS FISCAIS REFERENCIADOS/i);
+  data.documentosReferenciados = Array.from({ length: 180 }, (_, index) => ({
+    tipo: "NFE" as const,
+    chave: `2926081585141300015755001000417963100731${String(index).padStart(4, "0")}`,
+  }));
+  const pdfComReferencias = await PDFDocument.load(await gerarDanfePdf(data));
+  assert.ok(pdfComReferencias.getPageCount() > 1);
+  const conteudoReferencias = pdfContent(pdfComReferencias);
+  for (const referencia of data.documentosReferenciados) {
+    assert.ok(conteudoReferencias.includes(pdfHexText(descreverDocumentoReferenciado(referencia))));
+  }
 });
