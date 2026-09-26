@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 import { BancoFalso, instalarIbgeFalso } from "./__bancoFalso";
 import {
+  buscarNFeAvulsaDraft,
   salvarNFeAvulsaDraft,
   type NFeAvulsaDraftInput,
   type NFeAvulsaItemInput,
@@ -249,6 +250,7 @@ function confirmarDuplicatas(nota: Emitida) {
   assert.match(nota.xml, /<nDup>002<\/nDup><dVenc>2026-11-25<\/dVenc><vDup>5500\.00<\/vDup>/);
   assert.match(nota.xml, /<\/cobr><pag><detPag><tPag>14<\/tPag><vPag>11000\.00<\/vPag>/);
   assert.deepEqual(nota.nfe.dados_avulsos.cobranca.duplicatas, cobrancaDuplicata.duplicatas);
+  assert.equal(banco.escritas.filter((escrita) => escrita.tabela === "transacao").length, 0);
 }
 
 type Emitida = {
@@ -353,6 +355,26 @@ describe("VENDA — regressão da NF-e 136", () => {
     assert.equal(segunda.nfeId, primeira.nfeId);
     confirmarDuplicatas(notaGravada(segunda.nfeId));
   });
+
+  it("recupera pagamentos e duplicatas do rascunho e da nota rejeitada", async () => {
+    const resultado = await salvarNFeDeOrigem("VENDA", 164, {
+      itens: [itemDaTela({ cfop: "6102", cst: "00" })],
+      configuracaoFiscal: { ...configuracaoVenda, pagamentos: [{ meio: "14", valor: 11000 }], cobranca: cobrancaDuplicata },
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    for (const status of ["RASCUNHO", "REJEITADA"]) {
+      const linha = banco.tabela("nfe").find((nota) => Number(nota.id) === resultado.nfeId);
+      assert.ok(linha);
+      linha.status = status;
+      const recuperado = await buscarNFeAvulsaDraft(resultado.nfeId);
+      assert.deepEqual(
+        recuperado?.nfe.dados_avulsos.pagamentos.map((pagamento: { meio: string; valor: number }) => ({ meio: pagamento.meio, valor: pagamento.valor })),
+        [{ meio: "14", valor: 11000 }],
+      );
+      assert.deepEqual(recuperado?.nfe.dados_avulsos.cobranca.duplicatas, cobrancaDuplicata.duplicatas);
+    }
+  });
+
   it("permite novo rascunho quando a mesma venda já tem NF-e autorizada", async () => {
     const input = {
       itens: [itemDaTela({
@@ -581,6 +603,36 @@ describe("SAÍDA DE ESTOQUE — mesmo núcleo", () => {
     });
     assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
     confirmarDuplicatas(notaGravada(resultado.nfeId));
+  });
+
+  it("leva pagamentos e cobrança ao XML também na saída agrupada", async () => {
+    banco.tabela("estoque_saida").push({
+      id: 81, motivo: "CONSERTO", observacao: null, status: "CONFIRMADA", created_at: "2026-09-18T11:00:00Z",
+      itens: [{ id: 801, produto_id: 1964, quantidade: 1, valor_custo_aplicado: 9000, produto }],
+    });
+    banco.tabela("estoque_saida_fiscal").push({
+      id: 2, saida_id: 81, natureza_operacao: "OUTRA SAIDA DE MERCADORIA", finalidade: "NORMAL",
+      documento_referenciado_obrigatorio: false, chave_acesso_referenciada: null, observacoes_fiscais: null,
+      destinatario_snapshot: null, entrada_origem_id: null,
+      itens: [{ saida_item_id: 801, numero_item_referenciado: null, percentual_devolucao: null, valor_ipi_devolvido: null, entrada_item_origem_id: null }],
+    });
+    const resultado = await salvarNFeDaSaida(80, {
+      itens: [itemSaida({ cst: "00" }), itemDaTela({ sourceItemId: "saida:81:801", cfop: "6949", cst: "00" })],
+      destinatario, destinoMercadoria: "USO_CONSUMO",
+      pagamentos: [{ meio: "14", valor: 22000 }],
+      cobranca: { duplicatas: [
+        { vencimento: "2026-10-25", valor: 11000 },
+        { vencimento: "2026-11-25", valor: 11000 },
+      ] },
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    const nota = notaGravada(resultado.nfeId);
+    assert.match(nota.xml, /<\/transp><cobr><fat>/);
+    assert.match(nota.xml, /<nDup>001<\/nDup><dVenc>2026-10-25<\/dVenc><vDup>11000\.00<\/vDup>/);
+    assert.match(nota.xml, /<nDup>002<\/nDup><dVenc>2026-11-25<\/dVenc><vDup>11000\.00<\/vDup>/);
+    assert.match(nota.xml, /<\/cobr><pag><detPag><tPag>14<\/tPag><vPag>22000\.00<\/vPag>/);
+    assert.equal(nota.nfe.dados_avulsos.cobranca.duplicatas.length, 2);
+    assert.equal(banco.escritas.filter((escrita) => escrita.tabela === "transacao").length, 0);
   });
 
   it("CST 60 sem ICMS próprio; indFinal vem do destino, não do indicador de IE", async () => {
