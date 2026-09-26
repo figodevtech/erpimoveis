@@ -13,6 +13,7 @@ import {
 import { extrairItemFiscalNfe } from "@/services/fiscal/dfeXmlParser";
 import { buscarContextoPadraoFiscal, buscarFiscalConfig } from "@/services/fiscal/nfeConfigService";
 import {
+  exigeReferenciaFiscalSaida,
   montarReferenciasFiscaisSaida,
   normalizarNumeroItemReferenciado,
   OPERACOES_FISCAIS_SAIDA,
@@ -552,9 +553,12 @@ export async function salvarContextoFiscalSaida(
     operacao.codigo === "OUTRA" ? input.naturezaOperacao : operacao.naturezaOperacao,
   );
   if (!naturezaOperacao) throw new Error("Informe a natureza da operação.");
-  const exigeReferencia = operacao.codigo === "OUTRA"
-    ? Boolean(input.documentoReferenciadoObrigatorio || finalidade === "DEVOLUCAO")
-    : operacao.exigeDocumentoReferenciado;
+  const exigeReferencia = exigeReferenciaFiscalSaida({
+    finalidade,
+    exigeDocumentoReferenciado: operacao.codigo === "OUTRA"
+      ? Boolean(input.documentoReferenciadoObrigatorio)
+      : operacao.exigeDocumentoReferenciado,
+  });
   const destinatario = validarDestinatarioFiscalSaida(input.destinatario ?? {});
 
   const saidaItemById = new Map((saida.itens ?? []).map((item: any) => [Number(item.id), item]));
@@ -563,7 +567,7 @@ export async function salvarContextoFiscalSaida(
   }
   const repetidos = new Set<number>();
   let entradaOrigemId: number | null = null;
-  let chave = onlyDigits(input.chaveAcessoReferenciada) || null;
+  let chave = exigeReferencia ? onlyDigits(input.chaveAcessoReferenciada) || null : null;
   let documentoFornecedorOrigem: string | null = null;
   const itensNormalizados: Array<SaidaFiscalItemInput> = [];
 
@@ -575,11 +579,11 @@ export async function salvarContextoFiscalSaida(
     }
     repetidos.add(saidaItemId);
 
-    const entradaItemId = Number(item.entradaItemOrigemId ?? 0) || null;
-    let numeroItemReferenciado = normalizarNumeroItemReferenciado(
+    const entradaItemId = exigeReferencia ? Number(item.entradaItemOrigemId ?? 0) || null : null;
+    let numeroItemReferenciado = exigeReferencia ? normalizarNumeroItemReferenciado(
       null,
       item.numeroItemReferenciado,
-    );
+    ) : null;
     if (exigeReferencia && !entradaItemId) {
       throw new Error(`Vincule o item ${index + 1} à entrada fiscal que originou a mercadoria.`);
     }
@@ -621,7 +625,7 @@ export async function salvarContextoFiscalSaida(
     }
 
     const percentualDevolucao = numberValue(item.percentualDevolucao ?? 100);
-    const valorIpiDevolvido = numberValue(item.valorIpiDevolvido);
+    const valorIpiDevolvido = finalidade === "DEVOLUCAO" ? numberValue(item.valorIpiDevolvido) : 0;
     if (finalidade === "DEVOLUCAO" && !(percentualDevolucao > 0 && percentualDevolucao <= 100)) {
       throw new Error(`O percentual devolvido do item ${index + 1} deve estar entre 0,01 e 100.`);
     }
@@ -968,7 +972,10 @@ async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput,
   );
   const requested = new Set<string>();
   const errors: Array<{ step: string; itemIndex?: number; field?: string; message: string }> = [];
-  const exigeReferencia = Boolean(contexto.documento_referenciado_obrigatorio) || contexto.finalidade === "DEVOLUCAO";
+  const exigeReferencia = exigeReferenciaFiscalSaida({
+    finalidade: contexto.finalidade,
+    exigeDocumentoReferenciado: Boolean(contexto.documento_referenciado_obrigatorio),
+  });
   const chave = onlyDigits(contexto.chave_acesso_referenciada);
 
   const itens = input.itens.flatMap((item, itemIndex) => {
@@ -993,8 +1000,10 @@ async function salvarNFeDaSaidaUnica(saidaId: number, input: NFeSaidaDraftInput,
       return [];
     }
 
+    const itemSemReferencia = { ...item };
+    delete itemSemReferencia.dfeReferenciado;
     return [{
-      ...item,
+      ...itemSemReferencia,
       produtoId: Number(source.produto_id),
       codigo: String(source.produto?.referencia || source.produto?.codigobarras || source.produto_id),
       descricao: String(source.produto?.titulo || source.produto?.descricao || `Produto #${source.produto_id}`),
@@ -1102,6 +1111,7 @@ async function vincularResultadoAsSaidas(
   resultado: Awaited<ReturnType<typeof salvarNFeAvulsaDraft>>,
   input: NFeSaidaDraftInput,
   origens: Array<{ saidaId: number; saidaItemId: number; source: any; mapping: any }>,
+  exigeReferencia: boolean,
 ) {
   if (!resultado.ok) return resultado;
   const { error } = await supabaseAdmin.rpc("vincular_nfe_saidas", {
@@ -1109,7 +1119,7 @@ async function vincularResultadoAsSaidas(
     p_itens: origens.map((origem) => ({
       saida_id: origem.saidaId,
       saida_item_id: origem.saidaItemId,
-      entrada_item_origem_id: origem.mapping?.entrada_item_origem_id ?? null,
+      entrada_item_origem_id: exigeReferencia ? origem.mapping?.entrada_item_origem_id ?? null : null,
       quantidade: numberValue(origem.source.quantidade),
     })),
   });
@@ -1192,6 +1202,10 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
         source: sourceById.get(referencia!.saidaItemId),
         mapping: mappingById.get(referencia!.saidaItemId),
       })),
+      exigeReferenciaFiscalSaida({
+        finalidade: dados.contexto?.finalidade ?? "NORMAL",
+        exigeDocumentoReferenciado: Boolean(dados.contexto?.documento_referenciado_obrigatorio),
+      }),
     );
   }
 
@@ -1254,6 +1268,7 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
       !outro ||
       String(outro.operacao_fiscal_codigo) !== String(contexto.operacao_fiscal_codigo) ||
       String(outro.finalidade) !== String(contexto.finalidade) ||
+      Boolean(outro.documento_referenciado_obrigatorio) !== Boolean(contexto.documento_referenciado_obrigatorio) ||
       onlyDigits(outro.chave_acesso_referenciada) !== chaveOrigem ||
       (Number(outro.entrada_origem_id ?? 0) || null) !== entradaOrigemId
     ) {
@@ -1283,7 +1298,10 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
   }
 
   const errors: Array<{ step: string; itemIndex?: number; field?: string; message: string }> = [];
-  const exigeReferencia = Boolean(contexto.documento_referenciado_obrigatorio) || contexto.finalidade === "DEVOLUCAO";
+  const exigeReferencia = exigeReferenciaFiscalSaida({
+    finalidade: contexto.finalidade,
+    exigeDocumentoReferenciado: Boolean(contexto.documento_referenciado_obrigatorio),
+  });
   const itens = input.itens.flatMap((item, itemIndex) => {
     const origem = sourceById.get(item.sourceItemId);
     const source = origem?.source;
@@ -1300,8 +1318,10 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
       errors.push({ step: "products", itemIndex, message: "Informe a chave e o número do item fiscal de origem." });
       return [];
     }
+    const itemSemReferencia = { ...item };
+    delete itemSemReferencia.dfeReferenciado;
     return [{
-      ...item,
+      ...itemSemReferencia,
       produtoId: Number(source.produto_id),
       codigo: String(source.produto?.referencia || source.produto?.codigobarras || source.produto_id),
       descricao: String(source.produto?.titulo || source.produto?.descricao || `Produto #${source.produto_id}`),
@@ -1392,6 +1412,7 @@ export async function salvarNFeDaSaida(saidaId: number, input: NFeSaidaDraftInpu
     resultado,
     input,
     referencias.map(({ item }) => sourceById.get(item.sourceItemId)!),
+    exigeReferencia,
   );
 }
 

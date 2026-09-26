@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  exigeReferenciaFiscalSaida,
   getOperacaoFiscalSaida,
   montarReferenciasFiscaisSaida,
   normalizarNumeroItemReferenciado,
@@ -26,6 +27,16 @@ describe("natureza fiscal da saída de estoque", () => {
     assert.equal(getOperacaoFiscalSaida("REMESSA_CONSERTO_REPARO")?.finalidade, "NORMAL");
     assert.equal(getOperacaoFiscalSaida("REMESSA_CONSERTO_REPARO")?.exigeDocumentoReferenciado, false);
     assert.equal(getOperacaoFiscalSaida("REMESSA_GARANTIA")?.cfopInterno, "");
+    assert.equal(getOperacaoFiscalSaida("REMESSA_GARANTIA")?.exigeDocumentoReferenciado, true);
+    assert.equal(getOperacaoFiscalSaida("REMESSA_BEM_PROPRIO_GARANTIA")?.exigeDocumentoReferenciado, false);
+    assert.equal(sugerirCfopSaida("REMESSA_CONSERTO_REPARO", "PB", "PB"), "5915");
+    assert.equal(sugerirCfopSaida("REMESSA_CONSERTO_REPARO", "PB", "MG"), "6915");
+  });
+
+  it("a finalidade de devolução prevalece sobre o switch desligado", () => {
+    assert.equal(exigeReferenciaFiscalSaida({ finalidade: "DEVOLUCAO", exigeDocumentoReferenciado: false }), true);
+    assert.equal(exigeReferenciaFiscalSaida({ finalidade: "NORMAL", exigeDocumentoReferenciado: true }), true);
+    assert.equal(exigeReferenciaFiscalSaida({ finalidade: "NORMAL", exigeDocumentoReferenciado: false }), false);
   });
 
   it("exige chave e número do item original em uma devolução", () => {

@@ -159,6 +159,7 @@ export class BancoFalso {
   private readonly dados = new Map<string, Linha[]>();
   private readonly ids = new Map<string, number>();
   readonly escritas: Array<{ tabela: string; operacao: string; linhas: Linha[] }> = [];
+  readonly chamadasRpc: Array<{ nome: string; args: any }> = [];
 
   constructor(
     semente: Record<string, Linha[]>,
@@ -189,6 +190,7 @@ export class BancoFalso {
   instalar() {
     mock.method(supabaseAdmin, "from", (tabela: string) => new ConsultaFalsa(this, tabela));
     mock.method(supabaseAdmin, "rpc", async (nome: string, args: unknown) => {
+      this.chamadasRpc.push({ nome, args: structuredClone(args) });
       const handler = this.rpcs[nome];
       const resultado = handler ? handler(args) : {};
       return { data: resultado.data ?? null, error: resultado.error ?? null };

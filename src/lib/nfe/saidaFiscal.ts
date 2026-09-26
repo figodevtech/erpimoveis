@@ -37,7 +37,7 @@ export const OPERACOES_FISCAIS_SAIDA = {
   },
   REMESSA_GARANTIA: {
     codigo: "REMESSA_GARANTIA",
-    label: "Remessa em garantia ou troca",
+    label: "Garantia ou troca vinculada à compra",
     naturezaOperacao: "REMESSA EM GARANTIA",
     finalidade: "NORMAL",
     // A classificação varia conforme a operação concreta. Mantemos vazio
@@ -45,6 +45,15 @@ export const OPERACOES_FISCAIS_SAIDA = {
     cfopInterno: "",
     cfopInterestadual: "",
     exigeDocumentoReferenciado: true,
+  },
+  REMESSA_BEM_PROPRIO_GARANTIA: {
+    codigo: "REMESSA_BEM_PROPRIO_GARANTIA",
+    label: "Remessa de bem próprio para garantia ou reparo",
+    naturezaOperacao: "REMESSA DE BEM PROPRIO PARA GARANTIA OU REPARO",
+    finalidade: "NORMAL",
+    cfopInterno: "",
+    cfopInterestadual: "",
+    exigeDocumentoReferenciado: false,
   },
   OUTRA: {
     codigo: "OUTRA",
@@ -59,6 +68,13 @@ export const OPERACOES_FISCAIS_SAIDA = {
 
 export type OperacaoFiscalSaidaCodigo = keyof typeof OPERACOES_FISCAIS_SAIDA;
 export type FinalidadeFiscalSaida = "NORMAL" | "COMPLEMENTAR" | "AJUSTE" | "DEVOLUCAO";
+
+export function exigeReferenciaFiscalSaida(input: {
+  finalidade: string;
+  exigeDocumentoReferenciado: boolean;
+}) {
+  return input.finalidade === "DEVOLUCAO" || input.exigeDocumentoReferenciado;
+}
 
 export function getOperacaoFiscalSaida(codigo: unknown) {
   const key = String(codigo ?? "") as OperacaoFiscalSaidaCodigo;
@@ -125,7 +141,7 @@ export function montarReferenciasFiscaisSaida(input: {
   temReferenciaPorItem?: boolean;
 }): Array<{ chaveAcesso: string }> {
   if (input.temReferenciaPorItem) return [];
-  const exige = input.exigeDocumentoReferenciado || input.finalidade === "DEVOLUCAO";
+  const exige = exigeReferenciaFiscalSaida(input);
   if (!exige) return [];
   const chave = String(input.chaveAcesso ?? "").replace(/\D/g, "");
   return chave.length === 44 ? [{ chaveAcesso: chave }] : [];
@@ -139,7 +155,7 @@ export function validarReferenciaFiscalSaida(input: {
 }) {
   const errors: string[] = [];
   const chave = String(input.chaveAcesso ?? "").replace(/\D/g, "");
-  const exige = input.exigeDocumentoReferenciado || input.finalidade === "DEVOLUCAO";
+  const exige = exigeReferenciaFiscalSaida(input);
   if (exige && chave.length !== 44) {
     errors.push("Informe a chave de acesso com 44 dígitos do documento fiscal de origem.");
   }

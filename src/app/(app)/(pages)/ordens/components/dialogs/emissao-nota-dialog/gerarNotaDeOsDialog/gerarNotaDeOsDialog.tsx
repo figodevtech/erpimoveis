@@ -127,6 +127,7 @@ import {
   validateEntrySupplier,
 } from "./nfe-entry-supplier-editor";
 import {
+  atualizarDecisaoFiscalSaida,
   NfeSaidaOrigemEditor,
   relacaoUnica,
   validarOrigemFiscalSaida,
@@ -839,7 +840,7 @@ export function GerarNotaDeOsDialog({
 
         setSaidaOperacoes(operacoes);
         setEntradasCandidatas(saidaJson?.entradasCandidatas ?? []);
-        const origemCarregada: SaidaOrigemDraft = {
+        const origemCarregada = atualizarDecisaoFiscalSaida({
           operacaoFiscalCodigo: operacaoGravada?.codigo ?? "",
           naturezaOperacao: contexto?.natureza_operacao ?? operacaoGravada?.naturezaOperacao ?? "",
           finalidade: contexto?.finalidade ?? operacaoGravada?.finalidade ?? "NORMAL",
@@ -871,7 +872,7 @@ export function GerarNotaDeOsDialog({
               aviso: null,
             };
           }),
-        };
+        }, {});
         setSaidaOrigem(origemCarregada);
 
         // Um contexto já salvo precisa ter o mesmo comportamento de uma entrada

@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { chaveAcessoValida } from "@/lib/nfe/chaveAcesso";
+import { exigeReferenciaFiscalSaida } from "@/lib/nfe/saidaFiscal";
 
 export type OperacaoFiscalSaidaOption = {
   codigo: string;
@@ -77,7 +78,30 @@ function onlyDigits(value: unknown) {
 
 /** Regra única de "esta operação precisa citar um documento de origem?". */
 export function exigeDocumentoDeOrigem(draft: SaidaOrigemDraft) {
-  return draft.documentoReferenciadoObrigatorio || draft.finalidade === "DEVOLUCAO";
+  return exigeReferenciaFiscalSaida({
+    finalidade: draft.finalidade,
+    exigeDocumentoReferenciado: draft.documentoReferenciadoObrigatorio,
+  });
+}
+
+export function atualizarDecisaoFiscalSaida(
+  value: SaidaOrigemDraft,
+  patch: Partial<SaidaOrigemDraft>,
+): SaidaOrigemDraft {
+  const next = { ...value, ...patch };
+  if (exigeDocumentoDeOrigem(next)) return next;
+  return {
+    ...next,
+    chaveAcessoReferenciada: "",
+    itens: next.itens.map((item) => ({
+      ...item,
+      entradaItemOrigemId: null,
+      numeroItemReferenciado: null,
+      percentualDevolucao: 100,
+      valorIpiDevolvido: 0,
+      aviso: null,
+    })),
+  };
 }
 
 /** Pendências que impedem gerar o rascunho, na linguagem da tela. */
@@ -155,17 +179,13 @@ export function NfeSaidaOrigemEditor({
 
   function escolherOperacao(codigo: string) {
     const operacao = operacoes.find((item) => item.codigo === codigo);
-    if (!operacao || codigo === "OUTRA") {
-      onChange({ ...value, operacaoFiscalCodigo: codigo });
-      return;
-    }
-    onChange({
-      ...value,
+    if (!operacao) return;
+    onChange(atualizarDecisaoFiscalSaida(value, {
       operacaoFiscalCodigo: codigo,
-      naturezaOperacao: operacao.naturezaOperacao,
+      naturezaOperacao: codigo === "OUTRA" ? "" : operacao.naturezaOperacao,
       finalidade: operacao.finalidade,
       documentoReferenciadoObrigatorio: operacao.exigeDocumentoReferenciado,
-    });
+    }));
   }
 
   function escolherEntrada(saidaItemId: number, candidatoId: string) {
@@ -244,7 +264,7 @@ export function NfeSaidaOrigemEditor({
               <Label>Finalidade da NF-e <span className="text-destructive">*</span></Label>
               <Select
                 value={value.finalidade}
-                onValueChange={(finalidade) => onChange({ ...value, finalidade })}
+                onValueChange={(finalidade) => onChange(atualizarDecisaoFiscalSaida(value, { finalidade }))}
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -259,7 +279,7 @@ export function NfeSaidaOrigemEditor({
               <Switch
                 checked={value.documentoReferenciadoObrigatorio}
                 onCheckedChange={(documentoReferenciadoObrigatorio) =>
-                  onChange({ ...value, documentoReferenciadoObrigatorio })
+                  onChange(atualizarDecisaoFiscalSaida(value, { documentoReferenciadoObrigatorio }))
                 }
               />
               <Label>Exige documento fiscal de origem</Label>
@@ -295,6 +315,10 @@ export function NfeSaidaOrigemEditor({
             </p>
           ) : null}
         </div>
+      ) : null}
+
+      {!exigeReferencia && value.operacaoFiscalCodigo ? (
+        <p className="text-xs text-muted-foreground">Esta operação não exige documento fiscal de origem.</p>
       ) : null}
 
       {exigeReferencia ? (

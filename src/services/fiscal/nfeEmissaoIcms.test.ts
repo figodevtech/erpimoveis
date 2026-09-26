@@ -21,7 +21,8 @@ import {
 } from "./nfeAvulsaService";
 import type { ResultadoRegistroCiencia } from "./cienciaAvisoFiscal";
 import { salvarNFeDeOrigem, statusOcupaOrigem, type NFeOrigemDraftInput } from "./nfeOrigemService";
-import { salvarNFeDaSaida } from "./nfeSaidaService";
+import { salvarContextoFiscalSaida, salvarNFeDaSaida } from "./nfeSaidaService";
+import { gerarChaveAcesso } from "@/lib/nfe/chaveAcesso";
 import { resolverTratamentoIcms, validarCoerenciaCfopIcms } from "@/lib/nfe/icms";
 import { chaveCiencia, pedidosDeCiencia } from "@/lib/nfe/issuesFiscais";
 import { randomUUID } from "node:crypto";
@@ -577,6 +578,10 @@ describe("ENTRADA — mesmo núcleo", () => {
 });
 
 describe("SAÍDA DE ESTOQUE — mesmo núcleo", () => {
+  const chaveFiscalOrigem = gerarChaveAcesso({
+    cUF: "35", ano: 2026, mes: 8, cnpj: "12345678000199",
+    mod: "55", serie: 1, nNF: 123, tpEmis: 1, cNF: "00000123",
+  }).chave;
   const destinatario = {
     clienteId: 10,
     tipoPessoa: "JURIDICA" as const,
@@ -594,6 +599,159 @@ describe("SAÍDA DE ESTOQUE — mesmo núcleo", () => {
   };
   const itemSaida = (overrides: SemOrigem = {}) =>
     itemDaTela({ sourceItemId: "saida:80:800", cfop: "6949", ...overrides });
+
+  function configurarSemOrigem(codigo: string, natureza: string) {
+    const contexto = banco.tabela("estoque_saida_fiscal")[0];
+    contexto.operacao_fiscal_codigo = codigo;
+    contexto.natureza_operacao = natureza;
+    contexto.finalidade = "NORMAL";
+    contexto.documento_referenciado_obrigatorio = false;
+    contexto.entrada_origem_id = null;
+    contexto.chave_acesso_referenciada = null;
+    contexto.itens[0].entrada_item_origem_id = null;
+    contexto.itens[0].numero_item_referenciado = null;
+    banco.tabela("entrada").splice(0);
+    banco.tabela("entradaitens").splice(0);
+  }
+
+  for (const [cfop, estado, codigoMunicipio] of [
+    ["5915", "PB", "2507507"],
+    ["6915", "MG", "3106200"],
+  ]) {
+    it(`emite remessa ${cfop} sem nenhuma entrada fiscal anterior`, async () => {
+      configurarSemOrigem("REMESSA_CONSERTO_REPARO", "REMESSA PARA CONSERTO OU REPARO");
+      const resultado = await salvarNFeDaSaida(80, {
+        itens: [itemSaida({ cfop, cst: "00", dfeReferenciado: {
+          chaveAcesso: chaveFiscalOrigem, nItem: 1,
+        } })],
+        destinatario: { ...destinatario, estado, cidade: estado === "PB" ? "JOAO PESSOA" : "BELO HORIZONTE", codigoMunicipio },
+        destinoMercadoria: "USO_CONSUMO",
+      });
+      assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+      const nota = notaGravada(resultado.nfeId);
+      assert.match(nota.xml, new RegExp(`<CFOP>${cfop}</CFOP>`));
+      assert.doesNotMatch(nota.xml, /<NFref>|<DFeReferenciado>/);
+      assert.equal(banco.tabela("entradaitens").length, 0);
+    });
+  }
+
+  it("emite OUTRA + NORMAL sem origem e sem referência no XML", async () => {
+    configurarSemOrigem("OUTRA", "OUTRA SAIDA SEM DOCUMENTO ANTERIOR");
+    banco.tabela("estoque_saida_fiscal")[0].itens[0].entrada_item_origem_id = 999999;
+    const resultado = await salvarNFeDaSaida(80, {
+      itens: [itemSaida({ cst: "00" })], destinatario,
+      destinoMercadoria: "USO_CONSUMO",
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    assert.doesNotMatch(notaGravada(resultado.nfeId).xml, /<NFref>|<DFeReferenciado>/);
+    const vinculo = banco.chamadasRpc.find((item) => item.nome === "vincular_nfe_saidas");
+    assert.equal(vinculo?.args.p_itens[0].entrada_item_origem_id, null);
+  });
+
+  it("emite bem próprio em garantia sem compra anterior", async () => {
+    configurarSemOrigem("REMESSA_BEM_PROPRIO_GARANTIA", "REMESSA DE BEM PROPRIO PARA GARANTIA OU REPARO");
+    const resultado = await salvarNFeDaSaida(80, {
+      itens: [itemSaida({ cst: "00" })], destinatario,
+      destinoMercadoria: "USO_CONSUMO",
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    assert.doesNotMatch(notaGravada(resultado.nfeId).xml, /<NFref>|<DFeReferenciado>/);
+  });
+
+  it("devolução sem chave e retorno de conserto sem origem continuam bloqueados", async () => {
+    const contexto = banco.tabela("estoque_saida_fiscal")[0];
+    contexto.finalidade = "DEVOLUCAO";
+    contexto.documento_referenciado_obrigatorio = true;
+    contexto.itens[0].numero_item_referenciado = 1;
+    const devolucao = await salvarNFeDaSaida(80, {
+      itens: [itemSaida({ cfop: "6202", cst: "00" })], destinatario,
+      destinoMercadoria: "USO_CONSUMO",
+    });
+    assert.equal(devolucao.ok, false);
+    assert.match(JSON.stringify(devolucao.errors), /chave/i);
+
+    contexto.finalidade = "NORMAL";
+    contexto.documento_referenciado_obrigatorio = true;
+    contexto.operacao_fiscal_codigo = "RETORNO_CONSERTO_REPARO";
+    const retorno = await salvarNFeDaSaida(80, {
+      itens: [itemSaida({ cfop: "6916", cst: "00" })], destinatario,
+      destinoMercadoria: "USO_CONSUMO",
+    });
+    assert.equal(retorno.ok, false);
+    assert.match(JSON.stringify(retorno.errors), /chave/i);
+  });
+
+  it("devolução válida preserva a referência no item", async () => {
+    const contexto = banco.tabela("estoque_saida_fiscal")[0];
+    contexto.operacao_fiscal_codigo = "DEVOLUCAO_COMPRA_COMERCIALIZACAO";
+    contexto.finalidade = "DEVOLUCAO";
+    contexto.documento_referenciado_obrigatorio = true;
+    contexto.chave_acesso_referenciada = chaveFiscalOrigem;
+    contexto.itens[0].numero_item_referenciado = 1;
+    contexto.itens[0].entrada_item_origem_id = 300;
+    const resultado = await salvarNFeDaSaida(80, {
+      itens: [itemSaida({ cfop: "6202", cst: "00" })], destinatario,
+      destinoMercadoria: "USO_CONSUMO",
+    });
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    const xml = notaGravada(resultado.nfeId).xml;
+    assert.match(xml, new RegExp(`<DFeReferenciado><chaveAcesso>${chaveFiscalOrigem}</chaveAcesso><nItem>1</nItem>`));
+    assert.doesNotMatch(xml, /<NFref>/);
+  });
+
+  it("o servidor descarta vínculos antigos sem consultar entrada inexistente", async () => {
+    banco.tabela("entradaitens").splice(0);
+    await salvarContextoFiscalSaida(80, {
+      operacaoFiscalCodigo: "OUTRA",
+      naturezaOperacao: "OUTRA SAIDA SEM DOCUMENTO ANTERIOR",
+      finalidade: "NORMAL",
+      documentoReferenciadoObrigatorio: false,
+      chaveAcessoReferenciada: chaveFiscalOrigem,
+      destinatario,
+      itens: [{
+        saidaItemId: 800, entradaItemOrigemId: 999999,
+        numeroItemReferenciado: 3, percentualDevolucao: 50, valorIpiDevolvido: 10,
+      }],
+    });
+    const chamada = banco.chamadasRpc.find((item) => item.nome === "salvar_contexto_fiscal_saida");
+    assert.ok(chamada);
+    assert.equal(chamada.args.p_contexto.chave_acesso_referenciada, null);
+    assert.equal(chamada.args.p_contexto.entrada_origem_id, null);
+    assert.equal(chamada.args.p_itens[0].entrada_item_origem_id, null);
+    assert.equal(chamada.args.p_itens[0].numero_item_referenciado, null);
+    assert.equal(chamada.args.p_itens[0].valor_ipi_devolvido, 0);
+  });
+
+  it("devolução sem item de entrada continua bloqueada no servidor", async () => {
+    await assert.rejects(() => salvarContextoFiscalSaida(80, {
+      operacaoFiscalCodigo: "DEVOLUCAO_COMPRA_COMERCIALIZACAO",
+      destinatario,
+      itens: [{ saidaItemId: 800, numeroItemReferenciado: 1 }],
+    }), /Vincule o item 1 à entrada fiscal/);
+  });
+
+  it("saídas agrupadas não misturam decisões opostas sobre documento de origem", async () => {
+    const contexto = banco.tabela("estoque_saida_fiscal")[0];
+    contexto.operacao_fiscal_codigo = "OUTRA";
+    contexto.chave_acesso_referenciada = chaveFiscalOrigem;
+    contexto.entrada_origem_id = 70;
+    banco.tabela("estoque_saida").push({
+      id: 81, motivo: "CONSERTO", observacao: null, status: "CONFIRMADA", created_at: "2026-09-18T11:00:00Z",
+      itens: [{ id: 801, produto_id: 1964, quantidade: 1, valor_custo_aplicado: 9000, produto }],
+    });
+    banco.tabela("estoque_saida_fiscal").push({
+      ...structuredClone(contexto), id: 2, saida_id: 81,
+      documento_referenciado_obrigatorio: true,
+      itens: [{ saida_item_id: 801, entrada_item_origem_id: 300, numero_item_referenciado: 1 }],
+    });
+    const resultado = await salvarNFeDaSaida(80, {
+      itens: [itemSaida({ cst: "00" }), itemDaTela({ sourceItemId: "saida:81:801", cfop: "6949", cst: "00" })],
+      destinatario, destinoMercadoria: "USO_CONSUMO",
+    });
+    assert.equal(resultado.ok, false);
+    assert.match(JSON.stringify(resultado.errors), /mesma entrada e operação fiscal/);
+    assert.equal(banco.tabela("nfe").length, 0);
+  });
 
   it("leva Duplicata Mercantil ao XML e ao snapshot", async () => {
     const resultado = await salvarNFeDaSaida(80, {
@@ -631,6 +789,7 @@ describe("SAÍDA DE ESTOQUE — mesmo núcleo", () => {
     assert.match(nota.xml, /<nDup>001<\/nDup><dVenc>2026-10-25<\/dVenc><vDup>11000\.00<\/vDup>/);
     assert.match(nota.xml, /<nDup>002<\/nDup><dVenc>2026-11-25<\/dVenc><vDup>11000\.00<\/vDup>/);
     assert.match(nota.xml, /<\/cobr><pag><detPag><tPag>14<\/tPag><vPag>22000\.00<\/vPag>/);
+    assert.doesNotMatch(nota.xml, /<NFref>|<DFeReferenciado>/);
     assert.equal(nota.nfe.dados_avulsos.cobranca.duplicatas.length, 2);
     assert.equal(banco.escritas.filter((escrita) => escrita.tabela === "transacao").length, 0);
   });
