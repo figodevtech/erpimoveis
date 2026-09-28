@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
+import { PrintFontSizeControl } from "@/app/(app)/(full)/components/PrintFontSizeControl";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 import { FluxoAgrupamentoMenu } from "./agrupamento-menu";
@@ -24,9 +25,9 @@ type Params = Record<string, string | string[] | undefined>;
 type PageProps = { searchParams: Promise<Params> };
 
 const OFFSET = "-03:00";
-// A4 retrato: a primeira folha perde altura para o cabeçalho e os KPIs.
-const FIRST_PAGE_ROWS = 27;
-const NEXT_PAGE_ROWS = 32;
+// Orçamento conservador para texto em até 120%, com espaço para cabeçalho, KPIs e totais.
+const FIRST_PAGE_CONTENT_MM = 208;
+const NEXT_PAGE_CONTENT_MM = 236;
 
 function one(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
@@ -67,16 +68,38 @@ function dayStart(value: string) {
 function nextDay(value: string) {
   return new Date(new Date(`${value}T00:00:00${OFFSET}`).getTime() + 86_400_000).toISOString();
 }
-function chunks<T>(items: T[], size: number) {
-  const result: T[][] = [];
-  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size));
-  return result.length ? result : [[]];
+function estimatedTextLines(value: unknown, charactersPerLine: number) {
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+  return text.split(/\r?\n/).reduce(
+    (lines, paragraph) => lines + Math.max(1, Math.ceil(Array.from(paragraph).length / charactersPerLine)),
+    0,
+  );
 }
-function reportPages<T>(items: T[]) {
-  if (!items.length) return [[]] as T[][];
-  const pages: T[][] = [items.slice(0, FIRST_PAGE_ROWS)];
-  const remaining = items.slice(FIRST_PAGE_ROWS);
-  pages.push(...chunks(remaining, NEXT_PAGE_ROWS).filter((page) => page.length));
+function rowHeightMm(row: any, grouped: boolean) {
+  // A coluna de descrição fica mais estreita no agrupamento. A conta considera
+  // a fonte máxima do controle (120%) e arredonda as linhas para cima.
+  const charactersPerLine = grouped ? 23 : 28;
+  const titleLines = estimatedTextLines(row.nomepagador, charactersPerLine);
+  const descriptionLines = estimatedTextLines(`#${row.id} ${row.descricao || "—"}`, charactersPerLine);
+  return Math.max(9, 1 + (titleLines + descriptionLines) * 4);
+}
+function reportPages<T>(items: T[], heightOf: (item: T) => number) {
+  const pages: T[][] = [];
+  let page: T[] = [];
+  let used = 0;
+  for (const item of items) {
+    const height = heightOf(item);
+    const capacity = pages.length === 0 ? FIRST_PAGE_CONTENT_MM : NEXT_PAGE_CONTENT_MM;
+    if (page.length && used + height > capacity) {
+      pages.push(page);
+      page = [];
+      used = 0;
+    }
+    page.push(item);
+    used += height;
+  }
+  pages.push(page);
   return pages;
 }
 function origin(row: any) {
@@ -233,9 +256,14 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
         ]
       : []),
   ];
-  const pages = reportPages(rows);
+  const pages = reportPages(rows, (row) => rowHeightMm(row, false));
   const folhasAgrupadas = agrupar
-    ? paginarAgrupado(await montarGruposPorBanco(rows), FIRST_PAGE_ROWS, NEXT_PAGE_ROWS)
+    ? paginarAgrupado(
+        await montarGruposPorBanco(rows),
+        FIRST_PAGE_CONTENT_MM,
+        NEXT_PAGE_CONTENT_MM,
+        (item) => item.tipo === "linha" ? rowHeightMm(item.linha, true) : item.tipo === "espaco" ? 4 : 9,
+      )
     : null;
   const quantasFolhas = folhasAgrupadas?.length ?? pages.length;
   const filters = [
@@ -251,6 +279,14 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
     <>
       <style>{`
         @page { size: A4 portrait; margin: 0; }
+        .report-sheet .report-title { font-size: calc(18px * var(--print-font-scale, 1)); }
+        .report-sheet .report-meta { font-size: calc(10px * var(--print-font-scale, 1)); }
+        .report-sheet .report-page-number { font-size: calc(9px * var(--print-font-scale, 1)); }
+        .report-sheet .report-kpis { font-size: calc(9px * var(--print-font-scale, 1)); }
+        .report-sheet .report-kpi-value { font-size: calc(12px * var(--print-font-scale, 1)); }
+        .report-sheet .report-table { font-size: calc(8px * var(--print-font-scale, 1)); }
+        .report-sheet .report-subtext { font-size: calc(7px * var(--print-font-scale, 1)); }
+        .report-sheet .report-bank-title { font-size: calc(9px * var(--print-font-scale, 1)); }
         @media print {
           html, body {
             width: 210mm !important;
@@ -297,6 +333,7 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
             consulta={new URLSearchParams(params).toString()}
             agrupamento={agrupar ? "BANCO" : "NENHUM"}
           />
+          <PrintFontSizeControl />
           <A4PdfActions filename="relatorio-fluxo-caixa.pdf" backHref="/relatorios" />
         </div>
         <div className="mx-auto flex w-[210mm] flex-col gap-4 print:gap-0">
@@ -309,10 +346,10 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                 {pageIndex === 0 ? (
                   <header className="mb-3 flex items-end justify-between gap-4 border-b-2 border-black pb-2">
                     <div className="min-w-0">
-                      <h1 className="text-lg font-bold uppercase">Relatório de fluxo de caixa</h1>
-                      <p className="text-[9px] text-neutral-500">{filters.length ? filters.join(" · ") : "Todos os lançamentos"}</p>
+                      <h1 className="report-title font-bold uppercase">Relatório de fluxo de caixa</h1>
+                      <p className="report-meta text-neutral-500">{filters.length ? filters.join(" · ") : "Todos os lançamentos"}</p>
                     </div>
-                    <div className="shrink-0 text-right text-[9px] text-neutral-500">
+                    <div className="report-meta shrink-0 text-right text-neutral-500">
                       <p>Gerado em {dateTime(new Date().toISOString())}</p>
                       <p>Página 1 de {quantasFolhas}</p>
                     </div>
@@ -320,14 +357,14 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                 ) : (
                   // Sem cabeçalho, mas com a numeração: folha solta de relatório
                   // financeiro sem página vira problema na hora de conferir.
-                  <p className="mb-2 text-right text-[8px] text-neutral-500">
+                  <p className="report-page-number mb-2 text-right text-neutral-500">
                     Página {pageIndex + 1} de {quantasFolhas}
                   </p>
                 )}
 
                 {pageIndex === 0 && (
                   <div
-                    className="mb-3 grid gap-3 rounded border border-neutral-300 bg-neutral-100 px-3 py-2 text-[8px]"
+                    className="report-kpis mb-3 grid gap-3 rounded border border-neutral-300 bg-neutral-100 px-3 py-2"
                     style={{ gridTemplateColumns: `repeat(${cartoes.length}, minmax(0, 1fr))` }}
                   >
                     {cartoes.map((cartao) => (
@@ -344,7 +381,7 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                     pendente={params.pendente}
                   />
                 ) : (
-                  <table className="w-full table-fixed border-collapse text-[7px]">
+                  <table className="report-table w-full table-fixed border-collapse">
                     {/* O colgroup é quem fixa a largura sob table-fixed; classe no
                         <th> perde para o conteúdo quando o rótulo é maior. */}
                     <colgroup>
@@ -368,11 +405,11 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                     <tbody>
                       {pageRows.length ? pageRows.map((row) => (
                         // Escala de cinza: entrada em branco, saída em cinza claro.
-                        <tr key={row.id} className={`h-[7mm] break-inside-avoid border-t border-neutral-300 ${ehEntrada(row.tipo) ? "bg-white" : "bg-neutral-50"}`}>
+                        <tr key={row.id} className={`h-[8mm] break-inside-avoid border-t border-neutral-300 ${ehEntrada(row.tipo) ? "bg-white" : "bg-neutral-50"}`}>
                           <CelulasDoLancamento row={row} />
                         </tr>
                       )) : (
-                        <tr className="h-[7mm] border-t border-neutral-300">
+                        <tr className="h-[8mm] border-t border-neutral-300">
                           <Td className="py-12 text-center text-neutral-500" colSpan={6}>
                             Nenhum lançamento encontrado para os filtros informados.
                           </Td>
@@ -382,7 +419,7 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
 
                     {ultimaFolha && pageRows.length > 0 && (
                       <tfoot>
-                        <tr className="h-[7mm] border-t-2 border-neutral-400 bg-neutral-100">
+                        <tr className="h-[8mm] border-t-2 border-neutral-400 bg-neutral-100">
                           <Td colSpan={6}>
                             <TotaisDaFolha cartoes={cartoes} />
                           </Td>
@@ -404,7 +441,7 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone: strin
   return (
     <div>
       <p className="uppercase text-neutral-500">{label}</p>
-      <p className={`text-[11px] font-bold tabular-nums ${tone}`}>{value}</p>
+      <p className={`report-kpi-value font-bold tabular-nums ${tone}`}>{value}</p>
     </div>
   );
 }
@@ -417,13 +454,13 @@ function Total({ label, value, tone }: { label: string; value: string; tone: str
   );
 }
 function Sub({ children }: React.PropsWithChildren) {
-  return <div className="truncate text-[6px] text-neutral-500">{children}</div>;
+  return <div className="report-subtext truncate text-neutral-500">{children}</div>;
 }
 function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
-  return <th className={`truncate border-x border-neutral-200 px-2 py-1 ${className}`}>{children}</th>;
+  return <th className={`truncate border-x border-neutral-200 px-2 py-0.5 ${className}`}>{children}</th>;
 }
 function Td({ children, className = "", colSpan }: React.PropsWithChildren<{ className?: string; colSpan?: number }>) {
-  return <td colSpan={colSpan} className={`border-x border-neutral-200 px-2 py-1 align-middle ${className}`}>{children}</td>;
+  return <td colSpan={colSpan} className={`border-x border-neutral-200 px-2 py-0.5 align-middle ${className}`}>{children}</td>;
 }
 
 function TotaisDaFolha({ cartoes }: { cartoes: Cartao[] }) {
@@ -450,10 +487,14 @@ function CelulasDoLancamento({ row, mostrarBanco = true }: { row: any; mostrarBa
         {time && <Sub>{time}</Sub>}
       </Td>
       <Td>
-        <div className="truncate" title={row.descricao || undefined}>
+        {row.nomepagador && (
+          <div className="whitespace-pre-wrap break-words font-bold [overflow-wrap:anywhere]">
+            {row.nomepagador}
+          </div>
+        )}
+        <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
           <strong>#{row.id}</strong> {row.descricao || "—"}
         </div>
-        {row.nomepagador && <Sub>{row.nomepagador}</Sub>}
       </Td>
       <Td>
         <div className="truncate">{row.categoria || "—"}</div>
@@ -483,8 +524,7 @@ function CelulasDoLancamento({ row, mostrarBanco = true }: { row: any; mostrarBa
  * Cada conta abre com o saldo anterior, cada lançamento traz o saldo da conta
  * logo depois dele, e a conta fecha com os totais e o saldo final. Título em
  * aberto não mexeu no dinheiro e fica sem saldo. Cabeçalho, lançamento e
- * subtotal medem os mesmos 7mm — é o que deixa `paginarAgrupado` contar os três
- * como linha.
+ * A paginação reserva a altura de cada descrição antes de distribuir as linhas.
  */
 function TabelaPorBanco({
   itens,
@@ -499,7 +539,7 @@ function TabelaPorBanco({
   pendente?: string;
 }) {
   return (
-    <table className="w-full table-fixed border-collapse text-[7px]">
+    <table className="report-table w-full table-fixed border-collapse">
       <colgroup>
         <col style={{ width: "18mm" }} />
         <col />
@@ -534,11 +574,11 @@ function TabelaPorBanco({
 
             if (item.tipo === "banco") {
               return (
-                <tr key={`banco-${item.grupo.bancoId}`} className="h-[7mm] border-t-2 border-neutral-500 bg-neutral-200">
+                <tr key={`banco-${item.grupo.bancoId}`} className="h-[8mm] border-t-2 border-neutral-500 bg-neutral-200">
                   <Td colSpan={6}>
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate text-[8px] font-bold uppercase">{item.grupo.titulo}</div>
+                        <div className="report-bank-title truncate font-bold uppercase">{item.grupo.titulo}</div>
                         {item.grupo.detalhe && <Sub>{item.grupo.detalhe}</Sub>}
                       </div>
                       <span className="shrink-0 uppercase text-neutral-600">Saldo anterior</span>
@@ -552,7 +592,7 @@ function TabelaPorBanco({
             if (item.tipo === "subtotal") {
               const { totais } = item.grupo;
               return (
-                <tr key={`subtotal-${item.grupo.bancoId}`} className="h-[7mm] border-t border-neutral-400 bg-neutral-100">
+                <tr key={`subtotal-${item.grupo.bancoId}`} className="h-[8mm] border-t border-neutral-400 bg-neutral-100">
                   <Td colSpan={6}>
                     <div className="flex items-center justify-end gap-4">
                       {pendente !== "true" && (
@@ -578,7 +618,7 @@ function TabelaPorBanco({
             return (
               <tr
                 key={item.linha.id}
-                className={`h-[7mm] break-inside-avoid border-t border-neutral-300 ${ehEntrada(item.linha.tipo) ? "bg-white" : "bg-neutral-50"}`}
+                className={`h-[8mm] break-inside-avoid border-t border-neutral-300 ${ehEntrada(item.linha.tipo) ? "bg-white" : "bg-neutral-50"}`}
               >
                 <CelulasDoLancamento row={item.linha} mostrarBanco={false} />
                 <Saldo valor={item.saldoApos} />
@@ -586,7 +626,7 @@ function TabelaPorBanco({
             );
           })
         ) : (
-          <tr className="h-[7mm] border-t border-neutral-300">
+          <tr className="h-[8mm] border-t border-neutral-300">
             <Td className="py-12 text-center text-neutral-500" colSpan={7}>
               Nenhum lançamento encontrado para os filtros informados.
             </Td>
@@ -596,7 +636,7 @@ function TabelaPorBanco({
 
       {ultimaFolha && itens.length > 0 && (
         <tfoot>
-          <tr className="h-[7mm] border-t-2 border-neutral-400 bg-neutral-100">
+          <tr className="h-[8mm] border-t-2 border-neutral-400 bg-neutral-100">
             <Td colSpan={7}>
               <TotaisDaFolha cartoes={cartoes} />
             </Td>

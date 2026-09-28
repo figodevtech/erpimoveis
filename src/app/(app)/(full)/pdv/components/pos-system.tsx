@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import ValueInput from "@/components/ui/value-input";
@@ -99,6 +99,7 @@ export function POSSystem() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
+  const productsRequest = useRef<AbortController | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("TODOS");
   const [selectedSaleCategoryId, setSelectedSaleCategoryId] = useState<number | null>(null);
   const [creatingVenda, setCreatingVenda] = useState(false);
@@ -129,16 +130,21 @@ export function POSSystem() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setSubmittedSearch(searchTerm.trim());
+      const nextSearch = searchTerm.trim();
+      setSubmittedSearch((current) => current === nextSearch ? current : nextSearch);
     }, 350);
 
     return () => window.clearTimeout(timer);
   }, [searchTerm]);
 
   const fetchProdutos = useCallback(async (page: number) => {
+    productsRequest.current?.abort();
+    const controller = new AbortController();
+    productsRequest.current = controller;
     setLoadingProductsPage(true);
     try {
       const response = await axios.get("/api/pdv/products", {
+        signal: controller.signal,
         params: {
           page,
           limit: 48,
@@ -146,6 +152,7 @@ export function POSSystem() {
           groupId: selectedCategory === "TODOS" ? undefined : selectedCategory,
         },
       });
+      if (controller.signal.aborted) return;
       const items: Produto[] = Array.isArray(response.data?.data)
         ? response.data.data
         : [];
@@ -154,6 +161,7 @@ export function POSSystem() {
       setProductsTotalPages(Number(response.data?.pagination?.totalPages ?? 1));
       setProductsTotal(Number(response.data?.pagination?.total ?? items.length));
     } catch (error) {
+      if (controller.signal.aborted) return;
       if (isAxiosError(error)) {
         toast.error("Falha ao buscar produtos", {
           description: error.response?.data?.error || error.message,
@@ -161,13 +169,17 @@ export function POSSystem() {
       }
       setProdutos([]);
     } finally {
-      setLoading(false);
-      setLoadingProductsPage(false);
+      if (productsRequest.current === controller) {
+        productsRequest.current = null;
+        setLoading(false);
+        setLoadingProductsPage(false);
+      }
     }
   }, [submittedSearch, selectedCategory]);
 
   useEffect(() => {
     void fetchProdutos(1);
+    return () => productsRequest.current?.abort();
   }, [fetchProdutos]);
 
   useEffect(() => {
@@ -201,21 +213,7 @@ export function POSSystem() {
     fetchCategoriasVenda();
   }, []);
 
-  const ALL = "TODOS";
-
-  const filteredProducts = produtos.filter((p) => {
-    const q = submittedSearch.toLowerCase();
-    const matchesText = submittedSearch
-      ? true // a busca completa já foi aplicada pelo servidor
-      : [p.titulo, p.referencia, p.descricao, p.fabricante]
-          .some((value) => value?.toLowerCase().includes(q));
-
-    // se ALL, nÃ£o filtra por grupo
-    const matchesCategory =
-      selectedCategory === ALL || String(p.grupo?.id) === selectedCategory;
-
-    return matchesText && matchesCategory;
-  });
+  const filteredProducts = produtos;
   const addToCart = (product: Produto) => {
     // Garante que tem estoque vÃ¡lido
     if (product.estoque == null || product.estoque <= 0) return;

@@ -8,13 +8,20 @@ import { NextResponse } from "next/server";
 import ts from "typescript";
 import * as productSearch from "@/lib/product-search";
 
-// Carrega a rota com autenticação e transporte isolados, sem acessar o banco.
-const routeCode = ts.transpileModule(
-  readFileSync(path.join(process.cwd(), "src/app/api/pdv/products/route.ts"), "utf8"),
-  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
-).outputText;
+const source = readFileSync(path.join(process.cwd(), "src/app/api/pdv/products/route.ts"), "utf8");
+const migration = readFileSync(path.join(process.cwd(), "supabase/migrations/20260928185708_pdv_product_search.sql"), "utf8");
+const routeCode = ts.transpileModule(source, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
 
-function loadRoute(fetch: typeof globalThis.fetch) {
+type RpcRequest = { url: URL; body: Record<string, unknown> };
+
+function loadRoute(result: { data: unknown[]; total: number }) {
+  const requests: RpcRequest[] = [];
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    requests.push({ url: new URL(String(input)), body: JSON.parse(String(init?.body)) });
+    return Response.json(result);
+  };
   const supabaseAdmin = createClient("https://pdv.example.test", "test-key", {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { fetch },
@@ -34,49 +41,57 @@ function loadRoute(fetch: typeof globalThis.fetch) {
       return dependencies[name];
     },
   });
-  return exports.GET!;
+  return { GET: exports.GET!, requests };
 }
 
-for (const search of ["", "oleo", "7891234567890"]) {
-  test(`PDV exige visibilidade do produto e do grupo antes de paginar (${search || "listagem"})`, async () => {
-    const requests: URL[] = [];
-    const GET = loadRoute(async (input) => {
-      const url = new URL(String(input));
-      requests.push(url);
-      return Response.json([
-        { id: 2, titulo: "Óleo", codigobarras: "7891234567890", exibirPdv: true, grupo: { id: 1, exibirPdv: true } },
-      ], { headers: { "content-range": "0-0/1" } });
-    });
-
-    const response = await GET(new Request(`https://app.test/api/pdv/products?q=${search}&limit=1&groupId=1`));
+test("busca sem acento usa uma RPC paginada, inclusive para módulo", async () => {
+  for (const [query, expected] of [["oleo", "oleo"], ["módulo", "modulo"]]) {
+    const { GET, requests } = loadRoute({ data: [{ id: 2, titulo: "Óleo / módulo" }], total: 1 });
+    const response = await GET(new Request(`https://app.test/api/pdv/products?q=${encodeURIComponent(query)}`));
     const body = await response.json();
     assert.equal(response.status, 200);
     assert.equal(requests.length, 1);
-    const params = requests[0].searchParams;
-    // O !inner é necessário: só filtrar a relação deixa o produto na resposta.
-    assert.match(params.get("select")!, /grupo:produtogrupo!inner\([^)]*exibirPdv\)/);
-    assert.equal(params.get("grupo.exibirPdv"), "eq.true");
-    assert.equal(params.get("exibirPdv"), "eq.true");
-    assert.equal(params.get("is_deleted"), "eq.false");
-    assert.equal(params.get("grupo_produto_id"), "eq.1");
-    assert.equal(params.get("limit"), search ? "1000" : "1");
-    assert.deepEqual(body.data.map((product: { id: number }) => product.id), [2]);
-    assert.equal(body.pagination.total, 1);
-    assert.equal(body.pagination.hasNextPage, false);
-  });
-}
+    assert.equal(requests[0].url.pathname, "/rest/v1/rpc/pdv_search_products");
+    assert.equal(JSON.stringify(requests[0].body.p_tokens), JSON.stringify([{ value: expected, structured: false }]));
+    assert.equal(requests[0].body.p_limit, 48);
+    assert.equal(body.data[0].titulo, "Óleo / módulo");
+  }
+  assert.match(migration, /marketplace_search_normalize\(v_token->>'value'\)/);
+  assert.match(migration, /pdv_product_search_text\(p\) like/);
+  assert.match(migration, /gin_trgm_ops/);
+});
 
-for (const search of ["", "oleo"]) {
-  test(`PDV retorna página vazia quando o banco exclui todos os produtos do grupo (${search || "listagem"})`, async () => {
-    const GET = loadRoute(async () => Response.json([], {
-      headers: { "content-range": "*/0" },
-    }));
-    const response = await GET(new Request(`https://app.test/api/pdv/products?q=${search}&groupId=2`));
-    const body = await response.json();
-    assert.equal(response.status, 200);
-    assert.deepEqual(body.data, []);
-    assert.equal(body.pagination.total, 0);
-    assert.equal(body.pagination.totalPages, 1);
-    assert.equal(body.pagination.hasNextPage, false);
-  });
-}
+test("paginação, grupo e status são enviados ao banco e o total é preservado", async () => {
+  const { GET, requests } = loadRoute({ data: [{ id: 6 }, { id: 5 }], total: 7 });
+  const response = await GET(new Request("https://app.test/api/pdv/products?page=2&limit=2&groupId=3&status=BAIXO"));
+  const body = await response.json();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].body.p_page, 2);
+  assert.equal(requests[0].body.p_limit, 2);
+  assert.equal(requests[0].body.p_group_id, 3);
+  assert.equal(requests[0].body.p_status, "BAIXO");
+  assert.deepEqual(body.data, [{ id: 6 }, { id: 5 }]);
+  assert.equal(body.pagination.total, 7);
+  assert.equal(body.pagination.totalPages, 4);
+  assert.equal(body.pagination.hasNextPage, true);
+  assert.deepEqual(body.filters, { search: "", groupId: 3 });
+});
+
+test("limite máximo é 100 e página vazia mantém metadados corretos", async () => {
+  const { GET, requests } = loadRoute({ data: [], total: 0 });
+  const body = await (await GET(new Request("https://app.test/api/pdv/products?search=de&limit=1000&page=3"))).json();
+  assert.equal(requests[0].body.p_limit, 100);
+  assert.equal(JSON.stringify(requests[0].body.p_tokens), JSON.stringify([{ value: "de", structured: false }]));
+  assert.equal(body.pagination.total, 0);
+  assert.equal(body.pagination.totalPages, 1);
+  assert.equal(body.pagination.hasNextPage, false);
+});
+
+test("a seleção, filtros e limite acontecem no SQL, sem lotes de 1000", () => {
+  assert.doesNotMatch(source, /\.select\(|\.range\(|batchSize|select\s*=\s*['"]\*/);
+  assert.match(migration, /p\.is_deleted = false and p\."exibirPdv" = true and g\."exibirPdv" = true/);
+  assert.match(migration, /limit %s offset %s/);
+  assert.match(migration, /p_limit > 100/);
+  assert.match(migration, /jsonb_agg\(to_jsonb\(r\)/);
+  assert.doesNotMatch(migration, /select\s+p\.\*/i);
+});

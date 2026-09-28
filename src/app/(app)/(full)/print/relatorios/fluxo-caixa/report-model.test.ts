@@ -170,3 +170,28 @@ test("folha agrupada: não passa da capacidade, não abre conta no pé e continu
     ["banco", ...Array<string>(9).fill("linha"), "subtotal", "espaco", "banco", "linha", "subtotal"],
   );
 });
+
+test("folha agrupada reserva a altura das descrições antes da virada", () => {
+  const grupos = agruparPorBanco(
+    [1, 2, 3].map((id) => lancamento(id, { banco_id: 1 })),
+    new Map([[1, { titulo: "Caixa" }]]),
+    new Map(),
+  );
+  const folhas = paginarAgrupado(
+    grupos,
+    30,
+    30,
+    (item) => item.tipo === "linha" ? 12 : 9,
+  );
+
+  assert.deepEqual(folhas.map((folha) => folha.map((item) => item.tipo)), [
+    ["banco", "linha"],
+    ["linha", "linha"],
+    ["subtotal"],
+  ]);
+  assert.deepEqual(
+    folhas.flatMap((folha) => folha.flatMap((item) => item.tipo === "linha" ? [item.linha.id] : [])),
+    [1, 2, 3],
+  );
+  assert.ok(folhas.every((folha) => folha.reduce((height, item) => height + (item.tipo === "linha" ? 12 : 9), 0) <= 30));
+});
