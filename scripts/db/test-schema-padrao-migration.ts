@@ -6,8 +6,8 @@
  *
  * Abre uma transação em Demonstração, Demir e Garage Premium, aplica em cada
  * uma as migrations pendentes daquele banco (como o `db push --include-all`),
- * e compara objeto a objeto entre os três — não só contagens: definição de
- * policy, privilégios, corpo e ACL de função, expressão de coluna gerada. No fim
+ * e compara linha a linha entre os três, com as mesmas consultas do
+ * `db:status` (dono, ACL, RLS, policies, corpo de função normalizado...). No fim
  * as três transações são revertidas.
  *
  * Mesmo cuidado dos demais runners: cada comando vai como prepared statement e
@@ -19,8 +19,10 @@ import path from "node:path";
 import {
   connectDatabase,
   loadDatabaseConfigs,
+  normalizeFunction,
   projectRoot,
   readLocalMigrations,
+  SCHEMA_QUERIES,
   type DatabaseKey,
 } from "./lib";
 import { splitLikeSupabaseCli } from "./supabase-splitter";
@@ -28,33 +30,16 @@ import { splitLikeSupabaseCli } from "./supabase-splitter";
 const BANCOS: DatabaseKey[] = ["demo", "demir", "garage"];
 const CONTROLE_DE_TRANSACAO = /^(begin|start\s+transaction|commit|end|rollback|abort)\b/i;
 
-const OBJETOS: Record<string, string> = {
-  relations: `SELECT c.relkind::text || ' ' || c.relname || ' rls=' || c.relrowsecurity AS k
-                FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-               WHERE n.nspname = 'public' AND c.relkind IN ('r','v','m','p','f','S')`,
-  columns: `SELECT table_name || '.' || column_name || ' ' || data_type || ' null=' || is_nullable
-                   || ' gen=' || coalesce(generation_expression, '') AS k
-              FROM information_schema.columns WHERE table_schema = 'public'`,
-  constraints: `SELECT conrelid::regclass::text || ' ' || conname AS k
-                  FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
-                 WHERE n.nspname = 'public'`,
-  indexes: `SELECT indexdef AS k FROM pg_indexes WHERE schemaname = 'public'`,
-  policies: `SELECT tablename || ' ' || policyname || ' ' || cmd || ' ' || roles::text || ' '
-                    || coalesce(qual, '') || ' ' || coalesce(with_check, '') AS k
-               FROM pg_policies WHERE schemaname = 'public'`,
-  // O corpo é comparado sem CR, comentários de linha, espaços e caixa: a mesma
-  // função gravada do Windows ou reformatada no painel não é divergência.
-  functions: `SELECT format('%s(%s) acl=%s sec=%s md5=%s', p.proname, pg_get_function_identity_arguments(p.oid),
-                            coalesce(p.proacl::text, ''), p.prosecdef,
-                            md5(lower(regexp_replace(regexp_replace(p.prosrc, '--[^\\n]*', '', 'g'), '\\s+', '', 'g')))) AS k
-                FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-               WHERE n.nspname = 'public'
-                 AND NOT EXISTS (SELECT 1 FROM pg_depend d
-                                  WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')`,
-  grantsDaLoja: `SELECT table_name || ' ' || grantee || ' ' || privilege_type AS k
-                   FROM information_schema.role_table_grants
-                  WHERE table_schema = 'public' AND table_name IN ('contato_lead')`,
-};
+/**
+ * As mesmas consultas e a mesma normalizacao de funcao do `db:status`: o teste
+ * aprova exatamente o que o deploy aprova, mas aponta a linha que difere em vez
+ * de so a contagem.
+ */
+function linhas(categoria: string, rows: Record<string, unknown>[]) {
+  return rows.map((row) =>
+    JSON.stringify(categoria === "functions" ? { ...row, prosrc: normalizeFunction(String(row.prosrc)) } : row),
+  );
+}
 
 function semComentariosIniciais(comando: string) {
   return comando.replace(/^(\s*--[^\n]*(\n|$))+/, "").trim();
@@ -119,19 +104,19 @@ async function main() {
       if (!scripts.length) console.log(`  ${banco.label}: nenhuma migration pendente`);
 
       objetos[chave] = {};
-      for (const [tipo, sql] of Object.entries(OBJETOS)) {
-        objetos[chave][tipo] = new Set((await client.query(sql)).rows.map((row) => String(row.k)));
+      for (const [tipo, sql] of Object.entries(SCHEMA_QUERIES)) {
+        objetos[chave][tipo] = new Set(linhas(tipo, (await client.query(sql)).rows));
       }
     }
 
     const diferencas: string[] = [];
-    for (const tipo of Object.keys(OBJETOS)) {
+    for (const tipo of Object.keys(SCHEMA_QUERIES)) {
       const [referencia, ...outros] = BANCOS;
       for (const outro of outros) {
         const faltam = [...objetos[referencia][tipo]].filter((k) => !objetos[outro][tipo].has(k));
         const sobram = [...objetos[outro][tipo]].filter((k) => !objetos[referencia][tipo].has(k));
-        for (const k of faltam) diferencas.push(`${tipo}: só em ${referencia} (não em ${outro}): ${k.slice(0, 160)}`);
-        for (const k of sobram) diferencas.push(`${tipo}: só em ${outro} (não em ${referencia}): ${k.slice(0, 160)}`);
+        for (const k of faltam) diferencas.push(`${tipo}: só em ${referencia} (não em ${outro}): ${k.slice(0, 400)}`);
+        for (const k of sobram) diferencas.push(`${tipo}: só em ${outro} (não em ${referencia}): ${k.slice(0, 400)}`);
       }
       console.log(`  ${tipo}: ${BANCOS.map((chave) => `${chave}=${objetos[chave][tipo].size}`).join(" | ")}`);
     }

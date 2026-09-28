@@ -253,7 +253,7 @@ export async function connectDatabase(database: DatabaseConfig) {
   );
 }
 
-function normalizeFunction(source: string) {
+export function normalizeFunction(source: string) {
   const withoutComments = source
     .replace(/\r/g, "")
     .replace(/--[^\n]*/g, " ")
