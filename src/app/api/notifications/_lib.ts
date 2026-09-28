@@ -1,19 +1,14 @@
 import { NextResponse } from "next/server";
+import { loadUserAccess } from "@/app/api/_authz/user-access";
 import { auth } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export async function requireNotificationUser() {
   const session = await auth();
   const userId = session?.user?.id;
   if (!userId) throw notificationError("Não autenticado.", 401);
 
-  const { data, error } = await supabaseAdmin
-    .from("usuario")
-    .select("id, ativo")
-    .eq("id", userId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data || data.ativo === false) throw notificationError("Usuário inativo.", 403);
+  const access = await loadUserAccess({ userId });
+  if (!access || !access.ativo) throw notificationError("Usuário inativo.", 403);
   return { userId };
 }
 

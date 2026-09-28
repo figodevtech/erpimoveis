@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireUsuariosEdit } from "@/app/api/_authz/perms";
+import { invalidateUserAccess } from "@/app/api/_authz/user-access";
 import { isValidUsername, normalizeUsername } from "@/lib/auth-identifier";
 
 function parseNumberOrNull(v: any) {
@@ -290,6 +291,9 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       });
       if (permissoesErr) throw permissoesErr;
     }
+
+    // Perfil alterado atinge todos os usuarios dele; senao, so este.
+    invalidateUserAccess(Array.isArray(permissoes) ? null : userId);
 
     // Retorna a lista atualizada
     const { GET: listUsers } = await import("../route");

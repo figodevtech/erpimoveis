@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { createHmac } from "node:crypto";
 import { NextResponse } from "next/server";
 
-import { requireAcompanhamentoAccess } from "@/app/api/_authz/perms";
+import { getCurrentUserAccess, requireAcompanhamentoAccess } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -31,19 +31,18 @@ function signRealtimeToken(userId: string) {
 
 export async function GET() {
   try {
-    await requireAcompanhamentoAccess();
     const session = await auth();
     const userId = session?.user?.id;
     if (!userId) return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
 
-    const [userResult, tenantResult] = await Promise.all([
-      supabaseAdmin.from("usuario").select("id, ativo").eq("id", userId).maybeSingle(),
-      supabaseAdmin.from("empresa").select("id").order("id", { ascending: true }).limit(1).single(),
-    ]);
-    if (userResult.error) throw userResult.error;
-    if (!userResult.data || userResult.data.ativo === false) {
+    // A mesma leitura atende o `ativo` e a permissao logo abaixo.
+    const access = await getCurrentUserAccess();
+    if (!access || !access.ativo) {
       return NextResponse.json({ error: "INACTIVE_USER" }, { status: 403 });
     }
+    await requireAcompanhamentoAccess();
+
+    const tenantResult = await supabaseAdmin.from("empresa").select("id").order("id", { ascending: true }).limit(1).single();
     if (tenantResult.error || !tenantResult.data) throw tenantResult.error ?? new Error("TENANT_NOT_FOUND");
 
     const tenantId = Number(tenantResult.data.id);

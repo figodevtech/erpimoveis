@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
+import { loadUserAccess } from "@/app/api/_authz/user-access";
 import { auth } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export class ChatApiError extends Error {
   constructor(
@@ -26,14 +26,8 @@ export async function requireActiveChatUser(): Promise<ChatContext> {
 
   if (!userId) throw new ChatApiError("UNAUTHENTICATED", 401);
 
-  const { data, error } = await supabaseAdmin
-    .from("usuario")
-    .select("id, ativo")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!data || data.ativo === false) throw new ChatApiError("INACTIVE_USER", 403);
+  const access = await loadUserAccess({ userId });
+  if (!access || !access.ativo) throw new ChatApiError("INACTIVE_USER", 403);
 
   return {
     userId,

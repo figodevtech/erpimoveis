@@ -6,6 +6,7 @@ import { expandPermissions, normalizePermission, PERMS, permissionSetHas, TIPO_P
 import { tipoMutationPermission } from "@/app/api/_authz/tipos-permission";
 import { getDefaultRouteForPerms } from "@/app/api/_authz/default-route";
 import { permissionForAction } from "@/app/api/_authz/action-permission";
+import { createSharedLookup } from "@/lib/shared-lookup";
 
 const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
@@ -13,7 +14,20 @@ const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 
 type FreshUserState = { available: boolean; user: { ativo?: boolean } | null };
 const USER_STATE_CACHE_TTL_MS = 15_000;
-const freshUserStateCache = new Map<string, { expiresAt: number; value: FreshUserState }>();
+// Otimizacao desta instancia, nunca fonte de verdade. O prefetch da sidebar
+// dispara dezenas de requisicoes juntas: todas dividem a mesma consulta em voo.
+// Resposta indisponivel ou falha nunca fica guardada.
+const lookupFreshUserState = createSharedLookup<FreshUserState>({
+  ttlMs: USER_STATE_CACHE_TTL_MS,
+  keepIf: (value) => value.available,
+});
+// A Central de assinaturas nao e o Supabase, mas era consultada em toda
+// navegacao. So resposta conclusiva (true/false) fica guardada.
+const PLATFORM_ACCESS_CACHE_TTL_MS = 60_000;
+const lookupPlatformAccess = createSharedLookup<boolean | null>({
+  ttlMs: PLATFORM_ACCESS_CACHE_TTL_MS,
+  keepIf: (value) => typeof value === "boolean",
+});
 let lastUserVerificationWarningAt = 0;
 
 const PUBLIC_PATHS = [
@@ -257,12 +271,12 @@ function isExecutorOnly(user: any) {
   return perms.every((p) => mantemModoExecutor.includes(p) || !appPerms.includes(p));
 }
 
-async function fetchFreshUserState(userId: string) {
+async function fetchFreshUserState(userId: string): Promise<FreshUserState> {
   if (!supabaseUrl || !serviceKey) return { available: false as const, user: null };
+  return lookupFreshUserState(userId, () => readFreshUserState(userId));
+}
 
-  const cached = freshUserStateCache.get(userId);
-  if (cached && cached.expiresAt > Date.now()) return cached.value;
-
+async function readFreshUserState(userId: string): Promise<FreshUserState> {
   const url = new URL(`${supabaseUrl}/rest/v1/usuario`);
   url.searchParams.set("id", `eq.${userId}`);
   url.searchParams.set("select", "ativo");
@@ -284,18 +298,10 @@ async function fetchFreshUserState(userId: string) {
   }
 
   const rows = await res.json().catch(() => []);
-  const value = {
+  return {
     available: true as const,
     user: Array.isArray(rows) ? rows[0] ?? null : null,
   };
-  freshUserStateCache.set(userId, { value, expiresAt: Date.now() + USER_STATE_CACHE_TTL_MS });
-  if (freshUserStateCache.size > 500) {
-    const now = Date.now();
-    for (const [key, entry] of freshUserStateCache) {
-      if (entry.expiresAt <= now) freshUserStateCache.delete(key);
-    }
-  }
-  return value;
 }
 
 function warnUserVerificationUnavailable(error: unknown) {
@@ -315,6 +321,10 @@ async function fetchPlatformAccess() {
   const secret = process.env.PLATFORM_API_SECRET?.trim();
   if (!url || !installationId || !secret) return null;
 
+  return lookupPlatformAccess(installationId, () => readPlatformAccess(url, installationId, secret));
+}
+
+async function readPlatformAccess(url: string, installationId: string, secret: string): Promise<boolean | null> {
   try {
     const response = await fetch(`${url}/api/v1/subscription`, {
       cache: "no-store",

@@ -1,50 +1,35 @@
 // app/api/_authz/perms.ts
 import { auth } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export { PERMS, type Permission } from "./permission-constants";
-import { expandPermissions, PERMS, permissionSetHas, type Permission } from "./permission-constants";
+import { PERMS, permissionSetHas, type Permission } from "./permission-constants";
+import { loadUserAccess, type UserAccess } from "./user-access";
 
 /**
- * Mapa centralizado de permissões (mesmo nome que está no banco).
- * Mantemos tudo em CAIXA ALTA e tipado.
+ * Acesso (ativo, perfil e permissões) de quem fez a requisição, lido do banco
+ * numa única consulta e compartilhado pelas checagens da mesma rota.
+ * `null` quando não há sessão ou o usuário não existe mais na aplicação.
  */
+export async function getCurrentUserAccess(): Promise<UserAccess | null> {
+  const session = await auth();
+  const user = session?.user as { id?: string; email?: string | null } | undefined;
+  if (!user) return null;
+  return loadUserAccess({ userId: user.id ?? null, email: user.email ?? null });
+}
+
 /**
  * Lê as permissões do usuário logado (por perfil) e retorna como Set em caixa alta.
- * Faz fallback por email se necessário.
+ * Faz fallback por email se necessário. Usuário desativado não tem permissão.
  */
 export async function getUserPermissionSet(): Promise<Set<string>> {
   const session = await auth();
   if (!session?.user) throw new Error("Não autenticado");
 
-  const uid = (session.user as any).id as string;
-  const email = (session.user as any).email as string | undefined;
+  const access = await loadUserAccess({
+    userId: (session.user as any).id as string | undefined,
+    email: (session.user as any).email as string | undefined,
+  });
 
-  // 1) tenta por id
-  let perfilId: number | null = null;
-  {
-    const byId = await supabaseAdmin.from("usuario").select("perfilid").eq("id", uid).maybeSingle();
-
-    if (byId.data?.perfilid) {
-      perfilId = Number(byId.data.perfilid);
-    } else if (email) {
-      // 2) fallback por email
-      const byEmail = await supabaseAdmin.from("usuario").select("perfilid").eq("email", email).maybeSingle();
-      if (byEmail.data?.perfilid) perfilId = Number(byEmail.data.perfilid);
-    }
-  }
-
-  if (!perfilId) return new Set<string>();
-
-  const { data, error } = await supabaseAdmin
-    .from("perfilpermissao")
-    .select("permissao:permissaoid ( nome )")
-    .eq("perfilid", perfilId);
-
-  if (error) throw error;
-
-  const list = expandPermissions((data ?? []).map((r: any) => r?.permissao?.nome));
-
-  return new Set(list);
+  return new Set(access?.ativo ? access.permissoes : []);
 }
 
 /* -------------------- Funções genéricas -------------------- */

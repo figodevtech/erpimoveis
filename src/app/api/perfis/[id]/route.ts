@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { PERMS, type Permission } from "@/app/api/_authz/permission-constants";
 import { requirePerm } from "@/app/api/_authz/perms";
+import { invalidateUserAccess } from "@/app/api/_authz/user-access";
 import { auth } from "@/lib/auth";
 
 async function exigirAcesso(permissao: Permission = PERMS.PERMISSOES) {
@@ -116,5 +117,6 @@ export async function PUT(req: NextRequest, ctx: any) {
   });
   if (ePermissoes) return NextResponse.json({ error: ePermissoes.message }, { status: 500 });
 
+  invalidateUserAccess();
   return NextResponse.json({ perfil: perfilAtualizado }, { status: 200 });
 }

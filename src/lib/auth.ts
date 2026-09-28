@@ -4,10 +4,10 @@ import CredentialsProvider from "next-auth/providers/credentials";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
-  expandPermissions,
   permissoesDoToken,
   VERSAO_PERMISSOES_TOKEN,
 } from "@/app/api/_authz/permission-constants";
+import { loadUserAccess } from "@/app/api/_authz/user-access";
 import { isEmailIdentifier, normalizeLoginIdentifier } from "@/lib/auth-identifier";
 import {
   buildLoginRateLimitKeys,
@@ -25,56 +25,12 @@ import { LoginCredentialsError } from "@/lib/auth-login-errors";
 
 const MAX_AGE_SECONDS = 60 * 60 * 24; // 24h
 
-async function carregarPermissoesPorPerfil(perfilId: number | null): Promise<string[]> {
-  if (!perfilId) return [];
-
-  const { data, error } = await supabaseAdmin
-    .from("perfilpermissao")
-    .select("permissao:permissaoid ( nome )")
-    .eq("perfilid", perfilId);
-
-  if (error) {
-    console.error("[auth] erro ao carregar permissoes:", error);
-    return [];
-  }
-
-  return expandPermissions((data ?? []).map((r: any) => r?.permissao?.nome));
-}
-
-async function carregarUsuarioAplicacao(userId?: string | null, email?: string | null) {
-  let row: any = null;
-
-  if (userId) {
-    const { data } = await supabaseAdmin
-      .from("usuario")
-      .select("id, email, nome, perfilid, setorid, ativo")
-      .eq("id", userId)
-      .maybeSingle();
-    row = data ?? null;
-  }
-
-  if (!row && email) {
-    const { data } = await supabaseAdmin
-      .from("usuario")
-      .select("id, email, nome, perfilid, setorid, ativo")
-      .eq("email", email)
-      .maybeSingle();
-    row = data ?? null;
-  }
-
-  if (!row) return null;
-
-  const perfilId = (row.perfilid as number | null) ?? null;
-
-  return {
-    id: row.id as string,
-    email: (row.email as string | null) ?? email ?? null,
-    nome: row.nome as string | null,
-    perfilId,
-    setorId: (row.setorid as number | null) ?? null,
-    ativo: row.ativo !== false,
-    permissoes: await carregarPermissoesPorPerfil(perfilId),
-  };
+/**
+ * Login e renovacao da sessao sempre leem o banco (`fresh`), numa unica consulta
+ * que ja traz perfil e permissoes; o resultado fica para as checagens seguintes.
+ */
+function carregarUsuarioAplicacao(userId?: string | null, email?: string | null) {
+  return loadUserAccess({ userId, email }, { fresh: true });
 }
 
 async function atualizarTokenComUsuarioAtual(token: any) {
