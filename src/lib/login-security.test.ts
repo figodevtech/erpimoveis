@@ -14,14 +14,53 @@ import {
   MAX_LOGIN_PASSWORD_LENGTH,
 } from "./login-security";
 
+/**
+ * `getClientIp` escolhe o cabeçalho pelo ambiente. O teste declara o cenário em
+ * vez de herdar o do processo: no `prebuild` da Vercel, `VERCEL=1` e
+ * `NODE_ENV=production` já vêm definidos e desviam para outro ramo.
+ */
+function comAmbiente(valores: Record<string, string | undefined>, executar: () => void) {
+  const anteriores = Object.fromEntries(Object.keys(valores).map((chave) => [chave, process.env[chave]]));
+  const aplicar = (origem: Record<string, string | undefined>) => {
+    for (const [chave, valor] of Object.entries(origem)) {
+      if (typeof valor === "undefined") delete process.env[chave];
+      else process.env[chave] = valor;
+    }
+  };
+
+  aplicar(valores);
+  try {
+    executar();
+  } finally {
+    aplicar(anteriores);
+  }
+}
+
 test("extrai o IP usando os cabecalhos conhecidos do proxy", () => {
-  assert.equal(
-    getClientIp(new Request("https://erp.local", { headers: { "x-real-ip": "203.0.113.10" } })),
-    "203.0.113.10"
+  comAmbiente(
+    { VERCEL: undefined, TRUST_CLOUDFLARE_PROXY: undefined, TRUST_PROXY_HEADERS: "true" },
+    () => {
+      assert.equal(
+        getClientIp(new Request("https://erp.local", { headers: { "x-real-ip": "203.0.113.10" } })),
+        "203.0.113.10"
+      );
+      assert.equal(
+        getClientIp(new Request("https://erp.local", { headers: { "x-forwarded-for": "198.51.100.2, 10.0.0.1" } })),
+        "198.51.100.2"
+      );
+    },
   );
-  assert.equal(
-    getClientIp(new Request("https://erp.local", { headers: { "x-forwarded-for": "198.51.100.2, 10.0.0.1" } })),
-    "198.51.100.2"
+});
+
+test("em producao fora da Vercel nao confia em cabecalho de proxy sem habilitar", () => {
+  comAmbiente(
+    { VERCEL: undefined, TRUST_CLOUDFLARE_PROXY: undefined, TRUST_PROXY_HEADERS: undefined, NODE_ENV: "production" },
+    () => {
+      assert.equal(
+        getClientIp(new Request("https://erp.local", { headers: { "x-forwarded-for": "198.51.100.2" } })),
+        "unknown"
+      );
+    },
   );
 });
 
