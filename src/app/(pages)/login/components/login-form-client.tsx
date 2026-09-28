@@ -5,26 +5,62 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { getLoginFeedback, type LoginFeedback } from "@/lib/login-feedback";
 import ForgotPasswordDialog from "./forgot-password-dialog";
+import { TurnstileWidget } from "./turnstile-widget";
 
-export function LoginFormClient() {
+const LOGIN_TOAST_ID = "login-feedback";
+
+function showLoginFeedback(feedback: LoginFeedback) {
+  const options = { id: LOGIN_TOAST_ID, description: feedback.description };
+
+  if (feedback.tone === "info") {
+    toast.info(feedback.title, options);
+    return;
+  }
+
+  if (feedback.tone === "warning") {
+    toast.warning(feedback.title, options);
+    return;
+  }
+
+  toast.error(feedback.title, options);
+}
+
+export function LoginFormClient({ turnstileSiteKey }: { turnstileSiteKey: string | null }) {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaResetKey, setCaptchaResetKey] = useState(0);
 
   const [forgotOpen, setForgotOpen] = useState(false);
 
   const router = useRouter();
+  const handleCaptchaToken = useCallback((token: string) => setCaptchaToken(token), []);
+  const resetCaptcha = () => {
+    setCaptchaToken("");
+    setCaptchaResetKey((current) => current + 1);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!identifier.trim() || !password.trim()) {
-      toast.error("Por favor, preencha usuário/e-mail e senha.");
+      showLoginFeedback(getLoginFeedback("MISSING_CREDENTIALS"));
+      return;
+    }
+
+    if (turnstileSiteKey && !captchaToken) {
+      showLoginFeedback({
+        tone: "info",
+        title: "Conclua a verificação de segurança",
+        description: "Confirme a verificação abaixo antes de entrar.",
+      });
       return;
     }
 
@@ -34,41 +70,29 @@ export function LoginFormClient() {
       const res = await signIn("credentials", {
         identifier,
         password,
+        captchaToken,
         redirect: false,
       });
 
       if (res?.error) {
-        switch (res.error) {
-          case "CredentialsSignin":
-          case "INVALID_CREDENTIALS":
-            toast.error("Usuário/e-mail ou senha inválidos.");
-            break;
-
-          case "MISSING_CREDENTIALS":
-          case "Por favor, forneça e-mail e senha.":
-            toast.error("Por favor, preencha usuário/e-mail e senha.");
-            break;
-
-          case "LOGIN_RATE_LIMITED":
-            toast.error("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
-            break;
-
-          case "LOGIN_INTERNAL_ERROR":
-            toast.error("Ocorreu um erro ao tentar fazer login. Tente novamente.");
-            break;
-
-          default:
-            toast.error("Usuário/e-mail ou senha inválidos.");
-            break;
-        }
+        resetCaptcha();
+        showLoginFeedback(getLoginFeedback(res.code ?? res.error));
         return;
       }
 
-      toast.success("Login efetuado!");
+      toast.success("Acesso autorizado", {
+        id: LOGIN_TOAST_ID,
+        description: "Carregando o sistema…",
+      });
       router.replace("/");
       router.refresh();
-    } catch (e: any) {
-      toast.error(e?.message || "Falha de login.");
+    } catch {
+      resetCaptcha();
+      showLoginFeedback({
+        tone: "error",
+        title: "Não foi possível conectar ao login",
+        description: "Verifique sua conexão e tente novamente.",
+      });
     } finally {
       setLoading(false);
     }
@@ -128,7 +152,19 @@ export function LoginFormClient() {
           </div>
         </div>
 
-        <Button type="submit" className="w-full" disabled={loading}>
+        {turnstileSiteKey ? (
+          <TurnstileWidget
+            siteKey={turnstileSiteKey}
+            resetKey={captchaResetKey}
+            onTokenChange={handleCaptchaToken}
+          />
+        ) : null}
+
+        <Button
+          type="submit"
+          className="w-full"
+          disabled={loading || Boolean(turnstileSiteKey && !captchaToken)}
+        >
           {loading ? "Entrando..." : "Entrar"}
         </Button>
 

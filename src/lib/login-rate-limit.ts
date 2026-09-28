@@ -27,6 +27,12 @@ export async function registerLoginFailure(keys: string[]): Promise<number> {
   return Math.max(0, Number(data ?? 0));
 }
 
+// O contador global mede tentativas (inclusive as bem-sucedidas) para impedir
+// que uma rajada distribuída alcance o endpoint de senha do Supabase.
+export async function registerLoginAttempt(key: string): Promise<number> {
+  return registerLoginFailure([key]);
+}
+
 export async function clearLoginRateLimit(keys: string[]): Promise<void> {
   const { error } = await supabaseAdmin.rpc("auth_login_rate_limit_clear", {
     p_keys: keys,

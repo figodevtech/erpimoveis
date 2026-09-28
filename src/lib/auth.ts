@@ -1,5 +1,5 @@
 // src/lib/auth.ts
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -16,10 +16,12 @@ import {
 import {
   checkLoginRateLimit,
   clearLoginRateLimit,
+  registerLoginAttempt,
   registerLoginFailure,
 } from "@/lib/login-rate-limit";
 import { createSupabasePasswordAuthClient } from "@/lib/supabase-password-auth";
 import { isTerminalSupabaseRefreshFailure, supabaseRefreshRetryDelayMs } from "@/lib/auth-refresh-policy";
+import { LoginCredentialsError } from "@/lib/auth-login-errors";
 
 const MAX_AGE_SECONDS = 60 * 60 * 24; // 24h
 
@@ -138,6 +140,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       credentials: {
         identifier: { label: "Usuário ou e-mail", type: "text" },
         password: { label: "Senha", type: "password" },
+        captchaToken: { label: "Captcha", type: "text" },
       },
       async authorize(credentials, request) {
         try {
@@ -145,14 +148,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             credentials?.identifier ?? (credentials as any)?.email
           );
           const password = String(credentials?.password ?? "");
+          const captchaToken = String(credentials?.captchaToken ?? "").trim();
 
           if (!credentialsHaveSafeLength(identifier, password)) {
-            throw new Error("MISSING_CREDENTIALS");
+            throw new LoginCredentialsError("MISSING_CREDENTIALS");
           }
 
           const rateLimitKeys = buildLoginRateLimitKeys(identifier, request);
+          const [identifierLimitKey, ipLimitKey, globalLimitKey] = rateLimitKeys;
           if ((await checkLoginRateLimit(rateLimitKeys)) > 0) {
-            throw new Error("LOGIN_RATE_LIMITED");
+            throw new LoginCredentialsError("LOGIN_RATE_LIMITED");
+          }
+
+          // Reserva a tentativa no limite global antes de consultar o Supabase.
+          // As duas primeiras chaves continuam sendo registradas apenas em falhas.
+          if ((await registerLoginAttempt(globalLimitKey)) > 0) {
+            throw new LoginCredentialsError("LOGIN_RATE_LIMITED");
           }
 
           let email = identifier;
@@ -167,7 +178,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
             if (usernameError) {
               console.error("[auth] erro ao resolver nome de usuario:", usernameError);
-              throw new Error("LOGIN_INTERNAL_ERROR");
+              throw new LoginCredentialsError("LOGIN_INTERNAL_ERROR");
             }
 
             usernameEncontrado = Boolean(usuario?.email);
@@ -180,29 +191,36 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const { data, error } = await passwordAuth.auth.signInWithPassword({
             email,
             password,
+            options: captchaToken ? { captchaToken } : undefined,
           });
 
           if ((error as any)?.status === 429 || (error as any)?.code === "over_request_rate_limit") {
-            throw new Error("LOGIN_RATE_LIMITED");
+            await registerLoginFailure([identifierLimitKey, ipLimitKey]);
+            throw new LoginCredentialsError("LOGIN_RATE_LIMITED");
+          }
+
+          if ((error as any)?.code === "captcha_failed") {
+            throw new LoginCredentialsError("CAPTCHA_FAILED");
           }
 
           if (!usernameEncontrado || error || !data?.user) {
-            const retryAfter = await registerLoginFailure(rateLimitKeys);
-            if (retryAfter > 0) throw new Error("LOGIN_RATE_LIMITED");
-            throw new Error("INVALID_CREDENTIALS");
+            const retryAfter = await registerLoginFailure([identifierLimitKey, ipLimitKey]);
+            if (retryAfter > 0) throw new LoginCredentialsError("LOGIN_RATE_LIMITED");
+            throw new LoginCredentialsError("INVALID_CREDENTIALS");
           }
 
           const { user } = data;
           const usuarioAplicacao = await carregarUsuarioAplicacao(user.id, user.email);
 
           if (!usuarioAplicacao || !usuarioAplicacao.ativo) {
-            await clearLoginRateLimit([rateLimitKeys[0]]);
-            throw new Error("INVALID_CREDENTIALS");
+            const retryAfter = await registerLoginFailure([identifierLimitKey, ipLimitKey]);
+            if (retryAfter > 0) throw new LoginCredentialsError("LOGIN_RATE_LIMITED");
+            throw new LoginCredentialsError("INVALID_CREDENTIALS");
           }
 
           // Sucesso limpa somente o contador da conta. O contador por IP deve
           // continuar impedindo que uma conta controlada burle o throttling.
-          await clearLoginRateLimit([rateLimitKeys[0]]);
+          await clearLoginRateLimit([identifierLimitKey]);
 
           return {
             id: usuarioAplicacao.id,
@@ -217,15 +235,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             supabaseAccessTokenExpiresAt: (data.session?.expires_at ?? 0) * 1_000 || null,
           } as any;
         } catch (e: any) {
-          if (
-            e instanceof Error &&
-            ["MISSING_CREDENTIALS", "INVALID_CREDENTIALS", "LOGIN_RATE_LIMITED"].includes(e.message)
-          ) {
-            throw e;
-          }
+          if (e instanceof CredentialsSignin) throw e;
 
           console.error(e);
-          throw new Error("LOGIN_INTERNAL_ERROR");
+          throw new LoginCredentialsError("LOGIN_INTERNAL_ERROR");
         }
       },
     }),

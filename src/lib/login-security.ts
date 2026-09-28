@@ -1,18 +1,42 @@
 import { createHmac } from "node:crypto";
+import { isIP } from "node:net";
 
 export const MAX_LOGIN_IDENTIFIER_LENGTH = 254;
 export const MAX_LOGIN_PASSWORD_LENGTH = 1024;
 
+function firstValidIp(value: string | null): string | null {
+  const candidate = value?.split(",")[0]?.trim() ?? "";
+  return isIP(candidate) ? candidate : null;
+}
+
 export function getClientIp(request: Request): string {
-  const cfIp = request.headers.get("cf-connecting-ip")?.trim();
-  if (cfIp) return cfIp;
+  // Só confie no cabeçalho da Cloudflare quando o origin não puder ser
+  // acessado diretamente e essa opção tiver sido habilitada explicitamente.
+  if (process.env.TRUST_CLOUDFLARE_PROXY === "true") {
+    return firstValidIp(request.headers.get("cf-connecting-ip")) ?? "unknown";
+  }
 
-  const realIp = request.headers.get("x-real-ip")?.trim();
-  if (realIp) return realIp;
+  // Cabeçalhos de IP só são confiáveis quando o proxy que atende a aplicação
+  // os sobrescreve. Na Vercel, prefira o cabeçalho próprio da plataforma.
+  if (process.env.VERCEL) {
+    return (
+      firstValidIp(request.headers.get("x-vercel-forwarded-for")) ??
+      firstValidIp(request.headers.get("x-forwarded-for")) ??
+      "unknown"
+    );
+  }
 
-  const forwarded = request.headers.get("x-forwarded-for");
-  const firstForwardedIp = forwarded?.split(",")[0]?.trim();
-  return firstForwardedIp || "unknown";
+  const trustGenericProxy =
+    process.env.TRUST_PROXY_HEADERS === "true" || process.env.NODE_ENV !== "production";
+  if (trustGenericProxy) {
+    return (
+      firstValidIp(request.headers.get("x-forwarded-for")) ??
+      firstValidIp(request.headers.get("x-real-ip")) ??
+      "unknown"
+    );
+  }
+
+  return "unknown";
 }
 
 function hashRateLimitValue(kind: string, value: string): string {
@@ -22,10 +46,11 @@ function hashRateLimitValue(kind: string, value: string): string {
   return `${kind}:${createHmac("sha256", secret).update(value).digest("hex")}`;
 }
 
-export function buildLoginRateLimitKeys(identifier: string, request: Request): string[] {
+export function buildLoginRateLimitKeys(identifier: string, request: Request): [string, string, string] {
   return [
     hashRateLimitValue("identifier", identifier),
     hashRateLimitValue("ip", getClientIp(request)),
+    hashRateLimitValue("login-global", "v1"),
   ];
 }
 

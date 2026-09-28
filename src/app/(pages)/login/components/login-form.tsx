@@ -72,13 +72,14 @@ export async function LoginForm({
 
   const bgOk = bgSupabase ? await urlExiste(bgSupabase) : false;
   const finalBg = bgOk && bgSupabase ? bgSupabase : bgFallback;
+  const turnstileSiteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim() || null;
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
       <Card className="overflow-hidden p-0">
         <CardContent className="grid p-0 md:grid-cols-2">
           {/* Esquerda: client component (form + forgot dialog) */}
-          <LoginFormClient />
+          <LoginFormClient turnstileSiteKey={turnstileSiteKey} />
 
           {/* Direita: server component (imagens já decididas) */}
           <div className="bg-muted relative hidden overflow-hidden md:block group">
