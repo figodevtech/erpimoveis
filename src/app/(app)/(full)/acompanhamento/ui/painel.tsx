@@ -2,10 +2,7 @@
 
 import Link from "next/link";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
-
-/** Módulo, não literal: um array novo a cada render reiniciaria a inscrição. */
-const TABELAS_REALTIME = ["ordemservico"];
+import { onAppResume } from "@/lib/app-resume";
 
 import { listarQuadro, listarSetoresAtivos, QuadItem, SetorItem } from "../lib/api";
 
@@ -300,15 +297,19 @@ export default function PainelAcompanhamento({
     return () => clearInterval(id);
   }, [setorSelecionado]);
 
-  // fallback: polling
+  // Painel de TV: rele a cada 15 s enquanto visivel e na volta para a aba. A
+  // reconciliacao de 60 s que tambem rodava aqui era redundante com este ciclo.
   useEffect(() => {
     if (!setorSelecionado) return;
-    const id = setInterval(() => void load(), 15000);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 15000);
+    const pararDeOuvir = onAppResume(() => void load());
+    return () => {
+      clearInterval(id);
+      pararDeOuvir();
+    };
   }, [setorSelecionado, load]);
-
-  // realtime
-  useRealtimeTabelas(TABELAS_REALTIME, () => void load());
 
   const textoSetor = useMemo(() => {
     if (!setorSelecionado) return "Selecione um setor";

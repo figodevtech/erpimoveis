@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { safeUUID } from "../../lib/safe-uuid";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { useSession } from "next-auth/react";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import VehicleSelect from "@/app/(app)/components/vehicleSelect";
 import { Customer } from "../../../clientes/types";
@@ -196,21 +197,6 @@ export function FormularioNovaOS({
         setSetoresError(null);
         const items = await listarSetores();
         setSetores(items);
-
-        try {
-          const configResponse = await fetch("/api/config", { cache: "no-store" });
-          const configData = await configResponse.json().catch(() => ({}));
-          const setorPadraoId = Number(configData?.config?.setor_padrao_os_id);
-          if (
-            configResponse.ok
-            && Number.isInteger(setorPadraoId)
-            && items.some((item) => item.id === setorPadraoId)
-          ) {
-            setSetor((atual) => atual || String(setorPadraoId));
-          }
-        } catch (configError) {
-          console.warn("N\u00e3o foi poss\u00edvel carregar o setor padr\u00e3o da OS.", configError);
-        }
       } catch (e: any) {
         setSetoresError(e?.message ?? "Não foi possível carregar os setores.");
         setSetores([]);
@@ -219,6 +205,18 @@ export function FormularioNovaOS({
       }
     })();
   }, []);
+
+  // O setor padrao vem da configuracao ja carregada pelo layout; buscar
+  // /api/config de novo a cada abertura do formulario so repetia a leitura.
+  const config = useConfig();
+  const setorPadraoId = Number(config?.setor_padrao_os_id);
+  const setorPadraoAplicadoRef = useRef(false);
+  useEffect(() => {
+    if (setorPadraoAplicadoRef.current || !setores.length) return;
+    if (!Number.isInteger(setorPadraoId) || !setores.some((item) => item.id === setorPadraoId)) return;
+    setorPadraoAplicadoRef.current = true;
+    setSetor((atual) => atual || String(setorPadraoId));
+  }, [setorPadraoId, setores]);
 
   const veiculoOptions = useMemo(
     () =>

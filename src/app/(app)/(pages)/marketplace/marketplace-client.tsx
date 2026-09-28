@@ -4822,7 +4822,9 @@ export default function MarketplacePage() {
 
     window.addEventListener("erp:system-notification", handleSystemNotification);
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    // Aba oculta nao rele: ao voltar, o `visibilitychange` acima ja atualiza.
     const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       if (activeTab === "atendimento" || chatOpen) void refreshService();
     }, 15_000);
 
@@ -4880,7 +4882,7 @@ export default function MarketplacePage() {
     }
 
     const intervalId = window.setInterval(() => {
-      void checkOrdersRevision();
+      if (document.visibilityState === "visible") void checkOrdersRevision();
     }, 15_000);
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") void checkOrdersRevision();

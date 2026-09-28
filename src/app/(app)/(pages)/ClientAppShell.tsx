@@ -18,6 +18,9 @@ import { useUserPreferences } from "../components/user-preferences-provider";
 import { useConfig } from "./config-context";
 import { ChatCenter } from "@/components/chat/chat-center";
 import { NotificationCenter } from "@/components/notifications/notification-center";
+import { onAppResume } from "@/lib/app-resume";
+
+const PLANO_REVALIDACAO_NO_RETORNO_MS = 5 * 60 * 1000;
 
 const routeTitles: Record<string, string> = {
   "/execucao": "Execução de Ordens",
@@ -102,23 +105,39 @@ export default function ClientAppShell({
   const hoverTimerRef = React.useRef<number | null>(null);
   const loggingOutRef = React.useRef(false);
 
+  // A situacao do plano muda raramente e o middleware ja barra escrita de quem
+  // esta bloqueado. Antes era relida a cada troca de rota; agora na abertura e
+  // ao voltar para a aba, no maximo a cada intervalo.
   React.useEffect(() => {
     let active = true;
-    fetch("/api/plano/status", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((result) => {
-        if (!active || !result?.data?.access) return;
-        const next = {
-          blocked: !result.data.access.allowed,
-          showBanner: result.data.access.showBanner,
-          message: result.data.access.message as string | null,
-        };
-        setBilling(next);
-        if (next.blocked && !pathname.startsWith("/plano")) router.replace("/plano");
-      })
-      .catch(() => undefined);
-    return () => { active = false; };
-  }, [pathname, router]);
+    let ultimaLeitura = 0;
+    const carregar = () => {
+      ultimaLeitura = Date.now();
+      fetch("/api/plano/status", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((result) => {
+          if (!active || !result?.data?.access) return;
+          setBilling({
+            blocked: !result.data.access.allowed,
+            showBanner: result.data.access.showBanner,
+            message: result.data.access.message as string | null,
+          });
+        })
+        .catch(() => undefined);
+    };
+    carregar();
+    const pararDeOuvir = onAppResume(() => {
+      if (Date.now() - ultimaLeitura >= PLANO_REVALIDACAO_NO_RETORNO_MS) carregar();
+    });
+    return () => {
+      active = false;
+      pararDeOuvir();
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (billing.blocked && !pathname.startsWith("/plano")) router.replace("/plano");
+  }, [billing.blocked, pathname, router]);
 
   React.useEffect(() => {
     // limpa timer anterior se trocar de rota rápido

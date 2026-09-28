@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 import {
   CalendarDays,
   Check,
@@ -597,6 +598,7 @@ function DayDetailsLoadingSkeleton() {
 
 export default function AgendamentosPage() {
   const { data: session } = useSession();
+  const config = useConfig();
   const [items, setItems] = useState<AgendamentoItem[]>([]);
   const [veiculos, setVeiculos] = useState<VeiculoOption[]>([]);
   const [servicosAgendamento, setServicosAgendamento] = useState<ServicoOption[]>([]);
@@ -740,40 +742,47 @@ export default function AgendamentosPage() {
   }
 
   async function loadLookup() {
-    const [lookupResponse, configResponse] = await Promise.all([
-      fetch("/api/agendamentos/lookup"),
-      fetch("/api/config", { cache: "no-store" }),
-    ]);
-
+    const lookupResponse = await fetch("/api/agendamentos/lookup");
     const data = await lookupResponse.json();
     if (!lookupResponse.ok) throw new Error(data?.error ?? "Erro ao carregar dados auxiliares");
 
-    const configData = await configResponse.json().catch(() => ({}));
-    if (configResponse.ok && configData?.config) {
-      const diasTrabalho = normalizeDiasTrabalho(configData.config.agendamento_dias_trabalho);
-      setAgendaConfig({
-        intervalo: Number(configData.config.agendamento_intervalo_minutos ?? 60),
-        horaInicio: String(configData.config.agendamento_hora_inicio ?? "08:00").slice(0, 5),
-        horaFim: String(configData.config.agendamento_hora_fim ?? "18:00").slice(0, 5),
-        diasTrabalho,
-      });
-
-      setSelectedDate((current) => {
-        const loadedConfig = {
-          intervalo: Number(configData.config.agendamento_intervalo_minutos ?? 60),
-          horaInicio: String(configData.config.agendamento_hora_inicio ?? "08:00").slice(0, 5),
-          horaFim: String(configData.config.agendamento_hora_fim ?? "18:00").slice(0, 5),
-          diasTrabalho,
-        };
-        if (hasFutureConfiguredSlot(current, loadedConfig)) return current;
-        const next = nextSchedulableDay(new Date(), loadedConfig);
-        setCurrentMonth(new Date(next.getFullYear(), next.getMonth(), 1));
-        return next;
-      });
-    }
-
     setVeiculos(data.veiculos ?? []);
   }
+
+  // Horarios da agenda vem da configuracao ja carregada pelo layout, em vez de
+  // uma segunda leitura de /api/config. A chave so muda quando a agenda muda.
+  const configAgenda = config
+    ? JSON.stringify([
+        config.agendamento_intervalo_minutos,
+        config.agendamento_hora_inicio,
+        config.agendamento_hora_fim,
+        config.agendamento_dias_trabalho,
+      ])
+    : null;
+  const dataInicialAjustadaRef = useRef(false);
+  useEffect(() => {
+    if (!config) return;
+    const loadedConfig: AgendamentoConfig = {
+      intervalo: Number(config.agendamento_intervalo_minutos ?? 60),
+      horaInicio: String(config.agendamento_hora_inicio ?? "08:00").slice(0, 5),
+      horaFim: String(config.agendamento_hora_fim ?? "18:00").slice(0, 5),
+      diasTrabalho: normalizeDiasTrabalho(config.agendamento_dias_trabalho),
+    };
+    setAgendaConfig(loadedConfig);
+
+    // Como antes, a data inicial so e ajustada na abertura da tela: uma
+    // revalidacao em segundo plano nao tira o usuario do dia que ele escolheu.
+    if (dataInicialAjustadaRef.current) return;
+    dataInicialAjustadaRef.current = true;
+    setSelectedDate((current) => {
+      if (hasFutureConfiguredSlot(current, loadedConfig)) return current;
+      const next = nextSchedulableDay(new Date(), loadedConfig);
+      setCurrentMonth(new Date(next.getFullYear(), next.getMonth(), 1));
+      return next;
+    });
+    // A chave resume os campos da agenda; o objeto `config` muda a cada leitura.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configAgenda]);
 
   async function loadItems() {
     setLoading(true);
