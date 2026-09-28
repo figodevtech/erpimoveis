@@ -1,14 +1,29 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { reconcileMercadoLivreSystemNotifications } from "@/lib/integrations/mercadolivre-system-notification-reconciliation";
+import { createSharedLookup } from "@/lib/shared-lookup";
 import { notificationErrorResponse, notificationJson, requireNotificationUser } from "./_lib";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * A reconciliacao so recupera eventos do Mercado Livre que escaparam da central
+ * de avisos, e e idempotente. Rodava em toda leitura da central (duas consultas
+ * a mais); agora roda no maximo uma vez por intervalo nesta instancia, com as
+ * leituras simultaneas esperando a mesma execucao. Falha nao fica guardada: a
+ * proxima leitura tenta de novo.
+ */
+const RECONCILIACAO_INTERVALO_MS = 5 * 60_000;
+const reconciliarUmaVezPorIntervalo = createSharedLookup<number>({ ttlMs: RECONCILIACAO_INTERVALO_MS });
+
+function reconciliarMercadoLivre() {
+  return reconciliarUmaVezPorIntervalo("mercadolivre", reconcileMercadoLivreSystemNotifications);
+}
+
 export async function GET(request: Request) {
   try {
     const { userId } = await requireNotificationUser();
-    await reconcileMercadoLivreSystemNotifications().catch((error) => {
+    await reconciliarMercadoLivre().catch((error) => {
       console.error("Falha ao reconciliar notificações processadas do Mercado Livre", error);
     });
     const url = new URL(request.url);

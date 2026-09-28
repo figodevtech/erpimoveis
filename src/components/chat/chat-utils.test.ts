@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ChatMessage, ConversationSummary } from "@/lib/chat/contracts";
+import type { ChatMessage, ChatRealtimeEvent, ConversationSummary } from "@/lib/chat/contracts";
 import {
   appendedMessageKeys,
   chatMessageStableKey,
+  eventChangesUnread,
   filterConversations,
   isTemporaryMessageError,
   mergeChatMessages,
@@ -101,4 +102,23 @@ test("chave visual permanece estavel na conciliacao da mensagem otimista", () =>
   const persisted = { ...optimistic, id: "40000000-0000-4000-8000-000000000099", sendStatus: "sent" as const };
 
   assert.equal(chatMessageStableKey(optimistic), chatMessageStableKey(persisted));
+});
+
+test("so eventos que mudam minhas nao lidas pedem chat_unread_count", () => {
+  const eu = "10000000-0000-4000-8000-000000000001";
+  const outro = "10000000-0000-4000-8000-000000000002";
+  const evento = (patch: Partial<ChatRealtimeEvent>): ChatRealtimeEvent => ({
+    kind: "message",
+    conversationId: "20000000-0000-4000-8000-000000000001",
+    ...patch,
+  });
+
+  assert.equal(eventChangesUnread(evento({ kind: "message", senderId: outro }), eu), true);
+  assert.equal(eventChangesUnread(evento({ kind: "message", senderId: eu }), eu), false);
+  assert.equal(eventChangesUnread(evento({ kind: "message" }), eu), true);
+  assert.equal(eventChangesUnread(evento({ kind: "read", readerId: eu }), eu), true);
+  assert.equal(eventChangesUnread(evento({ kind: "read", readerId: outro }), eu), false);
+  assert.equal(eventChangesUnread(evento({ kind: "reaction" }), eu), false);
+  assert.equal(eventChangesUnread(evento({ kind: "message-updated" }), eu), true);
+  assert.equal(eventChangesUnread(evento({ kind: "conversation" }), eu), true);
 });

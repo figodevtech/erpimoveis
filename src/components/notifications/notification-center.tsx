@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { fetchRealtimeToken } from "@/components/chat/chat-api";
+import { useSessionReady } from "@/components/use-session-ready";
 import { ensureChatRealtimeCredentials } from "@/lib/chat/realtime-token";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { cn } from "@/lib/utils";
@@ -37,8 +38,17 @@ const VISIBILITY_REVALIDATION_INTERVAL_MS = 2 * 60_000;
 const POLL_TICK_INTERVAL_MS = 60_000;
 const MAX_RETRY_INTERVAL_MS = 5 * 60_000;
 
+/**
+ * Filtro do `postgres_changes`: o Realtime so avalia e entrega as linhas do
+ * proprio usuario, em vez de checar a RLS de toda notificacao de todos.
+ */
+function systemNotificationRealtimeFilter(userId: string) {
+  return `usuario_id=eq.${userId}`;
+}
+
 export function NotificationCenter() {
   const router = useRouter();
+  const { ready: sessionReady, userId } = useSessionReady();
   const reduceMotion = useReducedMotion();
   const [open, setOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
@@ -116,6 +126,7 @@ export function NotificationCenter() {
   }, [load]);
 
   React.useEffect(() => {
+    if (!sessionReady || !userId) return;
     let disposed = false;
     let channel: ReturnType<typeof supabaseBrowser.channel> | null = null;
 
@@ -130,7 +141,12 @@ export function NotificationCenter() {
           .channel(`system-notifications:${crypto.randomUUID()}`)
           .on(
             "postgres_changes",
-            { event: "INSERT", schema: "public", table: "system_notification" },
+            {
+              event: "INSERT",
+              schema: "public",
+              table: "system_notification",
+              filter: systemNotificationRealtimeFilter(userId),
+            },
             (payload) => {
               const row = payload.new as Record<string, unknown>;
               const incoming = realtimeNotification(row);
@@ -158,7 +174,7 @@ export function NotificationCenter() {
       realtimeConnectedRef.current = false;
       if (channel) void supabaseBrowser.removeChannel(channel);
     };
-  }, [load]);
+  }, [sessionReady, userId]);
 
   React.useEffect(() => {
     if (open) void load(undefined, true);

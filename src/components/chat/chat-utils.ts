@@ -5,6 +5,7 @@ import type {
   ChatMessageType,
   ChatReaction,
   ChatReactionSummary,
+  ChatRealtimeEvent,
   ConversationSummary,
 } from "@/lib/chat/contracts";
 import {
@@ -360,4 +361,17 @@ export function nextReconnectDelay(attempt: number) {
  */
 export function shouldShowRealtimeBanner(status: ChatRealtimeStatus) {
   return status === "disconnected" || status === "unavailable";
+}
+
+/**
+ * Se o evento do Realtime pode mudar o contador de nao lidas de quem o recebe.
+ * O broadcast vai para todos os participantes: reacao, mensagem que eu mesmo
+ * mandei e leitura feita pela outra pessoa nao mudam as minhas nao lidas, e cada
+ * uma custava uma chamada a `chat_unread_count`.
+ */
+export function eventChangesUnread(event: ChatRealtimeEvent, currentUserId: string) {
+  if (event.kind === "reaction") return false;
+  if (event.kind === "message" && event.senderId && event.senderId === currentUserId) return false;
+  if (event.kind === "read" && event.readerId && event.readerId !== currentUserId) return false;
+  return true;
 }

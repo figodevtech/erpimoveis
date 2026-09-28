@@ -36,7 +36,7 @@ import {
   showIncomingChatMessageToast,
 } from "./chat-message-toast";
 import type { ChatRealtimeStatus } from "./chat-utils";
-import { applyConversationReadCounts, nextReconnectDelay } from "./chat-utils";
+import { applyConversationReadCounts, eventChangesUnread, nextReconnectDelay } from "./chat-utils";
 
 export type ChatView =
   | { type: "inbox" }
@@ -63,6 +63,9 @@ const INTERVALO_DEGRADADO_MS = 15_000;
  * aba so confere de novo depois deste intervalo desde a ultima leitura.
  */
 const REVALIDACAO_NO_RETORNO_MS = 30_000;
+
+/** Rajada de eventos (varias mensagens seguidas) vira uma leitura do contador. */
+const AGRUPAMENTO_UNREAD_MS = 400;
 
 type ChatContextValue = {
   currentUserId: string;
@@ -271,12 +274,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     let tentativaAtual = 0;
     let attempt = 0;
     let reconnectTimer: number | null = null;
+    let unreadTimer: number | null = null;
     let userChannel: RealtimeChannel | null = null;
     let presenceChannel: RealtimeChannel | null = null;
     const notificationController = new AbortController();
 
     // O cliente do Supabase pede o token por este canal a cada join e rejoin.
     setChatRealtimeTokenSource(fetchRealtimeToken);
+
+    const agendarLeituraUnread = () => {
+      if (unreadTimer !== null) return;
+      unreadTimer = window.setTimeout(() => {
+        unreadTimer = null;
+        if (!disposed) void refreshUnread().catch(() => undefined);
+      }, AGRUPAMENTO_UNREAD_MS);
+    };
 
     const clearReconnectTimer = () => {
       if (reconnectTimer === null) return;
@@ -368,7 +380,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             sequenceRef.current += 1;
             setLastRealtimeEvent({ sequence: sequenceRef.current, event });
             void notifyIncomingMessage(event, notificationController.signal);
-            void refreshUnread().catch(() => undefined);
+            if (eventChangesUnread(event, currentUserId)) agendarLeituraUnread();
             if (openRef.current) void refreshConversations();
           })
           .subscribe((status) => {
@@ -420,6 +432,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       reconnectNowRef.current = null;
       notificationController.abort();
       clearReconnectTimer();
+      if (unreadTimer !== null) window.clearTimeout(unreadTimer);
       void teardown();
       setChatRealtimeTokenSource(null);
       clearChatRealtimeToken();
