@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useSession } from "next-auth/react";
-
+import { useSessionReady } from "@/components/use-session-ready";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 type RadioPreference = {
@@ -43,18 +42,21 @@ function fallbackRadio(permitted: boolean, enabled = false): RadioPreference {
 }
 
 export function UserPreferencesProvider({ children }: { children: React.ReactNode }) {
-  const { data: session, status } = useSession();
+  const { session, status, ready, userId } = useSessionReady();
   const sessionPermitted = permissionSetHas(session?.user?.permissoes, PERMS.RADIOS);
+  // Booleano, nao o status: o "loading" passageiro da renovacao de permissoes
+  // nao pode refazer a busca. Logout e troca de usuario refazem na hora.
+  const semSessao = status === "unauthenticated";
   const [radio, setRadio] = React.useState<RadioPreference>(DEFAULT_RADIO);
   const [loading, setLoading] = React.useState(true);
   const [savingRadio, setSavingRadio] = React.useState(false);
 
   React.useEffect(() => {
-    if (status === "loading") return;
-
-    if (status !== "authenticated") {
-      setRadio(DEFAULT_RADIO);
-      setLoading(false);
+    if (!ready || !userId) {
+      if (semSessao) {
+        setRadio(DEFAULT_RADIO);
+        setLoading(false);
+      }
       return;
     }
 
@@ -87,7 +89,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
 
     void loadPreferences();
     return () => controller.abort();
-  }, [sessionPermitted, status]);
+  }, [ready, semSessao, sessionPermitted, userId]);
 
   const setRadioEnabled = React.useCallback(
     async (enabled: boolean) => {

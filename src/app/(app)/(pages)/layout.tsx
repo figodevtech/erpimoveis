@@ -1,7 +1,7 @@
 ﻿// src/app/(app)/(shell)/layout.tsx
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import ClientAppShell from "./ClientAppShell";
 import { Pizza } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -10,8 +10,15 @@ import { Config } from "./type";
 import { ConfigProvider } from "./config-context";
 import { UserPreferencesProvider } from "../components/user-preferences-provider";
 import { STATUS_OS_EMISSAO_PADRAO } from "@/lib/nfe/elegibilidadeEmissao";
+import { onAppResume } from "@/lib/app-resume";
 
 const CONFIG_CACHE_KEY = "erpoficina:config-cache";
+/**
+ * A configuracao geral muda raramente, e quem a altera nesta aba recebe o
+ * evento `erpoficina:config-updated` na hora. Voltar para a aba so relê depois
+ * deste intervalo desde a ultima leitura.
+ */
+const CONFIG_REVALIDACAO_NO_RETORNO_MS = 5 * 60 * 1000;
 
 const DEFAULT_CONFIG: Config = {
   id: 0,
@@ -69,8 +76,12 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
   const [loadingConfigs, setLoadingConfigs] = useState(true);
   const [progress, setProgress] = useState(0);
   const [config, setConfig] = useState<Config | undefined>(undefined);
+  const ultimaLeituraRef = useRef(0);
+  const buscandoRef = useRef(false);
 
   const handleGetConfig = async (background = false) => {
+    if (buscandoRef.current) return;
+    buscandoRef.current = true;
     if (!background) {
       setLoadingConfigs(true);
       setProgress(10);
@@ -89,6 +100,7 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
         writeCachedConfig(data.config);
         setConfig(data.config);
         setProgress(100);
+        ultimaLeituraRef.current = Date.now();
       }
     } catch (error) {
       console.error("Erro ao buscar configuração:", error);
@@ -97,6 +109,7 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
         setProgress(100);
       }
     } finally {
+      buscandoRef.current = false;
       if (!background) {
         setLoadingConfigs(false);
       }
@@ -123,17 +136,16 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
       if (!nextConfig) return;
       writeCachedConfig(nextConfig);
       setConfig(nextConfig);
+      ultimaLeituraRef.current = Date.now();
     };
 
-    const refresh = () => {
-      if (document.visibilityState === "visible") void handleGetConfig(true);
-    };
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
+    const pararDeOuvir = onAppResume(() => {
+      if (Date.now() - ultimaLeituraRef.current < CONFIG_REVALIDACAO_NO_RETORNO_MS) return;
+      void handleGetConfig(true);
+    });
     window.addEventListener("erpoficina:config-updated", handleConfigUpdated);
     return () => {
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
+      pararDeOuvir();
       window.removeEventListener("erpoficina:config-updated", handleConfigUpdated);
     };
   }, []);

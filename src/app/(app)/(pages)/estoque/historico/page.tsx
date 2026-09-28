@@ -21,7 +21,7 @@ import {
   SlidersHorizontal,
   Wallet,
 } from "lucide-react";
-import { useSession } from "next-auth/react";
+import { useSessionReady } from "@/components/use-session-ready";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { Badge } from "@/components/ui/badge";
@@ -1254,7 +1254,7 @@ function MovementTable({
 }
 
 export default function HistoricoEstoquePage() {
-  const { data: session, status: sessionStatus } = useSession();
+  const { session, ready: sessionReady } = useSessionReady();
   const permissions = (session?.user as { permissoes?: unknown })?.permissoes;
   const canProducts = permissionSetHas(permissions, PERMS.ESTOQUE);
   const canUse = permissionSetHas(permissions, PERMS.USOCONSUMO);
@@ -1313,12 +1313,12 @@ export default function HistoricoEstoquePage() {
 
   // Quem so tem uso e consumo abre direto na aba que pode ver.
   useEffect(() => {
-    if (sessionStatus !== "authenticated") return;
+    if (!sessionReady) return;
     if (canProducts || !canUse) return;
     setFiltros((atual) =>
       atual.inventory === "produtos" ? { ...atual, inventory: "uso-consumo", origem: "todas", page: 1 } : atual,
     );
-  }, [canProducts, canUse, sessionStatus]);
+  }, [canProducts, canUse, sessionReady]);
 
   useEffect(() => {
     const timer = setTimeout(() => setBuscaAplicada(filtros.busca.trim()), 350);
@@ -1408,9 +1408,9 @@ export default function HistoricoEstoquePage() {
   ]);
 
   useEffect(() => {
-    if (sessionStatus !== "authenticated") return;
+    if (!sessionReady) return;
     void carregar();
-  }, [carregar, sessionStatus]);
+  }, [carregar, sessionReady]);
 
   function podeCancelar(movement: Movement) {
     if (movement.status !== "CONFIRMADA") return false;

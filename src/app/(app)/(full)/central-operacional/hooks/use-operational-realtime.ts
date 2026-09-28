@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useSession } from "next-auth/react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 import type { OperationalConnectionStatus } from "@/lib/central-operacional/contracts";
@@ -11,6 +10,7 @@ import {
   storeChatRealtimeToken,
 } from "@/lib/chat/realtime-token";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { useSessionReady } from "@/components/use-session-ready";
 import { fetchOperationalRealtimeCredentials, OperationalApiError } from "../lib/api";
 
 const FALL_STATUSES = new Set(["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"]);
@@ -36,8 +36,9 @@ export function useOperationalRealtime({
   onInvalidate: () => void;
   onReconnect: () => void;
 }) {
-  const { data: session, status: sessionStatus } = useSession();
-  const userId = session?.user?.id ?? null;
+  // A renovacao de permissoes nao muda `ready`/`userId`: o canal so e refeito
+  // no logout ou na troca de usuario.
+  const { ready: sessionReady, userId } = useSessionReady();
   const [status, setStatus] = React.useState<OperationalConnectionStatus>("CONNECTING");
   const [onlineUsers, setOnlineUsers] = React.useState<number | null>(null);
   const statusRef = React.useRef<OperationalConnectionStatus>("CONNECTING");
@@ -55,7 +56,7 @@ export function useOperationalRealtime({
   }, [status]);
 
   React.useEffect(() => {
-    if (sessionStatus !== "authenticated" || !userId) return;
+    if (!sessionReady || !userId) return;
 
     let disposed = false;
     let operationalChannel: RealtimeChannel | null = null;
@@ -208,7 +209,7 @@ export function useOperationalRealtime({
       clearChatRealtimeToken();
       void teardown();
     };
-  }, [sessionStatus, userId]);
+  }, [sessionReady, userId]);
 
   return {
     status,

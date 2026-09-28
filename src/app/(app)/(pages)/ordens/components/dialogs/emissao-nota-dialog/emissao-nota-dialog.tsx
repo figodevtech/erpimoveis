@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSessionReady } from "@/components/use-session-ready";
 import {
   Dialog,
   DialogContent,
@@ -262,7 +262,7 @@ export function EmissaoNotaDialog({
    */
   saidaId?: number | null;
 }) {
-  const { data: session, status: sessionStatus } = useSession();
+  const { session, ready: sessionReady } = useSessionReady();
   const canNotasFiscais = permissionSetHas(
     (session?.user as { permissoes?: unknown } | undefined)?.permissoes,
     PERMS.FINANCEIRO_NOTAS_FISCAIS,
@@ -340,10 +340,10 @@ export function EmissaoNotaDialog({
   const canFetch = open && canNotasFiscais && !!origem && !!origemId;
 
   useEffect(() => {
-    if (!open || sessionStatus !== "authenticated" || canNotasFiscais) return;
+    if (!open || !sessionReady || canNotasFiscais) return;
     toast.error("Você não possui permissão para acessar notas fiscais.");
     onOpenChange(false);
-  }, [canNotasFiscais, onOpenChange, open, sessionStatus]);
+  }, [canNotasFiscais, onOpenChange, open, sessionReady]);
 
   const ambienteProducao = empresaFiscal?.ambiente === "PRODUCAO";
   const ambienteLabel = ambienteProducao ? "Produção" : "Homologação";

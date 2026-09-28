@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { useSession } from "next-auth/react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
+
+import { useSessionReady } from "@/components/use-session-ready";
+import { onAppResume } from "@/lib/app-resume";
 
 import type { ChatPushStatus, ChatRealtimeEvent, ConversationSummary } from "@/lib/chat/contracts";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -55,6 +57,12 @@ const ATRASO_DO_AVISO_MS = 2_500;
 
 /** Sem Realtime, o chat aberto se mantem util relendo por HTTP. */
 const INTERVALO_DEGRADADO_MS = 15_000;
+
+/**
+ * Com o Realtime conectado, o contador ja chega pelos eventos. Voltar para a
+ * aba so confere de novo depois deste intervalo desde a ultima leitura.
+ */
+const REVALIDACAO_NO_RETORNO_MS = 30_000;
 
 type ChatContextValue = {
   currentUserId: string;
@@ -111,8 +119,10 @@ export function useChat() {
 }
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const { data: session, status: sessionStatus } = useSession();
-  const currentUserId = session?.user?.id ?? "";
+  // `ready`/`userId` nao mudam na renovacao de permissoes (`update()`), so no
+  // logout ou na troca de usuario — que desmontam os canais na hora.
+  const { ready: sessionReady, userId: sessionUserId } = useSessionReady();
+  const currentUserId = sessionUserId ?? "";
   const [open, setOpenState] = React.useState(false);
   const [view, setView] = React.useState<ChatView>({ type: "inbox" });
   const [selectedConversation, setSelectedConversation] = React.useState<ConversationSummary | null>(null);
@@ -126,6 +136,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [degradedPollTick, setDegradedPollTick] = React.useState(0);
   const [lastRealtimeEvent, setLastRealtimeEvent] = React.useState<ChatContextValue["lastRealtimeEvent"]>(null);
   const sequenceRef = React.useRef(0);
+  const ultimaLeituraUnreadRef = React.useRef(0);
   const conversationsLoadedRef = React.useRef(false);
   const openRef = React.useRef(false);
   const realtimeStatusRef = React.useRef<RealtimeStatus>("connecting");
@@ -161,6 +172,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const refreshUnread = React.useCallback(async () => {
     if (!currentUserId) return;
     const result = await fetchUnreadCount();
+    ultimaLeituraUnreadRef.current = Date.now();
     setUnreadCount(result.unreadCount);
   }, [currentUserId]);
 
@@ -226,35 +238,31 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [currentUserId]);
 
   React.useEffect(() => {
-    if (sessionStatus !== "authenticated" || !currentUserId) return;
+    if (!sessionReady || !currentUserId) return;
     void refreshUnread().catch(() => undefined);
-  }, [currentUserId, refreshUnread, sessionStatus]);
+  }, [currentUserId, refreshUnread, sessionReady]);
 
   React.useEffect(() => {
     if (open) void refreshConversations();
   }, [open, refreshConversations]);
 
   React.useEffect(() => {
-    if (sessionStatus !== "authenticated" || !currentUserId) return;
-    const handleReturn = () => {
-      if (document.visibilityState !== "visible") return;
-      revalidate();
+    if (!sessionReady || !currentUserId) return;
+    // Foco, aba visivel e rede de volta chegam juntos: um aviso por retorno.
+    return onAppResume(() => {
       // Voltar para a aba, recuperar a rede ou reganhar o foco sao os melhores
       // momentos para tentar de novo: encurtam qualquer backoff em andamento.
-      if (realtimeStatusRef.current === "disconnected") reconnectNowRef.current?.();
-    };
-    window.addEventListener("focus", handleReturn);
-    window.addEventListener("online", handleReturn);
-    document.addEventListener("visibilitychange", handleReturn);
-    return () => {
-      window.removeEventListener("focus", handleReturn);
-      window.removeEventListener("online", handleReturn);
-      document.removeEventListener("visibilitychange", handleReturn);
-    };
-  }, [currentUserId, revalidate, sessionStatus]);
+      if (realtimeStatusRef.current === "disconnected") {
+        revalidate();
+        reconnectNowRef.current?.();
+        return;
+      }
+      if (Date.now() - ultimaLeituraUnreadRef.current >= REVALIDACAO_NO_RETORNO_MS) revalidate();
+    }, { includeOnline: true });
+  }, [currentUserId, revalidate, sessionReady]);
 
   React.useEffect(() => {
-    if (sessionStatus !== "authenticated" || !currentUserId) return;
+    if (!sessionReady || !currentUserId) return;
 
     let disposed = false;
     // Cada tentativa de conexao tira um bilhete no inicio; so a mais recente
@@ -416,7 +424,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setChatRealtimeTokenSource(null);
       clearChatRealtimeToken();
     };
-  }, [currentUserId, notifyIncomingMessage, refreshConversations, refreshUnread, revalidate, sessionStatus]);
+  }, [currentUserId, notifyIncomingMessage, refreshConversations, refreshUnread, revalidate, sessionReady]);
 
   React.useEffect(() => {
     if (realtimeStatus === "connected") {
@@ -476,7 +484,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     // Deep link do push em partida fria: os parametros apenas orientam a
     // interface e sao removidos logo em seguida para nao reabrir sem parar.
-    if (typeof window === "undefined" || sessionStatus !== "authenticated") return;
+    if (typeof window === "undefined" || !sessionReady) return;
     const url = new URL(window.location.href);
     const conversationId = url.searchParams.get("chat");
     if (!conversationId) return;
@@ -486,7 +494,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     url.searchParams.delete("message");
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     solicitarFoco(conversationId, messageId);
-  }, [sessionStatus, solicitarFoco]);
+  }, [sessionReady, solicitarFoco]);
 
   React.useEffect(() => {
     // Clique na notificacao com o ERP ja aberto: o service worker avisa a aba.
@@ -528,7 +536,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   ]);
 
   React.useEffect(() => {
-    if (sessionStatus !== "authenticated" || !currentUserId) return;
+    if (!sessionReady || !currentUserId) return;
     let ativo = true;
 
     const carregar = async () => {
@@ -556,7 +564,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     void carregar();
     return () => { ativo = false; };
-  }, [currentUserId, sessionStatus]);
+  }, [currentUserId, sessionReady]);
 
   const enablePush = React.useCallback(async () => {
     setPushBusy(true);
