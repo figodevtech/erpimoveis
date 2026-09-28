@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
 
 import { requireDashboardAccess } from "@/app/api/_authz/perms";
-import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type ProdutoEstoque = {
+type ProdutoResumo = {
   id: number;
-  titulo: string | null;
+  titulo: string;
   referencia: string | null;
-  estoque: number | string | null;
-  estoqueminimo: number | string | null;
-  ultimovalordecompra: number | string | null;
-  precocompra: number | string | null;
+  estoque: number;
+  minimo: number;
+  custo: number;
+  valor: number;
+  reposicaoSugerida: number;
 };
 
 function numero(valor: unknown) {
@@ -22,74 +22,56 @@ function numero(valor: unknown) {
   return Number.isFinite(resultado) ? resultado : 0;
 }
 
+type ResumoEstoque = {
+  totais?: Record<string, unknown>;
+  reposicao?: unknown;
+  maiorValor?: unknown;
+};
+
+function produtos(valor: unknown): ProdutoResumo[] {
+  if (!Array.isArray(valor)) return [];
+  return valor.map((bruto: unknown) => {
+    const item = (bruto ?? {}) as Record<string, unknown>;
+    return {
+      id: numero(item.id),
+      titulo: String(item.titulo ?? `Produto #${item.id}`),
+      referencia: item.referencia ? String(item.referencia) : null,
+      estoque: numero(item.estoque),
+      minimo: numero(item.minimo),
+      custo: numero(item.custo),
+      valor: numero(item.valor),
+      reposicaoSugerida: numero(item.reposicaoSugerida),
+    };
+  });
+}
+
 export async function GET() {
   try {
     await requireDashboardAccess();
 
-    const produtos = await fetchAllSupabaseRows<ProdutoEstoque>(() =>
-      supabaseAdmin
-        .from("produto")
-        .select("id,titulo,referencia,estoque,estoqueminimo,ultimovalordecompra,precocompra")
-        .eq("is_deleted", false)
-        .order("id", { ascending: true }),
-    );
+    // Soma e escolhe os "top N" no banco (ver a migration
+    // dashboard_estoque_resumo): o catalogo inteiro nao trafega mais.
+    const { data, error } = await supabaseAdmin.rpc("dashboard_estoque_resumo");
+    if (error) throw error;
 
-    let unidades = 0;
-    let valorEstoque = 0;
-    let zerados = 0;
-    let abaixoMinimo = 0;
-    let adequados = 0;
-    let semCusto = 0;
-
-    const detalhados = produtos.map((produto) => {
-      const estoque = numero(produto.estoque);
-      const minimo = Math.max(0, numero(produto.estoqueminimo));
-      const custo = numero(produto.ultimovalordecompra) || numero(produto.precocompra);
-      const valor = Math.max(0, estoque) * custo;
-
-      unidades += Math.max(0, estoque);
-      valorEstoque += valor;
-      if (custo <= 0) semCusto += 1;
-      if (estoque <= 0) zerados += 1;
-      else if (estoque <= minimo) abaixoMinimo += 1;
-      else adequados += 1;
-
-      return {
-        id: Number(produto.id),
-        titulo: produto.titulo || `Produto #${produto.id}`,
-        referencia: produto.referencia || null,
-        estoque,
-        minimo,
-        custo,
-        valor,
-        reposicaoSugerida: Math.max(0, minimo - estoque),
-      };
-    });
-
-    const reposicao = detalhados
-      .filter((produto) => produto.estoque <= produto.minimo)
-      .sort((a, b) => {
-        const aZerado = a.estoque <= 0 ? 1 : 0;
-        const bZerado = b.estoque <= 0 ? 1 : 0;
-        return bZerado - aZerado || b.reposicaoSugerida - a.reposicaoSugerida || a.estoque - b.estoque;
-      })
-      .slice(0, 10);
-
-    const maiorValor = detalhados
-      .filter((produto) => produto.valor > 0)
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 8);
+    const resumo = (data ?? {}) as ResumoEstoque;
+    const totais = resumo.totais ?? {};
+    const zerados = numero(totais.zerados);
+    const abaixoMinimo = numero(totais.abaixoMinimo);
+    const adequados = numero(totais.adequados);
+    const reposicao = produtos(resumo.reposicao);
+    const maiorValor = produtos(resumo.maiorValor);
 
     return NextResponse.json(
       {
         totais: {
-          produtos: produtos.length,
-          unidades,
-          valorEstoque,
+          produtos: numero(totais.produtos),
+          unidades: numero(totais.unidades),
+          valorEstoque: numero(totais.valorEstoque),
           zerados,
           abaixoMinimo,
           adequados,
-          semCusto,
+          semCusto: numero(totais.semCusto),
         },
         distribuicao: [
           { nome: "Zerados", valor: zerados, cor: "#ef4444" },
