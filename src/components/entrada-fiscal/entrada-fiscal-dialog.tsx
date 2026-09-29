@@ -299,7 +299,7 @@ export function EntradaFiscalDialog({
   const [planoId, setPlanoId] = useState("");
   const [centroCustoId, setCentroCustoId] = useState("");
 
-  const { categorias } = useCategoriasTransacao();
+  const { categorias, loadingCategorias } = useCategoriasTransacao();
   const { gruposPlanosDeConta, loadingPlanos } = usePlanosDeConta();
   const { centrosCusto, loadingCentrosCusto } = useCentrosCusto();
 
@@ -2672,26 +2672,21 @@ export function EntradaFiscalDialog({
                         </div>
                       </div>
                       <div className="space-y-4 rounded-2xl bg-muted/50 p-3 sm:p-4">
-                        <div className="space-y-1">
+                        <div className="min-w-0 space-y-1 [&_[role=combobox]]:min-h-12 sm:[&_[role=combobox]]:min-h-9">
                           <Label>Categoria</Label>
-                          <Select
+                          <SearchCombobox
                             value={categoria}
+                            options={categorias.map((entrada) => ({
+                              value: entrada.nome,
+                              label: entrada.nome,
+                              description: entrada.descricao ?? undefined,
+                            }))}
+                            loading={loadingCategorias}
+                            placeholder="Selecione a categoria"
+                            searchPlaceholder="Pesquisar categoria..."
+                            emptyMessage="Nenhuma categoria encontrada."
                             onValueChange={setCategoria}
-                          >
-                            <SelectTrigger className="min-h-12 w-full sm:min-h-9">
-                              <SelectValue placeholder="Selecione" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {categorias.map((entrada) => (
-                                <SelectItem
-                                  key={entrada.id}
-                                  value={entrada.nome}
-                                >
-                                  {entrada.nome}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          />
                         </div>
 
                         <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2">

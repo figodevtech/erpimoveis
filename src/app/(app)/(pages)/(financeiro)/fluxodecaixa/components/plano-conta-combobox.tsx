@@ -125,18 +125,23 @@ export function PlanoContaCombobox({
       ) : null}
       <PopoverContent
         align="start"
-        className="w-[var(--radix-popover-trigger-width)] min-w-[280px] max-w-[calc(100vw-1rem)] p-0"
+        collisionPadding={8}
+        // No toque, focar a busca abre o teclado por cima da lista. Quem quiser
+        // pesquisar toca no campo; quem só quer rolar e escolher, rola.
+        onOpenAutoFocus={(event) => {
+          if (window.matchMedia("(pointer: coarse)").matches) event.preventDefault();
+        }}
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[var(--radix-popover-trigger-width)] min-w-[280px] max-w-[calc(100vw-1rem)] flex-col p-0"
       >
         <Command
+          className="min-h-0 flex-1"
           filter={(itemValue, search) =>
             normalizeSearch(itemValue).includes(normalizeSearch(search)) ? 1 : 0
           }
         >
           <CommandInput placeholder="Pesquisar grupo, código ou plano..." />
-          <CommandList
-            className="max-h-72 overscroll-contain"
-            onWheel={(event) => event.stopPropagation()}
-          >
+          {/* Encolhe junto com o popover quando falta espaço até a borda da tela. */}
+          <CommandList className="max-h-72 min-h-0 flex-1">
             <CommandEmpty>Nenhum plano de conta encontrado.</CommandEmpty>
             {clearable && onClear ? (
               <CommandGroup>
