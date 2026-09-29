@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { matchesFiscalNoteSearch } from "@/lib/fiscal-search";
 import { normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
+import { origensDasNotas, origensEscalares, type OrigemDaNota } from "./notasPorOrigemService";
 
 export type FiscalViewMode = "TODAS" | "EMITIDAS_POR_NOS" | "EMITIDAS_TERCEIROS";
 
@@ -53,6 +54,8 @@ export type NotaFiscalListItem = {
   direcao: Exclude<FiscalViewMode, "TODAS">;
   nsu?: string | null;
   tipoDocumento?: string | null;
+  /** OS, vendas, entrada e saídas que a nota documenta; só vem na página listada. */
+  origens?: OrigemDaNota[];
   destinatarioOuEmitente: PessoaFiscal | null;
   empresa: {
     id: number;
@@ -356,7 +359,14 @@ export async function listarNotasEmitidas(params: NotaFiscalListParams) {
       const dateB = new Date(b.dataemissao).getTime() || 0;
       return dateB - dateA || b.id - a.id || a.modelo.localeCompare(b.modelo);
     });
-  const notas = kpiRows.slice(from, from + limit);
+  const pagina = kpiRows.slice(from, from + limit);
+  // A âncora não basta para nota consolidada: as demais OS, vendas e saídas
+  // só existem nas junções. Lido apenas para a página, que é o que o menu usa.
+  const origensNfe = await origensDasNotas(pagina.filter((nota) => nota.modelo !== "NFSE"));
+  const notas = pagina.map((nota) => ({
+    ...nota,
+    origens: nota.modelo === "NFSE" ? origensEscalares(nota) : origensNfe.get(nota.id) ?? [],
+  }));
 
   return {
     data: notas,

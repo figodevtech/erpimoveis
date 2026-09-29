@@ -111,6 +111,18 @@ function registradasPeloServidor(item: AssistedFiscalItem) {
   );
 }
 
+describe("tela assistida — xProd", () => {
+  it("nasce do título do produto, nunca da descrição do cadastro", () => {
+    const item = createAssistedItem(
+      { ...produto136, descricao: "Unidade original com garantia. Enviamos para todo o Brasil!" },
+      setup,
+      { tipoOperacao: "SAIDA", parceiroUf: "PB", indFinal: 1, indIEDest: 9, modelo: 55 },
+    );
+    assert.equal(item.descricao, "UNIDADE DE CONTROLE VALVULA APM");
+    assert.equal(toApiItem(item, setup).descricao, "UNIDADE DE CONTROLE VALVULA APM");
+  });
+});
+
 describe("tela assistida — regressão da NF-e 136", () => {
   it("o CFOP do produto é adaptado à geografia e o CST fica como veio", () => {
     const item = itemMG();

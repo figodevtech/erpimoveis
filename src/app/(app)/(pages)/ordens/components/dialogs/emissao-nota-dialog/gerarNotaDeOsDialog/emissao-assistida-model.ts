@@ -619,7 +619,9 @@ export function createAssistedItem(
     produtoId: source.produtoId,
     codigo: String(source.referencia || source.codigobarras || source.produtoId),
     titulo: source.titulo,
-    descricao: source.descricao || source.titulo,
+    // xProd nasce do título. A descrição do cadastro é texto de vitrine (site,
+    // anúncio) e nunca vai para a nota.
+    descricao: source.titulo,
     quantidade: Number(source.quantidade || 0),
     valorUnitario: Number(source.precoUnitario || 0),
     subtotal: Number(source.subtotal || 0),
@@ -1221,7 +1223,7 @@ export function validateAssistedItem(
 ): AssistedItemIssue[] {
   const issues: AssistedItemIssue[] = [];
   if (!item.descricao.trim()) {
-    issues.push({ code: "NFE_DESCRIPTION_REQUIRED", field: "descricao", message: "Informe a descrição." });
+    issues.push({ code: "NFE_DESCRIPTION_REQUIRED", field: "descricao", message: "Informe o título do produto." });
   }
   if (onlyDigits(item.ncm).length !== 8) {
     issues.push({ code: "NFE_NCM_REQUIRED", field: "ncm", message: "NCM deve ter 8 dígitos." });

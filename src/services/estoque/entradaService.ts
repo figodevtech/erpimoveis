@@ -7,6 +7,16 @@ function positiveInt(value: unknown, field: string) {
   return number;
 }
 
+/** Quantidade da linha. Vinda de NF-e, o erro cita o item da nota, não a posição. */
+function quantidadeDoItem(item: any, index: number) {
+  const numeroFiscal = Number(item?.numeroItemFiscal ?? item?.numero_item_fiscal);
+  const daNota = Number.isInteger(numeroFiscal) && numeroFiscal > 0;
+  return positiveInt(
+    item?.quantidade,
+    daNota ? `Quantidade do item ${numeroFiscal} da NF-e` : `Quantidade do produto ${index + 1}`,
+  );
+}
+
 function nonNegative(value: unknown, field: string) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) throw new Error(`${field}: informe um valor válido.`);
@@ -113,7 +123,7 @@ export async function registrarEntradaConfirmada(
 
   const itens = rawItems.map((item: any, index: number) => ({
     produto_id: positiveInt(item.produto_id ?? item.produtoid ?? item.produtoId, `Produto ${index + 1}`),
-    quantidade: positiveInt(item.quantidade, `Quantidade do produto ${index + 1}`),
+    quantidade: quantidadeDoItem(item, index),
     valor_unitario_compra: nonNegative(
       item.valor_unitario_compra ?? item.valorUnitario ?? item.valor_unitario ?? item.precovenda,
       `Valor unitário de compra do produto ${index + 1}`,

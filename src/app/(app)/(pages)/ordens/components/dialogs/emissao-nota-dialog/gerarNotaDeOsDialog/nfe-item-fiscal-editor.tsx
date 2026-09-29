@@ -523,7 +523,7 @@ export function NfeItemFiscalEditor({
         <section className="min-w-0 space-y-3 rounded-lg border p-3 sm:p-4 bg-card">
           <h3 className="text-sm font-semibold">Produto</h3>
           <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-12">
-            <Field label="Descrição" required className="lg:col-span-5">
+            <Field label="Título na NF-e" required className="lg:col-span-5">
               {/* É o xProd da nota. Editar aqui vale só para este documento: o
                   cadastro do produto não é alterado, e a próxima nota volta a
                   nascer com o título dele. */}

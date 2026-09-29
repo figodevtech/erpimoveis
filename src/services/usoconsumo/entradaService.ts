@@ -6,7 +6,7 @@ type Overrides = { origem?: "AJUSTE_RAPIDO" | "MANUAL" | "NFE_TERCEIRO" | "INVEN
 export async function registrarEntradaUsoConsumo(body: unknown, userId: string | null, overrides: Overrides = {}) {
   const candidate = { ...(body as Record<string, unknown>), ...overrides };
   const parsed = entradaUsoConsumoSchema.safeParse(candidate);
-  if (!parsed.success) throw Object.assign(new Error(zodMessage(parsed.error)), { statusCode: 400 });
+  if (!parsed.success) throw Object.assign(new Error(zodMessage(parsed.error, candidate)), { statusCode: 400 });
   const { itens, transacoes, ...entrada } = parsed.data;
 
   // "Obriga informar valor" é regra do tipo cadastrado em tipos_entrada. Entradas

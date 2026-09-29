@@ -167,6 +167,24 @@ function complementarComEscalares(nota: Record<string, any>, origens: OrigemDaNo
 }
 
 /**
+ * Todas as origens de cada NF-e informada: junção mais coluna escalar.
+ *
+ * Só serve para `nfe`. A NFS-e tem tabela própria, cujos ids colidem com os
+ * da NF-e, e não participa das junções — para ela basta a coluna escalar.
+ */
+export async function origensDasNotas(notas: Array<Record<string, any> & { id: number }>) {
+  const porNota = await carregarOrigensDasNotas(notas.map((nota) => nota.id));
+  return new Map(
+    notas.map((nota) => [nota.id, complementarComEscalares(nota, porNota.get(nota.id) ?? [])]),
+  );
+}
+
+/** Origens de uma nota que só conhece as colunas escalares (NFS-e). */
+export function origensEscalares(nota: Record<string, any>) {
+  return complementarComEscalares(nota, []);
+}
+
+/**
  * Notas de uma ou mais origens do mesmo tipo, mais recentes primeiro.
  *
  * O `order` do Postgres não sobrevive à união de duas consultas, então a

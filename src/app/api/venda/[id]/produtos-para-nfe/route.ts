@@ -245,7 +245,8 @@ export async function GET(
       const p = normalizarProduto(row.produto);
 
       const titulo = p?.titulo || `Produto #${row.produtoid}`;
-      const descricao = p?.descricao || titulo;
+      // xProd é o título; a descrição do cadastro é texto de vitrine.
+      const descricao = titulo;
 
       const quantidade = toNumber(row.quantidade);
       const bruto = brutoPorItem[index];

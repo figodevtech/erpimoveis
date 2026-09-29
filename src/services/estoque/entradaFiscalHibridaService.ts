@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { classificarLinhasEntradaHibrida } from "@/lib/nfe/entrada-fiscal-hibrida";
 import { ratearCustoPersonalizado } from "@/lib/nfe/entrada-fiscal-personalizada";
+import { linhaEmQuantidadeInteira } from "@/lib/nfe/quantidade-inteira-da-linha";
 import {
   lancamentosDreDaEntrada,
   payloadDosLancamentos,
@@ -16,7 +17,7 @@ import {
 } from "@/lib/nfe/totais-nfe";
 import { parseDfeXml } from "@/services/fiscal/dfeXmlParser";
 import { escopoDeEntradaDe } from "@/lib/usoconsumo/escopo";
-import { paraCentavos } from "@/lib/financeiro/rateio";
+import { paraCentavos, paraReais } from "@/lib/financeiro/rateio";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 import { normalizarUnidadeMedidaEntrada } from "./entradaService";
@@ -62,18 +63,32 @@ function digitos(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
-function outrasDespesasDoItem(item: ItemFiscalDaNota) {
-  return item.valorSeguro + item.outrasDespesas + item.valorIpi;
+/**
+ * Quantidade, unitário, desconto e outras despesas que a linha leva ao estoque.
+ * Fração da NF-e vira o inteiro mais próximo com o mesmo custo da linha.
+ */
+function valoresDeEstoque(item: ItemFiscalDaNota) {
+  const inteira = linhaEmQuantidadeInteira(item.quantidade, item.valorUnitario);
+  return {
+    quantidade: inteira.quantidade,
+    valor_unitario_compra: inteira.valorUnitario,
+    valor_desconto: paraReais(
+      paraCentavos(item.valorDesconto) + paraCentavos(inteira.ajusteDesconto),
+    ),
+    outras_despesas: paraReais(
+      paraCentavos(item.valorSeguro) +
+        paraCentavos(item.outrasDespesas) +
+        paraCentavos(item.valorIpi) +
+        paraCentavos(inteira.ajusteOutrasDespesas),
+    ),
+  };
 }
 
 function itemProdutoNormal(item: ItemFiscalDaNota, produtoId: number) {
   return {
     produto_id: produtoId,
-    quantidade: item.quantidade,
-    valor_unitario_compra: item.valorUnitario,
-    valor_desconto: item.valorDesconto,
+    ...valoresDeEstoque(item),
     valor_frete: item.valorFrete,
-    outras_despesas: outrasDespesasDoItem(item),
     unidade: normalizarUnidadeMedidaEntrada(item.unidade),
     ncm: texto(item.ncm),
     cest: texto(item.cest),
@@ -89,11 +104,8 @@ function itemSimplesNormal(item: ItemFiscalDaNota, itemId: number) {
     item_id: itemId,
     numero_item_fiscal: item.numeroItem,
     codigo_fornecedor: texto(item.codigo),
-    quantidade: item.quantidade,
-    valor_unitario_compra: item.valorUnitario,
-    valor_desconto: item.valorDesconto,
+    ...valoresDeEstoque(item),
     valor_frete: item.valorFrete,
-    outras_despesas: outrasDespesasDoItem(item),
     unidade: normalizarUnidadeMedidaEntrada(item.unidade),
     ncm: texto(item.ncm),
     cest: texto(item.cest),
@@ -193,7 +205,7 @@ export async function registrarEntradaFiscalHibrida(
       (item) =>
         !Number.isInteger(item.numeroItem) ||
         Number(item.numeroItem) <= 0 ||
-        !Number.isInteger(item.quantidade) ||
+        !Number.isFinite(item.quantidade) ||
         item.quantidade <= 0,
     ) ||
     new Set(itens.map((item) => item.numeroItem)).size !== itens.length

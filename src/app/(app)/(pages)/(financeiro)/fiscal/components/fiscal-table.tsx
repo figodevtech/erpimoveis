@@ -2,11 +2,15 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import axios, { isAxiosError } from "axios";
 import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
   Calendar,
   CheckCircle2,
+  ClipboardList,
   Copy,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -24,6 +28,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  ShoppingCart,
   SlidersHorizontal,
   UploadCloud,
   Trash2,
@@ -55,6 +60,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -88,6 +97,31 @@ import {
   type NotaFiscal,
   type Pagination,
 } from "../types";
+
+/*
+ * Os diálogos de documento são pesados e só abrem quando alguém pede a origem
+ * da nota. Carregar sob demanda evita que a lista fiscal baixe o formulário da
+ * OS inteiro.
+ */
+const OSDetalhesDialog = dynamic(
+  () => import("@/app/(app)/(pages)/ordens/components/dialogs/detalhes-os-dialog").then((m) => m.OSDetalhesDialog),
+  { ssr: false },
+);
+const VendaDetailsDialog = dynamic(
+  () =>
+    import("@/app/(app)/(pages)/(vendas)/historicovendas/components/venda-detail-dialog").then(
+      (m) => m.VendaDetailsDialog,
+    ),
+  { ssr: false },
+);
+const EntryDetailsDialog = dynamic(
+  () => import("@/app/(app)/(pages)/estoque/components/entry-details-dialog").then((m) => m.EntryDetailsDialog),
+  { ssr: false },
+);
+const ExitDetailsDialog = dynamic(
+  () => import("@/app/(app)/(pages)/estoque/components/exit-details-dialog").then((m) => m.ExitDetailsDialog),
+  { ssr: false },
+);
 
 type FiscalTableProps = {
   notas: NotaFiscal[];
@@ -271,6 +305,99 @@ function EntradaRealizadaBadge({ nota }: { nota: NotaFiscal }) {
   );
 }
 
+type DocumentoVinculado = {
+  tipo: "OS" | "VENDA" | "ENTRADA" | "SAIDA";
+  id: number;
+  inventory: "produto" | "usoconsumo";
+  /** Separa, no menu, entrada de estoque de entrada de uso/consumo e geral. */
+  grupo: string;
+};
+
+const GRUPOS_DOCUMENTO: Record<
+  string,
+  { abrir: string; item: string; varios: string; icone: typeof ClipboardList }
+> = {
+  OS: { abrir: "Abrir OS", item: "OS", varios: "Ordens de serviço", icone: ClipboardList },
+  VENDA: { abrir: "Abrir venda", item: "Venda", varios: "Vendas", icone: ShoppingCart },
+  ENTRADA: { abrir: "Abrir entrada", item: "Entrada", varios: "Entradas", icone: ArrowDownToLine },
+  USOCONSUMO: {
+    abrir: "Abrir entrada de uso/consumo",
+    item: "Entrada",
+    varios: "Entradas de uso/consumo",
+    icone: ArrowDownToLine,
+  },
+  GERAL: { abrir: "Abrir entrada geral", item: "Entrada", varios: "Entradas gerais", icone: ArrowDownToLine },
+  SAIDA: { abrir: "Abrir saída", item: "Saída", varios: "Saídas", icone: ArrowUpFromLine },
+};
+
+/**
+ * Documentos de onde a nota saiu (própria) ou que ela gerou (terceiros).
+ *
+ * A nota própria documenta OS, vendas, entrada ou saídas — e, se consolidada,
+ * várias do mesmo tipo. A nota de terceiros não tem origem no ERP; o que ela
+ * tem são as entradas feitas a partir dela.
+ */
+function documentosVinculados(nota: NotaFiscal): DocumentoVinculado[] {
+  if (nota.origem === "TERCEIROS") {
+    return (nota.entradasEstoque ?? []).map((entrada) => ({
+      tipo: "ENTRADA",
+      id: entrada.id,
+      inventory: entrada.destino === "ESTOQUE" ? "produto" : "usoconsumo",
+      grupo: entrada.destino === "ESTOQUE" ? "ENTRADA" : entrada.destino,
+    }));
+  }
+
+  // `entradaid` e `saidaid` da nota própria apontam para o estoque de produtos.
+  return [...(nota.origens ?? [])]
+    .sort((a, b) => Number(b.ancora) - Number(a.ancora) || a.id - b.id)
+    .map((origem) => ({ tipo: origem.tipo, id: origem.id, inventory: "produto", grupo: origem.tipo }));
+}
+
+function DocumentosVinculadosItens({
+  documentos,
+  onAbrir,
+}: {
+  documentos: DocumentoVinculado[];
+  onAbrir: (documento: DocumentoVinculado) => void;
+}) {
+  const grupos = new Map<string, DocumentoVinculado[]>();
+  for (const documento of documentos) {
+    grupos.set(documento.grupo, [...(grupos.get(documento.grupo) ?? []), documento]);
+  }
+
+  return (
+    <>
+      {[...grupos].map(([grupo, itens]) => {
+        const { abrir, item, varios, icone: Icone } = GRUPOS_DOCUMENTO[grupo];
+        if (itens.length === 1) {
+          return (
+            <DropdownMenuItem key={grupo} onClick={() => onAbrir(itens[0])}>
+              <Icone className="mr-2 h-4 w-4" />
+              {abrir} #{itens[0].id}
+            </DropdownMenuItem>
+          );
+        }
+        return (
+          <DropdownMenuSub key={grupo}>
+            <DropdownMenuSubTrigger>
+              <Icone className="mr-2 h-4 w-4" />
+              {varios} ({itens.length})
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              {itens.map((documento) => (
+                <DropdownMenuItem key={documento.id} onClick={() => onAbrir(documento)}>
+                  {item} #{documento.id}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        );
+      })}
+      <DropdownMenuSeparator />
+    </>
+  );
+}
+
 export default function FiscalTable({
   notas,
   pagination,
@@ -298,6 +425,7 @@ export default function FiscalTable({
   const [motivoCancelamento, setMotivoCancelamento] = React.useState("");
   const [cancelandoNota, setCancelandoNota] = React.useState(false);
   const [notaGerarEntrada, setNotaGerarEntrada] = React.useState<NotaFiscal | null>(null);
+  const [documentoAberto, setDocumentoAberto] = React.useState<DocumentoVinculado | null>(null);
   const [notaForcarXml, setNotaForcarXml] = React.useState<NotaFiscal | null>(null);
   const [forcandoXml, setForcandoXml] = React.useState(false);
   const [filtrosAbertos, setFiltrosAbertos] = React.useState(false);
@@ -1156,6 +1284,7 @@ export default function FiscalTable({
                 !isRascunho &&
                 (String(nota.status).toUpperCase() === "AUTORIZADA" ||
                   statusTraduzido === "AUTORIZADA");
+              const documentos = documentosVinculados(nota);
               return (
                 <TableRow key={notaKey} className="hover:cursor-pointer">
                   <TableCell>
@@ -1268,6 +1397,9 @@ export default function FiscalTable({
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent id={menuId} aria-labelledby={triggerId} align="end">
+                        {documentos.length > 0 ? (
+                          <DocumentosVinculadosItens documentos={documentos} onAbrir={setDocumentoAberto} />
+                        ) : null}
                         {podeVerDanfe ? (
                           <DropdownMenuItem
                             onClick={() =>
@@ -1555,6 +1687,42 @@ export default function FiscalTable({
       notaFiscalRecebidaId={notaGerarEntrada?.id}
       onSaved={() => handleGetNotas(pagination.page, pagination.limit)}
     />
+    {documentoAberto?.tipo === "OS" && (
+      <OSDetalhesDialog
+        open
+        osId={documentoAberto.id}
+        onOpenChange={(aberto) => {
+          if (aberto) return;
+          setDocumentoAberto(null);
+          // Emitir ou cancelar nota de dentro da OS muda a lista.
+          void handleGetNotas(pagination.page, pagination.limit);
+        }}
+      />
+    )}
+    {documentoAberto?.tipo === "VENDA" && (
+      <VendaDetailsDialog
+        open
+        vendaId={documentoAberto.id}
+        onOpenChange={(aberto) => !aberto && setDocumentoAberto(null)}
+        onSaved={() => handleGetNotas(pagination.page, pagination.limit)}
+      />
+    )}
+    {documentoAberto?.tipo === "ENTRADA" && (
+      <EntryDetailsDialog
+        open
+        entryId={documentoAberto.id}
+        inventory={documentoAberto.inventory}
+        onOpenChange={(aberto) => !aberto && setDocumentoAberto(null)}
+      />
+    )}
+    {documentoAberto?.tipo === "SAIDA" && (
+      <ExitDetailsDialog
+        open
+        exitId={documentoAberto.id}
+        inventory={documentoAberto.inventory}
+        onOpenChange={(aberto) => !aberto && setDocumentoAberto(null)}
+      />
+    )}
     </>
   );
 }

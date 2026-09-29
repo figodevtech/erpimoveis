@@ -105,7 +105,8 @@ export async function GET(_request: Request, context: Context) {
         sourceItemId: `saida:${saidaId}:${row.id}`,
         produtoId: Number(row.produto_id),
         titulo: String(produto?.titulo || `Produto #${row.produto_id}`),
-        descricao: String(produto?.descricao || produto?.titulo || `Produto #${row.produto_id}`),
+        // xProd é o título; a descrição do cadastro é texto de vitrine.
+        descricao: String(produto?.titulo || `Produto #${row.produto_id}`),
         quantidade,
         precoUnitario: valorUnitario,
         subtotal: Number((quantidade * valorUnitario).toFixed(2)),

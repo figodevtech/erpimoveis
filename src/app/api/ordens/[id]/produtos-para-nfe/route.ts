@@ -300,7 +300,8 @@ export async function GET(req: Request) {
       const p = normalizarProduto(i.produto);
 
       const titulo = p?.titulo || `Produto #${i.produtoid}`;
-      const descricao = p?.descricao || titulo;
+      // xProd é o título; a descrição do cadastro é texto de vitrine.
+      const descricao = titulo;
 
       // O cadastro do produto manda; o padrão de configs preenche o que ficou
       // em branco. NCM e CEST ficam de fora — são do item, não do perfil.

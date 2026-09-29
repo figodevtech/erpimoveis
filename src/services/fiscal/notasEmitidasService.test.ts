@@ -7,10 +7,16 @@ import { buscarKpisNotasEmitidasProprias, listarNotasEmitidas } from "./notasEmi
 
 type Row = Record<string, any>;
 
-function mockNotas(nfes: Row[], nfses: Row[]) {
+function mockNotas(nfes: Row[], nfses: Row[], juncoes: Record<string, Row[]> = {}) {
+  const tabelas: Record<string, Row[]> = {
+    nfe: nfes,
+    nfse: nfses,
+    nfe_origem_vinculo: juncoes.nfe_origem_vinculo ?? [],
+    nfe_saida_item_vinculo: juncoes.nfe_saida_item_vinculo ?? [],
+  };
   mock.method(supabaseAdmin, "from", (table: string) => {
-    assert.ok(["nfe", "nfse"].includes(table));
-    let rows = [...(table === "nfse" ? nfses : nfes)];
+    assert.ok(table in tabelas);
+    let rows = [...tabelas[table]];
     const query = {
       select: () => query,
       order: () => query,
@@ -31,6 +37,7 @@ function mockNotas(nfes: Row[], nfses: Row[]) {
         return query;
       },
       range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
+      then: (resolve: (value: unknown) => unknown) => resolve({ data: rows, error: null }),
     };
     return query;
   });
@@ -129,4 +136,33 @@ test("agrupa os status intermediários no filtro em processamento", async () => 
   const result = await listarNotasEmitidas({ status: "PROCESSANDO" });
   assert.equal(result.pagination.total, 3);
   assert.deepEqual(result.data.map((nota) => nota.id), [3, 2, 1]);
+});
+
+test("traz todas as origens da nota consolidada, não só a âncora", async () => {
+  mockNotas([
+    { ...nfe, id: 1, ordemservicoid: 10 },
+    { ...nfe, id: 2, saidaid: 40 },
+  ], [nfse], {
+    nfe_origem_vinculo: [
+      { nfe_id: 1, tipo: "OS", origem_id: 10, ancora: true },
+      { nfe_id: 1, tipo: "OS", origem_id: 11, ancora: false },
+    ],
+    nfe_saida_item_vinculo: [
+      { nfe_id: 2, saida_id: 40 },
+      { nfe_id: 2, saida_id: 41 },
+    ],
+  });
+
+  const result = await listarNotasEmitidas({});
+  const porNota = new Map(result.data.map((nota) => [`${nota.modelo}-${nota.id}`, nota.origens]));
+  assert.deepEqual(porNota.get("NFE-1"), [
+    { tipo: "OS", id: 10, ancora: true },
+    { tipo: "OS", id: 11, ancora: false },
+  ]);
+  assert.deepEqual(porNota.get("NFE-2"), [
+    { tipo: "SAIDA", id: 40, ancora: true },
+    { tipo: "SAIDA", id: 41, ancora: false },
+  ]);
+  // A NFS-e 1 não herda as junções da NF-e 1: os ids coincidem, as tabelas não.
+  assert.deepEqual(porNota.get("NFSE-1"), [{ tipo: "OS", id: 88, ancora: true }]);
 });

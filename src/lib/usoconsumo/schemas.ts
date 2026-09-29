@@ -72,15 +72,26 @@ export const usoConsumoItemPatchSchema = z.object({
   expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 }).strict().refine((value) => Object.keys(value).some((key) => key !== "expectedUpdatedAt"), "Nada para atualizar.");
 
+const valorDoItem = (campo: string) =>
+  z.coerce.number({ invalid_type_error: `${campo} inválido.` }).min(0, `${campo} não pode ser negativo.`);
+
 export const entradaItemSchema = z.object({
-  item_id: z.coerce.number().int().positive(),
+  item_id: z.coerce
+    .number({ invalid_type_error: "vincule o item ao cadastro." })
+    .int("vincule o item ao cadastro.")
+    .positive("vincule o item ao cadastro."),
   numero_item_fiscal: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   codigo_fornecedor: createText,
-  quantidade: z.coerce.number().int().positive(),
-  valor_unitario_compra: z.coerce.number().min(0),
-  valor_desconto: z.coerce.number().min(0).default(0),
-  valor_frete: z.coerce.number().min(0).default(0),
-  outras_despesas: z.coerce.number().min(0).default(0),
+  // O saldo dos estoques e inteiro. A tela e a rota hibrida ja arredondam a
+  // fracao da NF-e (ver linhaEmQuantidadeInteira); aqui fica so a guarda.
+  quantidade: z.coerce
+    .number({ invalid_type_error: "quantidade inválida." })
+    .int("a quantidade precisa ser um número inteiro.")
+    .positive("a quantidade precisa ser maior que zero."),
+  valor_unitario_compra: valorDoItem("valor unitário"),
+  valor_desconto: valorDoItem("desconto").default(0),
+  valor_frete: valorDoItem("frete").default(0),
+  outras_despesas: valorDoItem("outras despesas").default(0),
   unidade: createText, ncm: createText, cest: createText, csosn: createText,
   referencia: createText, titulo: createText, cst: createText, aliquotaicms: createNumber(100),
   cfop: createText, cst_pis: createText, aliquota_pis: createNumber(100),
@@ -169,6 +180,20 @@ export const grupoUsoConsumoSchema = z.object({
   ativo: z.boolean().optional(),
 }).strict();
 
-export function zodMessage(error: z.ZodError) {
-  return error.issues.map((issue) => issue.message).join(" ");
+/**
+ * Junta as mensagens do Zod. Erro dentro de `itens` ganha o item de que se
+ * trata: o número da linha na NF-e quando o `input` o traz, senão a posição.
+ */
+export function zodMessage(error: z.ZodError, input?: unknown) {
+  const itens = (input as { itens?: Array<{ numero_item_fiscal?: unknown }> } | undefined)?.itens;
+  const mensagens = error.issues.map((issue) => {
+    const [raiz, indice] = issue.path;
+    if (raiz !== "itens" || typeof indice !== "number") return issue.message;
+    const numeroFiscal = Number(itens?.[indice]?.numero_item_fiscal);
+    const rotulo = Number.isInteger(numeroFiscal) && numeroFiscal > 0
+      ? `Item ${numeroFiscal} da NF-e`
+      : `Item ${indice + 1}`;
+    return `${rotulo}: ${issue.message}`;
+  });
+  return [...new Set(mensagens)].join(" ");
 }

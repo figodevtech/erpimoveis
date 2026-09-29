@@ -39,6 +39,13 @@ export interface EntradaEstoqueFiscal {
   destino: "ESTOQUE" | "USOCONSUMO" | "GERAL";
 }
 
+/** Uma origem que a nota própria documenta. Nota consolidada tem várias do mesmo tipo. */
+export interface OrigemNotaFiscal {
+  tipo: "OS" | "VENDA" | "ENTRADA" | "SAIDA";
+  id: number;
+  ancora: boolean;
+}
+
 export interface NotaFiscal {
   id: number;
   origem?: "PROPRIA" | "TERCEIROS";
@@ -72,6 +79,7 @@ export interface NotaFiscal {
   xmlStatus?: "XML_COMPLETO" | "AGUARDANDO_XML" | "AGUARDANDO_MANIFESTACAO" | "NAO_AUTORIZADO" | string;
   xmlStatusLabel?: string | null;
   entradasEstoque?: EntradaEstoqueFiscal[];
+  origens?: OrigemNotaFiscal[];
   destinatarioOuEmitente: FiscalPessoa | null;
   empresa: {
     id: number;

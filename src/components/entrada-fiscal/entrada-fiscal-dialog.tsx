@@ -64,7 +64,8 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
-import { paraCentavos } from "@/lib/financeiro/rateio";
+import { paraCentavos, paraReais } from "@/lib/financeiro/rateio";
+import { linhaEmQuantidadeInteira } from "@/lib/nfe/quantidade-inteira-da-linha";
 import { totalDasDuplicatas } from "@/lib/nfe/duplicatas";
 import { componentesDoTotal } from "@/lib/nfe/totais-nfe";
 import { ROTULO_DO_TRATAMENTO } from "@/lib/nfe/tratamento-custo";
@@ -187,6 +188,45 @@ function textoErro(error: unknown) {
         error.response?.data?.error ??
         error.message)
     : "Erro inesperado.";
+}
+
+/**
+ * Quantidade, unitário, desconto e outras despesas que a linha leva ao estoque.
+ * Fração da NF-e vira o inteiro mais próximo com o mesmo custo da linha.
+ */
+function valoresDeEstoque(linha: LinhaFiscal) {
+  const inteira = linhaEmQuantidadeInteira(
+    Number(linha.quantidade),
+    Number(linha.valorUnitario),
+  );
+  return {
+    quantidade: inteira.quantidade,
+    valorUnitario: inteira.valorUnitario,
+    valorDesconto: paraReais(
+      paraCentavos(linha.valorDesconto ?? 0) + paraCentavos(inteira.ajusteDesconto),
+    ),
+    outrasDespesas: paraReais(
+      paraCentavos(linha.outrasDespesas ?? 0) +
+        paraCentavos(linha.valorSeguro ?? 0) +
+        paraCentavos(linha.valorIpi ?? 0) +
+        paraCentavos(inteira.ajusteOutrasDespesas),
+    ),
+  };
+}
+
+/** "Item 6 (6,15 M → 6)" ou "Itens 2 (1,5 KG → 2) e 6 (6,15 M → 6)". */
+function textoLinhasFracionadas(linhas: LinhaFiscal[]) {
+  const partes = linhas.map((linha) => {
+    const quantidade = [Number(linha.quantidade).toLocaleString("pt-BR"), linha.unidade]
+      .filter(Boolean)
+      .join(" ");
+    return `${linha.numeroItem} (${quantidade} → ${valoresDeEstoque(linha).quantidade})`;
+  });
+  const lista =
+    partes.length > 1
+      ? `${partes.slice(0, -1).join(", ")} e ${partes.at(-1)}`
+      : partes[0];
+  return `${partes.length > 1 ? "Itens" : "Item"} ${lista}`;
 }
 
 export function EntradaFiscalDialog({
@@ -566,6 +606,11 @@ export function EntradaFiscalDialog({
 
   const semDestino = linhasNormais.some((linha) => !linha.destino);
   const semVinculo = linhasNormais.some((linha) => !linhaVinculada(linha));
+  // Os três estoques guardam saldo inteiro: linha com fração (metro, quilo) entra
+  // no inteiro mais próximo, com o mesmo custo. Ver `valoresDeEstoque`.
+  const linhasFracionadas = linhasNormais.filter(
+    (linha) => !Number.isInteger(Number(linha.quantidade)),
+  );
   const notaDividida = linhasEstoque.length > 0 && linhasUsoConsumo.length > 0;
   const temApropriacaoAnterior =
     parsed?.itens.some((linha) => Boolean(linha.destinoApropriado)) ?? false;
@@ -1096,14 +1141,8 @@ export function EntradaFiscalDialog({
     return linhasEstoque.map((linha) => ({
       produtoId: linha.produtoReferenciaId!,
       numeroItemFiscal: Number(linha.numeroItem),
-      quantidade: linha.quantidade,
-      valorUnitario: linha.valorUnitario,
-      valorDesconto: linha.valorDesconto ?? 0,
+      ...valoresDeEstoque(linha),
       valorFrete: linha.valorFrete ?? 0,
-      outrasDespesas:
-        Number(linha.outrasDespesas ?? 0) +
-        Number(linha.valorSeguro ?? 0) +
-        Number(linha.valorIpi ?? 0),
       unidade: linha.unidade,
       ncm: String(linha.ncm ?? ""),
       cfop: String(linha.cfop ?? ""),
@@ -1113,24 +1152,24 @@ export function EntradaFiscalDialog({
   }
 
   function itensUsoConsumoPayload() {
-    return linhasUsoConsumo.map((linha) => ({
-      item_id: linha.itemReferenciaId!,
-      numero_item_fiscal: Number(linha.numeroItem),
-      codigo_fornecedor: String(linha.codigo ?? ""),
-      quantidade: Number(linha.quantidade),
-      valor_unitario_compra: Number(linha.valorUnitario),
-      valor_desconto: Number(linha.valorDesconto ?? 0),
-      valor_frete: Number(linha.valorFrete ?? 0),
-      outras_despesas:
-        Number(linha.valorSeguro ?? 0) +
-        Number(linha.outrasDespesas ?? 0) +
-        Number(linha.valorIpi ?? 0),
-      unidade: unidadeNormalizada(linha.unidade),
-      ncm: String(linha.ncm ?? ""),
-      cfop: String(linha.cfop ?? ""),
-      titulo: String(linha.descricao ?? ""),
-      referencia: String(linha.codigo ?? ""),
-    }));
+    return linhasUsoConsumo.map((linha) => {
+      const valores = valoresDeEstoque(linha);
+      return {
+        item_id: linha.itemReferenciaId!,
+        numero_item_fiscal: Number(linha.numeroItem),
+        codigo_fornecedor: String(linha.codigo ?? ""),
+        quantidade: valores.quantidade,
+        valor_unitario_compra: valores.valorUnitario,
+        valor_desconto: valores.valorDesconto,
+        valor_frete: Number(linha.valorFrete ?? 0),
+        outras_despesas: valores.outrasDespesas,
+        unidade: unidadeNormalizada(linha.unidade),
+        ncm: String(linha.ncm ?? ""),
+        cfop: String(linha.cfop ?? ""),
+        titulo: String(linha.descricao ?? ""),
+        referencia: String(linha.codigo ?? ""),
+      };
+    });
   }
 
   async function registrar(opts?: { ignorarVencida?: boolean }) {
@@ -1351,7 +1390,8 @@ export function EntradaFiscalDialog({
     !submitting &&
     linhasDisponiveis.length > 0 &&
     personalizadaValida &&
-    (!temLinhasNormais || (!semDestino && !semVinculo));
+    (!temLinhasNormais ||
+      (!semDestino && !semVinculo));
 
   return (
     <>
@@ -1870,6 +1910,22 @@ export function EntradaFiscalDialog({
                         Escolha o destino de cada item para liberar o registro.
                       </div>
                     ) : null}
+                    {linhasFracionadas.length ? (
+                      <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+                        <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                        <div className="space-y-1">
+                          <p className="font-semibold">
+                            Quantidade fracionada arredondada
+                          </p>
+                          <p>
+                            {textoLinhasFracionadas(linhasFracionadas)}. O saldo
+                            dos estoques é inteiro, então a linha entra no inteiro
+                            mais próximo. O custo da linha não muda: o valor
+                            unitário é recalculado.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
                     {composicao && !composicao.composicaoValida ? (
                       <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
                         <ReceiptText className="mt-0.5 h-4 w-4 shrink-0" />
@@ -2062,6 +2118,16 @@ export function EntradaFiscalDialog({
                                     {linha.destinoApropriado === "PRODUTO"
                                       ? "revenda"
                                       : "uso/consumo"}
+                                  </Badge>
+                                ) : null}
+                                {entradaNormal &&
+                                !bloqueado &&
+                                !Number.isInteger(Number(linha.quantidade)) ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-amber-400 text-amber-800 dark:text-amber-300"
+                                  >
+                                    Entra {valoresDeEstoque(linha).quantidade} no estoque
                                   </Badge>
                                 ) : null}
                               </div>

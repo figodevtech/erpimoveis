@@ -10,6 +10,16 @@ function positiveInt(value: unknown, field: string) {
   return number;
 }
 
+/** Quantidade da linha. Vinda de NF-e, o erro cita o item da nota, não a posição. */
+function quantidadeDoItem(item: any, index: number) {
+  const numeroFiscal = Number(item?.numeroItemFiscal ?? item?.numero_item_fiscal);
+  const daNota = Number.isInteger(numeroFiscal) && numeroFiscal > 0;
+  return positiveInt(
+    item?.quantidade,
+    daNota ? `Quantidade do item ${numeroFiscal} da NF-e` : `Quantidade do produto ${index + 1}`,
+  );
+}
+
 function nonNegative(value: unknown, field: string) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) throw new Error(`${field}: informe um valor válido.`);
@@ -54,7 +64,7 @@ export async function registrarEntradaFiscalMista(body: any, createdBy?: string 
 
   const itensProduto = itensProdutoRaw.map((item: any, index: number) => ({
     produto_id: positiveInt(item.produtoId ?? item.produto_id, `Produto ${index + 1}`),
-    quantidade: positiveInt(item.quantidade, `Quantidade do produto ${index + 1}`),
+    quantidade: quantidadeDoItem(item, index),
     valor_unitario_compra: nonNegative(
       item.valorUnitario ?? item.valor_unitario_compra,
       `Valor unitário de compra do produto ${index + 1}`,
@@ -115,7 +125,7 @@ export async function registrarEntradaFiscalMista(body: any, createdBy?: string 
     transacoes: [],
     tributos: tributosDaEntrada(body?.tributosUsoConsumo),
   });
-  if (!parsedUso.success) throw Object.assign(new Error(zodMessage(parsedUso.error)), { statusCode: 400 });
+  if (!parsedUso.success) throw Object.assign(new Error(zodMessage(parsedUso.error, { itens: itensUsoRaw })), { statusCode: 400 });
   // As transacoes sao descartadas aqui de proposito: o pagamento e unico e a RPC mista
   // o grava uma vez so, apontando para as duas entradas.
   const { itens: itensUsoConsumo, transacoes: transacoesDescartadas, ...entradaUsoConsumo } = parsedUso.data;
