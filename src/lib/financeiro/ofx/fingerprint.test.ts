@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { calcularFingerprints, chaveBaseDoMovimento, hashDoArquivo } from "./fingerprint";
-import { EXTRATO_SGML } from "./fixtures";
+import { EXTRATO_C6_15_09, EXTRATO_C6_22_09, EXTRATO_SGML } from "./fixtures";
 import { parseOfx } from "./parser";
 
 const extrato = parseOfx(EXTRATO_SGML);
@@ -47,7 +47,29 @@ test("mudar valor, data, sinal ou memo muda o fingerprint", () => {
   assert.notEqual(chave({}), chave({ valorCentavos: -97_000 }));
   assert.notEqual(chave({}), chave({ dataPostagem: "2026-08-02" }));
   assert.notEqual(chave({}), chave({ memo: "OUTRA COISA" }));
-  assert.notEqual(chave({}), chave({ fitid: "999" }));
+  assert.notEqual(chave({}), chave({ refnum: "999" }));
+});
+
+test("mudar só o FITID não muda a identidade da linha", () => {
+  const base = extrato.movimentos[0];
+  assert.equal(
+    chaveBaseDoMovimento(extrato.cabecalho, base),
+    chaveBaseDoMovimento(extrato.cabecalho, { ...base, fitid: "999" }),
+  );
+});
+
+test("duas exportações do C6 reconhecem os movimentos em comum", () => {
+  // O C6 regenera o FITID a cada exportação. Os quatro movimentos de 01/09 a
+  // 15/09 estão nos dois arquivos e precisam ter o mesmo fingerprint — senão a
+  // linha já conciliada volta como pendente e convida a lançar o dinheiro de
+  // novo.
+  const antigo = parseOfx(EXTRATO_C6_15_09);
+  const novo = parseOfx(EXTRATO_C6_22_09);
+  assert.notEqual(antigo.movimentos[1].fitid, novo.movimentos[0].fitid);
+
+  const doAntigo = new Set(calcularFingerprints(antigo));
+  const emComum = calcularFingerprints(novo).filter((fingerprint) => doAntigo.has(fingerprint));
+  assert.equal(emComum.length, 4);
 });
 
 test("acento e espaçamento no memo não mudam a identidade da linha", () => {

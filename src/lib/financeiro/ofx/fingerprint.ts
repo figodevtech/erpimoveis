@@ -3,13 +3,22 @@
  *
  * O problema que isto resolve: reimportar um extrato com período sobreposto não
  * pode duplicar movimento, e o `FITID` — que existe no formato exatamente para
- * isso — não serve. Nos arquivos observados o mesmo `FITID` aparece em
- * movimentos diferentes, então usá-lo sozinho descartaria movimento de verdade.
+ * isso — não serve, nem sozinho nem como parte da chave. Os bancos falham com
+ * ele dos dois lados:
  *
- * A chave é o conjunto de tudo que o banco disse sobre a linha, mais a
- * ocorrência dela dentro do arquivo. A ocorrência é o que separa dois
- * movimentos REALMENTE idênticos no mesmo dia (duas tarifas de R$ 2,90, mesma
- * data, mesmo memo) — que são dois fatos, não um repetido.
+ *   - há extrato que repete o mesmo `FITID` em movimentos diferentes, então
+ *     usá-lo sozinho descartaria movimento de verdade;
+ *   - o C6 gera um `FITID` novo a cada exportação (ele começa com o id do
+ *     arquivo), então com ele na chave o mesmo movimento, em duas exportações,
+ *     vira dois — e a linha já conciliada volta como pendente.
+ *
+ * A chave é o resto do que o banco disse sobre a linha — conta, data, valor com
+ * sinal, tipo, CHECKNUM, REFNUM, NAME e MEMO —, mais a ocorrência dela dentro
+ * do arquivo. A ocorrência é o que separa dois movimentos REALMENTE idênticos
+ * no mesmo dia (duas tarifas de R$ 2,90, mesma data, mesmo memo) — que são dois
+ * fatos, não um repetido.
+ *
+ * O `FITID` continua gravado em `ofx_movimento`, como informação.
  */
 
 import { createHash } from "node:crypto";
@@ -45,7 +54,7 @@ export function chaveBaseDoMovimento(cabecalho: OfxCabecalho, movimento: OfxMovi
     // o mesmo.
     String(movimento.valorCentavos),
     normalizarTexto(movimento.tipoOfx),
-    normalizarTexto(movimento.fitid),
+    // Sem FITID: ver o comentário do topo.
     normalizarTexto(movimento.checknum),
     normalizarTexto(movimento.refnum),
     normalizarTexto(movimento.nome),

@@ -207,13 +207,16 @@ export function parseOfx(conteudo: string): OfxExtrato {
     throw new ErroDeOfx("O extrato não tem nenhum movimento para conciliar.");
   }
 
-  // Período ausente é comum em arquivo de banco: vale o intervalo dos próprios
-  // movimentos, que é o que a tela precisa mostrar.
-  if (!cabecalho.periodoInicio || !cabecalho.periodoFim) {
-    const datas = movimentos.map((movimento) => movimento.dataPostagem).sort();
-    cabecalho.periodoInicio = cabecalho.periodoInicio ?? datas[0];
-    cabecalho.periodoFim = cabecalho.periodoFim ?? datas[datas.length - 1];
-  }
+  // O período declarado não é confiável: há arquivo sem ele, e o C6 escreve em
+  // DTSTART e DTEND o instante da exportação. O que vale é o intervalo que
+  // contém os movimentos — o declarado só estende, nunca corta.
+  const datas = movimentos.map((movimento) => movimento.dataPostagem).sort();
+  const primeira = datas[0];
+  const ultima = datas[datas.length - 1];
+  cabecalho.periodoInicio =
+    cabecalho.periodoInicio && cabecalho.periodoInicio < primeira ? cabecalho.periodoInicio : primeira;
+  cabecalho.periodoFim =
+    cabecalho.periodoFim && cabecalho.periodoFim > ultima ? cabecalho.periodoFim : ultima;
 
   return { cabecalho, movimentos };
 }

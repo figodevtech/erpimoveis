@@ -75,6 +75,7 @@
     "db:remover-fantasma": "tsx scripts/db/remover-versao-fantasma.ts",
     "db:restaurar:transacao": "tsx scripts/db/restaurar-transacao-excluida-demir.ts",
     "db:remover:frete": "tsx scripts/db/remover-produto-frete-demir.ts",
+    "db:ofx:fingerprint": "tsx scripts/db/recalcular-fingerprint-ofx.ts",
     "db:limpar:fotos-anuncio": "tsx scripts/db/limpar-fotos-anuncio-demir.ts",
     "db:custo:estimado": "tsx scripts/db/preencher-custo-estimado-demir.ts",
     "db:reconstruir:baixa51": "tsx scripts/db/reconstruir-baixa-venda51-demir.ts",

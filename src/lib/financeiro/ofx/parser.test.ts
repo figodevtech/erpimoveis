@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { EXTRATO_SGML, EXTRATO_XML } from "./fixtures";
+import { EXTRATO_C6_15_09, EXTRATO_SGML, EXTRATO_XML } from "./fixtures";
 import { decodificarOfx, parseOfx, saldoInicialCentavos } from "./parser";
 import { parseDataOfx, parseValorParaCentavos } from "./normalize";
 import { ErroDeOfx } from "./types";
@@ -17,6 +17,16 @@ test("lê o cabeçalho da conta de um OFXSGML", () => {
   assert.equal(extrato.cabecalho.periodoInicio, "2026-08-01");
   assert.equal(extrato.cabecalho.periodoFim, "2026-08-31");
   assert.equal(extrato.cabecalho.saldoFinalCentavos, 1_234_569);
+});
+
+test("o período contém os movimentos quando o banco declara outro", () => {
+  // O C6 escreve em DTSTART e DTEND o instante da exportação. O histórico
+  // mostraria "15/09 → 15/09" para um extrato que começa em 31/08.
+  const extrato = parseOfx(EXTRATO_C6_15_09);
+
+  assert.equal(extrato.cabecalho.periodoInicio, "2026-08-31");
+  assert.equal(extrato.cabecalho.periodoFim, "2026-09-15");
+  assert.equal(extrato.cabecalho.saldoFinalCentavos, null);
 });
 
 test("lê todos os movimentos, com créditos e débitos", () => {
