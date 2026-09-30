@@ -1064,6 +1064,25 @@ export function toNFeItem(
   setup?: FiscalSetup,
   contexto?: ContextoBaseIcms,
 ): NFeItem {
+  return montarNFeItemDaTela(item, index, setup, contexto).nfeItem;
+}
+
+/**
+ * Monta o item e devolve à parte o motivo de o DIFAL não ter fechado.
+ *
+ * Roda a cada tecla, dentro do render: o campo passa por "205" a caminho de
+ * "20,5" e o motor recusa percentual fora de 0–100 com exceção. Deixada subir,
+ * ela derrubava a página inteira ("Application error"). Aqui o item segue sem
+ * o grupo ICMSUFDest e a validação transforma o motivo em bloqueio — o
+ * servidor refaz o mesmo cálculo e recusa de novo se chegar lá.
+ */
+function montarNFeItemDaTela(
+  item: AssistedFiscalItem,
+  index: number,
+  setup?: FiscalSetup,
+  contexto?: ContextoBaseIcms,
+): { nfeItem: NFeItem; erroDifal: string | null } {
+  let erroDifal: string | null = null;
   const valorTotal = Number((item.quantidade * item.valorUnitario).toFixed(2));
   const valorDesconto = Math.min(Math.max(0, item.valorDesconto || 0), valorTotal);
   // Base dos tributos é o item já líquido do desconto incondicional.
@@ -1177,38 +1196,42 @@ export function toNFeItem(
   // Mesma ordem do servidor: ICMS, DIFAL e só então IBS/CBS, cuja base desconta
   // vICMSUFDest e vFCPUFDest (NT 2025.002, UB16-10).
   if (contexto?.difal && contexto.ufEmitente && contexto.ufDestino) {
-    nfeItem = resolverDifalDoItem(
-      nfeItem,
-      {
-        ufEmitente: contexto.ufEmitente,
-        ufDestinatario: contexto.ufDestino,
-        indFinal: contexto.indFinal ?? 0,
-        indIEDest: contexto.difal.indIEDest,
-        tpNF: contexto.difal.tpNF,
-        finNFe: contexto.difal.finNFe,
-        ufEntrega: contexto.difal.ufEntrega,
-        // Sem a data, o casamento de regras não tem vigência para comparar e a
-        // validação local acusava "contexto fiscal incompleto" numa nota que o
-        // servidor tinha acabado de resolver. Sem o CRT, a validação local não
-        // aplicaria a dispensa do Simples Nacional (NA01-20, exceção 12) e
-        // exigiria DIFAL onde o servidor não exige.
-        dataEmissao: contexto.dataEmissao,
-        crt: setup?.empresa?.crt,
-      },
-      {
-        // A tela não consulta o catálogo de NCM; ela repassa o que o servidor
-        // já respondeu, para a validação local acusar a mesma pendência e o
-        // item não ficar "pronto" na lista. Quem decide de verdade é o
-        // servidor, que reconfere na geração do rascunho.
-        ncmConhecido: item.difalResolucao?.pendencias?.includes("NCM_INEXISTENTE")
-          ? false
-          : undefined,
-      },
-    );
+    try {
+      nfeItem = resolverDifalDoItem(
+        nfeItem,
+        {
+          ufEmitente: contexto.ufEmitente,
+          ufDestinatario: contexto.ufDestino,
+          indFinal: contexto.indFinal ?? 0,
+          indIEDest: contexto.difal.indIEDest,
+          tpNF: contexto.difal.tpNF,
+          finNFe: contexto.difal.finNFe,
+          ufEntrega: contexto.difal.ufEntrega,
+          // Sem a data, o casamento de regras não tem vigência para comparar e a
+          // validação local acusava "contexto fiscal incompleto" numa nota que o
+          // servidor tinha acabado de resolver. Sem o CRT, a validação local não
+          // aplicaria a dispensa do Simples Nacional (NA01-20, exceção 12) e
+          // exigiria DIFAL onde o servidor não exige.
+          dataEmissao: contexto.dataEmissao,
+          crt: setup?.empresa?.crt,
+        },
+        {
+          // A tela não consulta o catálogo de NCM; ela repassa o que o servidor
+          // já respondeu, para a validação local acusar a mesma pendência e o
+          // item não ficar "pronto" na lista. Quem decide de verdade é o
+          // servidor, que reconfere na geração do rascunho.
+          ncmConhecido: item.difalResolucao?.pendencias?.includes("NCM_INEXISTENTE")
+            ? false
+            : undefined,
+        },
+      );
+    } catch (erro) {
+      erroDifal = erro instanceof Error ? erro.message : String(erro);
+    }
   }
   resolverRtcDoItem(nfeItem, contexto ?? {}, { base: optionalDecimal(item.baseRtc),
     ibsUf: optionalDecimal(item.valorIbsUf), ibsMun: optionalDecimal(item.valorIbsMunicipio), cbs: optionalDecimal(item.valorCbs) });
-  return nfeItem;
+  return { nfeItem, erroDifal };
 }
 
 export function validateAssistedItem(
@@ -1293,7 +1316,10 @@ export function validateAssistedItem(
       ? setup.classificacoesRtc.find((entry) => entry.codigo === item.cClassTrib) ?? null
       : null;
     const vistos = new Set<string>();
-    const taxItem = toNFeItem(item, 0, setup, contextoBase);
+    const { nfeItem: taxItem, erroDifal } = montarNFeItemDaTela(item, 0, setup, contextoBase);
+    if (erroDifal) {
+      issues.push({ code: "NFE_DIFAL_VALOR_INVALIDO", field: "difal", message: erroDifal, severidade: "BLOQUEIO" });
+    }
     for (const issue of issuesDifalDoItem(taxItem)) {
       issues.push({ code: issue.code, field: issue.field, message: issue.message });
     }

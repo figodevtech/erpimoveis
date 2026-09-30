@@ -556,3 +556,62 @@ describe("tela assistida — ciência da base IBS/CBS manual", () => {
     assert.deepEqual(confirmarAvisosFiscais(item, issues).avisosFiscaisConfirmados, []);
   });
 });
+
+describe("DIFAL digitado fora do intervalo não derruba a tela", () => {
+  // A validação roda no render a cada tecla. O campo passa por "205" a caminho
+  // de "20,5"; o motor recusa com exceção e, antes, ela derrubava a página
+  // inteira em produção ("Application error").
+  const contexto = {
+    tipoOperacao: "SAIDA" as const,
+    parceiroUf: "PI",
+    modelo: MODELO_NFE,
+    indFinal: 1 as const,
+    ufEmitente: "PB",
+    ufDestino: "PI",
+    dataEmissao: "2026-09-30",
+    valorFrete: 0,
+    freteIntegraBaseIcms: false,
+    difal: { indIEDest: "9", tpNF: 1 as const, finNFe: 1, ufEntrega: null },
+  };
+  const itemPI = (patch: Partial<AssistedFiscalItem>): AssistedFiscalItem => ({
+    ...createAssistedItem({ ...produto136, ncm: "90328925", cfop: "6108" }, setup, {
+      tipoOperacao: "SAIDA",
+      parceiroUf: "PI",
+      indFinal: 1,
+      indIEDest: 9,
+      modelo: MODELO_NFE,
+    }),
+    difalHabilitado: true,
+    difalAliquotaInterna: "20.5",
+    difalAliquotaInterestadual: "12",
+    difalAliquotaFcp: "0",
+    difalPercentualPartilha: "100",
+    difalBaseFcp: "",
+    ...patch,
+  });
+
+  for (const [caso, patch] of [
+    ["alíquota interna acima de 100", { difalAliquotaInterna: "205", difalCamposManuais: ["aliquotaInterna"] }],
+    ["alíquota interna negativa", { difalAliquotaInterna: "-1", difalCamposManuais: ["aliquotaInterna"] }],
+    ["FCP acima de 100", { difalAliquotaFcp: "150", difalCamposManuais: ["aliquotaFcp"] }],
+    ["interestadual acima de 100", { difalAliquotaInterestadual: "120" }],
+    ["partilha acima de 100", { difalPercentualPartilha: "1000" }],
+    ["base do FCP negativa", { difalBaseFcp: "-5" }],
+  ] as Array<[string, Partial<AssistedFiscalItem>]>) {
+    it(`${caso}: vira bloqueio, não exceção`, () => {
+      const item = itemPI(patch);
+      const issues = validateAssistedItem(item, setup, contexto);
+      const bloqueio = issues.find((issue) => issue.code === "NFE_DIFAL_VALOR_INVALIDO");
+      assert.ok(bloqueio, "o item precisa acusar o valor inválido");
+      assert.equal(bloqueio.severidade, "BLOQUEIO");
+      assert.equal(classificarIssuesFiscais(issues).pronto, false);
+      // A prévia da avulsa chama toNFeItem direto, também no render.
+      assert.doesNotThrow(() => toNFeItem(item, 0, setup, contexto));
+    });
+  }
+
+  it("valores válidos não geram o bloqueio", () => {
+    const issues = validateAssistedItem(itemPI({}), setup, contexto);
+    assert.ok(!issues.some((issue) => issue.code === "NFE_DIFAL_VALOR_INVALIDO"));
+  });
+});

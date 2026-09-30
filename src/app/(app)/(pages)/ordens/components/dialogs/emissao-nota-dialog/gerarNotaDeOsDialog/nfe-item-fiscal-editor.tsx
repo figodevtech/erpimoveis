@@ -681,6 +681,8 @@ export function NfeItemFiscalEditor({
                   type="number"
                   inputMode="decimal"
                   step="0.01"
+                  min="0"
+                  max="100"
                   placeholder="Informe a alíquota vigente"
                   value={item.difalAliquotaInterna}
                   onChange={(event) =>
@@ -704,6 +706,8 @@ export function NfeItemFiscalEditor({
                   type="number"
                   inputMode="decimal"
                   step="0.01"
+                  min="0"
+                  max="100"
                   value={item.difalAliquotaInterestadual}
                   onChange={(event) =>
                     onChange({
@@ -724,6 +728,8 @@ export function NfeItemFiscalEditor({
                   type="number"
                   inputMode="decimal"
                   step="0.01"
+                  min="0"
+                  max="100"
                   value={item.difalPercentualPartilha}
                   onChange={(event) =>
                     onChange({
@@ -741,6 +747,8 @@ export function NfeItemFiscalEditor({
                   type="number"
                   inputMode="decimal"
                   step="0.01"
+                  min="0"
+                  max="100"
                   // Sem placeholder numérico: um "0" cinza é indistinguível de um
                   // zero informado, e a diferença entre os dois é justamente o
                   // que decide se a nota sai.
@@ -764,6 +772,7 @@ export function NfeItemFiscalEditor({
                   type="number"
                   inputMode="decimal"
                   step="0.01"
+                  min="0"
                   placeholder="Mesma do DIFAL"
                   value={item.difalBaseFcp}
                   onChange={(event) =>
