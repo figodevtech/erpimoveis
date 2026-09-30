@@ -13,7 +13,7 @@ test("recusa do banco ao excluir transação", async (t) => {
 
     assert.equal(recusa.status, 409);
     assert.match(recusa.mensagem, /conciliada com um movimento do extrato/);
-    assert.match(recusa.mensagem, /Desfaça a conciliação/);
+    assert.match(recusa.mensagem, /desfazer a conciliação/);
   });
 
   await t.test("a constraint pode vir em details, não em message", () => {

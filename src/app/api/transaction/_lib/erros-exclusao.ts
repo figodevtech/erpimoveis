@@ -4,8 +4,7 @@
  * Duas constraints impedem exclusões legítimas hoje, e as duas chegam ao usuário
  * como "Erro ao deletar transação." com status 500 — que diz que o sistema
  * quebrou, quando na verdade o banco está protegendo um vínculo que existe. A
- * pessoa fica sem saber que existe um caminho: desfazer a conciliação, excluir o
- * estorno.
+ * pessoa fica sem saber que existe um caminho: excluir o estorno.
  *
  * 409 e não 500 de propósito: é conflito com o estado atual do registro, não
  * defeito nosso. Mesmo raciocínio das demais recusas de regra da rota.
@@ -47,14 +46,15 @@ export function traduzirErroExclusao(
    *
    * `ofx_movimento.transacao_id` é ON DELETE SET NULL, e
    * `ofx_movimento_conciliado_tem_transacao_check` exige que movimento
-   * CONCILIADO tenha transação. Apagar a transação zera a coluna e viola o
-   * CHECK — hoje é a única forma de o banco recusar uma exclusão.
+   * CONCILIADO tenha transação. O gatilho `trg_desconciliar_transacao_excluida`
+   * devolve o movimento para pendente antes do SET NULL, então este caso só
+   * aparece num banco em que a migration 20260930150000 ainda não foi aplicada.
    */
   if (codigo === "23514" && texto.includes("ofx_movimento_conciliado_tem_transacao")) {
     return {
       status: 409,
       mensagem:
-        "Esta transação está conciliada com um movimento do extrato bancário. Desfaça a conciliação daquele movimento antes de excluir.",
+        "Esta transação está conciliada com um movimento do extrato bancário e o banco recusou desfazer a conciliação. Falta aplicar a atualização do banco que permite essa exclusão.",
     };
   }
 

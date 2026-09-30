@@ -211,20 +211,47 @@ test("classificação da exclusão em massa", async (t) => {
     assert.equal(classe(r, 41), "ESTORNA_E_EXCLUI");
   });
 
-  await t.test("conciliada no extrato bloqueia, antes de qualquer outra regra", () => {
+  await t.test("conciliada no extrato não bloqueia: sai e conta o movimento desconciliado", () => {
     const r = classificarExclusaoEmLote(
       [50],
       mapa([
         50,
         impacto(50, {
-          conciliadoNoExtrato: { movimentos: 1, motivo: "conciliada com o extrato" },
-          // Mesmo com vínculo de transferência, o bloqueio vem primeiro.
-          vinculos: { transferenciaId: 9 } as any,
+          conciliadoNoExtrato: { movimentos: 1, movimentoIds: [700], motivo: "conciliada com o extrato" },
         }),
       ]),
     );
-    assert.equal(classe(r, 50), "BLOQUEADO");
-    assert.match(r.itens[0].motivo, /extrato/);
+    assert.equal(classe(r, 50), "EXCLUI");
+    assert.equal(r.itens[0].desconcilia, 1);
+    assert.equal(r.resumo.desconciliados, 1);
+  });
+
+  await t.test("as duas pernas marcadas não contam o mesmo movimento duas vezes", () => {
+    const conciliado = { movimentos: 2, movimentoIds: [701, 702], motivo: "conciliada" };
+    const r = classificarExclusaoEmLote(
+      [60, 61],
+      mapa(
+        [60, impacto(60, { conciliadoNoExtrato: conciliado, irmasDoGrupo: [60, 61], vinculos: { transferenciaId: 9 } as any })],
+        [61, impacto(61, { conciliadoNoExtrato: conciliado, irmasDoGrupo: [60, 61], vinculos: { transferenciaId: 9 } as any })],
+      ),
+    );
+    assert.equal(classe(r, 60), "EXCLUI_EM_GRUPO");
+    assert.equal(r.resumo.desconciliados, 2);
+  });
+
+  await t.test("bloqueada não desconcilia nada", () => {
+    const r = classificarExclusaoEmLote(
+      [52],
+      mapa([
+        52,
+        impacto(52, {
+          conciliadoNoExtrato: { movimentos: 1, movimentoIds: [703], motivo: "conciliada" },
+          estornoApontando: { id: 99, motivo: "já foi estornada" },
+        }),
+      ]),
+    );
+    assert.equal(classe(r, 52), "BLOQUEADO");
+    assert.equal(r.resumo.desconciliados, 0);
   });
 
   await t.test("estorno apontando para ela bloqueia", () => {

@@ -58,6 +58,8 @@ export interface ItemClassificado {
   reabre: AlvoDeDocumento[];
   /** Lançamento de mês anterior: excluí-lo mexe num resultado já fechado. */
   competenciaAnterior: boolean;
+  /** Movimentos do extrato que voltam para pendente. Aviso, não impedimento. */
+  desconcilia: number;
 }
 
 export interface Passo {
@@ -78,6 +80,8 @@ export interface ResumoDaExclusao {
   porClasse: Record<Classificacao, number>;
   reabrem: AlvoDeDocumento[];
   competenciaAnterior: number;
+  /** Movimentos do extrato desconciliados, sem contar duas vezes o de um grupo. */
+  desconciliados: number;
 }
 
 export interface PlanoDeExclusao {
@@ -157,6 +161,7 @@ export function classificarExclusaoEmLote(
           valor: 0,
           reabre: [],
           competenciaAnterior: false,
+          desconcilia: 0,
         },
       });
       continue;
@@ -170,17 +175,16 @@ export function classificarExclusaoEmLote(
       valor: vinculos.valor,
       reabre: impacto.targets,
       competenciaAnterior: competencia != null && competencia < mesCorrente,
+      desconcilia: impacto.conciliadoNoExtrato?.movimentos ?? 0,
     };
 
     const bloquear = (motivo: string): Parcial => ({
       item: { ...base, classificacao: "BLOQUEADO", motivo },
     });
 
-    // 1 e 2: as duas recusas que o banco faria, antecipadas para a prévia.
-    if (impacto.conciliadoNoExtrato) {
-      parciais.set(id, bloquear(impacto.conciliadoNoExtrato.motivo));
-      continue;
-    }
+    // 1 e 2: a recusa que o banco faria, antecipada para a prévia. A
+    // conciliação no extrato já não recusa: o gatilho a desfaz na exclusão, e o
+    // resumo conta os movimentos que voltam para pendente.
     if (impacto.estornoApontando) {
       parciais.set(id, bloquear(impacto.estornoApontando.motivo));
       continue;
@@ -481,6 +485,14 @@ export function classificarExclusaoEmLote(
     }
   }
 
+  const movimentosDesconciliados = new Set<number>();
+  for (const item of itens) {
+    if (!saem.has(item.id)) continue;
+    for (const movimento of impactos.get(item.id)?.conciliadoNoExtrato?.movimentoIds ?? []) {
+      movimentosDesconciliados.add(movimento);
+    }
+  }
+
   return {
     itens,
     plano,
@@ -491,6 +503,7 @@ export function classificarExclusaoEmLote(
       porClasse,
       reabrem,
       competenciaAnterior: itens.filter((i) => saem.has(i.id) && i.competenciaAnterior).length,
+      desconciliados: movimentosDesconciliados.size,
     },
   };
 }

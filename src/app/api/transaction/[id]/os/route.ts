@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireFinanceiroDelete } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { exigirAcessoATransacao } from "../../_lib/autoria";
+import { traduzirErroExclusao } from "../../_lib/erros-exclusao";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -84,17 +85,16 @@ export async function DELETE(_: Request, ctx: Params) {
     const isReceita =
       typeof tx?.tipo === "string" && tx.tipo.toUpperCase() === "RECEITA";
 
-    // 2) Deletar a transação
+    // 2) Deletar a transação. A conciliação bancária é desfeita pelo gatilho
+    // `trg_desconciliar_transacao_excluida`, no mesmo comando.
     const { error: delErr } = await supabaseAdmin
       .from("transacao")
       .delete()
       .eq("id", id);
 
     if (delErr) {
-      return NextResponse.json(
-        { error: "Erro ao deletar transação." },
-        { status: 500 }
-      );
+      const recusa = traduzirErroExclusao(delErr);
+      return NextResponse.json({ error: recusa.mensagem }, { status: recusa.status });
     }
 
     // O trigger da exclusão recalcula a OS atomicamente, incluindo rateios e

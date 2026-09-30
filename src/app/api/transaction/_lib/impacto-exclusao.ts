@@ -67,13 +67,15 @@ export interface ImpactoTransacao {
     creditoCliente: boolean;
   };
   /**
-   * Movimento do extrato conciliado com esta linha. Campo novo, aditivo.
+   * Movimentos do extrato conciliados com o que esta exclusão apaga: a própria
+   * linha e as que saem junto com ela (`irmasDoGrupo`).
    *
-   * Sem ele o lote bateria no CHECK `ofx_movimento_conciliado_tem_transacao` no
-   * meio da execução, e o usuário veria uma falha crua no relatório em vez de um
-   * item recusado com explicação na prévia.
+   * Não impede nada. O gatilho `trg_desconciliar_transacao_excluida` devolve
+   * esses movimentos para pendente no mesmo comando da exclusão; o campo existe
+   * para as duas telas avisarem antes. `movimentoIds` deixa o lote contar sem
+   * repetir o movimento de duas linhas do mesmo grupo.
    */
-  conciliadoNoExtrato: null | { movimentos: number; motivo: string };
+  conciliadoNoExtrato: null | { movimentos: number; movimentoIds: number[]; motivo: string };
   /** Lançamento de estorno apontando para esta. Mesma razão: evita o 23503. */
   estornoApontando: null | { id: number; motivo: string };
   /** Filhas de baixa parcial. A classificação precisa saber quem o CASCADE leva. */
@@ -201,7 +203,6 @@ export async function analisarImpacto(
     pagamentosDeOs,
     vendas,
     pagamentosDeVenda,
-    conciliados,
     estornos,
     filhasParciais,
   ] = await Promise.all([
@@ -302,12 +303,6 @@ export async function analisarImpacto(
     }),
     emBlocos(idsPresentes, async (b) => {
       const { data, error } = await supabaseAdmin
-        .from("ofx_movimento").select("id, transacao_id").in("transacao_id", b).eq("status", "CONCILIADO");
-      if (error) throw error;
-      return (data ?? []) as any[];
-    }),
-    emBlocos(idsPresentes, async (b) => {
-      const { data, error } = await supabaseAdmin
         .from("transacao").select("id, estorno_transacao_id").in("estorno_transacao_id", b).eq("is_deleted", false);
       if (error) throw error;
       return (data ?? []) as any[];
@@ -334,11 +329,43 @@ export async function analisarImpacto(
   const pagamentosPorOs = agruparPor(pagamentosDeOs, (t: any) => t.ordemservicoid);
   const vendaPorId = new Map(vendas.map((v: any) => [Number(v.id), v]));
   const pagamentosPorVenda = agruparPor(pagamentosDeVenda, (t: any) => t.vendaid);
-  const conciliadosPorTransacao = agruparPor(conciliados, (m: any) => m.transacao_id);
   const estornoPorTransacao = new Map(
     estornos.map((e: any) => [Number(e.estorno_transacao_id), Number(e.id)]),
   );
   const filhasPorPai = agruparPor(filhasParciais, (t: any) => t.baixa_de_transacao_id);
+
+  /*
+   * Quem some junto com cada linha, por pertencer ao mesmo grupo. Inclui a
+   * própria.
+   *
+   * A antecipação fica de fora de propósito: excluí-la não apaga os títulos,
+   * devolve-os para em aberto. Eles só somem se estiverem marcados, e aí
+   * contam como selecionados, não como arrastados.
+   */
+  const linhasQueSaem = (t: any): number[] => {
+    const id = Number(t.id);
+    const doGrupo = (lista: any[] | undefined) => {
+      const ids = (lista ?? []).map((linha: any) => Number(linha.id));
+      return ids.length > 0 ? ids : [id];
+    };
+    if (t.transferencia_id != null) return doGrupo(pernasPorTransferencia.get(Number(t.transferencia_id)));
+    if (t.lancamento_id != null) return doGrupo(parcelasPorLancamento.get(Number(t.lancamento_id)));
+    if (t.pagamento_multiplo_id != null) return doGrupo(irmasPorGrupo.get(Number(t.pagamento_multiplo_id)));
+    return [id, ...(filhasPorPai.get(id) ?? []).map((f: any) => Number(f.id))];
+  };
+
+  /*
+   * A consulta ao extrato vem depois das outras porque precisa dos grupos.
+   * Conferir só a linha clicada deixaria passar a baixa parcial — que é
+   * justamente o dinheiro que passou pelo banco.
+   */
+  const conciliados = await emBlocos(transacoes.flatMap(linhasQueSaem), async (b) => {
+    const { data, error } = await supabaseAdmin
+      .from("ofx_movimento").select("id, transacao_id").in("transacao_id", b).eq("status", "CONCILIADO");
+    if (error) throw error;
+    return (data ?? []) as any[];
+  });
+  const conciliadosPorTransacao = agruparPor(conciliados, (m: any) => m.transacao_id);
 
   /*
    * Quem mais do conjunto pertence a cada documento.
@@ -552,13 +579,18 @@ export async function analisarImpacto(
           }
         : null;
 
-    /* --- as duas recusas que o banco faz, antecipadas --- */
-    const movimentos = (conciliadosPorTransacao.get(id) ?? []).length;
-    const conciliadoNoExtrato = movimentos > 0
+    /* --- conciliação que sai junto, e a recusa que o banco faz --- */
+    const movimentoIds = linhasQueSaem(transaction).flatMap((linha) =>
+      (conciliadosPorTransacao.get(linha) ?? []).map((m: any) => Number(m.id)),
+    );
+    const conciliadoNoExtrato = movimentoIds.length > 0
       ? {
-          movimentos,
+          movimentos: movimentoIds.length,
+          movimentoIds,
           motivo:
-            "Esta transação está conciliada com um movimento do extrato bancário. Desfaça a conciliação daquele movimento antes de excluir.",
+            movimentoIds.length === 1
+              ? "Está conciliada com um movimento do extrato bancário: a conciliação é desfeita e o movimento volta para pendente."
+              : `Está conciliada com ${movimentoIds.length} movimentos do extrato bancário: a conciliação é desfeita e eles voltam para pendente.`,
         }
       : null;
 
@@ -569,30 +601,6 @@ export async function analisarImpacto(
           motivo: `Esta transação já foi estornada pelo lançamento #${idDoEstorno}. Exclua o estorno primeiro.`,
         }
       : null;
-
-    /*
-     * Quem some junto com esta linha, por pertencer ao mesmo grupo.
-     *
-     * A antecipação fica de fora de propósito: excluí-la não apaga os títulos,
-     * devolve-os para em aberto. Eles só somem se estiverem marcados, e aí
-     * contam como selecionados, não como arrastados.
-     */
-    const irmasDoGrupo = (): number[] => {
-      if (transaction.transferencia_id != null) {
-        return (pernasPorTransferencia.get(Number(transaction.transferencia_id)) ?? [])
-          .map((t: any) => Number(t.id));
-      }
-      if (transaction.lancamento_id != null) {
-        return (parcelasPorLancamento.get(Number(transaction.lancamento_id)) ?? [])
-          .map((t: any) => Number(t.id));
-      }
-      if (transaction.pagamento_multiplo_id != null) {
-        return (irmasPorGrupo.get(Number(transaction.pagamento_multiplo_id)) ?? [])
-          .map((t: any) => Number(t.id));
-      }
-      const filhas = (filhasPorPai.get(id) ?? []).map((t: any) => Number(t.id));
-      return filhas.length > 0 ? [id, ...filhas] : [id];
-    };
 
     mapa.set(id, {
       reabriraPagamento: targets.length > 0,
@@ -605,7 +613,7 @@ export async function analisarImpacto(
       conciliadoNoExtrato,
       estornoApontando,
       filhasDeBaixaParcial: (filhasPorPai.get(id) ?? []).map((t: any) => Number(t.id)),
-      irmasDoGrupo: irmasDoGrupo(),
+      irmasDoGrupo: linhasQueSaem(transaction),
       vinculos: {
         pendente: transaction.pendente === true,
         ehAdiantamento: transaction.eh_adiantamento === true,

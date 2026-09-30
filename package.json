@@ -45,6 +45,7 @@
     "db:test:ncm": "tsx scripts/db/test-ncm-busca-migration.ts",
     "db:test:dashboard-estoque": "tsx scripts/db/test-dashboard-estoque-migration.ts",
     "db:test:schema-padrao": "tsx scripts/db/test-schema-padrao-migration.ts",
+    "db:test:exclusao-desconcilia": "tsx scripts/db/test-exclusao-desconcilia-migration.ts",
     "nfe:auditar-icms": "tsx scripts/nfe/auditar-icms-emitidas.ts",
     "db:migrar:plano-contas": "tsx scripts/db/migrar-classificacao-plano-contas.ts",
     "db:deploy": "tsx scripts/db/deploy.ts",

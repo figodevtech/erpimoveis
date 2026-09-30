@@ -62,6 +62,15 @@ type PagamentoMultiplo = {
   motivo?: string;
 };
 
+/**
+ * Movimentos do extrato conciliados com o que a exclusão apaga.
+ *
+ * Não bloqueia: toda exclusão devolve esses movimentos para pendente na
+ * conciliação bancária (gatilho `trg_desconciliar_transacao_excluida`). O
+ * diálogo só avisa antes.
+ */
+type Conciliado = { movimentos: number };
+
 const moeda = (valor: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(valor || 0);
 
@@ -106,6 +115,7 @@ export function TransactionDeleteAlert({
   const [adiantamento, setAdiantamento] = useState<Adiantamento | null>(null);
   const [grupo, setGrupo] = useState<PagamentoMultiplo | null>(null);
   const [transferencia, setTransferencia] = useState<Transferencia | null>(null);
+  const [conciliado, setConciliado] = useState<Conciliado | null>(null);
   const [falhou, setFalhou] = useState<string | null>(null);
 
   async function handleOpenChange(nextOpen: boolean) {
@@ -118,6 +128,8 @@ export function TransactionDeleteAlert({
     setLiquidado(null);
     setAdiantamento(null);
     setGrupo(null);
+    setTransferencia(null);
+    setConciliado(null);
     setFalhou(null);
 
     try {
@@ -137,6 +149,11 @@ export function TransactionDeleteAlert({
       setAdiantamento(payload?.adiantamento?.desfaz ? payload.adiantamento : null);
       setGrupo(payload?.pagamentoMultiplo ?? null);
       setTransferencia(payload?.transferencia ?? null);
+      setConciliado(
+        Number(payload?.conciliadoNoExtrato?.movimentos) > 0
+          ? { movimentos: Number(payload.conciliadoNoExtrato.movimentos) }
+          : null,
+      );
     } catch {
       setFalhou("Não foi possível verificar o impacto da exclusão.");
     } finally {
@@ -154,6 +171,8 @@ export function TransactionDeleteAlert({
   // oferece o passo que destrava — tirar do fluxo e reabrir o título.
   const podeEstornar = Boolean(travado && liquidado && travado === liquidado && onEstornar);
   const desfazGrupo = Boolean(grupo && !grupo.bloqueado && onDeleteGrupo);
+
+  const avisaConciliacao = Boolean(conciliado && !loading && !travado && !falhou);
 
   const reabrePara = adiantamento?.sentido === "PAGAR" ? "a pagar" : "a receber";
 
@@ -305,6 +324,19 @@ export function TransactionDeleteAlert({
               ) : (
                 <span>Esta ação não pode ser desfeita e removerá a transação.</span>
               )}
+              {avisaConciliacao && conciliado ? (
+                <span className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="min-w-0">
+                    {conciliado.movimentos === 1
+                      ? "Esta transação está conciliada com um movimento do extrato bancário."
+                      : `Esta exclusão apaga linhas conciliadas com ${conciliado.movimentos} movimentos do extrato bancário.`}{" "}
+                    Ao prosseguir, a conciliação é <strong>desfeita</strong>: o movimento
+                    {conciliado.movimentos === 1 ? " volta" : "s voltam"} para{" "}
+                    <strong>pendente</strong> na conciliação bancária.
+                  </span>
+                </span>
+              ) : null}
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>

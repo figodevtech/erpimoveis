@@ -45,6 +45,7 @@ type ItemClassificado = {
   grupo?: { tipo: string; id: number; lider: number; resumo: string };
   reabre: Array<{ tipo: "OS" | "VENDA"; id: number }>;
   competenciaAnterior: boolean;
+  desconcilia: number;
 };
 
 type Previa = {
@@ -56,6 +57,7 @@ type Previa = {
     porClasse: Record<Classificacao, number>;
     reabrem: Array<{ tipo: "OS" | "VENDA"; id: number }>;
     competenciaAnterior: number;
+    desconciliados: number;
   };
 };
 
@@ -310,6 +312,18 @@ export function ExclusaoMultiplaDialog({
                 {resumo.competenciaAnterior}{" "}
                 {resumo.competenciaAnterior === 1 ? "lançamento é de mês anterior" : "lançamentos são de meses anteriores"}
                 . Excluir muda o resultado daqueles meses no DRE.
+              </p>
+            ) : null}
+
+            {resumo.desconciliados > 0 ? (
+              <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <span className="min-w-0">
+                  {resumo.desconciliados === 1
+                    ? "1 movimento do extrato bancário está conciliado com o que sai. A conciliação é desfeita e ele volta"
+                    : `${resumo.desconciliados} movimentos do extrato bancário estão conciliados com o que sai. A conciliação é desfeita e eles voltam`}{" "}
+                  para <strong>pendente</strong> na conciliação bancária.
+                </span>
               </p>
             ) : null}
 
