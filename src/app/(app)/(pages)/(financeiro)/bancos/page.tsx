@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import axios from "axios";
+import { useSession } from "next-auth/react";
 import {
   ArrowDown,
   ArrowUp,
@@ -11,6 +12,7 @@ import {
   ChevronsRight,
   Landmark,
   Loader2,
+  User,
   Wallet,
 } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -20,6 +22,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { formatDate } from "@/utils/formatDate";
 import { cn } from "@/lib/utils";
@@ -123,6 +127,16 @@ function ResumoCard({
 }
 
 export default function BancosFinanceiroPage() {
+  const { data: session } = useSession();
+  /*
+   * Sem esta permissão o servidor recorta tudo — lista, totais e saldos — ao
+   * que a pessoa lançou, mais o que não tem autor. Aqui ela só serve para dizer
+   * isso na tela.
+   */
+  const podeVerTodas = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.FINANCEIRO_VER_TODAS_TRANSACOES,
+  );
   const [items, setItems] = React.useState<BancoResumo[]>([]);
   const [totals, setTotals] = React.useState<TotaisResumo>(totaisVazios);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -367,6 +381,19 @@ export default function BancosFinanceiroPage() {
                     className={cn(isLoading || isLoadingTransacoes ? "animate-spin" : "")}
                   />
                 </button>
+                {!podeVerTodas ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex cursor-default items-center text-muted-foreground">
+                        <User className="h-3.5 w-3.5" />
+                        <span className="sr-only">Mostrando somente as minhas transações</span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" align="start" className="max-w-[320px] text-pretty">
+                      Você vê o que lançou, mais os registros sem autor — e os totais e saldos somam só isso. Ver o que as outras pessoas lançaram depende da permissão “Ver transações de todos”.
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">

@@ -4,6 +4,11 @@ import { NextResponse } from "next/server";
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { saldosAposCadaMovimento, valorAssinadoNoBanco } from "@/lib/financeiro/saldo-bancario";
+import {
+  aplicarRecorteDeAutoria,
+  recorteDeAutoria,
+  type RecorteDeAutoria,
+} from "@/app/api/transaction/_lib/autoria";
 
 type BancoRow = {
   id: number;
@@ -81,7 +86,7 @@ function mapTransacao(transacao: TransacaoRow, saldoApos: number | null) {
   };
 }
 
-async function fetchAllTransactions(dateFrom?: string | null, dateTo?: string | null) {
+async function fetchAllTransactions(recorte: RecorteDeAutoria, dateFrom?: string | null, dateTo?: string | null) {
   const rows: TransacaoResumoRow[] = [];
 
   for (let from = 0; ; from += PAGE_SIZE) {
@@ -95,6 +100,7 @@ async function fetchAllTransactions(dateFrom?: string | null, dateTo?: string | 
       .order("data", { ascending: false });
 
     query = applyDateFilters(query, dateFrom, dateTo);
+    query = aplicarRecorteDeAutoria(query, recorte);
 
     const { data, error } = await query.range(from, to);
 
@@ -115,13 +121,17 @@ async function fetchAllTransactions(dateFrom?: string | null, dateTo?: string | 
  * Lê a história inteira da conta, sem o recorte do filtro: o saldo depois de uma
  * transação de março inclui tudo o que veio antes dela, mesmo com o período
  * começando em março.
+ *
+ * O recorte de autoria, ao contrário, vale aqui também: um saldo acumulado sobre
+ * a conta inteira, ao lado de uma lista recortada, entrega por diferença o que a
+ * lista esconde. Recortado, o saldo de cada linha fecha com as linhas visíveis.
  */
-async function fetchSaldosAposMovimentos(bancoId: number) {
+async function fetchSaldosAposMovimentos(bancoId: number, recorte: RecorteDeAutoria) {
   const bancoPromise = supabaseAdmin.from("bancoconta").select("valorinicial").eq("id", bancoId).maybeSingle();
   const movimentos: { id: number; valorAssinado: number }[] = [];
 
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabaseAdmin
+    const query = supabaseAdmin
       .from("transacao")
       .select("id, tipo, valor, valorLiquido")
       .eq("banco_id", bancoId)
@@ -129,8 +139,9 @@ async function fetchSaldosAposMovimentos(bancoId: number) {
       .not("pendente", "is", true)
       .order("data_dia", { ascending: true })
       .order("movimento_registrado_em", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
+      .order("id", { ascending: true });
+
+    const { data, error } = await aplicarRecorteDeAutoria(query, recorte).range(from, from + PAGE_SIZE - 1);
 
     if (error) throw error;
 
@@ -157,12 +168,14 @@ async function fetchTransactionsPage({
   dateTo,
   page,
   limit,
+  recorte,
 }: {
   bancoId: number | null;
   dateFrom?: string | null;
   dateTo?: string | null;
   page: number;
   limit: number;
+  recorte: RecorteDeAutoria;
 }) {
   if (!bancoId) {
     return { bancoId: null, items: [], page, limit, total: 0, totalPages: 1 };
@@ -187,10 +200,11 @@ async function fetchTransactionsPage({
     .order("id", { ascending: false });
 
   query = applyDateFilters(query, dateFrom, dateTo);
+  query = aplicarRecorteDeAutoria(query, recorte);
 
   const [{ data, error, count }, saldos] = await Promise.all([
     query.range(from, to),
-    fetchSaldosAposMovimentos(bancoId),
+    fetchSaldosAposMovimentos(bancoId, recorte),
   ]);
   if (error) throw error;
 
@@ -220,6 +234,10 @@ export async function GET(req: Request) {
     const page = Math.max(Number(searchParams.get("page") ?? 1), 1);
     const limit = Math.min(Math.max(Number(searchParams.get("limit") ?? 10), 1), 100);
     const onlyTransactions = searchParams.get("onlyTransactions") === "true";
+    // Mesmo recorte do Fluxo: sem `financeiro:ver_todas_transacoes`, só o que a
+    // pessoa lançou e o que não tem autor. Vale para a lista, os totais e os
+    // saldos — um cartão com o caixa inteiro revelaria o que a lista esconde.
+    const recorte = await recorteDeAutoria(false);
 
     if (onlyTransactions) {
       const transacoesPaginadas = await fetchTransactionsPage({
@@ -228,6 +246,7 @@ export async function GET(req: Request) {
         dateTo,
         page,
         limit,
+        recorte,
       });
 
       return NextResponse.json({
@@ -247,8 +266,8 @@ export async function GET(req: Request) {
         .from("bancoconta")
         .select("id, titulo, valorinicial, agencia, contanumero, tipo, proprietario, ativo")
         .order("titulo", { ascending: true }),
-      fetchAllTransactions(dateFrom, dateTo),
-      fetchTransactionsPage({ bancoId: Number.isFinite(bancoId) ? bancoId : null, dateFrom, dateTo, page, limit }),
+      fetchAllTransactions(recorte, dateFrom, dateTo),
+      fetchTransactionsPage({ bancoId: Number.isFinite(bancoId) ? bancoId : null, dateFrom, dateTo, page, limit, recorte }),
     ]);
 
     if (bancosError) throw bancosError;
