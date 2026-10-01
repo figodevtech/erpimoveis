@@ -21,6 +21,7 @@ interface DialogProdutoProps {
   newProductData?: Produto | undefined;
   handleSearchFornecedor?: () => void;
   onAfterSaveProduct?: () => void;
+  initialTab?: string;
 }
 
 const initialNewProduct: Produto = {
@@ -44,6 +45,7 @@ export function DialogProduto({
   newProductData,
   handleSearchFornecedor,
   onAfterSaveProduct,
+  initialTab,
 }: DialogProdutoProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = isOpen ?? internalOpen;
@@ -89,6 +91,7 @@ export function DialogProduto({
             onAfterSaveProduct={onAfterSaveProduct}
             isDesktop={isDesktop}
             isDrawer={false}
+            initialTab={initialTab}
           />
         ) : (
           <CadastroProduto
@@ -136,6 +139,7 @@ export function DialogProduto({
           onAfterSaveProduct={onAfterSaveProduct}
           isDesktop={false}
           isDrawer
+          initialTab={initialTab}
         />
       ) : (
         <CadastroProduto

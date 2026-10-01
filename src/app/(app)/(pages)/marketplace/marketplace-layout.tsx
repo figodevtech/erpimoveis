@@ -132,7 +132,7 @@ export function MarketplaceSectionNav<T extends string>({ items, trailing }: {
           })}
         </TabsList>
       </div>
-      {trailing ? <div className="flex shrink-0 self-end justify-self-end md:col-start-3 md:self-auto">{trailing}</div> : null}
+      {trailing ? <div className="flex w-full shrink-0 self-end justify-self-end md:col-start-3 md:w-auto md:self-auto">{trailing}</div> : null}
     </div>
   );
 }

@@ -52,6 +52,7 @@
     "db:migrar:plano-contas": "tsx scripts/db/migrar-classificacao-plano-contas.ts",
     "db:deploy": "tsx scripts/db/deploy.ts",
     "db:deploy:demo": "tsx scripts/db/deploy-demo.ts",
+    "db:deploy:demir": "tsx scripts/db/deploy-demir.ts",
     "db:deploy:clients": "tsx scripts/db/deploy-clients.ts",
     "db:deploy:garage": "tsx scripts/db/deploy-garage.ts",
     "migracao:demir:financeiro": "tsx scripts/migracao/demir-financeiro.ts",

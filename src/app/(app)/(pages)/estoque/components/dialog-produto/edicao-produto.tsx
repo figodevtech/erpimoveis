@@ -28,6 +28,7 @@ interface EdicaoProdutoProps {
   onAfterSaveProduct?: () => void;
   isDesktop?: boolean;
   isDrawer?: boolean;
+  initialTab?: string;
 }
 
 const EDITABLE_PRODUCT_FIELDS: (keyof Produto)[] = [
@@ -70,12 +71,13 @@ export default function EdicaoProduto({
   onAfterSaveProduct,
   isDesktop = true,
   isDrawer = false,
+  initialTab = "Geral",
 }: EdicaoProdutoProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Produto | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [currentTab, setCurrentTab] = useState<string>("Geral")
+  const [currentTab, setCurrentTab] = useState<string>(initialTab)
 
   const reqIdRef = useRef(0);
   const originalProductRef = useRef<Produto | undefined>(undefined);
@@ -345,7 +347,7 @@ export default function EdicaoProduto({
       description="Preencha dados para editar um produto"
       isDesktop={isDesktop}
       isDrawer={isDrawer}
-      defaultTab="Geral"
+      defaultTab={initialTab}
       currentTab={currentTab}
       loading={isLoading}
 
