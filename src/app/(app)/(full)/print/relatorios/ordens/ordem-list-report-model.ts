@@ -340,3 +340,65 @@ export function paginarLancamentos<T>(
 
   return folhas.length ? folhas : [[]];
 }
+
+/* -------------------------------------------------------------------------
+ * Resumo financeiro: os recebimentos do recorte por forma de pagamento.
+ * ----------------------------------------------------------------------- */
+
+/** Um recebimento da aba "Recebimentos", já repartido pela rota. */
+export type RecebimentoDaFolha = {
+  os: string;
+  metodo: string;
+  recebido: number;
+  pendenteVencido: number;
+  pendenteAVencer: number;
+};
+
+export type ResumoDoMetodo = {
+  /** Código gravado na transação; vazio quando ela não tem método. */
+  metodo: string;
+  lancamentos: number;
+  recebido: number;
+  pendenteVencido: number;
+  pendenteAVencer: number;
+  total: number;
+};
+
+const centavos = (valor: number) => Math.round(valor * 100) / 100;
+
+/**
+ * Uma linha por forma de pagamento, da maior para a menor.
+ *
+ * O título pago em parte conta nas duas colunas e uma vez só em `lancamentos`:
+ * ele é um lançamento, com dinheiro já entrado e saldo em aberto.
+ */
+export function resumirRecebimentosPorMetodo(linhas: RecebimentoDaFolha[]): ResumoDoMetodo[] {
+  const porMetodo = new Map<string, ResumoDoMetodo>();
+
+  for (const linha of linhas) {
+    const metodo = linha.metodo.trim().toUpperCase();
+    const atual = porMetodo.get(metodo) ?? {
+      metodo,
+      lancamentos: 0,
+      recebido: 0,
+      pendenteVencido: 0,
+      pendenteAVencer: 0,
+      total: 0,
+    };
+    atual.lancamentos += 1;
+    atual.recebido += linha.recebido;
+    atual.pendenteVencido += linha.pendenteVencido;
+    atual.pendenteAVencer += linha.pendenteAVencer;
+    porMetodo.set(metodo, atual);
+  }
+
+  return [...porMetodo.values()]
+    .map((resumo) => ({
+      ...resumo,
+      recebido: centavos(resumo.recebido),
+      pendenteVencido: centavos(resumo.pendenteVencido),
+      pendenteAVencer: centavos(resumo.pendenteAVencer),
+      total: centavos(resumo.recebido + resumo.pendenteVencido + resumo.pendenteAVencer),
+    }))
+    .sort((a, b) => b.total - a.total || a.metodo.localeCompare(b.metodo, "pt-BR"));
+}

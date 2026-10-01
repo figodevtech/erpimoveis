@@ -181,7 +181,7 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
         </DialogHeader>
 
         <ReportFiltersPanel>
-          <ReportPeriod dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
+          <ReportPeriod dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} previousMonth />
           <Field label="Filtrar período por">
             <Select value={dateField} onValueChange={(value) => setDateField(value as DateField)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
