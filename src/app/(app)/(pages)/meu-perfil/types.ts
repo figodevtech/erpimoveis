@@ -129,6 +129,8 @@ export type RealizadorDoServico = {
   /** Fatia do valor do servico atribuida a esta pessoa. */
   valorBase: number;
   valorComissao: number;
+  /** Comissao corrigida no evento financeiro (contabil) da OS; `valorComissao` ja e a corrigida. */
+  comissaoAjustada: boolean;
   euMesmo: boolean;
 };
 
@@ -147,6 +149,8 @@ export type MeuServico = {
   /** A fatia e a comissao desta pessoa, como gravadas. */
   valorBase: number;
   valorComissao: number;
+  /** Comissao corrigida no evento financeiro (contabil) da OS; `valorComissao` ja e a corrigida. */
+  comissaoAjustada: boolean;
   /** Todos os executores do servico — mais de um significa trabalho dividido. */
   realizadores: RealizadorDoServico[];
   ordem: {

@@ -43,6 +43,19 @@ export const EM_NOTA = 84;
 
 export const moeda = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 export const percentual = (n: number | null) => n == null ? "Não cadastrado" : `${n.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+/**
+ * Por que a taxa aplicada difere do que se esperaria, quando difere. O serviço
+ * vem antes do cadastro do realizador: com o serviço fora da comissão, a taxa
+ * da pessoa não explica nada. Vale o que o serviço era no cálculo — mudar o
+ * cadastro do serviço depois não reescreve OS antiga.
+ */
+export function observacaoDaTaxa(l: Pick<LinhaServico, "geraComissaoNoCalculo" | "geraComissaoHoje" | "percentualAtual" | "percentualAplicado">) {
+  if (!l.geraComissaoNoCalculo) return l.geraComissaoHoje ? "serviço não gerava comissão no cálculo; hoje gera" : "serviço não gera comissão";
+  const partes: string[] = [];
+  if (l.percentualAtual != null && l.percentualAtual !== l.percentualAplicado) partes.push(`cadastro atual ${percentual(l.percentualAtual)}`);
+  if (!l.geraComissaoHoje) partes.push("hoje o serviço não gera comissão");
+  return partes.join("; ");
+}
 export const inteiro = (n: number) => n.toLocaleString("pt-BR");
 export const quantidadeTexto = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 3 });
 export const STATUS_LABEL: Record<string, string> = {

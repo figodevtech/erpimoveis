@@ -81,6 +81,7 @@ export function DivisaoDoServico({
                   {formatarMoeda(realizador.valorBase)}
                   {" · "}
                   {formatarMoeda(realizador.valorComissao)} de comissão
+                  {realizador.comissaoAjustada && " (ajustada)"}
                 </span>
               </li>
             ))}

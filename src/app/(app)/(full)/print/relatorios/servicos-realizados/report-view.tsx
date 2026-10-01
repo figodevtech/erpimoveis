@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react";
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import type { TotaisServicos } from "@/lib/relatorios/servicos-realizados";
 import {
-  MM_ESPACO, MM_IDENTIFICACAO, MM_LINHA, MM_LINHA_NOTA, MM_VALORES, inteiro, moeda, paginarServicos, percentual,
+  MM_ESPACO, MM_IDENTIFICACAO, MM_LINHA, MM_LINHA_NOTA, MM_VALORES, inteiro, moeda, observacaoDaTaxa, paginarServicos, percentual,
   rotuloSituacao, rotuloStatus, type BlocoGrupo, type BlocoRelatorio, type BlocoServico, type PaginaServicos,
 } from "./report-model";
 
@@ -221,11 +221,17 @@ function LinhaDeServico({ bloco, listrado }: { bloco: BlocoServico; listrado: bo
         {bloco.execucao.map((linha, i) => <div className="sr-linha text-neutral-500" key={`e${i}`}>{linha || " "}</div>)}
       </div>
       {bloco.valores && <div className="flex shrink-0 items-center justify-between gap-2 border-t border-neutral-200 bg-slate-50 px-1.5 text-[8px]" style={{ height: `${MM_VALORES}mm` }}>
-        <span className="min-w-0 truncate text-neutral-500">
+        {/* Corrigida no evento da OS, a conta base × % não fecha com o valor;
+            a faixa diz de onde o número veio e o que a regra daria. */}
+        {l.comissaoAjustada ? <span className="min-w-0 truncate text-neutral-500">
+          <strong className="text-amber-700">Ajustada no evento financeiro da OS</strong>
+          {" · pela regra "}<strong className="tabular-nums text-neutral-800">{moeda(l.comissaoCalculada)}</strong>
+          <span className="text-neutral-400">{`  (base ${moeda(l.baseComissao)} × ${percentual(l.percentualAplicado)})`}</span>
+        </span> : <span className="min-w-0 truncate text-neutral-500">
           Base individual <strong className="tabular-nums text-neutral-800">{moeda(l.baseComissao)}</strong>
           {" × "}<strong className="tabular-nums text-neutral-800">{percentual(l.percentualAplicado)}</strong>
-          {l.percentualAtual != null && l.percentualAtual !== l.percentualAplicado ? <span className="text-neutral-400">{`  (cadastro atual ${percentual(l.percentualAtual)})`}</span> : null}
-        </span>
+          {observacaoDaTaxa(l) ? <span className="text-neutral-400">{`  (${observacaoDaTaxa(l)})`}</span> : null}
+        </span>}
         <span className="shrink-0 whitespace-nowrap">
           <span className="text-[7px] uppercase tracking-wide text-neutral-500">Comissão sugerida </span>
           <strong className="text-[10px] tabular-nums text-violet-800">{moeda(l.comissao)}</strong>

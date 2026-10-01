@@ -72,7 +72,11 @@ export interface Customer {
   saldo_credito?: number | null
 }
 
-/** Uma linha do razão do crédito do cliente. O razão nunca é reescrito. */
+/**
+ * Uma linha do razão do crédito do cliente. Só o ajuste MANUAL pode ser editado
+ * ou excluído (e o banco recalcula as fotografias); a linha de TRANSACAO é
+ * imutável — desfazê-la é estornar a baixa.
+ */
 export interface SaldoMovimentoCliente {
   id: number
   /** CREDITO entra na carteira; DEBITO sai dela. */
@@ -87,6 +91,14 @@ export interface SaldoMovimentoCliente {
   motivo: string | null
   created_by: string | null
   created_at: string
+  updated_by: string | null
+  updated_at: string | null
+  /** Nome de quem lançou (no manual) ou de quem fez a baixa (na transação). */
+  created_by_nome: string | null
+  updated_by_nome: string | null
+  /** Documento por trás da baixa, quando a linha veio de transação. */
+  ordemservico_id: number | null
+  venda_id: number | null
 }
 
 export interface DividaCliente {

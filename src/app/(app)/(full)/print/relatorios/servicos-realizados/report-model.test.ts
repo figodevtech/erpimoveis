@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizarServico } from "@/lib/relatorios/servicos-realizados";
-import { EM_CORPO, capacidadeDaFolha, endpointServicosValido, fragmentosServico, larguraTexto, paginarServicos, quebrarTexto } from "./report-model";
+import { EM_CORPO, capacidadeDaFolha, endpointServicosValido, fragmentosServico, larguraTexto, observacaoDaTaxa, paginarServicos, quebrarTexto } from "./report-model";
 
 const cabe = (paginas: ReturnType<typeof paginarServicos>) => paginas.every((p, i) => p.altura <= capacidadeDaFolha(i));
 
@@ -78,4 +78,14 @@ test("resultado vazio gera folha identificada e URLs externas não são aceitas"
   assert.ok(nota?.tipo === "nota" && nota.vazio && nota.linhas.some(l => l.includes("Nenhum serviço")));
   assert.ok(endpointServicosValido("/api/reports/servicos-realizados/export?status=ORCAMENTO"));
   for (const endpoint of ["https://example.com", "//example.com", "/api/reports/servicos-realizados/export/outro", "/api/reports/ordens/export"]) assert.equal(endpointServicosValido(endpoint), false);
+});
+test("a taxa se explica pelo serviço como era no cálculo, antes do cadastro do realizador", () => {
+  const base = { geraComissaoNoCalculo: true, geraComissaoHoje: true, percentualAtual: 10, percentualAplicado: 10 };
+  assert.equal(observacaoDaTaxa(base), "");
+  assert.equal(observacaoDaTaxa({ ...base, percentualAtual: 5, percentualAplicado: 0 }), "cadastro atual 5%");
+  // O serviço fora da comissão explica o 0%; o cadastro de 10% não entra.
+  assert.equal(observacaoDaTaxa({ ...base, geraComissaoNoCalculo: false, geraComissaoHoje: false, percentualAplicado: 0 }), "serviço não gera comissão");
+  assert.equal(observacaoDaTaxa({ ...base, geraComissaoNoCalculo: false, percentualAplicado: 0 }), "serviço não gerava comissão no cálculo; hoje gera");
+  // OS #434 do Demir: gerava quando foi apurada, o cadastro mudou depois.
+  assert.equal(observacaoDaTaxa({ ...base, geraComissaoHoje: false }), "hoje o serviço não gera comissão");
 });

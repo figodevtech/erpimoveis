@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 import { AGRUPAMENTOS, agruparServicos, duracaoSegundos, duracaoTexto, linhasOrdenadas, NOTA_COMPARTILHADOS, numero, somarServicos, texto, type FiltrosServicos, type GrupoServicos, type LinhaServico } from "./servicos-realizados";
 
-type Coluna = { key: keyof LinhaServico; label: string; tipo?: "numero" | "moeda" | "data" | "percentual"; largura: number };
+type Coluna = { key: keyof LinhaServico; label: string; tipo?: "numero" | "moeda" | "data" | "percentual" | "simNao"; largura: number };
 const COLUNAS: Coluna[] = [
   { key: "ordemId", label: "OS", tipo: "numero", largura: 10 },
   { key: "statusOS", label: "Status da OS", largura: 24 },
@@ -24,6 +24,10 @@ const COLUNAS: Coluna[] = [
   { key: "baseComissao", label: "Base individual (R$)", tipo: "moeda", largura: 24 },
   { key: "percentualAplicado", label: "Percentual aplicado (%)", tipo: "percentual", largura: 24 },
   { key: "comissao", label: "Comissão sugerida (R$)", tipo: "moeda", largura: 24 },
+  { key: "comissaoAjustada", label: "Comissão ajustada no evento da OS", tipo: "simNao", largura: 28 },
+  { key: "comissaoCalculada", label: "Comissão calculada pela regra (R$)", tipo: "moeda", largura: 30 },
+  { key: "geraComissaoNoCalculo", label: "Serviço gerava comissão no cálculo", tipo: "simNao", largura: 30 },
+  { key: "geraComissaoHoje", label: "Serviço gera comissão hoje", tipo: "simNao", largura: 26 },
   { key: "situacao", label: "Situação da execução", largura: 24 },
   { key: "inicio", label: "Início individual", tipo: "data", largura: 24 },
   { key: "fim", label: "Término individual", tipo: "data", largura: 24 },
@@ -37,7 +41,7 @@ export function criarWorkbookServicos(linhas: LinhaServico[], por: FiltrosServic
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([
     [...COLUNAS.map(c => c.label), "Tempo de execução"],
-    ...ordenadas.map(l => [...COLUNAS.map(c => c.tipo === "data" ? dataExcel(String(l[c.key] ?? "")) : l[c.key] ?? ""), duracaoTexto(duracaoSegundos(l.inicio, l.fim))]),
+    ...ordenadas.map(l => [...COLUNAS.map(c => c.tipo === "data" ? dataExcel(String(l[c.key] ?? "")) : c.tipo === "simNao" ? (l[c.key] ? "Sim" : "Não") : l[c.key] ?? ""), duracaoTexto(duracaoSegundos(l.inicio, l.fim))]),
   ]);
   ws["!cols"] = [...COLUNAS.map(c => ({ wch: c.largura })), { wch: 24 }];
   ws["!autofilter"] = { ref: XLSX.utils.encode_range({ r: 0, c: 0 }, { r: ordenadas.length, c: COLUNAS.length }) };
@@ -83,7 +87,7 @@ export function lerWorkbookServicos(buffer: ArrayBuffer) {
   const registros = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets["Serviços"], { defval: "", raw: true });
   const linhas = registros.map(r => Object.fromEntries(COLUNAS.map(c => {
     const v = r[c.label];
-    return [c.key, c.tipo === "data" ? dataDaPlanilha(v) : c.key === "percentualAtual" && v === "" ? null : c.tipo ? numero(v) : texto(v)];
+    return [c.key, c.tipo === "data" ? dataDaPlanilha(v) : c.tipo === "simNao" ? texto(v) === "Sim" : c.key === "percentualAtual" && v === "" ? null : c.tipo ? numero(v) : texto(v)];
   })) as LinhaServico);
   const metadados = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets["Filtros"], { header: 1, defval: "" }).slice(1).map(r => [texto(r[0]), texto(r[1])] as [string, string]);
   const agrupamento = metadados.find(([k]) => k === "Agrupamento")?.[1];

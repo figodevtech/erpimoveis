@@ -32,7 +32,8 @@ export function lerFiltrosServicos(params: URLSearchParams): FiltrosServicos {
     if (value && !(uuid ? UUID.test(value) : /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)))) throw new FiltroInvalido("Identificador inválido.");
     return value;
   };
-  const campoData = get("campoData") || "entrada";
+  // Padrão igual ao da Central Pessoal: conta no mês em que a execução terminou.
+  const campoData = get("campoData") || "conclusao";
   const agruparPor = get("agruparPor") || "realizador";
   const situacao = get("situacao");
   if (!Object.hasOwn(CAMPOS_DATA, campoData) || !Object.hasOwn(AGRUPAMENTOS, agruparPor) || (situacao && !Object.hasOwn(SITUACOES, situacao))) throw new FiltroInvalido("Opção de relatório inválida.");
@@ -74,6 +75,18 @@ export type LinhaServico = {
   setorId: string; setor: string; criadorId: string; criador: string; atribuidoPor: string;
   statusOS: string; cliente: string; descricao: string; complemento: string; quantidade: number;
   valorServico: number; baseComissao: number; percentualAplicado: number; comissao: number;
+  /** A comissão foi corrigida no evento financeiro (contábil) da OS; `comissao` já é o valor corrigido. */
+  comissaoAjustada: boolean;
+  /** O que a regra daria (base × percentual), para a linha ajustada se explicar. */
+  comissaoCalculada: number;
+  /**
+   * Se o serviço gerava comissão quando a OS foi apurada, como o evento de
+   * comissão da OS registrou. É o que explica a taxa zerada: mudar o cadastro
+   * do serviço depois não reescreve OS antiga.
+   */
+  geraComissaoNoCalculo: boolean;
+  /** `servico.gera_comissao` como está hoje no cadastro. */
+  geraComissaoHoje: boolean;
   situacao: string; inicio: string; fim: string; dataReferencia: string;
 };
 export function normalizarServico(raw: unknown, campoData: FiltrosServicos["campoData"]): LinhaServico {
@@ -88,8 +101,30 @@ export function normalizarServico(raw: unknown, campoData: FiltrosServicos["camp
     statusOS: texto(os.status), cliente: texto(cliente?.nomerazaosocial) || "Sem cliente", descricao: textos.descricao, complemento: textos.subdescricao ?? "",
     quantidade: numero(item.quantidade), valorServico: numero(item.subtotal), baseComissao: numero(r.valor_base),
     percentualAplicado: numero(r.comissao_percent_efetiva ?? r.comissao_percent_aplicada), comissao: numero(r.valor_comissao),
+    comissaoAjustada: r.valor_comissao_manual != null,
+    // Sem o evento da OS para dizer o que valia, o cadastro de hoje é o melhor
+    // indício; `carregarServicosRealizados` corrige pelo evento quando há.
+    geraComissaoNoCalculo: servico.gera_comissao !== false, geraComissaoHoje: servico.gera_comissao !== false,
+    comissaoCalculada: Math.round(numero(r.valor_base) * numero(r.comissao_percent_efetiva ?? r.comissao_percent_aplicada)) / 100,
     situacao: texto(r.status_execucao) || "PENDENTE", inicio: texto(r.iniciado_em), fim: texto(r.finalizado_em),
     dataReferencia: texto(campoData === "servico" ? r.finalizado_em : campoData === "conclusao" ? os.execucao_fim_em : os.dataentrada) };
+}
+
+export type EventoComissao = { ordemservicoid: unknown; chave_origem: unknown; dados_snapshot: unknown };
+/**
+ * Se o serviço gerava comissão no cálculo, por vínculo, lido do evento de
+ * comissão de realização da OS (`dados_snapshot.gera_comissao`, gravado pela
+ * reconciliação). Evento sem a marca fica de fora, e a linha usa o cadastro.
+ */
+export function geracaoNoCalculo(eventos: EventoComissao[]) {
+  const mapa = new Map<string, boolean>();
+  for (const e of eventos) {
+    const chave = texto(e.chave_origem);
+    if (!chave || chave.startsWith("CRIACAO:")) continue;
+    const gera = objeto(e.dados_snapshot).gera_comissao;
+    if (typeof gera === "boolean") mapa.set(`${texto(e.ordemservicoid)}:${chave}`, gera);
+  }
+  return mapa;
 }
 
 export type EventoAtribuicao = {
@@ -149,4 +184,4 @@ export function agruparServicos(linhas: LinhaServico[], por: FiltrosServicos["ag
   }).sort((a, b) => comparar(a.nome, b.nome) || comparar(a.id, b.id));
 }
 export function linhasOrdenadas(grupos: GrupoServicos[]): LinhaServico[] { return grupos.flatMap(g => g.filhos.length ? linhasOrdenadas(g.filhos) : g.linhas); }
-export const NOTA_COMPARTILHADOS = "O valor integral aparece em cada participação. Os totais de setor, criador e geral contam cada serviço uma vez; a comissão soma apenas os realizadores incluídos nos filtros. Percentuais do cadastro são atuais; comissões e bases são as gravadas na OS.";
+export const NOTA_COMPARTILHADOS = "O valor integral aparece em cada participação. Os totais de setor, criador e geral contam cada serviço uma vez; a comissão soma apenas os realizadores incluídos nos filtros. Percentuais do cadastro são atuais; comissões e bases são as gravadas na OS. Comissão corrigida no evento financeiro da OS aparece com o valor corrigido, o mesmo do registro contábil.";

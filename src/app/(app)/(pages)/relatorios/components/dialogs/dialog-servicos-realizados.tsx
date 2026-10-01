@@ -20,7 +20,8 @@ type Opcoes = { pessoas: { id: string; nome: string; ativo: boolean }[]; setores
 export default function DialogServicosRealizados() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
-  const [campoData, setCampoData] = useState("entrada");
+  // Abre no eixo da Central Pessoal, para os totais baterem com o Meu Perfil.
+  const [campoData, setCampoData] = useState("conclusao");
   const [agruparPor, setAgruparPor] = useState("realizador");
   const [status, setStatus] = useState<string[]>([]);
   const [criadorId, setCriadorId] = useState("");

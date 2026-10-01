@@ -119,6 +119,17 @@ export function TabelaMeusServicos({ periodo, ativo, usuarioId }: { periodo: Per
                         Comissão
                       </Badge>
                     )}
+                    {/* O valor que vale e o do evento da OS, nao o da regra: sem o
+                        selo, a comissao do card parece nao fechar com a base. */}
+                    {servico.comissaoAjustada && (
+                      <Badge
+                        variant="outline"
+                        title="A comissão deste serviço foi corrigida no evento financeiro da OS. Os totais usam o valor corrigido."
+                        className="mt-0.5 shrink-0 border-transparent bg-amber-500/15 font-medium text-amber-700 dark:text-amber-400"
+                      >
+                        Comissão ajustada
+                      </Badge>
+                    )}
                     <span className="mt-0.5">
                       <DivisaoDoServico
                         realizadores={servico.realizadores}

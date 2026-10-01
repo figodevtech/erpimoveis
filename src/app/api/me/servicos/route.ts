@@ -33,7 +33,9 @@ import {
  * quanto ganhou, nao so o quanto o servico valeu. Vem sempre do que esta
  * gravado em `osservico_realizador` — `valor_base` e `valor_comissao` —, nunca
  * de um calculo refeito aqui, para o que a Central mostra nunca divergir do que
- * o relatorio de comissao paga.
+ * o relatorio de comissao paga. Comissao corrigida no evento financeiro da OS ja
+ * chega corrigida em `valor_comissao` (gatilho `tg_espelhar_comissao_ajustada`);
+ * `valor_comissao_manual` so diz que houve a correcao.
  *
  * Junto vao os corealizadores: quando duas pessoas dividem o mesmo servico, a
  * linha precisa dizer com quem foi dividido e quanto coube a cada um, senao o
@@ -45,6 +47,7 @@ const SELECT = `
   observacao_execucao,
   valor_base,
   valor_comissao,
+  valor_comissao_manual,
   item:osservico!inner (
     descricao,
     quantidade,
@@ -122,7 +125,7 @@ export async function GET(req: Request) {
     if (idsDeOs.length) {
       const { data: vinculos, error: erroVinculos } = await supabaseAdmin
         .from("osservico_realizador")
-        .select("ordemservicoid, servicoid, usuarioid, valor_base, valor_comissao, usuario:usuarioid ( id, nome, email )")
+        .select("ordemservicoid, servicoid, usuarioid, valor_base, valor_comissao, valor_comissao_manual, usuario:usuarioid ( id, nome, email )")
         .in("ordemservicoid", idsDeOs);
       if (erroVinculos) throw erroVinculos;
 
@@ -161,6 +164,7 @@ export async function GET(req: Request) {
         // O que este realizador ganhou nesta linha, como esta gravado.
         valorBase: num(linha.valor_base),
         valorComissao: num(linha.valor_comissao),
+        comissaoAjustada: linha.valor_comissao_manual != null,
         realizadores: (porServico.get(`${linha.ordemservicoid}::${linha.servicoid}`) ?? []).map((vinculo) => {
           const usuario = primeiro(vinculo.usuario);
           return {
@@ -168,6 +172,7 @@ export async function GET(req: Request) {
             nome: texto(usuario?.nome) || texto(usuario?.email) || "Realizador",
             valorBase: num(vinculo.valor_base),
             valorComissao: num(vinculo.valor_comissao),
+            comissaoAjustada: vinculo.valor_comissao_manual != null,
             euMesmo: String(vinculo.usuarioid ?? "") === userId,
           };
         }),

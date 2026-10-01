@@ -10,7 +10,26 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 type Params = { params: Promise<{ id: string }> };
 
 const MOVIMENTO_FIELDS =
-  "id, sentido, origem, acao, valor, saldo_anterior, saldo_resultante, transacao_id, motivo, created_by, created_at";
+  "id, sentido, origem, acao, valor, saldo_anterior, saldo_resultante, transacao_id, motivo, created_by, created_at, updated_by, updated_at, transacao:transacao_id(ordemservicoid, vendaid)";
+
+type MovimentoBruto = {
+  created_by: string | null;
+  updated_by: string | null;
+  transacao: { ordemservicoid: number | null; vendaid: number | null } | null;
+  [campo: string]: unknown;
+};
+
+/** Nome de quem lançou e de quem editou. Sem join: `created_by` não é FK de `usuario`. */
+async function carregarUsuarios(ids: Array<string | null>): Promise<Map<string, string>> {
+  const unicos = Array.from(new Set(ids.filter((id): id is string => Boolean(id))));
+  const mapa = new Map<string, string>();
+  if (unicos.length === 0) return mapa;
+
+  const { data, error } = await supabaseAdmin.from("usuario").select("id, nome").in("id", unicos);
+  if (error) throw error;
+  for (const linha of data ?? []) mapa.set(String(linha.id), String(linha.nome ?? ""));
+  return mapa;
+}
 
 const LIMITE_PADRAO = 50;
 const LIMITE_MAXIMO = 200;
@@ -66,10 +85,23 @@ export async function GET(req: Request, ctx: Params) {
 
     if (movimentosError) throw movimentosError;
 
+    const linhas = (movimentos ?? []) as unknown as MovimentoBruto[];
+    const usuarios = await carregarUsuarios(linhas.flatMap((m) => [m.created_by, m.updated_by]));
+
+    // O documento por trás da baixa vem achatado: a tela só quer saber se há
+    // OS ou venda para abrir, não a transação inteira.
+    const enriquecidos = linhas.map(({ transacao, ...movimento }) => ({
+      ...movimento,
+      created_by_nome: movimento.created_by ? usuarios.get(movimento.created_by) || null : null,
+      updated_by_nome: movimento.updated_by ? usuarios.get(movimento.updated_by) || null : null,
+      ordemservico_id: transacao?.ordemservicoid ?? null,
+      venda_id: transacao?.vendaid ?? null,
+    }));
+
     return NextResponse.json({
       data: {
         saldo: Number(cliente.saldo_credito ?? 0),
-        movimentos: movimentos ?? [],
+        movimentos: enriquecidos,
         total: count ?? 0,
       },
     });
