@@ -2,19 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { CircleDollarSign } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { TabsContent } from "@/components/ui/tabs";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 
 import { OSDetalhesDialog } from "../../../ordens/components/dialogs/detalhes-os-dialog";
 import { VendaDetailsDialog } from "../../../(vendas)/historicovendas/components/venda-detail-dialog";
 import type { Customer, SaldoMovimentoCliente } from "../../types";
-import { formatCpfCnpj } from "./utils";
 
 import { CreditBalanceCard } from "./credito/creditBalanceCard";
-import { CreditMovementItem } from "./credito/creditMovementItem";
+import { COLUNAS_EXTRATO, CreditMovementItem } from "./credito/creditMovementItem";
 import { CreditAdjustmentDialog } from "./credito/creditAdjustmentDialog";
 import {
   CreditDeleteDialog,
@@ -22,7 +20,7 @@ import {
   CreditErrorState,
   CreditLoadingState,
 } from "./credito/creditStates";
-import type { ModoLancamento, Sentido } from "./credito/types";
+import { agruparPorDia, type ModoLancamento, type Sentido } from "./credito/types";
 
 type CustomerCreditoTabProps = {
   customer: Customer;
@@ -35,24 +33,6 @@ type SaldoResponse = {
     total: number;
   };
 };
-
-function CustomerContext({ customer }: { customer: Customer }) {
-  return (
-    <div className="mb-4 flex min-w-0 items-center gap-3 rounded-xl border bg-muted/35 px-4 py-3">
-      <span className="rounded-full bg-background p-2 shadow-xs">
-        <CircleDollarSign className="size-5 text-primary" aria-hidden="true" />
-      </span>
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold" title={customer.nomerazaosocial}>
-          {customer.nomerazaosocial}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">
-          {formatCpfCnpj(customer.cpfcnpj, customer.tipopessoa)}
-        </p>
-      </div>
-    </div>
-  );
-}
 
 export default function CustomerCreditoTab({ customer }: CustomerCreditoTabProps) {
   const { data: session } = useSession();
@@ -175,68 +155,77 @@ export default function CustomerCreditoTab({ customer }: CustomerCreditoTabProps
 
   const saldo = dados?.saldo ?? 0;
   const movimentos = dados?.movimentos ?? [];
+  const grupos = agruparPorDia(movimentos);
 
   return (
     <TabsContent value="Credito" className="h-full min-h-0 overflow-hidden p-0">
       <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6">
-        {/* Identificação de contexto do cliente (consistente com Vendas e Financeiro) */}
-        <CustomerContext customer={customer} />
-
         {loading ? (
           <CreditLoadingState />
         ) : error ? (
           <CreditErrorState retry={() => void carregar()} />
         ) : (
-          <div className="space-y-5">
-            {/* Card Principal da Carteira Financeira */}
+          <div className="overflow-hidden rounded-xl border bg-card">
             <CreditBalanceCard
+              customer={customer}
               saldo={saldo}
               podeAjustar={podeAjustar}
               onAdicionar={() => setLancamento({ tipo: "criar", sentido: "CREDITO" })}
               onRemover={() => setLancamento({ tipo: "criar", sentido: "DEBITO" })}
             />
 
-            {/* Cabeçalho do Extrato Financeiro */}
-            <div className="space-y-3">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="font-semibold text-base tracking-tight text-foreground">
-                    Movimentações
-                  </h3>
-                  <p className="text-xs text-muted-foreground sm:text-sm">
-                    Histórico completo da carteira e conciliação de créditos do cliente
-                  </p>
-                </div>
-                {dados && (
-                  <Badge variant="outline" className="w-fit text-xs font-medium tabular-nums text-muted-foreground">
-                    {dados.total} {dados.total === 1 ? "movimentação" : "movimentações"}
-                  </Badge>
-                )}
-              </div>
-
-              {/* Lista / Razão Financeiro */}
+            <div className="border-t">
               {movimentos.length === 0 ? (
                 <CreditEmptyState
                   podeAjustar={podeAjustar}
                   onAdicionar={() => setLancamento({ tipo: "criar", sentido: "CREDITO" })}
                 />
               ) : (
-                <div className="overflow-hidden rounded-2xl border bg-card shadow-xs">
-                  <ul className="divide-y divide-border/60">
-                    {movimentos.map((movimento) => (
-                      <CreditMovementItem
-                        key={movimento.id}
-                        movimento={movimento}
-                        podeAjustar={podeAjustar}
-                        onEditar={() => setLancamento({ tipo: "editar", movimento })}
-                        onExcluir={() => setParaExcluir(movimento)}
-                        onAbrirDocumento={(doc) =>
-                          doc.tipo === "venda" ? setVendaAberta(doc.id) : setOsAberta(doc.id)
-                        }
-                      />
+                <>
+                  <div
+                    aria-hidden="true"
+                    className={cn(
+                      "hidden gap-x-3 border-b bg-muted/30 px-6 py-2 text-xs text-muted-foreground sm:grid",
+                      COLUNAS_EXTRATO,
+                    )}
+                  >
+                    <span>Hora</span>
+                    <span>Histórico</span>
+                    <span className="text-right">Valor (R$)</span>
+                    <span className="text-right">Saldo (R$)</span>
+                  </div>
+
+                  <ul aria-label="Extrato de crédito">
+                    {grupos.map((grupo) => (
+                      <li key={grupo.chave}>
+                        <p className="flex items-center gap-3 px-4 pb-1 pt-4 text-xs font-medium text-muted-foreground sm:px-6">
+                          {grupo.rotulo}
+                          <span className="h-px flex-1 bg-border" aria-hidden="true" />
+                        </p>
+                        <ul>
+                          {grupo.itens.map((movimento) => (
+                            <CreditMovementItem
+                              key={movimento.id}
+                              movimento={movimento}
+                              podeAjustar={podeAjustar}
+                              onEditar={() => setLancamento({ tipo: "editar", movimento })}
+                              onExcluir={() => setParaExcluir(movimento)}
+                              onAbrirDocumento={(doc) =>
+                                doc.tipo === "venda" ? setVendaAberta(doc.id) : setOsAberta(doc.id)
+                              }
+                            />
+                          ))}
+                        </ul>
+                      </li>
                     ))}
                   </ul>
-                </div>
+
+                  {dados && dados.total > movimentos.length && (
+                    <p className="border-t px-4 py-3 text-xs text-muted-foreground sm:px-6">
+                      Mostrando os {movimentos.length} lançamentos mais recentes de {dados.total}.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>

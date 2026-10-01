@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Loader2, Plus, RefreshCw, Trash2, WalletCards } from "lucide-react";
+import { Loader2, Plus, RefreshCw } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -12,57 +12,45 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { COLUNAS_EXTRATO } from "./creditMovementItem";
 import { descrever, moeda, type SaldoMovimentoCliente } from "./types";
 
 export function CreditLoadingState() {
   return (
     <div
-      className="space-y-4"
+      className="overflow-hidden rounded-xl border bg-card"
       role="status"
       aria-live="polite"
       aria-label="Carregando crédito do cliente"
     >
-      {/* Customer Context Skeleton */}
-      <Skeleton className="h-14 w-full rounded-xl" />
-
-      {/* Hero Balance Card Skeleton */}
-      <div className="rounded-2xl border bg-card p-5 sm:p-6 shadow-xs space-y-4">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-5 w-36 rounded-md" />
-          <Skeleton className="h-5 w-20 rounded-md" />
-        </div>
-        <Skeleton className="h-10 w-48 rounded-md" />
-        <Skeleton className="h-4 w-full max-w-md rounded-md" />
-        <div className="pt-2 flex gap-2">
-          <Skeleton className="h-10 w-36 rounded-lg" />
-          <Skeleton className="h-10 w-36 rounded-lg" />
+      <div className="space-y-4 px-4 pb-5 pt-4 sm:px-6">
+        <Skeleton className="h-3.5 w-64 max-w-full" />
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-3.5 w-28" />
+            <Skeleton className="h-8 w-44" />
+            <Skeleton className="h-3.5 w-80 max-w-full" />
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-10 w-36" />
+            <Skeleton className="h-10 w-40" />
+          </div>
         </div>
       </div>
-
-      {/* Movements Header Skeleton */}
-      <div className="flex items-center justify-between pt-2">
-        <div className="space-y-1.5">
-          <Skeleton className="h-5 w-32 rounded-md" />
-          <Skeleton className="h-4 w-48 rounded-md" />
-        </div>
-        <Skeleton className="h-6 w-24 rounded-full" />
-      </div>
-
-      {/* Ledger Items Skeleton */}
-      <div className="rounded-xl border bg-card divide-y divide-border/60 overflow-hidden">
-        {[1, 2, 3].map((item) => (
-          <div key={item} className="flex items-center justify-between p-4 gap-3">
-            <div className="flex items-center gap-3 flex-1">
-              <Skeleton className="size-10 rounded-xl shrink-0" />
-              <div className="space-y-2 flex-1">
-                <Skeleton className="h-4 w-1/3 rounded-md" />
-                <Skeleton className="h-3 w-1/4 rounded-md" />
-              </div>
+      <div className="border-t">
+        {[1, 2, 3, 4].map((item) => (
+          <div
+            key={item}
+            className={cn("grid grid-cols-[3rem_minmax(0,1fr)_2rem] gap-x-3 px-4 py-3.5 sm:px-6", COLUNAS_EXTRATO)}
+          >
+            <Skeleton className="h-3.5 w-9" />
+            <div className="space-y-2">
+              <Skeleton className="h-3.5 w-4/5" />
+              <Skeleton className="h-3 w-1/3" />
             </div>
-            <div className="space-y-2 text-right">
-              <Skeleton className="h-5 w-24 rounded-md ml-auto" />
-              <Skeleton className="h-3 w-16 rounded-md ml-auto" />
-            </div>
+            <Skeleton className="hidden h-3.5 w-16 justify-self-end sm:block" />
+            <Skeleton className="hidden h-3.5 w-16 justify-self-end sm:block" />
           </div>
         ))}
       </div>
@@ -73,24 +61,11 @@ export function CreditLoadingState() {
 export function CreditErrorState({ retry }: { retry: () => void }) {
   return (
     <div
-      className="flex min-h-64 flex-col items-center justify-center rounded-2xl border border-destructive/20 bg-destructive/5 p-6 text-center"
+      className="flex flex-col items-start gap-3 rounded-xl border border-destructive/30 bg-card px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6"
       role="alert"
     >
-      <div className="flex size-12 items-center justify-center rounded-2xl bg-destructive/10 text-destructive mb-3">
-        <AlertCircle className="size-6" aria-hidden="true" />
-      </div>
-      <p className="font-semibold text-foreground text-base">
-        Não foi possível carregar a carteira de crédito
-      </p>
-      <p className="mt-1 text-xs sm:text-sm text-muted-foreground max-w-md">
-        Houve uma falha ao consultar as movimentações do cliente no servidor. Tente novamente em alguns instantes.
-      </p>
-      <Button
-        type="button"
-        variant="outline"
-        className="mt-4 min-h-10 gap-2 border-destructive/30 hover:bg-destructive/10"
-        onClick={retry}
-      >
+      <p className="text-sm text-foreground">Não foi possível carregar o extrato de crédito.</p>
+      <Button type="button" variant="outline" className="min-h-10 gap-2" onClick={retry}>
         <RefreshCw className="size-4" aria-hidden="true" />
         Tentar novamente
       </Button>
@@ -106,25 +81,15 @@ export function CreditEmptyState({
   onAdicionar?: () => void;
 }) {
   return (
-    <div className="flex min-h-56 flex-col items-center justify-center rounded-2xl border border-dashed border-border/80 bg-card/50 p-6 text-center">
-      <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-3">
-        <WalletCards className="size-6" aria-hidden="true" />
-      </div>
-      <p className="font-semibold text-foreground text-base">
-        Nenhuma movimentação na carteira
-      </p>
-      <p className="mt-1 text-xs sm:text-sm text-muted-foreground max-w-md">
-        Este cliente ainda não possui créditos lançados nem histórico de abatimentos ou estornos de títulos.
+    <div className="px-4 py-10 sm:px-6">
+      <p className="text-sm font-medium text-foreground">Nenhum lançamento ainda.</p>
+      <p className="mt-1 max-w-[60ch] text-sm text-muted-foreground">
+        Créditos adicionados aqui e baixas pagas com crédito aparecem neste extrato.
       </p>
       {podeAjustar && onAdicionar && (
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-4 gap-2 text-xs font-medium"
-          onClick={onAdicionar}
-        >
-          <Plus className="size-3.5" aria-hidden="true" />
-          Adicionar primeiro crédito
+        <Button type="button" variant="outline" className="mt-4 min-h-10 gap-1.5" onClick={onAdicionar}>
+          <Plus className="size-4" aria-hidden="true" />
+          Adicionar crédito
         </Button>
       )}
     </div>
@@ -142,6 +107,8 @@ export function CreditDeleteDialog({
   onFechar: () => void;
   onConfirmar: () => void;
 }) {
+  const entrada = movimento?.sentido === "CREDITO";
+
   return (
     <AlertDialog
       open={movimento !== null}
@@ -151,24 +118,25 @@ export function CreditDeleteDialog({
     >
       <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
-          <div className="flex items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
-              <Trash2 className="size-4" />
-            </span>
-            <AlertDialogTitle className="text-lg font-semibold">Excluir lançamento?</AlertDialogTitle>
-          </div>
+          <AlertDialogTitle>Excluir lançamento?</AlertDialogTitle>
           <AlertDialogDescription asChild>
-            <div className="space-y-2 pt-2 text-xs sm:text-sm">
+            <div className="space-y-3 text-sm">
               {movimento && (
-                <div className="rounded-lg border bg-muted/40 p-3 text-foreground font-medium flex items-center justify-between">
-                  <span className="truncate pr-2">{descrever(movimento)}</span>
-                  <span className="tabular-nums font-bold shrink-0 text-destructive">
-                    {movimento.sentido === "CREDITO" ? "+" : "−"} {moeda.format(movimento.valor)}
+                <div className="flex items-baseline justify-between gap-4 rounded-lg border bg-muted/40 px-3 py-2.5 text-foreground">
+                  <span className="line-clamp-2 min-w-0">{descrever(movimento)}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 font-medium tabular-nums",
+                      entrada ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400",
+                    )}
+                  >
+                    {entrada ? "+" : "−"}
+                    {moeda.format(movimento.valor)}
                   </span>
                 </div>
               )}
               <span className="block text-muted-foreground">
-                O lançamento será removido permanentemente do extrato e o saldo do cliente será recalculado automaticamente pelo sistema.
+                O lançamento sai do extrato e o saldo das linhas seguintes é recalculado.
               </span>
             </div>
           </AlertDialogDescription>

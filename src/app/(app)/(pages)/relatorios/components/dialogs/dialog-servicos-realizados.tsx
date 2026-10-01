@@ -69,7 +69,7 @@ export default function DialogServicosRealizados() {
     <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
       <DialogHeader><DialogTitle>Serviços Realizados</DialogTitle><DialogDescription>Consulte os serviços vinculados aos realizadores, inclusive de ordens abertas, conforme os status selecionados.</DialogDescription></DialogHeader>
       <ReportFiltersPanel>
-        <ReportPeriod dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
+        <ReportPeriod dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} previousMonth />
         <Field label="Filtrar período por"><Lista value={campoData} onChange={setCampoData} opcoes={CAMPOS_DATA} />
           {campoData !== "entrada" && <p className="text-xs text-muted-foreground">Com período preenchido, registros sem esta data ficam fora. Para consultar orçamentos, use a entrada da OS.</p>}
         </Field>
