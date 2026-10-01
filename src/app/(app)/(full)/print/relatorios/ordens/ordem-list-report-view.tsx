@@ -36,10 +36,14 @@ import {
   MM_TITULO_DO_FILTRO,
   paginarLancamentos,
   paginarOrdens,
+  resumirRecebimentosPorMetodo,
   type FatiaOrdem,
   type ModoDaFolha,
   type OrderRow,
+  type RecebimentoDaFolha,
+  type ResumoDoMetodo,
 } from "./ordem-list-report-model";
+import { formatPaymentMethodLabel } from "@/lib/payment-methods";
 
 /**
  * Relação de ordens de serviço em A4 retrato.
@@ -278,6 +282,23 @@ type EventoDaOrdem = {
   itemDaComissao: "PRODUTO" | "SERVICO" | null;
 };
 
+/** Os saldos das ordens do recorte, somados das colunas por OS da exportação. */
+type SaldosDoRecorte = {
+  recebido: number;
+  pendenteVencido: number;
+  pendenteAVencer: number;
+  /** A parte do valor das ordens que nenhum pagamento cobre ainda. */
+  semLancamento: number;
+};
+
+/** Da receita bruta do cabeçalho ao valor das ordens do resumo financeiro. */
+type ConciliacaoDoRecorte = { receitaBruta: number; descontos: number; acrescimo: number };
+
+const SALDOS_ZERADOS: SaldosDoRecorte = { recebido: 0, pendenteVencido: 0, pendenteAVencer: 0, semLancamento: 0 };
+
+/** Pendência em âmbar: nem soma nem abatimento, que já são verde e vermelho. */
+const TOM_PENDENTE = "text-amber-700";
+
 /** Uma linha da tabela crua: o evento, com a OS de onde ele veio. */
 type LancamentoDaFolha = { chave: string; ordem: OrderRow; evento: EventoDaOrdem };
 
@@ -407,6 +428,10 @@ export function OrdemListReportView({
   const [agrupamento, setAgrupamento] = useState<Agrupamento>("OS");
   /** O painel de cards, a distribuição e o lucro por status. Título e filtros saem sempre. */
   const [exibirCabecalho, setExibirCabecalho] = useState(true);
+  /** A folha final com os recebimentos por forma de pagamento. */
+  const [exibirResumoFinanceiro, setExibirResumoFinanceiro] = useState(true);
+  const [recebimentos, setRecebimentos] = useState<RecebimentoDaFolha[]>([]);
+  const [saldos, setSaldos] = useState<SaldosDoRecorte>(SALDOS_ZERADOS);
   const [cacheDeItens, setCacheDeItens] = useState<{ endpoint: string; linhas: Map<string, ItemDaOrdem[]> } | null>(null);
   const [cacheDeEventos, setCacheDeEventos] = useState<{ endpoint: string; linhas: Map<string, EventoDaOrdem[]> } | null>(null);
   const [enderecoComFalha, setEnderecoComFalha] = useState<string | null>(null);
@@ -478,7 +503,31 @@ export function OrdemListReportView({
           surcharge: number(read(row, "Acréscimo financeiro (R$)")),
         }));
 
-        if (active) setRows(parsed);
+        // Os saldos vêm da aba principal, por OS, pela conta do painel da ordem;
+        // a repartição por método vem da aba de recebimentos.
+        const somaDaColuna = (rotulo: string) => matrix.reduce((soma, row) => soma + number(read(row, rotulo)), 0);
+        const saldosDoRecorte: SaldosDoRecorte = {
+          recebido: somaDaColuna("Recebido (R$)"),
+          pendenteVencido: somaDaColuna("Pendente vencido (R$)"),
+          pendenteAVencer: somaDaColuna("Pendente a vencer (R$)"),
+          semLancamento: somaDaColuna("Sem lançamento (R$)"),
+        };
+        const abaRecebimentos = await lerAba(buffer, "Recebimentos");
+        const linhasDeRecebimentos = (abaRecebimentos?.rows ?? []).map(
+          (row): RecebimentoDaFolha => ({
+            os: text(abaRecebimentos!.read(row, "OS")),
+            metodo: String(abaRecebimentos!.read(row, "Método") ?? ""),
+            recebido: number(abaRecebimentos!.read(row, "Recebido (R$)")),
+            pendenteVencido: number(abaRecebimentos!.read(row, "Pendente vencido (R$)")),
+            pendenteAVencer: number(abaRecebimentos!.read(row, "Pendente a vencer (R$)")),
+          }),
+        );
+
+        if (active) {
+          setRows(parsed);
+          setSaldos(saldosDoRecorte);
+          setRecebimentos(linhasDeRecebimentos);
+        }
       })
       .catch((caught) => {
         const message = caught instanceof Error ? caught.message : "Não foi possível gerar o relatório.";
@@ -759,6 +808,32 @@ export function OrdemListReportView({
     [lancamentos],
   );
   const quantasFolhas = folhasDaTabela?.length ?? pages.length;
+  const resumoPorMetodo = useMemo(() => resumirRecebimentosPorMetodo(recebimentos), [recebimentos]);
+  // A folha do resumo vem depois das de OS, inteira: assim ela não entra na
+  // paginação medida em milímetros, e nada nas folhas de cima muda de lugar.
+  const comResumoFinanceiro = exibirResumoFinanceiro && rows.length > 0;
+
+  /**
+   * De onde sai o valor das ordens: a receita bruta do cabeçalho, menos os
+   * descontos, mais o acréscimo financeiro. A receita e o desconto vêm da mesma
+   * fonte do painel de cima — eventos para quem os vê, orçamento para os
+   * demais —, para o número da folha final bater com o da primeira.
+   */
+  const conciliacao = useMemo<ConciliacaoDoRecorte>(() => {
+    const somar = (pegar: (row: OrderRow) => number) => rows.reduce((soma, row) => soma + pegar(row), 0);
+    const acrescimo = somar((row) => row.surcharge);
+    if (temEventos) {
+      // Desconto é despesa: o líquido da origem sai negativo, e aqui vai positivo.
+      const descontoLiquido = deducoesDaOs(eventosDoRecorte).find((deducao) => deducao.origem === "DESCONTO")?.valor ?? 0;
+      return { receitaBruta: totaisDosEventos.receita, descontos: -descontoLiquido, acrescimo };
+    }
+    return {
+      receitaBruta: somar((row) => row.products + row.services + row.freight),
+      descontos: somar((row) => row.discount),
+      acrescimo,
+    };
+  }, [eventosDoRecorte, rows, temEventos, totaisDosEventos]);
+  const totalDeFolhas = quantasFolhas + (comResumoFinanceiro ? 1 : 0);
 
   /**
    * O card leva direto à lista do seu tipo: liga os eventos, deixa só aquele
@@ -821,6 +896,10 @@ export function OrdemListReportView({
               <Switch checked={exibirCabecalho} onCheckedChange={setExibirCabecalho} />
               Cabeçalho geral
             </label>
+            <label className="flex h-8 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 hover:cursor-pointer">
+              <Switch checked={exibirResumoFinanceiro} onCheckedChange={setExibirResumoFinanceiro} />
+              Resumo financeiro
+            </label>
             {carregandoItens && (
               <span className="flex items-center gap-1 text-xs text-neutral-600">
                 <Loader2 className="h-3 w-3 animate-spin" />Carregando itens...
@@ -857,7 +936,7 @@ export function OrdemListReportView({
                     <div className="shrink-0 text-right">
                       <p className="text-[10px] uppercase text-neutral-500">{eixo}</p>
                       <p className="text-[11px] font-bold tabular-nums">{periodo}</p>
-                      <p className="text-[10px] text-neutral-500">Página 1 de {quantasFolhas}</p>
+                      <p className="text-[10px] text-neutral-500">Página 1 de {totalDeFolhas}</p>
                     </div>
                   </header>
 
@@ -966,7 +1045,7 @@ export function OrdemListReportView({
                   )}
                 </>
               ) : (
-                <p className="text-right text-[9px] text-neutral-500">Página {pageIndex + 1} de {quantasFolhas}</p>
+                <p className="text-right text-[9px] text-neutral-500">Página {pageIndex + 1} de {totalDeFolhas}</p>
               )}
 
               {semAgrupamento ? (
@@ -1036,6 +1115,20 @@ export function OrdemListReportView({
               )}
             </section>
           ))}
+
+          {comResumoFinanceiro && (
+            <section className="os-list-sheet flex h-[297mm] w-[210mm] flex-col overflow-hidden border bg-white p-[10mm] leading-[1.2] shadow-xl">
+              <FolhaDoResumoFinanceiro
+                eixo={eixo}
+                periodo={periodo}
+                pagina={totalDeFolhas}
+                quantasOrdens={rows.length}
+                saldos={saldos}
+                conciliacao={conciliacao}
+                metodos={resumoPorMetodo}
+              />
+            </section>
+          )}
         </div>
       </main>
     </>
@@ -1598,5 +1691,188 @@ function LinhaDeLancamento({
         {signedMoney(evento.valor, receita ? 1 : -1)}
       </span>
     </div>
+  );
+}
+
+/**
+ * A última folha: como o valor das ordens do recorte está sendo pago.
+ *
+ * Cada recebimento conta no seu método assim que é lançado — o boleto entra em
+ * "Boleto" mesmo antes da baixa —, e a situação diz se o dinheiro já entrou ou
+ * ainda está em aberto, vencido ou a vencer. O que nenhum pagamento cobre sai
+ * numa linha à parte, para a tabela fechar com o valor das ordens.
+ *
+ * Os valores são de face, como no painel financeiro da OS: juros, multa e a
+ * taxa da maquineta pertencem ao pagamento, não à ordem.
+ */
+function FolhaDoResumoFinanceiro({
+  eixo,
+  periodo,
+  pagina,
+  quantasOrdens,
+  saldos,
+  conciliacao,
+  metodos,
+}: {
+  eixo: string;
+  periodo: string;
+  pagina: number;
+  quantasOrdens: number;
+  saldos: SaldosDoRecorte;
+  conciliacao: ConciliacaoDoRecorte;
+  metodos: ResumoDoMetodo[];
+}) {
+  const pendente = saldos.pendenteVencido + saldos.pendenteAVencer;
+  const lancado = saldos.recebido + pendente;
+  const valorDasOrdens = lancado + saldos.semLancamento;
+
+  // O que a conta da receita não explica: OS sem cobrança ou cancelada com
+  // receita, pagamento acima do valor da ordem. Só aparece quando existe, para
+  // a fileira nunca mostrar uma soma que não fecha.
+  const esperado = conciliacao.receitaBruta - conciliacao.descontos + conciliacao.acrescimo;
+  const ajuste = Math.round((valorDasOrdens - esperado) * 100) / 100;
+  const cardsDaConciliacao = [
+    { chave: "receitaBruta", label: "Receita bruta", value: money(conciliacao.receitaBruta) },
+    { chave: "descontos", label: "− Descontos", value: signedMoney(conciliacao.descontos, -1), tone: TOM_SUBTRACAO },
+    { chave: "acrescimo", label: "+ Acréscimo financeiro", value: signedMoney(conciliacao.acrescimo, 1), tone: TOM_SOMA },
+    ...(ajuste !== 0
+      ? [{ chave: "ajuste", label: "± Outros ajustes", value: signedMoney(ajuste, ajuste < 0 ? -1 : 1), tone: "text-neutral-600" }]
+      : []),
+  ];
+  const percentual = (valor: number) =>
+    valorDasOrdens > 0 ? `${((valor / valorDasOrdens) * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%` : "—";
+  const lancamentos = metodos.reduce((soma, metodo) => soma + metodo.lancamentos, 0);
+
+  const cards = [
+    { chave: "recebido", label: "Recebido", valor: saldos.recebido, tone: TOM_SOMA },
+    { chave: "pendente", label: "Pendente", valor: pendente, tone: TOM_PENDENTE },
+    // Parte do pendente, e não uma parcela a mais: fica ao lado dele para ler
+    // quanto do que está em aberto já passou do vencimento.
+    { chave: "vencido", label: "Pendente vencido", valor: saldos.pendenteVencido, tone: TOM_SUBTRACAO },
+    { chave: "semLancamento", label: "Sem lançamento", valor: saldos.semLancamento, tone: "text-neutral-600" },
+  ];
+
+  return (
+    <>
+      <header className="flex items-end justify-between gap-4 border-b-2 border-black pb-2">
+        <div className="min-w-0">
+          <h1 className="text-lg font-bold uppercase">Resumo financeiro</h1>
+          <p className="text-[10px] text-neutral-500">
+            Como o valor das {quantasOrdens} {quantasOrdens === 1 ? "ordem" : "ordens"} do recorte está sendo pago
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-[10px] uppercase text-neutral-500">{eixo}</p>
+          <p className="text-[11px] font-bold tabular-nums">{periodo}</p>
+          <p className="text-[10px] text-neutral-500">Página {pagina} de {pagina}</p>
+        </div>
+      </header>
+
+      <div
+        className="mt-1 grid gap-2"
+        style={{ gridTemplateColumns: `repeat(${cardsDaConciliacao.length + 1}, minmax(0, 1fr))` }}
+      >
+        {cardsDaConciliacao.map((card) => (
+          <Kpi key={card.chave} label={card.label} value={card.value} tone={card.tone} />
+        ))}
+        <Kpi label="= Valor das ordens" value={money(valorDasOrdens)} destaque />
+      </div>
+
+      <div className="mt-3 grid grid-cols-4 gap-2">
+        {cards.map((card) => (
+          <Kpi
+            key={card.chave}
+            label={`${card.label} · ${percentual(card.valor)}`}
+            value={money(card.valor)}
+            tone={card.tone}
+          />
+        ))}
+        {/* <Kpi label="= Valor das ordens" value={money(valorDasOrdens)} destaque /> */}
+      </div>
+
+
+      <h2 className="mt-4 text-[9px] font-semibold uppercase tracking-wide text-neutral-600">Por forma de pagamento</h2>
+      <div className="mt-1 flex items-center gap-2 border-b border-neutral-300 pb-1 text-[8px] uppercase text-neutral-500">
+        <span className="min-w-0 flex-1">Forma de pagamento</span>
+        <span className="w-[14mm] text-right">Lançam.</span>
+        <span className="w-[24mm] text-right">Recebido</span>
+        <span className="w-[24mm] text-right">Vencido</span>
+        <span className="w-[24mm] text-right">A vencer</span>
+        <span className="w-[26mm] text-right">Total</span>
+        <span className="w-[12mm] text-right">%</span>
+      </div>
+
+      {metodos.length === 0 && (
+        <p className="py-3 text-center text-[9px] italic text-neutral-500">Nenhum pagamento lançado nas ordens do recorte.</p>
+      )}
+
+      {metodos.map((metodo, indice) => (
+        <div
+          key={metodo.metodo || "sem-metodo"}
+          className={`flex items-center gap-2 py-1 text-[9px] ${indice % 2 === 1 ? "bg-neutral-50" : ""}`}
+        >
+          <span className="min-w-0 flex-1 truncate font-semibold">
+            {metodo.metodo ? formatPaymentMethodLabel(metodo.metodo) : "Não informado"}
+          </span>
+          <span className="w-[14mm] text-right tabular-nums text-neutral-600">{metodo.lancamentos}</span>
+          <ValorDaColuna valor={metodo.recebido} tone={TOM_SOMA} />
+          <ValorDaColuna valor={metodo.pendenteVencido} tone={TOM_SUBTRACAO} />
+          <ValorDaColuna valor={metodo.pendenteAVencer} tone={TOM_PENDENTE} />
+          <span className="w-[26mm] text-right font-semibold tabular-nums">{money(metodo.total)}</span>
+          <span className="w-[12mm] text-right tabular-nums text-neutral-500">{percentual(metodo.total)}</span>
+        </div>
+      ))}
+
+      {saldos.semLancamento > 0 && (
+        <div className="flex items-center gap-2 border-t border-dashed border-neutral-300 py-1 text-[9px] italic text-neutral-600">
+          <span className="min-w-0 flex-1">Sem pagamento lançado</span>
+          <span className="w-[14mm]" />
+          <span className="w-[24mm]" />
+          <span className="w-[24mm]" />
+          <span className="w-[24mm]" />
+          <span className="w-[26mm] text-right font-semibold tabular-nums">{money(saldos.semLancamento)}</span>
+          <span className="w-[12mm] text-right tabular-nums text-neutral-500">{percentual(saldos.semLancamento)}</span>
+        </div>
+      )}
+
+      <div className="mt-1 flex items-center gap-2 border-t-2 border-black pt-1.5 text-[10px] font-bold">
+        <span className="min-w-0 flex-1 uppercase">Total</span>
+        <span className="w-[14mm] text-right tabular-nums">{lancamentos}</span>
+        <span className={`w-[24mm] text-right tabular-nums ${TOM_SOMA}`}>{money(saldos.recebido)}</span>
+        <span className={`w-[24mm] text-right tabular-nums ${TOM_SUBTRACAO}`}>{money(saldos.pendenteVencido)}</span>
+        <span className={`w-[24mm] text-right tabular-nums ${TOM_PENDENTE}`}>{money(saldos.pendenteAVencer)}</span>
+        <span className="w-[26mm] text-right tabular-nums">{money(valorDasOrdens)}</span>
+        <span className="w-[12mm] text-right tabular-nums text-neutral-500">{valorDasOrdens > 0 ? "100%" : "—"}</span>
+      </div>
+
+      <div className="mt-4 space-y-1 text-[8px] text-neutral-500">
+        <p>
+          <strong>Recebido</strong>: pagamento baixado — o dinheiro entrou. <strong>Vencido</strong> e{" "}
+          <strong>a vencer</strong>: títulos lançados e ainda em aberto, separados pelo vencimento. Título baixado em
+          parte conta nas duas colunas.
+        </p>
+        <p>
+          Valores de face, como no painel financeiro da OS: juros, multa e taxa da maquineta ficam de fora. Entram
+          todos os pagamentos das ordens listadas, de qualquer data; pagamentos em grupo entram pela parte de cada OS.
+        </p>
+        <p>
+          <strong>Sem lançamento</strong>: a parte do orçamento (com acréscimo financeiro) que nenhum pagamento cobre.
+          Ordens canceladas, recusadas ou sem cobrança não têm saldo nessa coluna.
+        </p>
+        <p>
+          <strong>Receita bruta</strong> é a mesma do cabeçalho: produtos, serviços e frete antes dos descontos.
+          {ajuste !== 0 &&
+            " Outros ajustes: receita de ordem sem cobrança ou cancelada, que não vira valor a receber, e pagamento lançado acima do valor da ordem."}
+        </p>
+      </div>
+    </>
+  );
+}
+
+function ValorDaColuna({ valor, tone }: { valor: number; tone: string }) {
+  return (
+    <span className={`w-[24mm] text-right tabular-nums ${valor > 0 ? tone : "text-neutral-300"}`}>
+      {valor > 0 ? money(valor) : "—"}
+    </span>
   );
 }

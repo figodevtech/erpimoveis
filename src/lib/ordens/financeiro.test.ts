@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   calcularResumoFinanceiroOs,
+  desdobrarRecebimento,
   podeRegistrarPagamentoOs,
   statusAposEncerrarExecucao,
   informarCondicoesPagamentoOs,
@@ -149,4 +150,17 @@ test("o acréscimo fica fora da parte paga, como no valor de face", () => {
   // Face é 1.000; pagos 400; falta 600. O juros não infla o que a OS deve.
   assert.equal(resumo.valorRecebido, 400);
   assert.equal(resumo.valorPendente, 600);
+});
+
+test("desdobra cada recebimento em recebido e pendente, em valor de face", () => {
+  assert.deepEqual(desdobrarRecebimento({ valor: 110, valor_acrescimos: 10, pendente: false }), {
+    recebido: 100,
+    pendente: 0,
+  });
+  assert.deepEqual(desdobrarRecebimento({ valor: 300, pendente: true }), { recebido: 0, pendente: 300 });
+  // Baixa parcial: o que entrou é recebido, o resto continua em aberto.
+  assert.deepEqual(desdobrarRecebimento({ valor: 300, pendente: true, valor_baixado: 120 }), {
+    recebido: 120,
+    pendente: 180,
+  });
 });

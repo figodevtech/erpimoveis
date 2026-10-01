@@ -48,18 +48,23 @@ export function ReportPeriod({
   dateTo,
   onDateFromChange,
   onDateToChange,
+  previousMonth = false,
 }: {
   dateFrom: string;
   dateTo: string;
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
+  /** Mostra o atalho "Mês anterior", para fechamentos feitos no início do mês. */
+  previousMonth?: boolean;
 }) {
   const invalid = Boolean(dateFrom && dateTo && dateFrom > dateTo);
-  const setCurrentMonth = () => {
+  // `offset` 0 é o mês corrente, -1 o anterior; o Date resolve a virada de ano.
+  const setMonth = (offset: number) => {
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
+    const first = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const year = first.getFullYear();
+    const month = String(first.getMonth() + 1).padStart(2, "0");
+    const lastDay = new Date(year, first.getMonth() + 1, 0).getDate();
     onDateFromChange(`${year}-${month}-01`);
     onDateToChange(`${year}-${month}-${String(lastDay).padStart(2, "0")}`);
   };
@@ -76,7 +81,12 @@ export function ReportPeriod({
           <p className="text-xs text-muted-foreground">Deixe em branco para considerar todo o histórico.</p>
         </div>
         <div className="flex gap-1">
-          <Button type="button" variant="ghost" size="sm" onClick={setCurrentMonth}>
+          {previousMonth && (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setMonth(-1)}>
+              <CalendarDays className="mr-1.5 h-3.5 w-3.5" />Mês anterior
+            </Button>
+          )}
+          <Button type="button" variant="ghost" size="sm" onClick={() => setMonth(0)}>
             <CalendarDays className="mr-1.5 h-3.5 w-3.5" />Este mês
           </Button>
           {(dateFrom || dateTo) && (

@@ -22,9 +22,61 @@ export const dataHora = new Intl.DateTimeFormat("pt-BR", {
   minute: "2-digit",
 });
 
+/** Valor de coluna do extrato: o "R$" fica no cabeçalho, como no banco. */
+export const valorSemMoeda = new Intl.NumberFormat("pt-BR", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const dia = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: "America/Fortaleza",
+  dateStyle: "long",
+});
+
+const hora = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: "America/Fortaleza",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+const chaveDia = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Fortaleza",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 export function formatarQuando(valor: string): string {
   const data = new Date(valor);
   return Number.isNaN(data.getTime()) ? "—" : dataHora.format(data);
+}
+
+export function formatarHora(valor: string): string {
+  const data = new Date(valor);
+  return Number.isNaN(data.getTime()) ? "—" : hora.format(data);
+}
+
+export type GrupoDoDia = {
+  chave: string;
+  rotulo: string;
+  itens: SaldoMovimentoCliente[];
+};
+
+/** Agrupa o razão por dia de Fortaleza, mantendo a ordem que veio da API. */
+export function agruparPorDia(movimentos: SaldoMovimentoCliente[]): GrupoDoDia[] {
+  const grupos: GrupoDoDia[] = [];
+  for (const movimento of movimentos) {
+    const data = new Date(movimento.created_at);
+    const valida = !Number.isNaN(data.getTime());
+    const chave = valida ? chaveDia.format(data) : "sem-data";
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo?.chave === chave) {
+      ultimo.itens.push(movimento);
+    } else {
+      grupos.push({ chave, rotulo: valida ? dia.format(data) : "Sem data", itens: [movimento] });
+    }
+  }
+  return grupos;
 }
 
 /** Efeito do lançamento sobre a carteira: positivo entra, negativo sai. */

@@ -36,6 +36,19 @@ const parteJaPaga = (transacao: TransacaoFinanceiraOs) => {
   return Math.min(baixado, valorDeFace(transacao));
 };
 
+/**
+ * Quanto de um recebimento já entrou e quanto ainda está em aberto, em valor de
+ * face. Título liquidado é todo recebido; pendente com baixa parcial se divide.
+ *
+ * Sai daqui para o relatório de ordens repartir os mesmos números por método
+ * de pagamento sem reescrever a conta do saldo da OS.
+ */
+export function desdobrarRecebimento(transacao: TransacaoFinanceiraOs) {
+  if (transacao.pendente !== true) return { recebido: valorDeFace(transacao), pendente: 0 };
+  const recebido = parteJaPaga(transacao);
+  return { recebido, pendente: Math.max(valorDeFace(transacao) - recebido, 0) };
+}
+
 export type ResumoFinanceiroOs = {
   totalDevido: number;
   valorRecebido: number;
@@ -79,23 +92,9 @@ export function calcularResumoFinanceiroOs({
       String(transacao.tipo ?? "").toUpperCase() === "RECEITA" &&
       transacao.evento_financeiro_id == null,
   );
-  const valorRecebido = moeda(
-    recebimentos.reduce(
-      (total, transacao) =>
-        total +
-        (transacao.pendente === true ? parteJaPaga(transacao) : valorDeFace(transacao)),
-      0,
-    ),
-  );
-  const valorPendente = moeda(
-    recebimentos
-      .filter((transacao) => transacao.pendente === true)
-      .reduce(
-        (total, transacao) =>
-          total + Math.max(valorDeFace(transacao) - parteJaPaga(transacao), 0),
-        0,
-      ),
-  );
+  const partes = recebimentos.map(desdobrarRecebimento);
+  const valorRecebido = moeda(partes.reduce((total, parte) => total + parte.recebido, 0));
+  const valorPendente = moeda(partes.reduce((total, parte) => total + parte.pendente, 0));
   const valorComprometido = moeda(valorRecebido + valorPendente);
 
   return {
