@@ -5,6 +5,7 @@ import { Loader2, TriangleAlert } from "lucide-react";
 
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import { PrintDisplayOptionsMenu } from "@/app/(app)/(full)/components/PrintDisplayOptionsMenu";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
 import {
   alturaDoFechamento,
@@ -18,6 +19,17 @@ import {
   type ItemDaVenda,
   type SaleRow,
 } from "./venda-list-report-model";
+import {
+  FolhaDoResumoFinanceiro,
+  type ConciliacaoDoRecorte,
+} from "../_resumo-financeiro/folha-do-resumo-financeiro";
+import {
+  lerResumoFinanceiro,
+  resumirRecebimentosPorMetodo,
+  SALDOS_ZERADOS,
+  type RecebimentoDaFolha,
+  type SaldosDoRecorte,
+} from "../_resumo-financeiro/resumo-financeiro-model";
 
 /**
  * Relação de vendas em A4 retrato.
@@ -243,6 +255,10 @@ export function VendaListReportView({ endpoint }: { endpoint: string }) {
   const [error, setError] = useState("");
 
   const [detalhado, setDetalhado] = useState(false);
+  /** A folha final com os recebimentos por forma de pagamento. */
+  const [exibirResumoFinanceiro, setExibirResumoFinanceiro] = useState(true);
+  const [recebimentos, setRecebimentos] = useState<RecebimentoDaFolha[]>([]);
+  const [saldos, setSaldos] = useState<SaldosDoRecorte>(SALDOS_ZERADOS);
   const [cacheDeItens, setCacheDeItens] = useState<{ endpoint: string; itens: Map<string, ItemDaVenda[]> } | null>(null);
   const [enderecoComFalha, setEnderecoComFalha] = useState<string | null>(null);
   const [carregandoItens, setCarregandoItens] = useState(false);
@@ -283,7 +299,15 @@ export function VendaListReportView({ endpoint }: { endpoint: string }) {
           surcharge: number(read(row, "Acréscimo financeiro (R$)")),
         }));
 
-        if (active) setRows(parsed);
+        // Os saldos vêm da aba principal, por venda, pela conta da tela de
+        // pagamento; a repartição por método vem da aba de recebimentos.
+        const resumoFinanceiro = lerResumoFinanceiro(aba, await lerAba(buffer, "Recebimentos"), "Venda");
+
+        if (active) {
+          setRows(parsed);
+          setSaldos(resumoFinanceiro.saldos);
+          setRecebimentos(resumoFinanceiro.recebimentos);
+        }
       })
       .catch((caught) => {
         const message = caught instanceof Error ? caught.message : "Não foi possível gerar o relatório.";
@@ -429,6 +453,26 @@ export function VendaListReportView({ endpoint }: { endpoint: string }) {
    */
   const colunasDoPainel = Math.max(1, Math.ceil(cards.length / 2));
 
+  const resumoPorMetodo = useMemo(() => resumirRecebimentosPorMetodo(recebimentos), [recebimentos]);
+  // A folha do resumo vem depois das de vendas, inteira: assim ela não entra
+  // na paginação medida em milímetros, e nada nas folhas de cima muda de lugar.
+  const comResumoFinanceiro = exibirResumoFinanceiro && rows.length > 0;
+  const totalDeFolhas = pages.length + (comResumoFinanceiro ? 1 : 0);
+
+  /**
+   * De onde sai o valor das vendas: a receita bruta do cabeçalho (subtotal de
+   * produtos e frete), menos os descontos, mais o acréscimo financeiro. As
+   * parcelas são as mesmas dos cards do topo, para os números baterem.
+   */
+  const conciliacao = useMemo<ConciliacaoDoRecorte>(() => {
+    const somar = (pegar: (row: SaleRow) => number) => rows.reduce((soma, row) => soma + pegar(row), 0);
+    return {
+      receitaBruta: somar((row) => row.subtotal + row.freight),
+      descontos: somar((row) => row.discount),
+      acrescimo: somar((row) => row.surcharge),
+    };
+  }, [rows]);
+
   /** Distribuição por status, do mais frequente ao menos — só o que couber. */
   const distribuicao = useMemo(() => {
     const contagem = new Map<string, number>();
@@ -466,6 +510,11 @@ export function VendaListReportView({ endpoint }: { endpoint: string }) {
         <div className="no-print mx-auto mb-4 flex w-[210mm] items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <PrintDisplayOptionsMenu options={opcoesDeExibicao} />
+            {/* Mesma moldura dos botões da barra, para o switch não destoar deles. */}
+            <label className="flex h-8 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-900 hover:cursor-pointer">
+              <Switch checked={exibirResumoFinanceiro} onCheckedChange={setExibirResumoFinanceiro} />
+              Resumo financeiro
+            </label>
             {carregandoItens && (
               <span className="flex items-center gap-1 text-xs text-neutral-600">
                 <Loader2 className="h-3 w-3 animate-spin" />Carregando itens...
@@ -502,7 +551,7 @@ export function VendaListReportView({ endpoint }: { endpoint: string }) {
                     <div className="shrink-0 text-right">
                       <p className="text-[10px] uppercase text-neutral-500">{eixo}</p>
                       <p className="text-[11px] font-bold tabular-nums">{periodo}</p>
-                      <p className="text-[10px] text-neutral-500">Página 1 de {pages.length}</p>
+                      <p className="text-[10px] text-neutral-500">Página 1 de {totalDeFolhas}</p>
                     </div>
                   </header>
 
@@ -544,7 +593,7 @@ export function VendaListReportView({ endpoint }: { endpoint: string }) {
                   )}
                 </>
               ) : (
-                <p className="text-right text-[9px] text-neutral-500">Página {pageIndex + 1} de {pages.length}</p>
+                <p className="text-right text-[9px] text-neutral-500">Página {pageIndex + 1} de {totalDeFolhas}</p>
               )}
 
               <div className="mt-2 flex items-center gap-2 border-b border-neutral-300 pb-1 text-[8px] uppercase text-neutral-500">
@@ -593,6 +642,21 @@ export function VendaListReportView({ endpoint }: { endpoint: string }) {
               )}
             </section>
           ))}
+
+          {comResumoFinanceiro && (
+            <section className="venda-list-sheet flex h-[297mm] w-[210mm] flex-col overflow-hidden border bg-white p-[10mm] leading-[1.2] shadow-xl">
+              <FolhaDoResumoFinanceiro
+                documento="VENDA"
+                eixo={eixo}
+                periodo={periodo}
+                pagina={totalDeFolhas}
+                quantidade={rows.length}
+                saldos={saldos}
+                conciliacao={conciliacao}
+                metodos={resumoPorMetodo}
+              />
+            </section>
+          )}
         </div>
       </main>
     </>

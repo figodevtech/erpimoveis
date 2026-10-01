@@ -15,7 +15,6 @@ import {
   MM_FILEIRA_PAINEL,
   paginarLancamentos,
   paginarOrdens,
-  resumirRecebimentosPorMetodo,
   type FatiaOrdem,
   type LinhaDaOrdem,
   type ModoDaFolha,
@@ -225,25 +224,4 @@ test("sem o cabeçalho geral a primeira folha devolve as duas fileiras às linha
 
   const ordens = Array.from({ length: 50 }, (_, i) => ({ ordem: ordem(i + 1), linhas: [] }));
   assert.ok(paginarOrdens(ordens, "simples", 0)[0].length > paginarOrdens(ordens, "simples", 2)[0].length);
-});
-
-test("resumo por método soma recebido, vencido e a vencer de cada forma de pagamento", () => {
-  const resumo = resumirRecebimentosPorMetodo([
-    { os: "1", metodo: "PIX", recebido: 100, pendenteVencido: 0, pendenteAVencer: 0 },
-    { os: "2", metodo: "BOLETO", recebido: 0, pendenteVencido: 150, pendenteAVencer: 0 },
-    { os: "2", metodo: "BOLETO", recebido: 0, pendenteVencido: 0, pendenteAVencer: 150 },
-    // Baixa parcial: um lançamento só, nas duas colunas.
-    { os: "3", metodo: "boleto", recebido: 40.1, pendenteVencido: 0, pendenteAVencer: 59.9 },
-    { os: "4", metodo: "", recebido: 10, pendenteVencido: 0, pendenteAVencer: 0 },
-  ]);
-
-  assert.deepEqual(resumo, [
-    { metodo: "BOLETO", lancamentos: 3, recebido: 40.1, pendenteVencido: 150, pendenteAVencer: 209.9, total: 400 },
-    { metodo: "PIX", lancamentos: 1, recebido: 100, pendenteVencido: 0, pendenteAVencer: 0, total: 100 },
-    { metodo: "", lancamentos: 1, recebido: 10, pendenteVencido: 0, pendenteAVencer: 0, total: 10 },
-  ]);
-});
-
-test("resumo por método vazio sem recebimento nenhum", () => {
-  assert.deepEqual(resumirRecebimentosPorMetodo([]), []);
 });

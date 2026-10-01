@@ -10,6 +10,14 @@ import { inferirDescontoGeralOs, sanitizarValorFrete } from "@/lib/ordens/totais
 import { calculateFinancialSurcharge } from "@/lib/financial-surcharge";
 import { fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
 import { applyMarketplaceBuyerNames } from "@/lib/vendas/marketplace-buyer-names";
+import {
+  CABECALHOS_DE_RECEBIMENTOS,
+  COLUNAS_DE_SALDO,
+  diaLocal,
+  linhaDoRecebimento,
+  saldosDoDocumento,
+} from "@/lib/relatorios/recebimentos-de-documentos";
+import { carregarRecebimentosPorDocumento } from "@/lib/relatorios/recebimentos-de-documentos-server";
 
 /**
  * Exportação da relação de vendas.
@@ -50,6 +58,12 @@ const STATUS_VENDA = new Set([
   "CANCELADA",
   "CANCELADO",
 ]);
+
+/**
+ * Status em que a venda não deve nada, e por isso não tem saldo sem lançamento.
+ * As duas grafias de cancelada, pelo mesmo motivo de `STATUS_VENDA`.
+ */
+const STATUS_SEM_VALOR_DEVIDO = new Set(["ORCAMENTO_RECUSADO", "CANCELADA", "CANCELADO"]);
 
 const CANAIS = new Set(["PDV", "ONLINE", "MERCADO_LIVRE", "SHOPEE"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -302,6 +316,14 @@ export async function GET(request: Request) {
     // há nenhuma no recorte.
     await applyMarketplaceBuyerNames(vendas);
 
+    // Todos os recebimentos de cada venda, de qualquer data: o período escolhe
+    // as vendas, não os pagamentos. É daqui que sai o resumo financeiro.
+    const recebimentosPorVenda = await carregarRecebimentosPorDocumento(
+      "VENDA",
+      vendas.map((venda) => Number(venda.id)),
+    );
+    const hoje = diaLocal(new Date());
+
     const rows = vendas.map((venda) => {
       const cliente = juncao(venda.cliente);
       const fechamento = fecharVenda(venda);
@@ -325,15 +347,38 @@ export async function GET(request: Request) {
         fechamento.frete,
         fechamento.total,
         fechamento.acrescimoFinanceiro,
+        // A conta do saldo é a mesma da tela de pagamento da venda.
+        ...saldosDoDocumento({
+          totalComercial: venda.valortotal,
+          acrescimoFinanceiroTipo: venda.acrescimo_financeiro_tipo,
+          acrescimoFinanceiroValor: venda.acrescimo_financeiro_valor,
+          recebimentos: recebimentosPorVenda.get(Number(venda.id)) ?? [],
+          // Venda cancelada ou recusada não deve nada: o total dela não é saldo
+          // a lançar.
+          semValorDevido: STATUS_SEM_VALOR_DEVIDO.has(String(venda.status ?? "")),
+          hoje,
+        }),
       ];
     });
+
+    // Uma linha por recebimento, na ordem das vendas da aba principal. É dela
+    // que a folha monta o resumo por forma de pagamento.
+    const linhasDeRecebimentos = vendas.flatMap((venda) =>
+      (recebimentosPorVenda.get(Number(venda.id)) ?? []).map((transacao) => [venda.id, ...linhaDoRecebimento(transacao, hoje)]),
+    );
 
     const abas: SheetSpec[] = [
       {
         name: "Relatório",
-        headers: ["Venda", "Data da venda", "Pagamento", "Baixa", "Status", "Canal", "Categoria", "Cliente", "CPF/CNPJ", "Vendedor", "Lançado por", "Descrição", "Forma de pagamento", "Parcelas", "Subtotal (R$)", "Desconto (R$)", "Frete (R$)", "Total (R$)", "Acréscimo financeiro (R$)"],
+        headers: ["Venda", "Data da venda", "Pagamento", "Baixa", "Status", "Canal", "Categoria", "Cliente", "CPF/CNPJ", "Vendedor", "Lançado por", "Descrição", "Forma de pagamento", "Parcelas", "Subtotal (R$)", "Desconto (R$)", "Frete (R$)", "Total (R$)", "Acréscimo financeiro (R$)", ...COLUNAS_DE_SALDO],
         rows,
-        widths: [9, 20, 20, 20, 22, 16, 24, 35, 20, 26, 26, 45, 30, 10, 16, 16, 14, 16, 24],
+        widths: [9, 20, 20, 20, 22, 16, 24, 35, 20, 26, 26, 45, 30, 10, 16, 16, 14, 16, 24, 16, 22, 22, 20],
+      },
+      {
+        name: "Recebimentos",
+        headers: ["Venda", ...CABECALHOS_DE_RECEBIMENTOS],
+        rows: linhasDeRecebimentos,
+        widths: [9, 12, 14, 22, 22, 18, 16, 22, 22],
       },
     ];
 

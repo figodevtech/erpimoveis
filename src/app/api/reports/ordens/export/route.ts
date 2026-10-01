@@ -18,11 +18,13 @@ import { fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 import { resolveOrdemCustomer } from "@/lib/ordens/customer-snapshot";
 import {
-  calcularResumoFinanceiroOs,
-  desdobrarRecebimento,
-  type TransacaoFinanceiraOs,
-} from "@/lib/ordens/financeiro";
-import { valorDeFace } from "@/lib/financeiro/transacao";
+  CABECALHOS_DE_RECEBIMENTOS,
+  COLUNAS_DE_SALDO,
+  diaLocal,
+  linhaDoRecebimento,
+  saldosDoDocumento,
+} from "@/lib/relatorios/recebimentos-de-documentos";
+import { carregarRecebimentosPorDocumento } from "@/lib/relatorios/recebimentos-de-documentos-server";
 
 const LOCAL_OFFSET = "-03:00";
 const PAGE_SIZE = 1000;
@@ -387,90 +389,8 @@ function fecharOs(os: any) {
   return { desconto, frete, orcamento, acrescimoFinanceiro };
 }
 
-/** "2026-10-01" no fuso da operação — o vencimento é um dia, não um instante. */
-function diaLocal(value: unknown) {
-  if (!value) return "";
-  const texto = String(value);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) return texto;
-  const date = new Date(texto);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Fortaleza",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
-
 /** Status em que a OS não deve nada, e por isso não tem saldo sem lançamento. */
 const STATUS_SEM_VALOR_DEVIDO = new Set(["CANCELADO", "ORCAMENTO_RECUSADO", "SEM_COBRANCA"]);
-
-type RecebimentoDaOs = TransacaoFinanceiraOs & {
-  id: number;
-  ordemservicoid: number;
-  data: string | null;
-  vencimento_em?: string | null;
-  metodopagamento: string | null;
-};
-
-/**
- * Os recebimentos de cada OS: o mesmo recorte de `calcularResumoFinanceiroOs`
- * — receita, não excluída e não gerada por evento —, mais as fatias dos
- * pagamentos em grupo, que não apontam para a OS.
- *
- * Entram todos, de qualquer data: o período do relatório escolhe as ordens, não
- * os pagamentos.
- */
-async function carregarRecebimentosPorOs(ids: number[]) {
-  const porOs = new Map<number, RecebimentoDaOs[]>();
-  if (!ids.length) return porOs;
-
-  const diretos = await fetchAllSupabaseRowsByChunks<RecebimentoDaOs, number>(ids, (chunk) =>
-    supabaseAdmin
-      .from("transacao")
-      .select("id, ordemservicoid, data, vencimento_em, metodopagamento, tipo, valor, valor_acrescimos, valor_baixado, pendente, evento_financeiro_id")
-      .in("ordemservicoid", chunk)
-      .eq("tipo", "RECEITA")
-      .eq("is_deleted", false)
-      .is("evento_financeiro_id", null)
-      .order("ordemservicoid", { ascending: true })
-      .order("data", { ascending: true })
-      .order("id", { ascending: true }),
-  );
-
-  const fatias = await carregarFatiasRateadas("OS", ids);
-  const rateados = [...fatias.values()].flat().map(
-    (fatia): RecebimentoDaOs => ({ ...fatiaComoTransacao(fatia), ordemservicoid: fatia.documentoId }),
-  );
-
-  for (const linha of [...diretos, ...rateados]) {
-    const osId = Number(linha.ordemservicoid);
-    if (!Number.isFinite(osId)) continue;
-    const atual = porOs.get(osId) ?? [];
-    atual.push(linha);
-    porOs.set(osId, atual);
-  }
-
-  return porOs;
-}
-
-/**
- * Um recebimento repartido para o resumo: o que entrou, e o que está em aberto
- * separado entre vencido e a vencer. O vencimento é `vencimento_em` e, sem ele,
- * a data do título — a mesma leitura do score do cliente.
- */
-function reparteRecebimento(transacao: RecebimentoDaOs, hoje: string) {
-  const { recebido, pendente } = desdobrarRecebimento(transacao);
-  const vencimento = diaLocal(transacao.vencimento_em ?? transacao.data);
-  const vencido = pendente > 0 && Boolean(vencimento) && vencimento < hoje;
-  return {
-    face: valorDeFace(transacao),
-    recebido: arredondarMoeda(recebido),
-    pendenteVencido: vencido ? arredondarMoeda(pendente) : 0,
-    pendenteAVencer: vencido ? 0 : arredondarMoeda(pendente),
-    vencimento,
-  };
-}
 
 type SheetSpec = { name: string; headers: string[]; rows: unknown[][]; widths: number[] };
 
@@ -562,29 +482,13 @@ export async function GET(request: Request) {
       const idsDasOrdens = ordens.map((os) => Number(os.id));
       const [itensPorOs, recebimentosPorOs] = await Promise.all([
         carregarItensPorOs(idsDasOrdens, incluirItens),
-        carregarRecebimentosPorOs(idsDasOrdens),
+        carregarRecebimentosPorDocumento("OS", idsDasOrdens),
       ]);
       const totaisPorOs = somarItensPorOs(itensPorOs);
       const hoje = diaLocal(new Date());
       const rows = ordens.map((os) => {
         const itens = totaisPorOs.get(Number(os.id)) ?? { produtos: 0, servicos: 0 };
         const fechamento = fecharOs(os);
-        const recebimentos = recebimentosPorOs.get(Number(os.id)) ?? [];
-        // A conta do saldo é a do painel da OS; o relatório só soma por cima.
-        const resumo = calcularResumoFinanceiroOs({
-          totalComercial: os.orcamentototal,
-          acrescimoFinanceiroTipo: os.acrescimo_financeiro_tipo,
-          acrescimoFinanceiroValor: os.acrescimo_financeiro_valor,
-          transacoes: recebimentos,
-        });
-        const partes = recebimentos.map((transacao) => reparteRecebimento(transacao, hoje));
-        const somar = (campo: "pendenteVencido" | "pendenteAVencer") =>
-          arredondarMoeda(partes.reduce((soma, parte) => soma + parte[campo], 0));
-        // OS cancelada, recusada ou sem cobrança não deve nada: o orçamento
-        // dela não é saldo a lançar.
-        const semLancamento = STATUS_SEM_VALOR_DEVIDO.has(String(os.status ?? ""))
-          ? 0
-          : resumo.saldoDisponivelParaLancamento;
         return [
           os.id,
           formatDate(os.dataentrada),
@@ -604,47 +508,36 @@ export async function GET(request: Request) {
           fechamento.frete,
           fechamento.orcamento,
           fechamento.acrescimoFinanceiro,
-          resumo.valorRecebido,
-          somar("pendenteVencido"),
-          somar("pendenteAVencer"),
-          semLancamento,
+          // A conta do saldo é a do painel da OS; o relatório só soma por cima.
+          ...saldosDoDocumento({
+            totalComercial: os.orcamentototal,
+            acrescimoFinanceiroTipo: os.acrescimo_financeiro_tipo,
+            acrescimoFinanceiroValor: os.acrescimo_financeiro_valor,
+            recebimentos: recebimentosPorOs.get(Number(os.id)) ?? [],
+            // OS cancelada, recusada ou sem cobrança não deve nada: o orçamento
+            // dela não é saldo a lançar.
+            semValorDevido: STATUS_SEM_VALOR_DEVIDO.has(String(os.status ?? "")),
+            hoje,
+          }),
         ];
       });
 
       // Uma linha por recebimento, na ordem das OS da aba principal. É dela que
       // a folha monta o resumo por forma de pagamento.
       const linhasDeRecebimentos = ordens.flatMap((os) =>
-        (recebimentosPorOs.get(Number(os.id)) ?? []).map((transacao) => {
-          const parte = reparteRecebimento(transacao, hoje);
-          const pendente = parte.pendenteVencido + parte.pendenteAVencer;
-          const situacao =
-            pendente <= 0
-              ? "Baixado"
-              : `${parte.recebido > 0 ? "Parcial" : "Pendente"} · ${parte.pendenteVencido > 0 ? "vencido" : "a vencer"}`;
-          return [
-            os.id,
-            transacao.id,
-            parte.vencimento ? parte.vencimento.split("-").reverse().join("/") : "",
-            transacao.metodopagamento ?? "",
-            situacao,
-            parte.face,
-            parte.recebido,
-            parte.pendenteVencido,
-            parte.pendenteAVencer,
-          ];
-        }),
+        (recebimentosPorOs.get(Number(os.id)) ?? []).map((transacao) => [os.id, ...linhaDoRecebimento(transacao, hoje)]),
       );
 
       const abas: SheetSpec[] = [
         {
           name: "Relatório",
-          headers: ["OS", "Entrada", "Conclusão", "Saída", "Status", "Prioridade", "Cliente", "CPF/CNPJ", "Alvo atendido", "Setor", "Responsável", "Descrição", "Produtos (R$)", "Serviços (R$)", "Desconto (R$)", "Frete (R$)", "Orçamento (R$)", "Acréscimo financeiro (R$)", "Recebido (R$)", "Pendente vencido (R$)", "Pendente a vencer (R$)", "Sem lançamento (R$)"],
+          headers: ["OS", "Entrada", "Conclusão", "Saída", "Status", "Prioridade", "Cliente", "CPF/CNPJ", "Alvo atendido", "Setor", "Responsável", "Descrição", "Produtos (R$)", "Serviços (R$)", "Desconto (R$)", "Frete (R$)", "Orçamento (R$)", "Acréscimo financeiro (R$)", ...COLUNAS_DE_SALDO],
           rows,
           widths: [9, 20, 20, 20, 24, 12, 35, 20, 35, 22, 26, 45, 16, 16, 16, 14, 18, 24, 16, 22, 22, 20],
         },
         {
           name: "Recebimentos",
-          headers: ["OS", "Transação", "Vencimento", "Método", "Situação", "Valor de face (R$)", "Recebido (R$)", "Pendente vencido (R$)", "Pendente a vencer (R$)"],
+          headers: ["OS", ...CABECALHOS_DE_RECEBIMENTOS],
           rows: linhasDeRecebimentos,
           widths: [9, 12, 14, 22, 22, 18, 16, 22, 22],
         },
