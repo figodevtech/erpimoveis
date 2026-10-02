@@ -24,6 +24,9 @@
 /out/
 /central.figosoftwares.com.br/
 
+# projeto independente da loja (repositorio Git e dependencias proprios)
+/site_demirdiesel/
+
 # production
 /build
 
