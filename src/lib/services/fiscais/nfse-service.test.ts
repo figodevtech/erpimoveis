@@ -6,6 +6,7 @@ import {
   conferirCodigosFiscaisNFSe,
   identificarModeloEmissao,
   opcaoSimplesNacionalDoPrestador,
+  textoParaDpsNacional,
   type NFSeCodigosFiscais,
   type NFSeItemEmissao,
 } from "./nfse-service";
@@ -371,5 +372,75 @@ describe("Caso H: OS 525 chega ao mapeador Nacional e sai por /v2/nfsen", () => 
     assert.match(urls[0], /\/v2\/nfse\/OS_489_SRVS_16_1790794612861$/);
     assert.match(urls[1], /\/v2\/nfse\/OS_489_SRVS_16_1790794612861$/);
     assert.match(urls[2], /\/v2\/nfsen\/OS_525_SRVS_12-15_1$/);
+  });
+});
+
+/*
+ * Nota 138 da Demir (OS 525, 02/10/2026): recusada pelo schema da DPS porque
+ * `informacoes_complementares` tinha quebra de linha. O padrão abaixo é o que
+ * a Focus devolveu na recusa, ancorado como o XSD aplica.
+ */
+describe("texto livre no charset da DPS Nacional", () => {
+  const PADRAO_XINFCOMP = /^(?:[!-ÿ][ -ÿ]*[!-ÿ]|[!-ÿ])$/u;
+  const TEXTO_NOTA_138 = "Placa: PKR9990 • Marca: VOLVO • Ano: 2017\nGarantia: 90 dias";
+
+  it("o texto da nota 138 passa a casar com o padrão do xInfComp", () => {
+    assert.doesNotMatch(TEXTO_NOTA_138, PADRAO_XINFCOMP);
+    const convertido = textoParaDpsNacional(TEXTO_NOTA_138, "separador");
+    assert.equal(convertido, "Placa: PKR9990 - Marca: VOLVO - Ano: 2017 | Garantia: 90 dias");
+    assert.match(convertido, PADRAO_XINFCOMP);
+  });
+
+  it("preserva os acentos do português", () => {
+    assert.equal(textoParaDpsNacional("Revisão de injeção — garantia", "separador"), "Revisão de injeção - garantia");
+  });
+
+  it("tira espaço das pontas, linhas vazias e símbolos sem equivalente", () => {
+    assert.equal(textoParaDpsNacional("  \n\nPedido 1862  \r\n\r\n  NF 182 ✅ \n", "separador"), "Pedido 1862 | NF 182");
+    assert.equal(textoParaDpsNacional("“aspas” e ‘simples’ …", "separador"), "\"aspas\" e 'simples' ...");
+  });
+
+  it("é idempotente", () => {
+    const uma = textoParaDpsNacional(TEXTO_NOTA_138, "separador");
+    assert.equal(textoParaDpsNacional(uma, "separador"), uma);
+  });
+
+  it("na discriminação mantém as linhas e troca o travessão", () => {
+    const discriminacao = "OS #525\n1. TESTE COMPUTADORIZADO — 1 un. — R$ 284,93\n2. MAO DE OBRA PARTE ELETRICA — 1 un. — R$ 3.324,11";
+    assert.equal(
+      textoParaDpsNacional(discriminacao, "manter"),
+      "OS #525\n1. TESTE COMPUTADORIZADO - 1 un. - R$ 284,93\n2. MAO DE OBRA PARTE ELETRICA - 1 un. - R$ 3.324,11",
+    );
+  });
+
+  it("o mapeador já entrega o texto convertido", () => {
+    const dps = new NFSeService().mapearOSParaFocusNacional(os, empresaJoaoPessoa, itens, {
+      ...fiscalNacional,
+      informacoes_complementares: TEXTO_NOTA_138,
+    }, { dataCompetencia: "2026-10-02" });
+    assert.match(String(dps.informacoes_complementares), PADRAO_XINFCOMP);
+    assert.doesNotMatch(dps.descricao_servico, /—/);
+  });
+
+  it("o reenvio do payload gravado da nota 138 sai convertido", async () => {
+    const enviados: Array<Record<string, unknown>> = [];
+    const fetchOriginal = globalThis.fetch;
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      enviados.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ status: "processando_autorizacao" }), { status: 202 });
+    }) as typeof fetch;
+    try {
+      const service = new NFSeService();
+      service.configurarAmbiente("HOMOLOGACAO", "token-de-teste");
+      await service.emitirNacional({
+        referencia: "OS_525_SRVS_12-15_1",
+        descricao_servico: "OS #525\n1. TESTE COMPUTADORIZADO — 1 un. — R$ 284,93",
+        informacoes_complementares: TEXTO_NOTA_138,
+      } as never);
+    } finally {
+      globalThis.fetch = fetchOriginal;
+    }
+    assert.match(String(enviados[0].informacoes_complementares), PADRAO_XINFCOMP);
+    assert.equal(enviados[0].descricao_servico, "OS #525\n1. TESTE COMPUTADORIZADO - 1 un. - R$ 284,93");
   });
 });

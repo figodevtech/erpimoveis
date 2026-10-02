@@ -389,6 +389,58 @@ export function opcaoSimplesNacionalDoPrestador(
   throw new NFSeValidationError("Informe o regime tribut\u00e1rio da empresa antes de emitir a NFS-e Nacional.");
 }
 
+/**
+ * Símbolos comuns fora do Latin-1 e o equivalente que o leiaute aceita. O "•"
+ * vem do bloco do alvo ("Placa: X • Marca: Y"), o "—" da discriminação.
+ */
+const SUBSTITUICOES_DPS: Record<string, string> = {
+  "•": "-", "‣": "-", "◦": "-", "—": "-", "–": "-", "‒": "-", "−": "-",
+  "“": "\"", "”": "\"", "„": "\"", "‘": "'", "’": "'", "‚": "'",
+  "…": "...", "€": "EUR", "™": "TM", "\t": " ",
+};
+
+const caractereDaDps = (caractere: string) => {
+  const codigo = caractere.codePointAt(0) ?? 0;
+  return codigo >= 0x20 && codigo <= 0xff && !(codigo >= 0x7f && codigo <= 0x9f);
+};
+
+/**
+ * Texto livre no charset da DPS Nacional.
+ *
+ * Os campos de texto do leiaute (xInfComp, entre outros) seguem o padrão
+ * `[!-ÿ]{1}[ -ÿ]{0,}[!-ÿ]{1}`: só caracteres de 0x20 a 0xFF, sem espaço nas
+ * pontas — e portanto sem quebra de linha. A Demir teve a nota 138 (OS 525,
+ * 02/10/2026) recusada por schema por causa de um "\n" em
+ * `informacoes_complementares`; o emissor municipal antigo aceitava.
+ *
+ * - `separador`: cada linha vira um trecho separado por " | " (xInfComp);
+ * - `manter`: preserva as quebras (xDescServ, que as aceita: na mesma nota 138
+ *   a descrição com quebras passou e só o xInfComp foi recusado).
+ *
+ * Acentos do português ficam (estão no Latin-1). Símbolos conhecidos viram o
+ * equivalente; o resto fora da faixa é decomposto ou retirado — antes que a
+ * Focus troque por outro caractere, como trocou o "•" por "º".
+ */
+export function textoParaDpsNacional(
+  valor: unknown,
+  quebraDeLinha: "separador" | "manter",
+): string {
+  const normalizado = String(valor ?? "").replace(/\r\n?/g, "\n").normalize("NFC");
+  const convertido = [...normalizado].map((caractere) => {
+    if (caractere === "\n") return caractere;
+    const substituto = SUBSTITUICOES_DPS[caractere];
+    if (substituto !== undefined) return substituto;
+    if (caractereDaDps(caractere)) return caractere;
+    const decomposto = caractere.normalize("NFKD").replace(/[̀-ͯ]/g, "");
+    return [...decomposto].every(caractereDaDps) ? decomposto : "";
+  }).join("");
+
+  const linhas = convertido.split("\n").map((linha) => linha.replace(/ {2,}/g, " ").trim());
+  return quebraDeLinha === "separador"
+    ? linhas.filter(Boolean).join(" | ")
+    : linhas.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export type NFSeNacionalEmitirParams = {
   referencia: string;
   data_competencia: string;
@@ -758,6 +810,14 @@ export class NFSeService {
   async emitirNacional(params: NFSeNacionalEmitirParams) {
     this.assertToken();
     const { referencia, ...dados } = params;
+    // O mapeador já converte; aqui vale para o reenvio, que repete o payload
+    // gravado — inclusive o de notas anteriores à conversão. Idempotente.
+    if (dados.descricao_servico !== undefined) {
+      dados.descricao_servico = textoParaDpsNacional(dados.descricao_servico, "manter");
+    }
+    if (dados.informacoes_complementares !== undefined) {
+      dados.informacoes_complementares = textoParaDpsNacional(dados.informacoes_complementares, "separador") || undefined;
+    }
     const payload = { data_emissao: formatDateTimeForFocus(new Date(), this.timezoneIana, true), ...dados };
     const url = `${this.apiUrl}/v2/nfsen?ref=${encodeURIComponent(referencia)}`;
     const res = await fetch(url, {
@@ -1095,8 +1155,22 @@ export class NFSeService {
     const cliente = os.cliente;
     const documento = documentoTomador(cliente);
     // descricao_servico (xDescServ) do DPS Nacional aceita no máximo 1.000 caracteres.
-    const discriminacao = montarDiscriminacaoServicos(os.id, itensServico, undefined, 1000);
-    const informacoesComplementares = validarInformacoesComplementares(codigosFiscais.informacoes_complementares);
+    const discriminacao = textoParaDpsNacional(
+      montarDiscriminacaoServicos(os.id, itensServico, undefined, 1000),
+      "manter",
+    );
+    // Sem quebra de linha e só Latin-1: é o que o xInfComp aceita. O limite é
+    // conferido depois da conversão, que pode alongar o texto ("…" → "...").
+    const informacoesComplementares = textoParaDpsNacional(
+      validarInformacoesComplementares(codigosFiscais.informacoes_complementares),
+      "separador",
+    ) || undefined;
+    if (discriminacao.length > 1000) {
+      throw new NFSeValidationError("A discriminação dos serviços ultrapassa 1000 caracteres no padrão Nacional. Reduza as descrições dos serviços na OS.");
+    }
+    if ((informacoesComplementares?.length ?? 0) > 2000) {
+      throw new NFSeValidationError("As informações complementares devem possuir no máximo 2.000 caracteres.");
+    }
     const levaGrupoRtc = politica.exigeRtc || informouGrupoRtc(codigosFiscais);
     const textoOpcional = (value: unknown) => textoObrigatorio(value) || undefined;
     return {

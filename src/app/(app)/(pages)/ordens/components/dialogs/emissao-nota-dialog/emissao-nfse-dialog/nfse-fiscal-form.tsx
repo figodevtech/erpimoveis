@@ -522,6 +522,12 @@ export function NfseFiscalForm({
           <fieldset className="space-y-3 border bg-card p-4 sm:p-5">
             <legend className="px-2 text-sm font-bold">Informações complementares</legend>
             <Label htmlFor="nfse-informacoes-complementares">Texto livre da nota</Label>
+            {isNacional ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                No padrão Nacional este campo não aceita quebra de linha: cada linha vai separada
+                por &quot; | &quot;, e símbolos como • e — saem como &quot;-&quot;.
+              </p>
+            ) : null}
             {herdouObservacoesDaOs ? (
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Carregado automaticamente das configurações e da OS, incluindo a garantia quando essa opção estiver ativa.
