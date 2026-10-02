@@ -20,6 +20,7 @@ import { TransactionDeleteAlert } from "../../../components/transaction-delete-a
 import { estornarBaixa } from "../../../components/transaction-estorno-alert";
 import { TransactionAbonoAlert, abonarTransacao } from "../../../components/transaction-abono-alert";
 import { excluirPagamentoMultiplo } from "../../../components/pagamento-multiplo";
+import { enviarAnexo } from "@/lib/anexos/enviar-anexo";
 import { toast } from "@/lib/toast";
 import { formatDate } from "@/utils/formatDate";
 import { calculateFinancialSurcharge, calculateFinancialTotal } from "@/lib/financial-surcharge";
@@ -401,15 +402,7 @@ export default function OsContent({ osId, IsOpen }: OsContentProps) {
 
     setUploadingAnexo(true);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const response = await fetch(`/api/ordens/${ordem.id}/anexos`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.error || "Erro ao anexar arquivo");
+      await enviarAnexo(`/api/ordens/${ordem.id}/anexos`, file);
 
       toast.success("Anexo enviado", {
         description: file.type.startsWith("image/")

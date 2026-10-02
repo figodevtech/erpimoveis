@@ -1,7 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { NFSeService, normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
-import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
+import {
+  atualizarRegistroNFSe,
+  interacaoNFSe,
+  registrarInteracaoNFSe,
+} from "@/lib/services/fiscais/nfse-registro";
+import { transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
 
 export const runtime = "nodejs";
 
@@ -52,8 +57,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const nfseService = new NFSeService();
     if (empresa) nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
 
-    const modelo = nfsDb.modelo_emissao === "NACIONAL" ? "NACIONAL" : "MUNICIPAL";
-    const resultado = await nfseService.cancelar(nfsDb.referencia, justificativa, modelo);
+    // Transporte da nota gravada: municipal antiga cancela em `/v2/nfse`.
+    const transport = transportDoRegistro(nfsDb.modelo_emissao, nfseService);
+    if (!transport.disponivel) {
+      return NextResponse.json({ ok: false, message: transport.motivoIndisponivel }, { status: 409 });
+    }
+    const resultado = await transport.cancelar(nfsDb.referencia, justificativa);
+    await registrarInteracaoNFSe(dbId, interacaoNFSe("CANCELAMENTO", nfsDb.referencia, resultado.retornoBruto, { justificativa }));
 
     // 3. Update DB state
     if (resultado.ok) {

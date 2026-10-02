@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { descricaoComplementarDoItem } from "@/lib/services/fiscais/nfse-service";
+import { MENSAGEM_PADRAO_NACIONAL_AUSENTE, rotuloModeloNFSe } from "@/lib/services/fiscais/nfse-politica";
 import type { BlocoDeObservacao } from "@/lib/fiscal/blocosDeObservacao";
 import { LIMITE_INFORMACOES_COMPLEMENTARES } from "./types";
 import type {
@@ -28,12 +29,6 @@ import type {
   ServicoOS,
   ValoresServicosForm,
 } from "./types";
-
-function getModeloLabel(modelo: ModeloEmissao) {
-  if (modelo === "NACIONAL") return "NFS-e Nacional";
-  if (modelo === "MUNICIPAL_CABEDELO") return "NFS-e Cabedelo";
-  return "NFS-e João Pessoa";
-}
 
 const BRL_FORMATTER = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const inputClassName = "h-11 rounded-sm font-mono tabular-nums";
@@ -50,6 +45,11 @@ export function NfseFiscalForm({
   servicos,
   valores,
   modelo,
+  exigeRtc = false,
+  padraoAusente = false,
+  bloqueioEmissao = null,
+  rotuloModelo = null,
+  motivoModelo,
   codigos,
   validationError,
   loading,
@@ -66,6 +66,19 @@ export function NfseFiscalForm({
   servicos: ServicoOS[];
   valores: ValoresServicosForm;
   modelo: ModeloEmissao;
+  /** A política exige o grupo da Reforma Tributária nesta emissão. */
+  exigeRtc?: boolean;
+  /** O modelo desta nota não tem padrão fiscal cadastrado. */
+  padraoAusente?: boolean;
+  /**
+   * O autorizador desta nota não tem integração (João Pessoa, emissor próprio
+   * no padrão nacional). A revisão abre para conferir os códigos, mas não envia.
+   */
+  bloqueioEmissao?: string | null;
+  /** Destino da nota, quando difere do nome do modelo. */
+  rotuloModelo?: string | null;
+  /** Por que a nota vai por este emissor. */
+  motivoModelo?: string | null;
   codigos: CodigosFiscaisForm;
   validationError?: string | null;
   loading: boolean;
@@ -84,6 +97,9 @@ export function NfseFiscalForm({
 }) {
   const isNacional = modelo === "NACIONAL";
   const isCabedelo = modelo === "MUNICIPAL_CABEDELO";
+  // Obrigatoriedade vem da política, não do modelo: no padrão Nacional, MEI e
+  // Simples ficam dispensados do grupo até 2027; o regime regular, não.
+  const rtcObrigatorio = isNacional && exigeRtc;
   const pendencias = [...new Map(
     servicos
       .flatMap((servico) => servico.pendenciasCadastro ?? [])
@@ -105,12 +121,13 @@ export function NfseFiscalForm({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Nota em revisão</p>
-                <Badge variant="outline" className="rounded-sm">{getModeloLabel(modelo)}</Badge>
+                <Badge variant="outline" className="rounded-sm">{rotuloModelo ?? rotuloModeloNFSe(modelo)}</Badge>
               </div>
               <h2 id="servicos-selecionados-title" className="mt-1 text-base font-bold">
                 {servicos.length} {servicos.length === 1 ? "serviço selecionado" : "serviços consolidados"}
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">Total informado: {BRL_FORMATTER.format(total)}</p>
+              {motivoModelo ? <p className="mt-1 text-xs text-muted-foreground">{motivoModelo}</p> : null}
             </div>
           </div>
 
@@ -233,6 +250,45 @@ export function NfseFiscalForm({
             </div>
           </fieldset>
 
+          {/* Sem padrão do modelo, os campos abrem vazios de propósito: os
+              códigos do municipal não servem para a DPS Nacional e não são
+              emprestados. O aviso diz por quê, e onde cadastrar. */}
+          {bloqueioEmissao ? (
+            <Alert variant="destructive" className="rounded-sm border-l-4" role="alert">
+              <ShieldAlert aria-hidden="true" className="size-4" />
+              <AlertTitle>Esta nota não pode ser enviada pela API</AlertTitle>
+              <AlertDescription>{bloqueioEmissao}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {padraoAusente ? (
+            <Alert className="rounded-sm border-l-4 border-l-amber-500" role="status">
+              <AlertCircle aria-hidden="true" className="size-4" />
+              <AlertTitle>
+                {isNacional ? "Padrão Nacional não configurado" : "Padrão fiscal não configurado"}
+              </AlertTitle>
+              <AlertDescription>
+                <p>
+                  {isNacional
+                    ? MENSAGEM_PADRAO_NACIONAL_AUSENTE
+                    : `O padrão fiscal da ${rotuloModeloNFSe(modelo)} ainda não foi configurado para esta empresa. Preencha os códigos em Configurações > Fiscal > NFS-e.`}
+                </p>
+                <p className="mt-1">
+                  Os campos abaixo podem ser preenchidos à mão para esta nota; a emissão é bloqueada
+                  enquanto faltar algum obrigatório.{" "}
+                  <a
+                    href="/configuracoes/fiscal-pagamentos"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium underline underline-offset-2"
+                  >
+                    Abrir Configurações Fiscais
+                  </a>
+                </p>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <fieldset className="space-y-4 border bg-card p-4 sm:p-5">
             <legend className="px-2 text-sm font-bold">Classificação fiscal</legend>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -251,6 +307,21 @@ export function NfseFiscalForm({
                     disabled={loading}
                   />
                   <p className="text-xs text-muted-foreground">Informe os 6 dígitos da tabela nacional.</p>
+                </div>
+              ) : null}
+              {isNacional ? (
+                <div className="space-y-2">
+                  <Label htmlFor="nfse-codigo-municipal-nacional">Código de Tributação Municipal</Label>
+                  <Input
+                    id="nfse-codigo-municipal-nacional"
+                    className={inputClassName}
+                    value={codigos.codigoTributacaoMunicipalIss}
+                    onChange={(event) => onChange("codigoTributacaoMunicipalIss", event.target.value)}
+                    placeholder="3 dígitos, quando o município exige"
+                    inputMode="numeric"
+                    maxLength={3}
+                    disabled={loading}
+                  />
                 </div>
               ) : (
                 <>
@@ -380,12 +451,14 @@ export function NfseFiscalForm({
 
           {(isNacional || isCabedelo) && (
             <fieldset className="space-y-4 border bg-card p-4 sm:p-5">
-              <legend className="px-2 text-sm font-bold">Reforma Tributária 2026</legend>
-              {isCabedelo && (
+              <legend className="px-2 text-sm font-bold">IBS/CBS — Reforma Tributária</legend>
+              {!rtcObrigatorio && (
                 <Alert className="rounded-sm border-l-4">
                   <Info aria-hidden="true" className="size-4" />
                   <AlertDescription>
-                    Em Cabedelo estes campos são condicionais. Se iniciar o preenchimento, complete todo o grupo aplicável.
+                    {isCabedelo
+                      ? "Em Cabedelo estes campos são condicionais. Se iniciar o preenchimento, complete todo o grupo aplicável."
+                      : "Para o regime desta empresa o grupo ainda não é obrigatório. Se iniciar o preenchimento, complete todo o grupo."}
                   </AlertDescription>
                 </Alert>
               )}
@@ -394,7 +467,7 @@ export function NfseFiscalForm({
                   id="nfse-finalidade"
                   label="Finalidade da emissão"
                   value={codigos.finalidadeEmissao}
-                  required={isNacional}
+                  required={rtcObrigatorio}
                   disabled={loading}
                   onValueChange={(value) => onChange("finalidadeEmissao", value)}
                   options={[["0", "NFS-e regular"]]}
@@ -403,7 +476,7 @@ export function NfseFiscalForm({
                   id="nfse-consumidor-final"
                   label="Operação de uso ou consumo pessoal"
                   value={codigos.consumidorFinal}
-                  required={isNacional}
+                  required={rtcObrigatorio}
                   disabled={loading}
                   onValueChange={(value) => onChange("consumidorFinal", value)}
                   options={[["0", "Não"], ["1", "Sim"]]}
@@ -412,26 +485,27 @@ export function NfseFiscalForm({
                   id="nfse-indicador-destinatario"
                   label="Destinatário do serviço"
                   value={codigos.indicadorDestinatario}
-                  required={isNacional}
+                  required={rtcObrigatorio}
                   disabled={loading}
                   onValueChange={(value) => onChange("indicadorDestinatario", value)}
                   options={[["0", "O próprio tomador"]]}
                 />
                 <div className="space-y-2">
-                  <Label htmlFor="nfse-indicador-operacao">Código indicador da operação</Label>
+                  <Label htmlFor="nfse-indicador-operacao">Código indicador da operação (cIndOp) {rtcObrigatorio && <RequiredMark />}</Label>
                   <Input
                     id="nfse-indicador-operacao"
                     className={inputClassName}
                     value={codigos.codigoIndicadorOperacao}
                     onChange={(event) => onChange("codigoIndicadorOperacao", event.target.value)}
-                    placeholder="6 dígitos, quando aplicável"
+                    placeholder="6 dígitos"
                     inputMode="numeric"
                     maxLength={6}
+                    required={rtcObrigatorio}
                     disabled={loading}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="nfse-cst-ibs-cbs">CST do IBS/CBS {isNacional && <RequiredMark />}</Label>
+                  <Label htmlFor="nfse-cst-ibs-cbs">CST do IBS/CBS {rtcObrigatorio && <RequiredMark />}</Label>
                   <Input
                     id="nfse-cst-ibs-cbs"
                     className={inputClassName}
@@ -440,12 +514,12 @@ export function NfseFiscalForm({
                     placeholder="3 dígitos"
                     inputMode="numeric"
                     maxLength={3}
-                    required={isNacional}
+                    required={rtcObrigatorio}
                     disabled={loading}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="nfse-classificacao-ibs-cbs">Classificação Tributária do IBS/CBS {isNacional && <RequiredMark />}</Label>
+                  <Label htmlFor="nfse-classificacao-ibs-cbs">Classificação Tributária do IBS/CBS {rtcObrigatorio && <RequiredMark />}</Label>
                   <Input
                     id="nfse-classificacao-ibs-cbs"
                     className={inputClassName}
@@ -454,7 +528,7 @@ export function NfseFiscalForm({
                     placeholder="6 dígitos"
                     inputMode="numeric"
                     maxLength={6}
-                    required={isNacional}
+                    required={rtcObrigatorio}
                     disabled={loading}
                   />
                 </div>
@@ -465,6 +539,12 @@ export function NfseFiscalForm({
           <fieldset className="space-y-3 border bg-card p-4 sm:p-5">
             <legend className="px-2 text-sm font-bold">Informações complementares</legend>
             <Label htmlFor="nfse-informacoes-complementares">Texto livre da nota</Label>
+            {isNacional ? (
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                No padrão Nacional este campo não aceita quebra de linha: cada linha vai separada
+                por &quot; | &quot;, e símbolos como • e — saem como &quot;-&quot;.
+              </p>
+            ) : null}
             {herdouObservacoesDaOs ? (
               <p className="text-[11px] leading-relaxed text-muted-foreground">
                 Carregado automaticamente das configurações e da OS, incluindo a garantia quando essa opção estiver ativa.
@@ -516,7 +596,7 @@ export function NfseFiscalForm({
             <p className="max-w-[60ch] text-xs leading-relaxed text-muted-foreground">
               Revise os valores e a classificação. Após o envio, alterações exigem cancelamento e nova emissão.
             </p>
-            <Button type="submit" className="min-h-11 rounded-sm px-5" disabled={loading}>
+            <Button type="submit" className="min-h-11 rounded-sm px-5" disabled={loading || Boolean(bloqueioEmissao)}>
               {loading ? <Loader2 aria-hidden="true" className="mr-2 size-4 animate-spin" /> : <Send aria-hidden="true" className="mr-2 size-4" />}
               {loading ? "Enviando..." : `Emitir ${BRL_FORMATTER.format(total)}`}
             </Button>

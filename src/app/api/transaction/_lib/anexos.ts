@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao, exigirLeituraDeTransacao } from "./autoria";
 
 export const TRANSACAO_ANEXOS_BUCKET = "transacao_anexos";
 export const MAX_ANEXOS_POR_TRANSACAO = 10;
@@ -35,9 +36,47 @@ export function sanitizeAttachmentName(name: string) {
     .slice(0, 120);
 }
 
-export function isSupportedAttachment(file: File) {
+export function isSupportedAttachment(file: { type: string }) {
   const type = String(file.type || "").toLowerCase();
   return type === "application/pdf" || ["image/jpeg", "image/png", "image/webp"].includes(type);
+}
+
+export function attachmentPrefix(transactionId: number) {
+  return `transacao/${transactionId}/anexos/`;
+}
+
+/**
+ * A transação existe e a sessão pode lê-la ou alterá-la. Ler abre também a
+ * transação alheia de OS; anexar exige o dono.
+ */
+export async function ensureAttachmentTransaction(id: number, modo: "ler" | "alterar") {
+  const { data, error } = await supabaseAdmin
+    .from("transacao")
+    .select("id")
+    .eq("id", id)
+    .eq("is_deleted", false)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    const notFound = new Error("Transação não encontrada.");
+    (notFound as Error & { statusCode?: number }).statusCode = 404;
+    throw notFound;
+  }
+  if (modo === "ler") await exigirLeituraDeTransacao(id);
+  else await exigirAcessoATransacao(id);
+}
+
+export async function ensureAttachmentSlot(id: number) {
+  const { count, error } = await supabaseAdmin
+    .from("transacao_anexo")
+    .select("id", { count: "exact", head: true })
+    .eq("transacao_id", id);
+  if (error) throw error;
+  if ((count ?? 0) >= MAX_ANEXOS_POR_TRANSACAO) {
+    const full = new Error(`Limite de ${MAX_ANEXOS_POR_TRANSACAO} anexos por transação atingido.`);
+    (full as Error & { statusCode?: number }).statusCode = 409;
+    throw full;
+  }
 }
 
 export async function signedAttachmentUrl(path: string) {

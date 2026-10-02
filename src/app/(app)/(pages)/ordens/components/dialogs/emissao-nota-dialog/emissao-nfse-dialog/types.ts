@@ -1,11 +1,14 @@
 import type { AlvoFiscal } from "@/lib/fiscal/blocosDeObservacao";
 
-export type ModeloEmissao = "NACIONAL" | "MUNICIPAL_CABEDELO" | "MUNICIPAL_JOAO_PESSOA";
+export type { NFSeModeloEmissao as ModeloEmissao } from "@/lib/services/fiscais/nfse-politica";
+import type { NFSeModeloEmissao as ModeloEmissao } from "@/lib/services/fiscais/nfse-politica";
 
 export type CodigosFiscaisForm = {
   itemListaServico: string;
   codigoCnae: string;
   codigoTributacaoNacionalIss: string;
+  /** cTribMun do padrão Nacional (3 dígitos), quando o município exige. */
+  codigoTributacaoMunicipalIss: string;
   codigoNbs: string;
   aliquotaIss: string;
   naturezaOperacao: string;
@@ -19,6 +22,26 @@ export type CodigosFiscaisForm = {
   ibsCbsSituacaoTributaria: string;
   ibsCbsClassificacaoTributaria: string;
   informacoesComplementares: string;
+  /**
+   * Como o prestador se declara na DPS Nacional. Só existem no padrão da
+   * empresa: a emissão lê do padrão, nunca da tela.
+   */
+  regimeEspecialTributacao?: string;
+  regimeApuracaoSimplesNacional?: string;
+};
+
+/** O que a política de emissão diz à tela, além do modelo. */
+export type PoliticaEmissaoResumo = {
+  /** Grupo da Reforma Tributária obrigatório nesta emissão. */
+  exigeRtc: boolean;
+  motivo: string;
+  regimeTributario: string;
+  layout?: "MUNICIPAL_LEGADO" | "DPS_NACIONAL";
+  autorizador?: "FOCUS_MUNICIPAL" | "FOCUS_NACIONAL" | "JOAO_PESSOA_DSF_DPS";
+  /** Nome do destino da nota para o cabeçalho. */
+  rotulo?: string;
+  /** Sem integração com o autorizador: o motivo, e a emissão fica travada. */
+  bloqueio?: string | null;
 };
 
 export type ServicoCadastro = {
@@ -98,6 +121,9 @@ export type ServicosOSResponse = {
   message?: string;
   servicos?: ServicoOS[];
   modeloEmissao?: ModeloEmissao | null;
+  politicaEmissao?: PoliticaEmissaoResumo | null;
+  /** Visão da OS inteira; a revisão usa o padrão de `ContextoEmissaoResponse`. */
+  padraoAusente?: boolean;
   padraoFiscal?: Partial<CodigosFiscaisForm> | null;
   cliente?: ClienteResumo | null;
   /** Texto inicial das informações complementares, já composto para edição. */
@@ -106,6 +132,22 @@ export type ServicosOSResponse = {
   alvo?: AlvoFiscal | null;
   /** Divisão do desconto da OS. Null quando a ordem não tem desconto geral. */
   descontoOrigem?: DescontoOrigemNfse | null;
+};
+
+/**
+ * Resposta de `POST /api/nfse/contexto-emissao/[osId]`: o modelo e o padrão
+ * dos serviços SELECIONADOS. É o que preenche a etapa de revisão.
+ */
+export type ContextoEmissaoResponse = {
+  ok: boolean;
+  message?: string;
+  modeloEmissao?: ModeloEmissao;
+  politicaEmissao?: PoliticaEmissaoResumo;
+  /** Padrão do modelo final, ou null. Nunca o de outro modelo. */
+  padraoFiscal?: Partial<CodigosFiscaisForm> | null;
+  padraoAusente?: boolean;
+  observacoesFiscais?: string | null;
+  pendenciasCadastro?: PendenciaCadastro[];
 };
 
 /** Limite das informações complementares nos três modelos de NFS-e. */
@@ -117,6 +159,7 @@ export const EMPTY_CODIGOS: CodigosFiscaisForm = {
   itemListaServico: "",
   codigoCnae: "",
   codigoTributacaoNacionalIss: "",
+  codigoTributacaoMunicipalIss: "",
   codigoNbs: "",
   aliquotaIss: "",
   naturezaOperacao: "",

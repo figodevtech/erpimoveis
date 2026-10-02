@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { arquivarTentativaNFSe, atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
+import {
+  acrescentarInteracaoNFSe,
+  arquivarTentativaNFSe,
+  atualizarRegistroNFSe,
+  interacaoNFSe,
+} from "@/lib/services/fiscais/nfse-registro";
 import {
   NFSeService,
   criarReferenciaPorServicos,
   normalizarStatusNFSe,
   prepararReenvioNFSe,
-  type NFSeEmitirParams,
-  type NFSeNacionalEmitirParams,
 } from "@/lib/services/fiscais/nfse-service";
+import {
+  dataDoDiaNFSe,
+  motivoParaNaoReenviar,
+  resolverPoliticaNFSe,
+} from "@/lib/services/fiscais/nfse-politica";
+import { transportDaPolitica, transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
 
 export const runtime = "nodejs";
 
@@ -83,6 +92,50 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    /*
+     * O reenvio nunca troca o autorizador da nota: `modelo_emissao` é parte do
+     * registro fiscal da tentativa, e a nota volta pelo transporte em que
+     * nasceu. O que muda é quando reenviar NÃO adianta — a recusa já disse que
+     * o caminho está errado (L999 de emissor encerrado, E0039 de município fora
+     * do Emissor Público Nacional), ou a política de hoje leva a operação para
+     * outro autorizador. Nada é enviado e a nota fica como está, com `erros`,
+     * `retorno_bruto` e `tentativas` intactos.
+     */
+    const { data: empresaPolitica } = await supabaseAdmin
+      .from("empresa")
+      .select("codigomunicipio, regimetributario")
+      .limit(1)
+      .maybeSingle();
+    const payload = (origem.payload_enviado ?? {}) as { servico?: { item_lista_servico?: unknown } };
+    const politicaHoje = empresaPolitica
+      ? resolverPoliticaNFSe({
+          codigoMunicipio: empresaPolitica.codigomunicipio,
+          regimeTributario: empresaPolitica.regimetributario,
+          dataCompetencia: dataDoDiaNFSe(new Date()),
+          itensListaServico: [String(payload.servico?.item_lista_servico ?? "")],
+        })
+      : null;
+    // O destino EFETIVO de hoje: com a trava de João Pessoa desligada, o
+    // emissor próprio sai pela Focus `/v2/nfsen` e uma nota Nacional dela
+    // volta pelo mesmo caminho. O E0039 continua barrando o reenvio igual.
+    const autorizadorEfetivo = politicaHoje
+      ? { modelo: politicaHoje.modelo, autorizador: transportDaPolitica(politicaHoje, new NFSeService()).autorizador }
+      : null;
+    const motivo = motivoParaNaoReenviar(origem, autorizadorEfetivo);
+    if (motivo) {
+      return NextResponse.json(
+        {
+          ok: false,
+          codigo: "MODELO_EMISSAO_DESATUALIZADO",
+          message: motivo,
+          modeloDaNota: origem.modelo_emissao,
+          autorizadorVigente: autorizadorEfetivo?.autorizador ?? null,
+          erros: origem.erros ?? null,
+        },
+        { status: 409 },
+      );
+    }
+
     const servicoIds = Array.isArray(origem.servico_ids) ? origem.servico_ids.map(Number) : [];
     if (servicoIds.length === 0) {
       return NextResponse.json(
@@ -134,8 +187,16 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const nfseService = new NFSeService();
     nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
 
+    const transport = transportDoRegistro(origem.modelo_emissao, nfseService);
+    if (!transport.disponivel) {
+      return NextResponse.json(
+        { ok: false, codigo: "TRANSPORTE_INDISPONIVEL", message: transport.motivoIndisponivel },
+        { status: 409 },
+      );
+    }
+
     const referencia = criarReferenciaPorServicos(Number(origem.ordemservicoid), servicoIds);
-    const ehNacional = origem.modelo_emissao === "NACIONAL";
+    const historico = arquivarTentativaNFSe(origem);
 
     // A referência nova entra ANTES do envio: o webhook da Focus casa por ela e
     // pode chegar antes de esta requisição terminar.
@@ -156,7 +217,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
         dataemissao: agora,
         updatedat: agora,
       },
-      { tentativas: arquivarTentativaNFSe(origem) },
+      { tentativas: historico },
     );
 
     if (reservaError) {
@@ -175,9 +236,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     // O payload vem do banco como JSON opaco: quem garantiu o formato foi o
     // mapeador que montou a emissão original.
-    const resultado = ehNacional
-      ? await nfseService.emitirNacional(parametros as unknown as NFSeNacionalEmitirParams)
-      : await nfseService.emitir(parametros as unknown as NFSeEmitirParams);
+    const resultado = await transport.emitir(parametros);
 
     const statusFinal = resultado.ok ? normalizarStatusNFSe(resultado.status) : "REJEITADA";
 
@@ -188,7 +247,14 @@ export async function POST(_req: Request, { params }: RouteParams) {
         erros: resultado.ok ? null : resultado.erros,
         updatedat: new Date().toISOString(),
       },
-      { payload_enviado: resultado.payload, retorno_bruto: resultado.retornoBruto },
+      {
+        payload_enviado: resultado.payload,
+        retorno_bruto: resultado.retornoBruto,
+        tentativas: acrescentarInteracaoNFSe(
+          historico,
+          interacaoNFSe("REENVIO", referencia, resultado.retornoBruto, resultado.payload),
+        ),
+      },
     );
 
     if (updateError) {

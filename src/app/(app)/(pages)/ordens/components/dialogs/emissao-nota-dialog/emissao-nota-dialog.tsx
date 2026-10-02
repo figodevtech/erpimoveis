@@ -32,6 +32,11 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/compon
 import { ExcluirRascunhoNfeButton } from "./excluirRascunhoNfeButton";
 import { CancelarNotaDialog } from "./cancelar-nota-dialog";
 import { MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
+import {
+  dataDoDiaNFSe,
+  resolverPoliticaNFSe,
+  resumirErrosNFSe,
+} from "@/lib/services/fiscais/nfse-politica";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 type NfeResumo = {
@@ -351,9 +356,17 @@ export function EmissaoNotaDialog({
     if (!empresaFiscal) return "Carregando configuração";
 
     const municipio = String(empresaFiscal.codigomunicipio || "").replace(/\D/g, "");
-    if (String(empresaFiscal.regimetributario) === "4") return "NFS-e Nacional · MEI";
-    if (municipio === "2503209") return "Cabedelo · Focus NFe";
-    if (municipio === "2507507") return "João Pessoa · Focus NFe";
+    // Rota da operação comum hoje; um item de exceção de João Pessoa ainda
+    // pode sair pelo municipal, e quem decide nota a nota é a emissão.
+    const politica = resolverPoliticaNFSe({
+      codigoMunicipio: municipio,
+      regimeTributario: empresaFiscal.regimetributario,
+      dataCompetencia: dataDoDiaNFSe(new Date()),
+    });
+    if (politica?.autorizador === "JOAO_PESSOA_DSF_DPS") return "João Pessoa · DPS nacional via Focus /v2/nfsen";
+    if (politica?.autorizador === "FOCUS_NACIONAL") return "NFS-e Nacional · Focus NFe";
+    if (politica?.modelo === "MUNICIPAL_CABEDELO") return "Cabedelo · Focus NFe";
+    if (politica?.modelo === "MUNICIPAL_JOAO_PESSOA") return "João Pessoa · Focus NFe";
     return `Município ${municipio || "não configurado"}`;
   }, [empresaFiscal]);
 
@@ -666,6 +679,10 @@ export function EmissaoNotaDialog({
           total_servicos: n.valor_total || 0,
           total_nfe: n.valor_total || 0,
           justificativacancelamento: n.erros ? JSON.stringify(n.erros) : null,
+          // Sem isto a rejeição da NFS-e aparecia como "motivo não registrado",
+          // mesmo com `erros` gravado.
+          codigo_rejeicao: resumirErrosNFSe(n.erros)?.codigo ?? null,
+          motivo_rejeicao: resumirErrosNFSe(n.erros)?.mensagem ?? null,
           createdat: n.createdat,
           empresaid: n.empresaid,
           url_pdf: n.url_pdf,

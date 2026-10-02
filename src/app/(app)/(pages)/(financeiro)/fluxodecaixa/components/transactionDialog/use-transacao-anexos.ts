@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { enviarAnexo } from "@/lib/anexos/enviar-anexo";
 import { toast } from "@/lib/toast";
 
 export type TransacaoAnexo = {
@@ -89,17 +90,10 @@ export function useTransacaoAnexos(transacaoId: number | undefined) {
       }
 
       const idDaRequisicao = transacaoId;
-      const form = new FormData();
-      form.append("file", file);
 
       setEnviando(true);
       try {
-        const response = await fetch(`/api/transaction/${idDaRequisicao}/anexos`, {
-          method: "POST",
-          body: form,
-        });
-        const payload = await payloadDaResposta(response);
-        if (!response.ok) throw new Error(mensagem(payload, "Erro ao anexar arquivo."));
+        const payload = await enviarAnexo(`/api/transaction/${idDaRequisicao}/anexos`, file);
         if (idAtual.current !== idDaRequisicao) return false;
 
         const item = payload.item as TransacaoAnexo | undefined;

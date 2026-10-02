@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { descricaoComplementarDoItem } from "@/lib/services/fiscais/nfse-service";
+import { resumirErrosNFSe } from "@/lib/services/fiscais/nfse-politica";
 import { cn } from "@/lib/utils";
 import type { ServicoOS } from "./types";
 
@@ -66,24 +67,6 @@ function getStatusVisual(status?: string | null): StatusVisual {
 
 const BRL_FORMATTER = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
-function getMensagemErro(value: unknown): string | null {
-  if (!value) return null;
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const message = getMensagemErro(item);
-      if (message) return message;
-    }
-    return null;
-  }
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const message = record.mensagem ?? record.message ?? record.codigo;
-    return typeof message === "string" ? message : null;
-  }
-  return null;
-}
-
 export function NfseServiceCard({
   servico,
   selected,
@@ -107,7 +90,11 @@ export function NfseServiceCard({
   const isProcessing = status.label === "Processando";
   const isAuthorized = status.label === "Autorizada";
   const canSelect = !loading && !isProcessing && !isAuthorized && !hasPendingData;
-  const rejectionMessage = status.label === "Rejeitada" ? getMensagemErro(servico.notaFiscalErros) : null;
+  // Com a explicação da migração na frente quando a prefeitura recusou o
+  // emissor; o retorno original da Focus vem sempre junto.
+  const rejectionMessage = status.label === "Rejeitada"
+    ? resumirErrosNFSe(servico.notaFiscalErros)?.mensagem ?? null
+    : null;
   // O texto escrito na linha da OS, que a nota leva abaixo do nome do serviço.
   const descricaoDoItem = descricaoComplementarDoItem(servico.descricao, servico.servico?.descricao);
   // Desconto que a OS reservou para este serviço. Não é abatido sozinho — quem

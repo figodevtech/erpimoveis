@@ -61,6 +61,13 @@ class ConsultaFalsa {
     this.filtros.push((linha) => valores.some((valor) => igual(linha[coluna], valor)));
     return this;
   }
+  /** Coluna array com algum elemento em comum (`&&` do Postgres). */
+  overlaps(coluna: string, valores: unknown[]) {
+    this.filtros.push((linha) =>
+      Array.isArray(linha[coluna]) && linha[coluna].some((item: unknown) => valores.some((valor) => igual(item, valor))),
+    );
+    return this;
+  }
   is(coluna: string, valor: unknown) {
     return this.eq(coluna, valor);
   }

@@ -3,13 +3,22 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
-import { requireRelatoriosAccess } from "@/app/api/_authz/perms";
+import { requireFinanceirosAccess, requireRelatoriosAccess, requireVendasAccess } from "@/app/api/_authz/perms";
+import { eventosAtivos, ordenarEventosDaOs, type EventoFinanceiroOs } from "@/lib/ordens/eventos-financeiros";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { arredondarMoeda } from "@/lib/ordens/desconto";
 import { inferirDescontoGeralOs, sanitizarValorFrete } from "@/lib/ordens/totais";
 import { calculateFinancialSurcharge } from "@/lib/financial-surcharge";
 import { fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
 import { applyMarketplaceBuyerNames } from "@/lib/vendas/marketplace-buyer-names";
+import {
+  CABECALHOS_DE_RECEBIMENTOS,
+  COLUNAS_DE_SALDO,
+  diaLocal,
+  linhaDoRecebimento,
+  saldosDoDocumento,
+} from "@/lib/relatorios/recebimentos-de-documentos";
+import { carregarRecebimentosPorDocumento } from "@/lib/relatorios/recebimentos-de-documentos-server";
 
 /**
  * Exportação da relação de vendas.
@@ -50,6 +59,12 @@ const STATUS_VENDA = new Set([
   "CANCELADA",
   "CANCELADO",
 ]);
+
+/**
+ * Status em que a venda não deve nada, e por isso não tem saldo sem lançamento.
+ * As duas grafias de cancelada, pelo mesmo motivo de `STATUS_VENDA`.
+ */
+const STATUS_SEM_VALOR_DEVIDO = new Set(["ORCAMENTO_RECUSADO", "CANCELADA", "CANCELADO"]);
 
 const CANAIS = new Set(["PDV", "ONLINE", "MERCADO_LIVRE", "SHOPEE"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -214,6 +229,45 @@ function fecharVenda(venda: any) {
   return { subtotal, desconto, frete, total, acrescimoFinanceiro };
 }
 
+type LinhaEventoVenda = EventoFinanceiroOs & {
+  source_id: number;
+  descricao: string | null;
+  detalhe: string | null;
+};
+
+/**
+ * Os eventos financeiros de cada venda, já sem os cancelados e na ordem do
+ * painel da tela — a mesma regra de `@/lib/ordens/eventos-financeiros` que a
+ * relação de ordens usa. O evento da venda não aponta para `ordemservicoid`: o
+ * elo é `source_type = VENDA` com `source_id`, como na rota da própria venda.
+ */
+async function carregarEventosPorVenda(ids: number[]) {
+  const porVenda = new Map<number, LinhaEventoVenda[]>();
+  if (!ids.length) return porVenda;
+
+  const linhas = await fetchAllSupabaseRowsByChunks<LinhaEventoVenda, number>(ids, (chunk) =>
+    supabaseAdmin
+      .from("eventos_financeiros")
+      .select("id, source_id, origem, natureza, status, descricao, detalhe, valor, produtoid, servicoid, chave_origem")
+      .eq("source_type", "VENDA")
+      .in("source_id", chunk)
+      .order("source_id", { ascending: true })
+      .order("id", { ascending: true }),
+  );
+
+  for (const linha of eventosAtivos(linhas)) {
+    const vendaId = Number(linha.source_id);
+    if (!Number.isFinite(vendaId)) continue;
+    const atual = porVenda.get(vendaId) ?? [];
+    atual.push(linha);
+    porVenda.set(vendaId, atual);
+  }
+
+  for (const [vendaId, eventos] of porVenda) porVenda.set(vendaId, ordenarEventosDaOs(eventos));
+
+  return porVenda;
+}
+
 type SheetSpec = { name: string; headers: string[]; rows: unknown[][]; widths: number[] };
 
 function makeWorkbookFrom(sheets: SheetSpec[]) {
@@ -235,6 +289,14 @@ export async function GET(request: Request) {
     // Só a folha de impressão pede os itens, e só quando o usuário marca a
     // opção; o download pela tela de relatórios continua com uma aba só.
     const incluirItens = searchParams.get("itens") === "1";
+    const incluirEventos = searchParams.get("eventos") === "1";
+    // Custo e lucro da venda ficam atrás das mesmas permissões do painel de
+    // eventos na tela da venda. Um relatório não pode ser a porta dos fundos
+    // para o que a tela protege.
+    if (incluirEventos) {
+      await requireVendasAccess();
+      await requireFinanceirosAccess();
+    }
     const status = statusSelecionados(searchParams.get("status"));
     const canalParam = safeText(searchParams.get("canal"), 20).toUpperCase();
     const canal = CANAIS.has(canalParam) ? canalParam : "";
@@ -302,6 +364,14 @@ export async function GET(request: Request) {
     // há nenhuma no recorte.
     await applyMarketplaceBuyerNames(vendas);
 
+    // Todos os recebimentos de cada venda, de qualquer data: o período escolhe
+    // as vendas, não os pagamentos. É daqui que sai o resumo financeiro.
+    const recebimentosPorVenda = await carregarRecebimentosPorDocumento(
+      "VENDA",
+      vendas.map((venda) => Number(venda.id)),
+    );
+    const hoje = diaLocal(new Date());
+
     const rows = vendas.map((venda) => {
       const cliente = juncao(venda.cliente);
       const fechamento = fecharVenda(venda);
@@ -325,15 +395,38 @@ export async function GET(request: Request) {
         fechamento.frete,
         fechamento.total,
         fechamento.acrescimoFinanceiro,
+        // A conta do saldo é a mesma da tela de pagamento da venda.
+        ...saldosDoDocumento({
+          totalComercial: venda.valortotal,
+          acrescimoFinanceiroTipo: venda.acrescimo_financeiro_tipo,
+          acrescimoFinanceiroValor: venda.acrescimo_financeiro_valor,
+          recebimentos: recebimentosPorVenda.get(Number(venda.id)) ?? [],
+          // Venda cancelada ou recusada não deve nada: o total dela não é saldo
+          // a lançar.
+          semValorDevido: STATUS_SEM_VALOR_DEVIDO.has(String(venda.status ?? "")),
+          hoje,
+        }),
       ];
     });
+
+    // Uma linha por recebimento, na ordem das vendas da aba principal. É dela
+    // que a folha monta o resumo por forma de pagamento.
+    const linhasDeRecebimentos = vendas.flatMap((venda) =>
+      (recebimentosPorVenda.get(Number(venda.id)) ?? []).map((transacao) => [venda.id, ...linhaDoRecebimento(transacao, hoje)]),
+    );
 
     const abas: SheetSpec[] = [
       {
         name: "Relatório",
-        headers: ["Venda", "Data da venda", "Pagamento", "Baixa", "Status", "Canal", "Categoria", "Cliente", "CPF/CNPJ", "Vendedor", "Lançado por", "Descrição", "Forma de pagamento", "Parcelas", "Subtotal (R$)", "Desconto (R$)", "Frete (R$)", "Total (R$)", "Acréscimo financeiro (R$)"],
+        headers: ["Venda", "Data da venda", "Pagamento", "Baixa", "Status", "Canal", "Categoria", "Cliente", "CPF/CNPJ", "Vendedor", "Lançado por", "Descrição", "Forma de pagamento", "Parcelas", "Subtotal (R$)", "Desconto (R$)", "Frete (R$)", "Total (R$)", "Acréscimo financeiro (R$)", ...COLUNAS_DE_SALDO],
         rows,
-        widths: [9, 20, 20, 20, 22, 16, 24, 35, 20, 26, 26, 45, 30, 10, 16, 16, 14, 16, 24],
+        widths: [9, 20, 20, 20, 22, 16, 24, 35, 20, 26, 26, 45, 30, 10, 16, 16, 14, 16, 24, 16, 22, 22, 20],
+      },
+      {
+        name: "Recebimentos",
+        headers: ["Venda", ...CABECALHOS_DE_RECEBIMENTOS],
+        rows: linhasDeRecebimentos,
+        widths: [9, 12, 14, 22, 22, 18, 16, 22, 22],
       },
     ];
 
@@ -359,6 +452,36 @@ export async function GET(request: Request) {
         headers: ["Venda", "Código", "Descrição", "Unidade", "Quantidade", "Preço unitário (R$)", "Desconto do item (R$)", "Frete do item (R$)", "Subtotal (R$)"],
         rows: linhasDeItens,
         widths: [9, 16, 45, 10, 12, 18, 20, 18, 16],
+      });
+    }
+
+    if (incluirEventos) {
+      const eventosPorVenda = await carregarEventosPorVenda(vendas.map((venda) => Number(venda.id)));
+      const linhasDeEventos = vendas.flatMap((venda) =>
+        (eventosPorVenda.get(Number(venda.id)) ?? []).map((evento) => {
+          const valor = arredondarMoeda(Number(evento.valor ?? 0));
+          const comissao = evento.origem === "COMISSAO";
+          return [
+            venda.id,
+            evento.origem,
+            evento.natureza,
+            evento.status,
+            texto(evento.descricao),
+            texto(evento.detalhe),
+            valor,
+            // Venda só tem produto: toda comissão dela é comissão de produto.
+            // As duas colunas têm o mesmo contrato da relação de ordens, para a
+            // folha separar a comissão pela mesma regra.
+            comissao ? valor : 0,
+            comissao ? "PRODUTO" : "",
+          ];
+        }),
+      );
+      abas.push({
+        name: "Eventos",
+        headers: ["Venda", "Origem", "Natureza", "Situação", "Descrição", "Detalhe", "Valor (R$)", "Comissão de produtos (R$)", "Item da comissão"],
+        rows: linhasDeEventos,
+        widths: [9, 16, 12, 14, 45, 32, 16, 20, 16],
       });
     }
 

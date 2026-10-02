@@ -58,7 +58,11 @@ export type NFSeTentativaArquivada = {
  * nota pode ser reenviada muitas vezes numa instabilidade da prefeitura — daí o
  * teto: fica o histórico recente, não a linha crescendo sem fim.
  */
-const LIMITE_TENTATIVAS_ARQUIVADAS = 10;
+// Com cada interação externa registrada (envio, cada consulta, cancelamento),
+// o histórico cresce mais rápido que quando só os reenvios eram arquivados.
+// As respostas da Focus costumam ter menos de 1 KB; o corte por item (20 mil
+// caracteres) segue valendo.
+const LIMITE_TENTATIVAS_ARQUIVADAS = 40;
 
 /**
  * Arquiva a tentativa recusada e devolve o novo histórico da nota.
@@ -94,4 +98,79 @@ export function arquivarTentativaNFSe(
   };
 
   return [...anteriores, recusada].slice(-limite);
+}
+
+/**
+ * Uma chamada externa da NFS-e, como foi: o que saiu, o que voltou e quando.
+ *
+ * `retorno_bruto` guarda só a resposta mais recente — na nota 139 da Demir ele
+ * acabou com a consulta GET, e o retorno do POST da emissão se perdeu. Este
+ * registro vai para `tentativas` e nunca é sobrescrito. Não há segredo aqui: o
+ * token vai no cabeçalho, nunca na URL nem no corpo.
+ */
+export type NFSeInteracao = {
+  tipo: "EMISSAO" | "REENVIO" | "CONSULTA" | "CANCELAMENTO";
+  metodo: string;
+  url: string;
+  referencia: string | null;
+  payload?: unknown;
+  http_status: number;
+  resposta: unknown;
+  timestamp: string;
+};
+
+/** Monta a interação a partir do `retornoBruto` que o NFSeService devolve. */
+export function interacaoNFSe(
+  tipo: NFSeInteracao["tipo"],
+  referencia: string | null,
+  retornoBruto: { requisicao?: { metodo?: string; url?: string }; http_status?: number; recebido_em?: string; corpo?: unknown } | null | undefined,
+  payload?: unknown,
+): NFSeInteracao | null {
+  if (!retornoBruto) return null;
+  return {
+    tipo,
+    metodo: String(retornoBruto.requisicao?.metodo ?? ""),
+    url: String(retornoBruto.requisicao?.url ?? ""),
+    referencia,
+    ...(payload !== undefined ? { payload } : {}),
+    http_status: Number(retornoBruto.http_status ?? 0),
+    resposta: retornoBruto.corpo ?? null,
+    timestamp: String(retornoBruto.recebido_em ?? new Date().toISOString()),
+  };
+}
+
+/**
+ * Acrescenta a interação ao fim do histórico, em ordem cronológica. Tolera a
+ * coluna nula ou com lixo, como `arquivarTentativaNFSe`.
+ */
+export function acrescentarInteracaoNFSe(
+  tentativas: unknown,
+  interacao: NFSeInteracao | null,
+  limite: number = LIMITE_TENTATIVAS_ARQUIVADAS,
+): unknown[] {
+  const anteriores = Array.isArray(tentativas) ? tentativas : [];
+  return interacao ? [...anteriores, interacao].slice(-limite) : anteriores;
+}
+
+/**
+ * Grava a interação em `tentativas` lendo o histórico atual. É diagnóstico:
+ * falha aqui vira aviso no log e nunca derruba consulta nem cancelamento.
+ */
+export async function registrarInteracaoNFSe(registroId: number, interacao: NFSeInteracao | null) {
+  if (!interacao) return;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("nfse")
+      .select("tentativas")
+      .eq("id", registroId)
+      .maybeSingle();
+    if (error) throw error;
+    const { error: updateError } = await supabaseAdmin
+      .from("nfse")
+      .update({ tentativas: acrescentarInteracaoNFSe(data?.tentativas, interacao) })
+      .eq("id", registroId);
+    if (updateError) throw updateError;
+  } catch (erro) {
+    console.warn("[nfse] Interação não registrada em tentativas", erro);
+  }
 }

@@ -17,7 +17,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
  */
 export type EmpresaAtual = {
   id: number;
-  /** CRT: decide entre CSOSN e CST, e se a NFS-e é a Nacional (MEI). */
+  /** CRT: decide entre CSOSN e CST, e como o prestador se declara na NFS-e Nacional. */
   regimetributario: string;
   /** IBGE de 7 dígitos: decide o município da NFS-e. */
   codigomunicipio: string;
