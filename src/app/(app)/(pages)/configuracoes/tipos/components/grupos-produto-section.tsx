@@ -42,6 +42,7 @@ type GrupoProduto = {
   descricao: string | null;
   ativo: boolean | null;
   exibirPdv: boolean;
+  exibirSite: boolean;
 };
 
 type GrupoForm = {
@@ -49,6 +50,7 @@ type GrupoForm = {
   descricao: string;
   ativo: boolean;
   exibirPdv: boolean;
+  exibirSite: boolean;
 };
 
 const emptyForm: GrupoForm = {
@@ -56,6 +58,7 @@ const emptyForm: GrupoForm = {
   descricao: "",
   ativo: true,
   exibirPdv: true,
+  exibirSite: true,
 };
 
 const DEFAULT_LIMIT = 10;
@@ -102,6 +105,9 @@ export default function GruposProdutoSection() {
             <div className="h-5 w-16 bg-muted rounded-full" />
           </TableCell>
           <TableCell className="text-right">
+            <div className="h-5 w-16 bg-muted rounded-full" />
+          </TableCell>
+          <TableCell className="text-right">
             <div className="h-6 w-10 bg-muted rounded-full ml-auto" />
           </TableCell>
         </TableRow>
@@ -124,6 +130,7 @@ export default function GruposProdutoSection() {
         descricao: (g.descricao as string | null) ?? null,
         ativo: typeof g.ativo === "boolean" ? (g.ativo as boolean) : true,
         exibirPdv: g.exibirPdv ?? true,
+        exibirSite: g.exibirSite ?? true,
       }));
       setGrupos(items);
     } catch (e: any) {
@@ -157,6 +164,7 @@ export default function GruposProdutoSection() {
       descricao: g.descricao ?? "",
       ativo: g.ativo ?? true,
       exibirPdv: g.exibirPdv,
+      exibirSite: g.exibirSite,
     });
     setDialogOpen(true);
   }
@@ -172,6 +180,7 @@ export default function GruposProdutoSection() {
       descricao: form.descricao.trim() || null,
       ativo: form.ativo,
       exibirPdv: form.exibirPdv,
+      exibirSite: form.exibirSite,
     };
 
     try {
@@ -290,6 +299,21 @@ export default function GruposProdutoSection() {
                     onCheckedChange={(val) => handleChange("exibirPdv", val)}
                   />
                 </div>
+                <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 bg-muted/40">
+                  <div className="space-y-0.5">
+                    <label htmlFor="grupo-exibir-site" className="text-sm font-medium">Exibir no site</label>
+                    <p id="grupo-exibir-site-descricao" className="text-xs text-muted-foreground">
+                      Ao desativar, a categoria e todos os produtos deste grupo ficam ocultos no site,
+                      mesmo que estejam publicados individualmente. Sincronize o catálogo para aplicar.
+                    </p>
+                  </div>
+                  <Switch
+                    id="grupo-exibir-site"
+                    aria-describedby="grupo-exibir-site-descricao"
+                    checked={form.exibirSite}
+                    onCheckedChange={(val) => handleChange("exibirSite", val)}
+                  />
+                </div>
               </div>
 
               <div className="mt-6 flex justify-end gap-2">
@@ -334,6 +358,7 @@ export default function GruposProdutoSection() {
               <TableHead>Descricao</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Exibir no PDV</TableHead>
+              <TableHead>Exibir no site</TableHead>
               <TableHead className="text-right">Acoes</TableHead>
             </TableRow>
           </TableHeader>
@@ -342,7 +367,7 @@ export default function GruposProdutoSection() {
               linhasSkeleton
             ) : total === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
                   Nenhum grupo cadastrado. Clique em <b>+ Grupo</b> para cadastrar.
                 </TableCell>
               </TableRow>
@@ -362,6 +387,11 @@ export default function GruposProdutoSection() {
                   <TableCell>
                     <Badge variant={g.exibirPdv ? "default" : "outline"}>
                       {g.exibirPdv ? "Sim" : "Não"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={g.exibirSite ? "default" : "outline"}>
+                      {g.exibirSite ? "Sim" : "Não"}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">

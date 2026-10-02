@@ -224,13 +224,7 @@ export default function StorefrontMarketplace() {
     const publish = product.status !== "PUBLICADO";
     setChangingProductId(product.produto_id);
     try {
-      await postJson("/api/integracoes/site/products", {
-        productId: product.produto_id,
-        status: publish ? "PUBLICADO" : "PAUSADO",
-        useErpPrice: true,
-        safetyStock: 0,
-        featured: false,
-      });
+      await sendJson(`/api/integracoes/site/products/${product.produto_id}`, { visible: publish }, "PATCH");
       await syncCatalog(false, false);
       toast.success(publish ? "Produto publicado na loja." : "Produto pausado na loja.");
     } catch (publicationError) {
@@ -859,9 +853,13 @@ function EditProductAction({ onClick, fullWidth = false }: { onClick: () => void
   );
 }
 
-async function postJson(url: string, body?: unknown) {
+function postJson(url: string, body?: unknown) {
+  return sendJson(url, body, "POST");
+}
+
+async function sendJson(url: string, body: unknown, method: "POST" | "PATCH") {
   const response = await fetch(url, {
-    method: "POST",
+    method,
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
