@@ -4,14 +4,20 @@ import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
 import {
   NFSeService,
   NFSeValidationError,
+  conferirCodigosFiscaisNFSe,
   descricaoComplementarDoItem,
-  identificarModeloEmissao as resolverModeloEmissao,
   normalizarStatusNFSe,
   validarDadosObrigatoriosNFSe,
   type NFSeCodigosFiscais,
   type NFSeItemEmissao,
-  type NFSeModeloEmissao,
 } from "@/lib/services/fiscais/nfse-service";
+import {
+  MENSAGEM_EMISSOR_NACIONAL_EXIGIDO,
+  dataDoDiaNFSe,
+  detectarEmissorMunicipalEncerrado,
+  resolverPoliticaNFSe,
+  type PoliticaNFSe,
+} from "@/lib/services/fiscais/nfse-politica";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 import { verificarStatusOSParaEmissao } from "@/lib/nfe/elegibilidadeEmissaoServidor";
 
@@ -207,10 +213,27 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ ok: false, message: "A aplicação não possui uma empresa configurada." }, { status: 400 });
     }
 
-    const modeloEmissao = identificarModeloEmissao(empresa);
+    const { data: nfseConfig, error: nfseConfigError } = await supabaseAdmin
+      .from("nfse_config")
+      .select("token, incluir_garantia_os, padroes_emissao")
+      .eq("empresa_id", empresa.id)
+      .maybeSingle();
+    if (nfseConfigError) throw nfseConfigError;
+
+    const padroesEmissao = nfseConfig?.padroes_emissao
+      && typeof nfseConfig.padroes_emissao === "object"
+      && !Array.isArray(nfseConfig.padroes_emissao)
+      ? nfseConfig.padroes_emissao as Record<string, unknown>
+      : {};
+
+    // Uma data só para a nota inteira: a mesma que escolhe o emissor vai como
+    // data de competência da DPS.
+    const dataCompetencia = dataDoDiaNFSe(new Date(), empresa.timezone_iana);
+    const modeloEmissao = resolverPolitica(empresa, dataCompetencia, itensSelecionados, padroesEmissao);
     if (!modeloEmissao.ok) {
       return NextResponse.json({ ok: false, message: modeloEmissao.message }, { status: 400 });
     }
+    const politica = modeloEmissao.politica;
 
     const pendencias = validarDadosObrigatoriosNFSe(os, empresa, itensSelecionados, modeloEmissao.modelo);
     if (pendencias.length > 0) {
@@ -224,13 +247,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const { data: nfseConfig, error: nfseConfigError } = await supabaseAdmin
-      .from("nfse_config")
-      .select("token, incluir_garantia_os, padroes_emissao")
-      .eq("empresa_id", empresa.id)
-      .maybeSingle();
-    if (nfseConfigError) throw nfseConfigError;
-
     const codigosRecebidos = body?.codigosFiscais && typeof body.codigosFiscais === "object"
       ? body.codigosFiscais as Record<string, unknown>
       : {};
@@ -238,11 +254,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       codigosRecebidos,
       "informacoes_complementares",
     );
-    const padroesEmissao = nfseConfig?.padroes_emissao
-      && typeof nfseConfig.padroes_emissao === "object"
-      && !Array.isArray(nfseConfig.padroes_emissao)
-      ? nfseConfig.padroes_emissao as Record<string, unknown>
-      : {};
     const padraoDoModelo = padroesEmissao[modeloEmissao.modelo]
       && typeof padroesEmissao[modeloEmissao.modelo] === "object"
       && !Array.isArray(padroesEmissao[modeloEmissao.modelo])
@@ -261,7 +272,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           }),
         };
 
-    const validacaoFiscal = validarCodigosFiscais(codigosParaValidar, modeloEmissao.modelo);
+    // Como o prestador se declara na DPS é dado da empresa, não da nota: vem do
+    // padrão cadastrado e não pode ser trocado pela tela de emissão.
+    const validacaoFiscal = validarCodigosFiscais(
+      {
+        ...codigosParaValidar,
+        regime_especial_tributacao: padraoDoModelo.regimeEspecialTributacao,
+        regime_apuracao_simples_nacional: padraoDoModelo.regimeApuracaoSimplesNacional,
+      },
+      politica,
+    );
     if (!validacaoFiscal.ok) {
       return NextResponse.json({ ok: false, message: validacaoFiscal.message }, { status: 400 });
     }
@@ -367,7 +387,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
 
     const parametrosNacionais = modeloEmissao.modelo === "NACIONAL"
-      ? nfseService.mapearOSParaFocusNacional(os, empresa, itensSelecionados, validacaoFiscal.codigos)
+      ? nfseService.mapearOSParaFocusNacional(os, empresa, itensSelecionados, validacaoFiscal.codigos, {
+          politica,
+          dataCompetencia,
+        })
       : null;
     const parametrosMunicipais = modeloEmissao.modelo === "NACIONAL"
       ? null
@@ -492,8 +515,13 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     if (!resultado.ok) {
+      // A recusa de emissor encerrado ganha explicação na frente, mas o
+      // retorno da Focus segue inteiro na mensagem e em `erros`.
+      const message = detectarEmissorMunicipalEncerrado(resultado.erros)
+        ? `${MENSAGEM_EMISSOR_NACIONAL_EXIGIDO} Retorno da Focus: ${resultado.message}`
+        : resultado.message;
       return NextResponse.json(
-        { ok: false, message: resultado.message, erros: resultado.erros, referencia },
+        { ok: false, message, erros: resultado.erros, referencia },
         { status: 400 },
       );
     }
@@ -501,6 +529,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json(
       {
         ok: true,
+        modeloEmissao: modeloEmissao.modelo,
         message: "NFS-e enviada para processamento.",
         referencia: resultado.referencia || referencia,
         servicoIds,
@@ -568,27 +597,48 @@ function validarServicosRequisitados(
   return { ok: true, servicos };
 }
 
-function identificarModeloEmissao(
+/**
+ * O emissor da nota sai da política, com a data do dia e os itens dos serviços
+ * selecionados. O item vem do cadastro de cada serviço; serviço sem item cai no
+ * item do padrão municipal da empresa. Sem nenhum dos dois a nota não conta
+ * como exceção — a exceção de João Pessoa precisa de evidência positiva.
+ */
+function resolverPolitica(
   empresa: Record<string, unknown>,
-): { ok: true; modelo: NFSeModeloEmissao } | { ok: false; message: string } {
+  dataCompetencia: string,
+  itens: NFSeItemEmissao[],
+  padroesEmissao: Record<string, unknown>,
+): { ok: true; modelo: PoliticaNFSe["modelo"]; politica: PoliticaNFSe } | { ok: false; message: string } {
   const codigoMunicipio = String(empresa.codigomunicipio ?? "").replace(/\D/g, "");
   if (codigoMunicipio.length !== 7) {
     return { ok: false, message: "Preencha o código IBGE do município da empresa com 7 dígitos antes de emitir a NFS-e." };
   }
 
-  const modelo = resolverModeloEmissao(empresa);
-  if (!modelo) {
+  const padraoMunicipal = padroesEmissao.MUNICIPAL_JOAO_PESSOA ?? padroesEmissao.MUNICIPAL_CABEDELO;
+  const itemPadrao = padraoMunicipal && typeof padraoMunicipal === "object"
+    ? (padraoMunicipal as Record<string, unknown>).itemListaServico
+    : undefined;
+  const politica = resolverPoliticaNFSe({
+    codigoMunicipio,
+    regimeTributario: empresa.regimetributario,
+    dataCompetencia,
+    itensListaServico: itens.map((item) => {
+      const cadastro = (item.servico as Record<string, unknown> | null | undefined)?.itemlistaservico;
+      return String(cadastro ?? "").trim() || String(itemPadrao ?? "");
+    }),
+  });
+  if (!politica) {
     return {
       ok: false,
       message: `A emissão municipal ainda não está configurada para o município IBGE ${codigoMunicipio}.`,
     };
   }
-  return { ok: true, modelo };
+  return { ok: true, modelo: politica.modelo, politica };
 }
 
 function validarCodigosFiscais(
   raw: unknown,
-  modelo: NFSeModeloEmissao,
+  politica: PoliticaNFSe,
 ): { ok: true; codigos: NFSeCodigosFiscais } | { ok: false; message: string } {
   const input = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   const texto = (value: unknown) => String(value ?? "").trim();
@@ -598,127 +648,44 @@ function validarCodigosFiscais(
   const itemListaServico = texto(input.item_lista_servico);
   const codigoCnae = digitos(input.codigo_cnae);
   const codigoTributacaoNacional = digitos(input.codigo_tributacao_nacional_iss);
+  const codigoTributacaoMunicipal = texto(input.codigo_tributacao_municipal_iss);
   const codigoNbs = digitos(input.codigo_nbs);
-  const aliquotaIss = numeroOpcional(input.aliquota_iss);
-  const naturezaOperacao = numeroOpcional(input.natureza_operacao);
-  const tributacaoIss = numeroOpcional(input.tributacao_iss);
-  const tipoRetencaoIss = numeroOpcional(input.tipo_retencao_iss);
-  const finalidadeEmissao = numeroOpcional(input.finalidade_emissao);
-  const consumidorFinal = numeroOpcional(input.consumidor_final);
-  const indicadorDestinatario = numeroOpcional(input.indicador_destinatario);
   const codigoIndicadorOperacao = digitos(input.codigo_indicador_operacao);
   const ibsCbsSituacaoTributaria = digitos(input.ibs_cbs_situacao_tributaria);
   const ibsCbsClassificacaoTributaria = digitos(input.ibs_cbs_classificacao_tributaria);
   const informacoesComplementares = texto(input.informacoes_complementares);
+  const regimeEspecial = numeroOpcional(input.regime_especial_tributacao);
+  const regimeApuracao = numeroOpcional(input.regime_apuracao_simples_nacional);
 
-  if (informacoesComplementares.length > 2000) {
-    return { ok: false, message: "As informações complementares devem possuir no máximo 2.000 caracteres." };
+  if (regimeEspecial !== undefined && ![0, 1, 2, 3, 4, 5, 6, 9].includes(regimeEspecial)) {
+    return { ok: false, message: "O regime especial de tributação cadastrado no padrão Nacional é inválido." };
+  }
+  if (regimeApuracao !== undefined && ![1, 2, 3].includes(regimeApuracao)) {
+    return { ok: false, message: "O regime de apuração do Simples Nacional cadastrado no padrão Nacional é inválido." };
   }
 
-  if (codigoNbs && codigoNbs.length !== 9) {
-    return { ok: false, message: "Quando informado, o Código NBS deve possuir 9 dígitos." };
-  }
-
-  if (codigoIndicadorOperacao && codigoIndicadorOperacao.length !== 6) {
-    return { ok: false, message: "Quando informado, o Código Indicador da Operação deve possuir 6 dígitos." };
-  }
-
-  if (aliquotaIss !== undefined && (!Number.isFinite(aliquotaIss) || aliquotaIss < 0 || aliquotaIss > 100)) {
-    return { ok: false, message: "Informe uma alíquota de ISS válida entre 0 e 100%." };
-  }
-
-  if (modelo === "NACIONAL") {
-    if (codigoTributacaoNacional.length !== 6) {
-      return { ok: false, message: "Informe o Código de Tributação Nacional do ISS com 6 dígitos." };
-    }
-    if (![1, 2, 3, 4].includes(Number(tributacaoIss))) {
-      return { ok: false, message: "Selecione a tributação do ISS." };
-    }
-    if (![1, 2, 3].includes(Number(tipoRetencaoIss))) {
-      return { ok: false, message: "Selecione o tipo de retenção do ISS." };
-    }
-    if (finalidadeEmissao !== 0) {
-      return { ok: false, message: "Selecione a finalidade da emissão da NFS-e." };
-    }
-    if (![0, 1].includes(Number(consumidorFinal))) {
-      return { ok: false, message: "Informe se a operação é de consumo final." };
-    }
-    if (indicadorDestinatario !== 0) {
-      return { ok: false, message: "Confirme que o destinatário é o próprio tomador." };
-    }
-    if (ibsCbsSituacaoTributaria.length !== 3) {
-      return { ok: false, message: "Informe o CST do IBS/CBS com 3 dígitos." };
-    }
-    if (ibsCbsClassificacaoTributaria.length !== 6) {
-      return { ok: false, message: "Informe a Classificação Tributária do IBS/CBS com 6 dígitos." };
-    }
-  } else {
-    const itemListaDigitos = itemListaServico.replace(/\D/g, "");
-    if (itemListaDigitos.length < 4 || itemListaDigitos.length > 6) {
-      return { ok: false, message: "Informe um Item da Lista de Serviço válido, por exemplo 14.01." };
-    }
-
-    const tamanhoCnaeValido = modelo === "MUNICIPAL_JOAO_PESSOA"
-      ? codigoCnae.length === 9
-      : codigoCnae.length >= 7 && codigoCnae.length <= 9;
-    if (!tamanhoCnaeValido) {
-      return {
-        ok: false,
-        message: modelo === "MUNICIPAL_JOAO_PESSOA"
-          ? "Informe a variação do CNAE com 9 dígitos exigida por João Pessoa."
-          : "Informe um CNAE com 7 a 9 dígitos.",
-      };
-    }
-    if (aliquotaIss === undefined) {
-      return { ok: false, message: "Informe a alíquota do ISS." };
-    }
-    if (![1, 2, 3, 4, 5, 6].includes(Number(naturezaOperacao))) {
-      return { ok: false, message: "Selecione a natureza da operação." };
-    }
-    if (typeof input.iss_retido !== "boolean") {
-      return { ok: false, message: "Informe se o ISS será retido." };
-    }
-
-    if (modelo === "MUNICIPAL_CABEDELO") {
-      const informouReforma = [
-        input.finalidade_emissao,
-        input.consumidor_final,
-        input.indicador_destinatario,
-        input.codigo_indicador_operacao,
-        input.ibs_cbs_situacao_tributaria,
-        input.ibs_cbs_classificacao_tributaria,
-      ].some((value) => texto(value) !== "");
-
-      if (informouReforma) {
-        if (finalidadeEmissao !== 0 || ![0, 1].includes(Number(consumidorFinal)) || indicadorDestinatario !== 0) {
-          return { ok: false, message: "Complete finalidade, consumo final e destinatário dos dados da Reforma Tributária." };
-        }
-        if (ibsCbsSituacaoTributaria.length !== 3 || ibsCbsClassificacaoTributaria.length !== 6) {
-          return { ok: false, message: "Complete o CST e a Classificação Tributária do IBS/CBS." };
-        }
-      }
-    }
-  }
-
-  return {
-    ok: true,
-    codigos: {
-      item_lista_servico: itemListaServico || undefined,
-      codigo_cnae: codigoCnae || undefined,
-      codigo_tributacao_nacional_iss: codigoTributacaoNacional || undefined,
-      codigo_nbs: codigoNbs || undefined,
-      aliquota_iss: aliquotaIss,
-      natureza_operacao: naturezaOperacao as NFSeCodigosFiscais["natureza_operacao"],
-      iss_retido: typeof input.iss_retido === "boolean" ? input.iss_retido : undefined,
-      tributacao_iss: tributacaoIss as NFSeCodigosFiscais["tributacao_iss"],
-      tipo_retencao_iss: tipoRetencaoIss as NFSeCodigosFiscais["tipo_retencao_iss"],
-      finalidade_emissao: finalidadeEmissao as NFSeCodigosFiscais["finalidade_emissao"],
-      consumidor_final: consumidorFinal as NFSeCodigosFiscais["consumidor_final"],
-      indicador_destinatario: indicadorDestinatario as NFSeCodigosFiscais["indicador_destinatario"],
-      codigo_indicador_operacao: codigoIndicadorOperacao || undefined,
-      ibs_cbs_situacao_tributaria: ibsCbsSituacaoTributaria || undefined,
-      ibs_cbs_classificacao_tributaria: ibsCbsClassificacaoTributaria || undefined,
-      informacoes_complementares: informacoesComplementares || undefined,
-    },
+  const codigos: NFSeCodigosFiscais = {
+    item_lista_servico: itemListaServico || undefined,
+    codigo_cnae: codigoCnae || undefined,
+    codigo_tributacao_nacional_iss: codigoTributacaoNacional || undefined,
+    codigo_tributacao_municipal_iss: codigoTributacaoMunicipal || undefined,
+    codigo_nbs: codigoNbs || undefined,
+    aliquota_iss: numeroOpcional(input.aliquota_iss),
+    natureza_operacao: numeroOpcional(input.natureza_operacao) as NFSeCodigosFiscais["natureza_operacao"],
+    iss_retido: typeof input.iss_retido === "boolean" ? input.iss_retido : undefined,
+    tributacao_iss: numeroOpcional(input.tributacao_iss) as NFSeCodigosFiscais["tributacao_iss"],
+    tipo_retencao_iss: numeroOpcional(input.tipo_retencao_iss) as NFSeCodigosFiscais["tipo_retencao_iss"],
+    finalidade_emissao: numeroOpcional(input.finalidade_emissao) as NFSeCodigosFiscais["finalidade_emissao"],
+    consumidor_final: numeroOpcional(input.consumidor_final) as NFSeCodigosFiscais["consumidor_final"],
+    indicador_destinatario: numeroOpcional(input.indicador_destinatario) as NFSeCodigosFiscais["indicador_destinatario"],
+    codigo_indicador_operacao: codigoIndicadorOperacao || undefined,
+    ibs_cbs_situacao_tributaria: ibsCbsSituacaoTributaria || undefined,
+    ibs_cbs_classificacao_tributaria: ibsCbsClassificacaoTributaria || undefined,
+    informacoes_complementares: informacoesComplementares || undefined,
+    regime_especial_tributacao: regimeEspecial as NFSeCodigosFiscais["regime_especial_tributacao"],
+    regime_apuracao_simples_nacional: regimeApuracao as NFSeCodigosFiscais["regime_apuracao_simples_nacional"],
   };
+
+  const pendencia = conferirCodigosFiscaisNFSe(politica, codigos);
+  return pendencia ? { ok: false, message: pendencia } : { ok: true, codigos };
 }

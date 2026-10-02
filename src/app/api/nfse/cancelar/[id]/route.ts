@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { NFSeService, normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
 import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
+import { familiaDoModeloNFSe } from "@/lib/services/fiscais/nfse-politica";
 
 export const runtime = "nodejs";
 
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const nfseService = new NFSeService();
     if (empresa) nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
 
-    const modelo = nfsDb.modelo_emissao === "NACIONAL" ? "NACIONAL" : "MUNICIPAL";
+    const modelo = familiaDoModeloNFSe(nfsDb.modelo_emissao);
     const resultado = await nfseService.cancelar(nfsDb.referencia, justificativa, modelo);
 
     // 3. Update DB state

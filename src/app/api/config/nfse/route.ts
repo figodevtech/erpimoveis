@@ -2,7 +2,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 import { buscarEmpresaAtual } from "@/services/fiscal/empresaAtual";
-import { identificarModeloEmissao } from "@/lib/services/fiscais/nfse-service";
+import {
+  dataDoDiaNFSe,
+  modelosPossiveisNFSe,
+  resolverPoliticaNFSe,
+} from "@/lib/services/fiscais/nfse-politica";
 import {
   prepararPatchGarantiaNfse,
   serializarConfigGarantiaNfse,
@@ -13,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Modelos que podem ter padrão gravado. Chave errada no jsonb é padrão que
- * nunca é lido: a emissão procura por `identificarModeloEmissao(empresa)` e
+ * nunca é lido: a emissão procura pelo modelo que `resolverPoliticaNFSe` dá e
  * ignora o resto.
  */
 const MODELOS = ["NACIONAL", "MUNICIPAL_CABEDELO", "MUNICIPAL_JOAO_PESSOA"] as const;
@@ -53,6 +57,24 @@ function normalizarPadroesEmissao(entrada: unknown): Record<string, unknown> {
   return saida;
 }
 
+/**
+ * O modelo que a emissão comum vai procurar no jsonb hoje, e todos os que a
+ * empresa pode precisar — durante a transição de João Pessoa, o Nacional e o
+ * municipal das exceções. Vai junto para a tela conferir se o padrão
+ * cadastrado é o que será realmente lido.
+ */
+function modelosDaEmpresa(empresa: { codigomunicipio?: unknown; regimetributario?: unknown } | null | undefined) {
+  const hoje = dataDoDiaNFSe(new Date());
+  return {
+    modeloEmissao: resolverPoliticaNFSe({
+      codigoMunicipio: empresa?.codigomunicipio,
+      regimeTributario: empresa?.regimetributario,
+      dataCompetencia: hoje,
+    })?.modelo ?? null,
+    modelosEmissao: modelosPossiveisNFSe(empresa, hoje),
+  };
+}
+
 function serializar(row: Record<string, any> | null | undefined) {
   return {
     provedor: row?.provedor ?? "",
@@ -90,9 +112,7 @@ export async function GET() {
       {
         nfse: {
           ...serializar(r.data),
-          // O modelo que a emissão vai procurar no jsonb. Vai junto para a tela
-          // conferir se o padrão cadastrado é o que será realmente lido.
-          modeloEmissao: identificarModeloEmissao(empresa),
+          ...modelosDaEmpresa(empresa),
         },
       },
       { headers: { "Cache-Control": "no-store" } },
@@ -161,7 +181,7 @@ export async function PUT(req: NextRequest) {
       ok: true,
       nfse: {
         ...serializar(up.data),
-        modeloEmissao: identificarModeloEmissao(empresa),
+        ...modelosDaEmpresa(empresa),
       },
     });
   } catch (e: any) {

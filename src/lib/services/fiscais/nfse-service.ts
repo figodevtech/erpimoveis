@@ -5,6 +5,12 @@ import {
   normalizeCnpj,
   normalizeCpf,
 } from "@/lib/fiscal-identifiers";
+import {
+  dataDoDiaNFSe,
+  resolverPoliticaNFSe,
+  type NFSeModeloEmissao,
+  type PoliticaNFSe,
+} from "./nfse-politica";
 
 export type NFSeEmitirParams = {
   referencia: string;
@@ -56,8 +62,14 @@ export type NFSeCodigosFiscais = {
   codigo_cnae?: string;
   codigo_tributario_municipio?: string;
   codigo_tributacao_nacional_iss?: string;
+  /** cTribMun da DPS Nacional: 3 posições. Não é o código do emissor municipal antigo. */
+  codigo_tributacao_municipal_iss?: string;
   codigo_nbs?: string;
   aliquota_iss?: number;
+  /** regEspTrib da DPS Nacional. Vem do padrão da empresa, não da tela de emissão. */
+  regime_especial_tributacao?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 9;
+  /** regApTribSN da DPS Nacional, só para ME/EPP do Simples. Vem do padrão da empresa. */
+  regime_apuracao_simples_nacional?: 1 | 2 | 3;
   natureza_operacao?: 1 | 2 | 3 | 4 | 5 | 6;
   iss_retido?: boolean;
   tributacao_iss?: 1 | 2 | 3 | 4;
@@ -88,22 +100,23 @@ export type NFSeItemEmissao = {
   } | null;
 };
 
-export type NFSeModeloEmissao = "NACIONAL" | "MUNICIPAL_CABEDELO" | "MUNICIPAL_JOAO_PESSOA";
+export type { NFSeModeloEmissao, PoliticaNFSe } from "./nfse-politica";
 
 /**
- * Resolve o modelo de emissão da NFS-e a partir do regime tributário e do
- * código IBGE do município da empresa. Regra única, reaproveitada tanto por
- * rotas server (emissão, listagem de serviços) quanto pela tela de
- * configurações (client), que só decide qual seção de padrões exibir.
+ * Atalho para quem só precisa do modelo. A decisão mora em
+ * `resolverPoliticaNFSe`: o modelo depende da data e dos itens da nota, então
+ * eles são obrigatórios aqui — sem eles a resposta seria a de antes da
+ * migração de João Pessoa.
  */
 export function identificarModeloEmissao(
   empresa: { codigomunicipio?: unknown; regimetributario?: unknown } | null | undefined,
+  contexto: { dataCompetencia: string; itensListaServico?: Array<string | null | undefined> },
 ): NFSeModeloEmissao | null {
-  const codigoMunicipio = String(empresa?.codigomunicipio ?? "").replace(/\D/g, "");
-  if (String(empresa?.regimetributario ?? "") === "4") return "NACIONAL";
-  if (codigoMunicipio === "2503209") return "MUNICIPAL_CABEDELO";
-  if (codigoMunicipio === "2507507") return "MUNICIPAL_JOAO_PESSOA";
-  return null;
+  return resolverPoliticaNFSe({
+    codigoMunicipio: empresa?.codigomunicipio,
+    regimeTributario: empresa?.regimetributario,
+    ...contexto,
+  })?.modelo ?? null;
 }
 
 export function normalizarStatusNFSe(status: unknown, padrao = "PROCESSANDO") {
@@ -229,104 +242,151 @@ function exigirDadosObrigatoriosNFSe(
   }
 }
 
-function exigirCodigosFiscais(
-  modelo: NFSeModeloEmissao,
+/** O que a valida\u00e7\u00e3o precisa saber da pol\u00edtica: o modelo e se a RTC \u00e9 exigida. */
+export type RegraCodigosNFSe = Pick<PoliticaNFSe, "modelo" | "exigeRtc">;
+
+/** Algum campo do grupo da Reforma Tribut\u00e1ria foi preenchido. */
+function informouGrupoRtc(codigos: NFSeCodigosFiscais) {
+  return [
+    codigos.finalidade_emissao,
+    codigos.consumidor_final,
+    codigos.indicador_destinatario,
+    codigos.codigo_indicador_operacao,
+    codigos.ibs_cbs_situacao_tributaria,
+    codigos.ibs_cbs_classificacao_tributaria,
+  ].some((value) => value !== undefined && value !== null && String(value).trim() !== "");
+}
+
+/**
+ * Valida\u00e7\u00e3o \u00fanica dos c\u00f3digos fiscais da NFS-e \u2014 a rota de emiss\u00e3o e os
+ * mapeadores chamam esta mesma fun\u00e7\u00e3o. Devolve a primeira pend\u00eancia, ou null.
+ *
+ * O grupo da Reforma Tribut\u00e1ria (finalidade, consumo final, destinat\u00e1rio, cIndOp,
+ * CST e cClassTrib) \u00e9 exigido quando a POL\u00cdTICA diz, e n\u00e3o pelo modelo: MEI e
+ * Simples no padr\u00e3o Nacional ficam dispensados at\u00e9 2027, o regime regular n\u00e3o.
+ * Quando n\u00e3o \u00e9 exigido mas foi iniciado, precisa sair completo \u2014 meio grupo \u00e9
+ * rejei\u00e7\u00e3o certa.
+ */
+export function conferirCodigosFiscaisNFSe(
+  regra: RegraCodigosNFSe,
   codigos: NFSeCodigosFiscais,
-) {
+): string | null {
   const digitos = (value: unknown) => somenteDigitos(value);
   const nbs = digitos(codigos.codigo_nbs);
   const codigoIndicadorOperacao = digitos(codigos.codigo_indicador_operacao);
   const aliquota = codigos.aliquota_iss;
+  const { modelo } = regra;
 
-  if (nbs && nbs.length !== 9) {
-    throw new NFSeValidationError("Quando informado, o C\u00f3digo NBS deve possuir 9 d\u00edgitos.");
-  }
+  if (nbs && nbs.length !== 9) return "Quando informado, o C\u00f3digo NBS deve possuir 9 d\u00edgitos.";
   if (codigoIndicadorOperacao && codigoIndicadorOperacao.length !== 6) {
-    throw new NFSeValidationError("Quando informado, o C\u00f3digo Indicador da Opera\u00e7\u00e3o deve possuir 6 d\u00edgitos.");
+    return "Quando informado, o C\u00f3digo Indicador da Opera\u00e7\u00e3o deve possuir 6 d\u00edgitos.";
   }
   if (aliquota !== undefined && (!Number.isFinite(aliquota) || aliquota < 0 || aliquota > 100)) {
-    throw new NFSeValidationError("Informe uma al\u00edquota de ISS v\u00e1lida entre 0 e 100%.");
+    return "Informe uma al\u00edquota de ISS v\u00e1lida entre 0 e 100%.";
   }
+  if (String(codigos.informacoes_complementares ?? "").trim().length > 2000) {
+    return "As informa\u00e7\u00f5es complementares devem possuir no m\u00e1ximo 2.000 caracteres.";
+  }
+
+  const conferirGrupoRtc = (exigido: boolean) => {
+    if (!exigido && !informouGrupoRtc(codigos)) return null;
+    if (codigos.finalidade_emissao !== 0) return "Selecione a finalidade da emiss\u00e3o da NFS-e.";
+    if (![0, 1].includes(Number(codigos.consumidor_final))) return "Informe se a opera\u00e7\u00e3o \u00e9 de consumo final.";
+    if (codigos.indicador_destinatario !== 0) return "Confirme que o destinat\u00e1rio \u00e9 o pr\u00f3prio tomador.";
+    if (exigido && codigoIndicadorOperacao.length !== 6) {
+      return "Informe o C\u00f3digo Indicador da Opera\u00e7\u00e3o (cIndOp) com 6 d\u00edgitos.";
+    }
+    if (digitos(codigos.ibs_cbs_situacao_tributaria).length !== 3) return "Informe o CST do IBS/CBS com 3 d\u00edgitos.";
+    if (digitos(codigos.ibs_cbs_classificacao_tributaria).length !== 6) {
+      return "Informe a Classifica\u00e7\u00e3o Tribut\u00e1ria do IBS/CBS com 6 d\u00edgitos.";
+    }
+    return null;
+  };
 
   if (modelo === "NACIONAL") {
     if (digitos(codigos.codigo_tributacao_nacional_iss).length !== 6) {
-      throw new NFSeValidationError("Informe o C\u00f3digo de Tributa\u00e7\u00e3o Nacional do ISS com 6 d\u00edgitos.");
+      return "Informe o C\u00f3digo de Tributa\u00e7\u00e3o Nacional do ISS com 6 d\u00edgitos.";
     }
-    if (![1, 2, 3, 4].includes(Number(codigos.tributacao_iss))) {
-      throw new NFSeValidationError("Selecione a tributa\u00e7\u00e3o do ISS.");
+    const municipal = String(codigos.codigo_tributacao_municipal_iss ?? "").trim();
+    if (municipal && !/^\d{3}$/.test(municipal)) {
+      return "Quando informado, o C\u00f3digo de Tributa\u00e7\u00e3o Municipal do padr\u00e3o Nacional deve possuir 3 d\u00edgitos.";
     }
-    if (![1, 2, 3].includes(Number(codigos.tipo_retencao_iss))) {
-      throw new NFSeValidationError("Selecione o tipo de reten\u00e7\u00e3o do ISS.");
-    }
-    if (codigos.finalidade_emissao !== 0) {
-      throw new NFSeValidationError("Selecione a finalidade da emiss\u00e3o da NFS-e.");
-    }
-    if (![0, 1].includes(Number(codigos.consumidor_final))) {
-      throw new NFSeValidationError("Informe se a opera\u00e7\u00e3o \u00e9 de consumo final.");
-    }
-    if (codigos.indicador_destinatario !== 0) {
-      throw new NFSeValidationError("Confirme que o destinat\u00e1rio \u00e9 o pr\u00f3prio tomador.");
-    }
-    if (digitos(codigos.ibs_cbs_situacao_tributaria).length !== 3) {
-      throw new NFSeValidationError("Informe o CST do IBS/CBS com 3 d\u00edgitos.");
-    }
-    if (digitos(codigos.ibs_cbs_classificacao_tributaria).length !== 6) {
-      throw new NFSeValidationError("Informe a Classifica\u00e7\u00e3o Tribut\u00e1ria do IBS/CBS com 6 d\u00edgitos.");
-    }
-    return;
+    if (![1, 2, 3, 4].includes(Number(codigos.tributacao_iss))) return "Selecione a tributa\u00e7\u00e3o do ISS.";
+    if (![1, 2, 3].includes(Number(codigos.tipo_retencao_iss))) return "Selecione o tipo de reten\u00e7\u00e3o do ISS.";
+    return conferirGrupoRtc(regra.exigeRtc);
   }
 
   const itemLista = digitos(codigos.item_lista_servico);
   const cnae = digitos(codigos.codigo_cnae);
   if (itemLista.length < 4 || itemLista.length > 6) {
-    throw new NFSeValidationError("Informe um Item da Lista de Servi\u00e7o v\u00e1lido, por exemplo 14.01.");
+    return "Informe um Item da Lista de Servi\u00e7o v\u00e1lido, por exemplo 14.01.";
   }
   const cnaeValido = modelo === "MUNICIPAL_JOAO_PESSOA"
     ? cnae.length === 9
     : cnae.length >= 7 && cnae.length <= 9;
   if (!cnaeValido) {
-    throw new NFSeValidationError(
-      modelo === "MUNICIPAL_JOAO_PESSOA"
-        ? "Informe a varia\u00e7\u00e3o do CNAE com 9 d\u00edgitos exigida por Jo\u00e3o Pessoa."
-        : "Informe um CNAE com 7 a 9 d\u00edgitos.",
-    );
+    return modelo === "MUNICIPAL_JOAO_PESSOA"
+      ? "Informe a varia\u00e7\u00e3o do CNAE com 9 d\u00edgitos exigida por Jo\u00e3o Pessoa."
+      : "Informe um CNAE com 7 a 9 d\u00edgitos.";
   }
-  if (aliquota === undefined) {
-    throw new NFSeValidationError("Informe a al\u00edquota do ISS.");
-  }
-  if (![1, 2, 3, 4, 5, 6].includes(Number(codigos.natureza_operacao))) {
-    throw new NFSeValidationError("Selecione a natureza da opera\u00e7\u00e3o.");
-  }
-  if (typeof codigos.iss_retido !== "boolean") {
-    throw new NFSeValidationError("Informe se o ISS ser\u00e1 retido.");
-  }
+  if (aliquota === undefined) return "Informe a al\u00edquota do ISS.";
+  if (![1, 2, 3, 4, 5, 6].includes(Number(codigos.natureza_operacao))) return "Selecione a natureza da opera\u00e7\u00e3o.";
+  if (typeof codigos.iss_retido !== "boolean") return "Informe se o ISS ser\u00e1 retido.";
 
   if (modelo === "MUNICIPAL_CABEDELO") {
-    const reforma = [
-      codigos.finalidade_emissao,
-      codigos.consumidor_final,
-      codigos.indicador_destinatario,
-      codigos.codigo_indicador_operacao,
-      codigos.ibs_cbs_situacao_tributaria,
-      codigos.ibs_cbs_classificacao_tributaria,
-    ];
-    const iniciouReforma = reforma.some((value) => value !== undefined && String(value).trim() !== "");
-    if (iniciouReforma) {
-      if (
-        codigos.finalidade_emissao !== 0
-        || ![0, 1].includes(Number(codigos.consumidor_final))
-        || codigos.indicador_destinatario !== 0
-      ) {
-        throw new NFSeValidationError("Complete finalidade, consumo final e destinat\u00e1rio dos dados da Reforma Tribut\u00e1ria.");
-      }
-      if (
-        digitos(codigos.ibs_cbs_situacao_tributaria).length !== 3
-        || digitos(codigos.ibs_cbs_classificacao_tributaria).length !== 6
-      ) {
-        throw new NFSeValidationError("Complete o CST e a Classifica\u00e7\u00e3o Tribut\u00e1ria do IBS/CBS.");
-      }
+    const pendencia = conferirGrupoRtc(false);
+    if (pendencia) {
+      return pendencia.includes("CST") || pendencia.includes("Classifica\u00e7\u00e3o")
+        ? "Complete o CST e a Classifica\u00e7\u00e3o Tribut\u00e1ria do IBS/CBS."
+        : "Complete finalidade, consumo final e destinat\u00e1rio dos dados da Reforma Tribut\u00e1ria.";
     }
   }
+  return null;
+}
+
+function exigirCodigosFiscais(regra: RegraCodigosNFSe, codigos: NFSeCodigosFiscais) {
+  const pendencia = conferirCodigosFiscaisNFSe(regra, codigos);
+  if (pendencia) throw new NFSeValidationError(pendencia);
+}
+
+/**
+ * Como o prestador se declara na DPS Nacional, a partir do CRT da empresa.
+ *
+ * Valores de opSimpNac (tabela de campos da Focus / leiaute nacional):
+ * 1 = N\u00e3o optante, 2 = MEI, 3 = ME/EPP. Antes isto ia fixo em 2, e uma empresa
+ * do regime normal sairia declarada como MEI.
+ *
+ * regApTribSN s\u00f3 existe para ME/EPP (opSimpNac 3):
+ * - CRT 1: o ISS \u00e9 recolhido dentro do DAS (LC 123/2006, art. 13, VIII), ent\u00e3o
+ *   o padr\u00e3o \u00e9 1; a empresa pode cadastrar outro valor quando a apura\u00e7\u00e3o dela
+ *   for diferente.
+ * - CRT 2 (excesso de sublimite): o recolhimento fora do Simples depende de qual
+ *   limite foi excedido \u2014 2 ou 3. O ERP n\u00e3o tem como saber, ent\u00e3o exige que a
+ *   empresa cadastre no padr\u00e3o Nacional.
+ */
+export function opcaoSimplesNacionalDoPrestador(
+  regimeTributario: unknown,
+  regimeApuracaoConfigurado?: unknown,
+): { codigo_opcao_simples_nacional: 1 | 2 | 3; regime_tributario_simples_nacional?: 1 | 2 | 3 } {
+  const regime = String(regimeTributario ?? "").trim();
+  const apuracao = [1, 2, 3].includes(Number(regimeApuracaoConfigurado))
+    ? Number(regimeApuracaoConfigurado) as 1 | 2 | 3
+    : undefined;
+
+  if (regime === "3") return { codigo_opcao_simples_nacional: 1 };
+  if (regime === "4") return { codigo_opcao_simples_nacional: 2 };
+  if (regime === "1") {
+    return { codigo_opcao_simples_nacional: 3, regime_tributario_simples_nacional: apuracao ?? 1 };
+  }
+  if (regime === "2") {
+    if (!apuracao) {
+      throw new NFSeValidationError(
+        "Empresa do Simples com excesso de sublimite (CRT 2): cadastre o regime de apura\u00e7\u00e3o do Simples Nacional no padr\u00e3o da NFS-e Nacional.",
+      );
+    }
+    return { codigo_opcao_simples_nacional: 3, regime_tributario_simples_nacional: apuracao };
+  }
+  throw new NFSeValidationError("Informe o regime tribut\u00e1rio da empresa antes de emitir a NFS-e Nacional.");
 }
 
 export type NFSeNacionalEmitirParams = {
@@ -335,8 +395,9 @@ export type NFSeNacionalEmitirParams = {
   codigo_municipio_emissora: number;
   cnpj_prestador: string;
   inscricao_municipal_prestador?: string;
-  codigo_opcao_simples_nacional: 2;
-  regime_especial_tributacao: 0;
+  codigo_opcao_simples_nacional: 1 | 2 | 3;
+  regime_tributario_simples_nacional?: 1 | 2 | 3;
+  regime_especial_tributacao: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 9;
   cpf_tomador?: string;
   cnpj_tomador?: string;
   razao_social_tomador: string;
@@ -358,12 +419,14 @@ export type NFSeNacionalEmitirParams = {
   tipo_retencao_iss: 1 | 2 | 3;
   percentual_aliquota_relativa_municipio?: number;
   indicador_total_tributacao: "0";
-  finalidade_emissao: 0;
-  consumidor_final: 0 | 1;
-  indicador_destinatario: 0 | 1;
+  // Grupo da Reforma Tributária: presente quando a política exige ou quando a
+  // empresa preencheu. Ausente não vira campo vazio no JSON.
+  finalidade_emissao?: 0;
+  consumidor_final?: 0 | 1;
+  indicador_destinatario?: 0 | 1;
   codigo_indicador_operacao?: string;
-  ibs_cbs_situacao_tributaria: string;
-  ibs_cbs_classificacao_tributaria: string;
+  ibs_cbs_situacao_tributaria?: string;
+  ibs_cbs_classificacao_tributaria?: string;
 };
 
 function validarItensEmissao(itens: NFSeItemEmissao[]) {
@@ -891,7 +954,7 @@ export class NFSeService {
     codigosFiscais: NFSeCodigosFiscais,
   ): NFSeEmitirParams {
     exigirDadosObrigatoriosNFSe(os, empresa, itensServico, "MUNICIPAL_JOAO_PESSOA");
-    exigirCodigosFiscais("MUNICIPAL_JOAO_PESSOA", codigosFiscais);
+    exigirCodigosFiscais({ modelo: "MUNICIPAL_JOAO_PESSOA", exigeRtc: false }, codigosFiscais);
     const cliente = os.cliente;
     const documento = documentoTomador(cliente);
     const informacoesComplementares = validarInformacoesComplementares(codigosFiscais.informacoes_complementares);
@@ -941,7 +1004,7 @@ export class NFSeService {
     codigosFiscais: NFSeCodigosFiscais,
   ): NFSeEmitirParams {
     exigirDadosObrigatoriosNFSe(os, empresa, itensServico, "MUNICIPAL_CABEDELO");
-    exigirCodigosFiscais("MUNICIPAL_CABEDELO", codigosFiscais);
+    exigirCodigosFiscais({ modelo: "MUNICIPAL_CABEDELO", exigeRtc: false }, codigosFiscais);
     const cliente = os.cliente;
     const documento = documentoTomador(cliente);
     const cnae = String(codigosFiscais.codigo_cnae || "").replace(/\D/g, "");
@@ -997,29 +1060,55 @@ export class NFSeService {
     };
   }
 
+  /**
+   * DPS do padrão Nacional (`POST /v2/nfsen`).
+   *
+   * A data de competência e a política vêm de fora, de quem decidiu o modelo:
+   * assim a nota sai com a mesma data que escolheu o emissor. Sem elas, o
+   * mapeador resolve sozinho com o dia corrente — caminho dos testes antigos.
+   */
   mapearOSParaFocusNacional(
     os: any,
     empresa: any,
     itensServico: NFSeItemEmissao[],
     codigosFiscais: NFSeCodigosFiscais,
+    contexto: { politica?: PoliticaNFSe; dataCompetencia?: string } = {},
   ): NFSeNacionalEmitirParams {
+    const dataCompetencia = contexto.dataCompetencia
+      ?? dataDoDiaNFSe(new Date(), textoObrigatorio(empresa?.timezone_iana));
+    const politica = contexto.politica ?? resolverPoliticaNFSe({
+      codigoMunicipio: empresa?.codigomunicipio,
+      regimeTributario: empresa?.regimetributario,
+      dataCompetencia,
+      itensListaServico: [codigosFiscais.item_lista_servico],
+    });
+    if (politica?.modelo !== "NACIONAL") {
+      throw new NFSeValidationError("Esta operação não usa o padrão Nacional da NFS-e.");
+    }
+
     exigirDadosObrigatoriosNFSe(os, empresa, itensServico, "NACIONAL");
-    exigirCodigosFiscais("NACIONAL", codigosFiscais);
+    exigirCodigosFiscais(politica, codigosFiscais);
+    const declaracaoSimples = opcaoSimplesNacionalDoPrestador(
+      empresa.regimetributario,
+      codigosFiscais.regime_apuracao_simples_nacional,
+    );
     const cliente = os.cliente;
     const documento = documentoTomador(cliente);
-    const timezone = textoObrigatorio(empresa.timezone_iana) || "America/Fortaleza";
-    const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: timezone }).format(new Date());
     // descricao_servico (xDescServ) do DPS Nacional aceita no máximo 1.000 caracteres.
     const discriminacao = montarDiscriminacaoServicos(os.id, itensServico, undefined, 1000);
     const informacoesComplementares = validarInformacoesComplementares(codigosFiscais.informacoes_complementares);
+    const levaGrupoRtc = politica.exigeRtc || informouGrupoRtc(codigosFiscais);
+    const textoOpcional = (value: unknown) => textoObrigatorio(value) || undefined;
     return {
       referencia: criarReferencia(os.id, itensServico),
-      data_competencia: hoje,
+      data_competencia: dataCompetencia,
       codigo_municipio_emissora: Number(somenteDigitos(empresa.codigomunicipio)),
       cnpj_prestador: normalizeCnpj(empresa.cnpj),
       inscricao_municipal_prestador: somenteDigitos(empresa.inscricaomunicipal) || undefined,
-      codigo_opcao_simples_nacional: 2,
-      regime_especial_tributacao: 0,
+      ...declaracaoSimples,
+      // regEspTrib é obrigatório na DPS; 0 é "Nenhum" na tabela nacional. A
+      // empresa que tem regime especial cadastra no padrão Nacional.
+      regime_especial_tributacao: codigosFiscais.regime_especial_tributacao ?? 0,
       cpf_tomador: documento.tipo === "CPF" ? documento.valor : undefined,
       cnpj_tomador: documento.tipo === "CNPJ" ? documento.valor : undefined,
       razao_social_tomador: textoObrigatorio(cliente.nomerazaosocial),
@@ -1032,7 +1121,9 @@ export class NFSeService {
       email_tomador: textoObrigatorio(cliente.email) || undefined,
       codigo_municipio_prestacao: somenteDigitos(empresa.codigomunicipio),
       codigo_tributacao_nacional_iss: String(codigosFiscais.codigo_tributacao_nacional_iss || "").replace(/\D/g, ""),
-      codigo_tributacao_municipal_iss: codigosFiscais.codigo_tributario_municipio || undefined,
+      // cTribMun tem 3 posições no leiaute nacional. O `codigoservicomunicipal`
+      // do cadastro de serviço é do emissor municipal antigo e não serve aqui.
+      codigo_tributacao_municipal_iss: textoOpcional(codigosFiscais.codigo_tributacao_municipal_iss),
       codigo_nbs: codigosFiscais.codigo_nbs
         ? String(codigosFiscais.codigo_nbs).replace(/\D/g, "")
         : undefined,
@@ -1041,14 +1132,20 @@ export class NFSeService {
       valor_servico: valorTotalServicos(itensServico),
       tributacao_iss: codigosFiscais.tributacao_iss as 1 | 2 | 3 | 4,
       tipo_retencao_iss: codigosFiscais.tipo_retencao_iss as 1 | 2 | 3,
+      // pAliq: município conveniado ao Sistema Nacional tem a alíquota
+      // parametrizada e a fornece sozinho. Só vai quando alguém preencheu.
       percentual_aliquota_relativa_municipio: codigosFiscais.aliquota_iss,
       indicador_total_tributacao: "0",
-      finalidade_emissao: codigosFiscais.finalidade_emissao as 0,
-      consumidor_final: codigosFiscais.consumidor_final as 0 | 1,
-      indicador_destinatario: codigosFiscais.indicador_destinatario as 0 | 1,
-      codigo_indicador_operacao: codigosFiscais.codigo_indicador_operacao || undefined,
-      ibs_cbs_situacao_tributaria: String(codigosFiscais.ibs_cbs_situacao_tributaria || ""),
-      ibs_cbs_classificacao_tributaria: String(codigosFiscais.ibs_cbs_classificacao_tributaria || ""),
+      ...(levaGrupoRtc
+        ? {
+            finalidade_emissao: codigosFiscais.finalidade_emissao as 0,
+            consumidor_final: codigosFiscais.consumidor_final as 0 | 1,
+            indicador_destinatario: codigosFiscais.indicador_destinatario as 0 | 1,
+            codigo_indicador_operacao: textoOpcional(codigosFiscais.codigo_indicador_operacao),
+            ibs_cbs_situacao_tributaria: textoOpcional(codigosFiscais.ibs_cbs_situacao_tributaria),
+            ibs_cbs_classificacao_tributaria: textoOpcional(codigosFiscais.ibs_cbs_classificacao_tributaria),
+          }
+        : {}),
     };
   }
 }

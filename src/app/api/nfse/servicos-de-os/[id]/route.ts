@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
-  identificarModeloEmissao,
   listarPendenciasNFSe,
   type NFSeModeloEmissao,
 } from "@/lib/services/fiscais/nfse-service";
+import { dataDoDiaNFSe, resolverPoliticaNFSe } from "@/lib/services/fiscais/nfse-politica";
 import type { CodigosFiscaisForm } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
 import { CAMPOS_ALVO_OS, carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
 import { distribuirDinheiro, particionarDescontoDaOs } from "@/lib/nfe/descontoOrigem";
@@ -78,11 +78,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .maybeSingle();
 
     const codigoMunicipio = String(empresa?.codigomunicipio ?? "").replace(/\D/g, "");
-    const modeloEmissao: NFSeModeloEmissao | null = identificarModeloEmissao(empresa);
 
-    // Mesma empresa que resolveu o modelo acima. Fixar `1` aqui fazia o padrão
-    // sumir em banco cuja empresa tem outro id, e a emissão abria sem código
-    // nenhum preenchido.
+    // Fixar `1` aqui fazia o padrão sumir em banco cuja empresa tem outro id, e
+    // a emissão abria sem código nenhum preenchido.
     const { data: nfseConfig } = await supabaseAdmin
       .from("nfse_config")
       .select("padroes_emissao, incluir_garantia_os")
@@ -92,6 +90,20 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const padroesEmissao = (nfseConfig?.padroes_emissao ?? {}) as Partial<
       Record<NFSeModeloEmissao, Partial<CodigosFiscaisForm>>
     >;
+
+    // Mesma regra e mesma fonte de item da rota de emissão: o item do cadastro
+    // de cada serviço, e o do padrão municipal quando o serviço não tem. A tela
+    // decide pela OS inteira; a emissão confere de novo com os selecionados.
+    const itemPadrao = (padroesEmissao.MUNICIPAL_JOAO_PESSOA ?? padroesEmissao.MUNICIPAL_CABEDELO)?.itemListaServico;
+    const politica = resolverPoliticaNFSe({
+      codigoMunicipio,
+      regimeTributario: empresa?.regimetributario,
+      dataCompetencia: dataDoDiaNFSe(new Date()),
+      itensListaServico: (Array.isArray(os.osservico) ? os.osservico : []).map(
+        (item: any) => String(item?.servico?.itemlistaservico ?? "").trim() || itemPadrao,
+      ),
+    });
+    const modeloEmissao: NFSeModeloEmissao | null = politica?.modelo ?? null;
     const padraoFiscal = modeloEmissao ? padroesEmissao[modeloEmissao] ?? null : null;
 
     // O desconto geral da OS é rateado entre peças e mão de obra: a NF-e leva a
@@ -167,6 +179,11 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       ok: true,
       servicos: servicosMapeados,
       modeloEmissao,
+      // O que a tela precisa da política além do modelo: se o grupo da Reforma
+      // é obrigatório e o porquê do emissor escolhido.
+      politicaEmissao: politica
+        ? { exigeRtc: politica.exigeRtc, motivo: politica.motivo, regimeTributario: String(empresa?.regimetributario ?? "") }
+        : null,
       codigoMunicipio,
       padraoFiscal,
       // A observação da OS continua vencendo o padrão do modelo, como antes.

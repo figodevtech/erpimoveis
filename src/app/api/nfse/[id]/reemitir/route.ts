@@ -9,6 +9,13 @@ import {
   type NFSeEmitirParams,
   type NFSeNacionalEmitirParams,
 } from "@/lib/services/fiscais/nfse-service";
+import {
+  MENSAGEM_EMISSOR_NACIONAL_EXIGIDO,
+  dataDoDiaNFSe,
+  familiaDoModeloNFSe,
+  reenvioExigeNovoModelo,
+  resolverPoliticaNFSe,
+} from "@/lib/services/fiscais/nfse-politica";
 
 export const runtime = "nodejs";
 
@@ -83,6 +90,51 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
+    /*
+     * O reenvio nunca troca o modelo da nota: `modelo_emissao` é parte do
+     * registro fiscal da tentativa, e uma nota que nasceu Nacional volta para
+     * o `/v2/nfsen`. O que muda é quando reenviar NÃO adianta:
+     *
+     * - a prefeitura já respondeu que este emissor não serve mais (o L999 de
+     *   migração de João Pessoa) — repetir o mesmo envio só gera outra recusa;
+     * - a nota é municipal e a política de hoje manda esta operação para o
+     *   padrão Nacional — mesma recusa, só que ainda não recebida.
+     *
+     * Nos dois casos o caminho é emitir de novo pela tela, que monta a DPS.
+     * Nada é enviado e a nota fica como está, com `erros`, `retorno_bruto` e
+     * `tentativas` intactos.
+     */
+    if (familiaDoModeloNFSe(origem.modelo_emissao) === "MUNICIPAL") {
+      const { data: empresaPolitica } = await supabaseAdmin
+        .from("empresa")
+        .select("codigomunicipio, regimetributario")
+        .limit(1)
+        .maybeSingle();
+      const payload = (origem.payload_enviado ?? {}) as { servico?: { item_lista_servico?: unknown } };
+      const modeloVigente = empresaPolitica
+        ? resolverPoliticaNFSe({
+            codigoMunicipio: empresaPolitica.codigomunicipio,
+            regimeTributario: empresaPolitica.regimetributario,
+            dataCompetencia: dataDoDiaNFSe(new Date()),
+            itensListaServico: [String(payload.servico?.item_lista_servico ?? "")],
+          })?.modelo ?? null
+        : null;
+
+      if (reenvioExigeNovoModelo(origem, modeloVigente)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            codigo: "MODELO_EMISSAO_DESATUALIZADO",
+            message: MENSAGEM_EMISSOR_NACIONAL_EXIGIDO,
+            modeloDaNota: origem.modelo_emissao,
+            modeloVigente,
+            erros: origem.erros ?? null,
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const servicoIds = Array.isArray(origem.servico_ids) ? origem.servico_ids.map(Number) : [];
     if (servicoIds.length === 0) {
       return NextResponse.json(
@@ -135,7 +187,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
     nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
 
     const referencia = criarReferenciaPorServicos(Number(origem.ordemservicoid), servicoIds);
-    const ehNacional = origem.modelo_emissao === "NACIONAL";
+    const ehNacional = familiaDoModeloNFSe(origem.modelo_emissao) === "NACIONAL";
 
     // A referência nova entra ANTES do envio: o webhook da Focus casa por ela e
     // pode chegar antes de esta requisição terminar.

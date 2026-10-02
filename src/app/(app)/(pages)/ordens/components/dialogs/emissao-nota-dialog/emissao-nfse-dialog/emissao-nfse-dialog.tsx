@@ -26,6 +26,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
+import { rotuloModeloNFSe } from "@/lib/services/fiscais/nfse-politica";
 import { NfseClienteCard } from "./nfse-cliente-card";
 import { NfseFiscalForm } from "./nfse-fiscal-form";
 import { NfseServiceCard } from "./nfse-service-card";
@@ -41,6 +42,7 @@ import {
   type CodigosFiscaisForm,
   type DescontoOrigemNfse,
   type ModeloEmissao,
+  type PoliticaEmissaoResumo,
   type ServicoOS,
   type ServicosOSResponse,
   type ValoresServicosForm,
@@ -58,13 +60,6 @@ type EmissaoNfseDialogProps = {
   osIdsAdicionais?: number[];
   onAfterGenerate?: () => void;
 };
-
-function getModeloLabel(modelo: ModeloEmissao | null) {
-  if (modelo === "NACIONAL") return "NFS-e Nacional";
-  if (modelo === "MUNICIPAL_CABEDELO") return "NFS-e Cabedelo";
-  if (modelo === "MUNICIPAL_JOAO_PESSOA") return "NFS-e João Pessoa";
-  return "Modelo não configurado";
-}
 
 function isStatus(status: string | null | undefined, values: string[]) {
   return values.includes(String(status ?? "").toUpperCase());
@@ -89,6 +84,7 @@ function valorComum(values: Array<string | number | null | undefined>) {
 
 function validarFormulario(
   modelo: ModeloEmissao,
+  exigeRtc: boolean,
   codigos: CodigosFiscaisForm,
   servicos: ServicoOS[],
   valores: ValoresServicosForm,
@@ -103,13 +99,28 @@ function validarFormulario(
 
   if (modelo === "NACIONAL") {
     if (codigos.codigoTributacaoNacionalIss.replace(/\D/g, "").length !== 6) return "Informe o Código de Tributação Nacional do ISS com 6 dígitos.";
+    const municipal = codigos.codigoTributacaoMunicipalIss.trim();
+    if (municipal && !/^\d{3}$/.test(municipal)) return "Quando informado, o Código de Tributação Municipal do padrão Nacional deve possuir 3 dígitos.";
     if (!["1", "2", "3", "4"].includes(codigos.tributacaoIss)) return "Selecione a tributação do ISS.";
     if (!["1", "2", "3"].includes(codigos.tipoRetencaoIss)) return "Selecione a retenção do ISS.";
-    if (codigos.finalidadeEmissao !== "0") return "Selecione a finalidade da emissão.";
-    if (!["0", "1"].includes(codigos.consumidorFinal)) return "Informe se a operação é de consumo final.";
-    if (codigos.indicadorDestinatario !== "0") return "Confirme que o destinatário é o próprio tomador.";
-    if (codigos.ibsCbsSituacaoTributaria.replace(/\D/g, "").length !== 3) return "Informe o CST do IBS/CBS com 3 dígitos.";
-    if (codigos.ibsCbsClassificacaoTributaria.replace(/\D/g, "").length !== 6) return "Informe a Classificação Tributária do IBS/CBS com 6 dígitos.";
+    // Mesma regra do servidor: o grupo da Reforma é exigido quando a política
+    // diz; fora disso, se começou, precisa terminar.
+    const informouReforma = [
+      codigos.finalidadeEmissao,
+      codigos.consumidorFinal,
+      codigos.indicadorDestinatario,
+      codigos.codigoIndicadorOperacao,
+      codigos.ibsCbsSituacaoTributaria,
+      codigos.ibsCbsClassificacaoTributaria,
+    ].some((valor) => valor.trim() !== "");
+    if (exigeRtc || informouReforma) {
+      if (codigos.finalidadeEmissao !== "0") return "Selecione a finalidade da emissão.";
+      if (!["0", "1"].includes(codigos.consumidorFinal)) return "Informe se a operação é de consumo final.";
+      if (codigos.indicadorDestinatario !== "0") return "Confirme que o destinatário é o próprio tomador.";
+      if (exigeRtc && codigos.codigoIndicadorOperacao.replace(/\D/g, "").length !== 6) return "Informe o Código Indicador da Operação (cIndOp) com 6 dígitos.";
+      if (codigos.ibsCbsSituacaoTributaria.replace(/\D/g, "").length !== 3) return "Informe o CST do IBS/CBS com 3 dígitos.";
+      if (codigos.ibsCbsClassificacaoTributaria.replace(/\D/g, "").length !== 6) return "Informe a Classificação Tributária do IBS/CBS com 6 dígitos.";
+    }
   } else {
     const itemLista = codigos.itemListaServico.replace(/\D/g, "");
     if (itemLista.length < 4 || itemLista.length > 6) return "Informe um Item da Lista de Serviço válido, por exemplo 14.01.";
@@ -200,6 +211,7 @@ export function EmissaoNfseDialog({
   const [fetching, setFetching] = useState(false);
   const [servicos, setServicos] = useState<ServicoOS[]>([]);
   const [modeloEmissao, setModeloEmissao] = useState<ModeloEmissao | null>(null);
+  const [politicaEmissao, setPoliticaEmissao] = useState<PoliticaEmissaoResumo | null>(null);
   const [padraoFiscal, setPadraoFiscal] = useState<Partial<CodigosFiscaisForm> | null>(null);
   const [observacoesFiscaisOs, setObservacoesFiscaisOs] = useState("");
   const [alvo, setAlvo] = useState<AlvoFiscal | null>(null);
@@ -225,12 +237,14 @@ export function EmissaoNfseDialog({
       const payload = await response.json() as ServicosOSResponse;
       if (!response.ok || !payload.ok) {
         setModeloEmissao(null);
+        setPoliticaEmissao(null);
         toast.error(payload.message || "Erro ao carregar serviços da OS");
         return;
       }
       const nextServices = payload.servicos ?? [];
       setServicos(nextServices);
       setModeloEmissao(payload.modeloEmissao ?? null);
+      setPoliticaEmissao(payload.politicaEmissao ?? null);
       setPadraoFiscal(payload.padraoFiscal ?? null);
       setObservacoesFiscaisOs((payload.observacoesFiscais ?? "").trim());
       setAlvo(payload.alvo ?? null);
@@ -251,6 +265,7 @@ export function EmissaoNfseDialog({
     }
     setServicos([]);
     setModeloEmissao(null);
+    setPoliticaEmissao(null);
     setPadraoFiscal(null);
     setObservacoesFiscaisOs("");
     setAlvo(null);
@@ -287,12 +302,18 @@ export function EmissaoNfseDialog({
       return;
     }
 
+    // No padrão Nacional os códigos do cadastro de serviço não servem: item da
+    // LC 116, CNAE e código municipal são do emissor antigo, e a alíquota de
+    // município conveniado vem parametrizada do Sistema Nacional. Ali, só o
+    // padrão Nacional da empresa preenche.
+    const nacional = modeloEmissao === "NACIONAL";
+    const doCadastro = (valores: Array<string | number | null | undefined>) => nacional ? "" : valorComum(valores);
     setCodigosFiscais({
       ...EMPTY_CODIGOS,
       ...padraoFiscal,
-      itemListaServico: valorComum(servicosSelecionados.map((item) => item.servico?.itemlistaservico)) || padraoFiscal?.itemListaServico || "",
-      codigoCnae: valorComum(servicosSelecionados.map((item) => item.servico?.cnae)) || padraoFiscal?.codigoCnae || "",
-      aliquotaIss: valorComum(servicosSelecionados.map((item) => item.servico?.aliquotaiss)) || padraoFiscal?.aliquotaIss || "",
+      itemListaServico: doCadastro(servicosSelecionados.map((item) => item.servico?.itemlistaservico)) || padraoFiscal?.itemListaServico || "",
+      codigoCnae: doCadastro(servicosSelecionados.map((item) => item.servico?.cnae)) || padraoFiscal?.codigoCnae || "",
+      aliquotaIss: doCadastro(servicosSelecionados.map((item) => item.servico?.aliquotaiss)) || padraoFiscal?.aliquotaIss || "",
       // Herda o texto fiscal preparado a partir da OS, incluindo a garantia
       // quando configurada. Continua editável, e apagar o campo é uma escolha
       // explícita que o servidor respeita.
@@ -349,7 +370,13 @@ export function EmissaoNfseDialog({
   const handleEmitir = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!osId || !modeloEmissao) return;
-    const error = validarFormulario(modeloEmissao, codigosFiscais, servicosSelecionados, valores);
+    const error = validarFormulario(
+      modeloEmissao,
+      Boolean(politicaEmissao?.exigeRtc),
+      codigosFiscais,
+      servicosSelecionados,
+      valores,
+    );
     if (error) {
       setValidationError(error);
       toast.error(error);
@@ -375,6 +402,7 @@ export function EmissaoNfseDialog({
             item_lista_servico: codigosFiscais.itemListaServico,
             codigo_cnae: codigosFiscais.codigoCnae,
             codigo_tributacao_nacional_iss: codigosFiscais.codigoTributacaoNacionalIss,
+            codigo_tributacao_municipal_iss: codigosFiscais.codigoTributacaoMunicipalIss,
             codigo_nbs: codigosFiscais.codigoNbs,
             aliquota_iss: codigosFiscais.aliquotaIss === "" ? undefined : numero(codigosFiscais.aliquotaIss),
             natureza_operacao: optionalNumber(codigosFiscais.naturezaOperacao),
@@ -432,7 +460,7 @@ export function EmissaoNfseDialog({
             <div className="w-full lg:max-w-80"><DialogStepIndicator currentStep={currentStep} /></div>
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-4 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><ShieldCheck aria-hidden="true" className="size-4 text-emerald-600" />{getModeloLabel(modeloEmissao)}</span>
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><ShieldCheck aria-hidden="true" className="size-4 text-emerald-600" />{rotuloModeloNFSe(modeloEmissao)}</span>
             <span>{servicos.length} serviços</span><span>{autorizadas} autorizadas</span><span>{selecionados.length} selecionados</span>
             <span className={comPendencias ? "font-medium text-amber-700" : undefined}>{comPendencias} com pendências</span>
           </div>
@@ -458,6 +486,8 @@ export function EmissaoNfseDialog({
                   servicos={servicosSelecionados}
                   valores={valores}
                   modelo={modeloEmissao}
+                  exigeRtc={Boolean(politicaEmissao?.exigeRtc)}
+                  motivoModelo={politicaEmissao?.motivo ?? null}
                   codigos={codigosFiscais}
                   validationError={validationError}
                   loading={loading}

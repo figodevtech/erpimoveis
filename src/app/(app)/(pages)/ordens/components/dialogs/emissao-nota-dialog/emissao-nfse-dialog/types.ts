@@ -1,11 +1,14 @@
 import type { AlvoFiscal } from "@/lib/fiscal/blocosDeObservacao";
 
-export type ModeloEmissao = "NACIONAL" | "MUNICIPAL_CABEDELO" | "MUNICIPAL_JOAO_PESSOA";
+export type { NFSeModeloEmissao as ModeloEmissao } from "@/lib/services/fiscais/nfse-politica";
+import type { NFSeModeloEmissao as ModeloEmissao } from "@/lib/services/fiscais/nfse-politica";
 
 export type CodigosFiscaisForm = {
   itemListaServico: string;
   codigoCnae: string;
   codigoTributacaoNacionalIss: string;
+  /** cTribMun do padrão Nacional (3 dígitos), quando o município exige. */
+  codigoTributacaoMunicipalIss: string;
   codigoNbs: string;
   aliquotaIss: string;
   naturezaOperacao: string;
@@ -19,6 +22,20 @@ export type CodigosFiscaisForm = {
   ibsCbsSituacaoTributaria: string;
   ibsCbsClassificacaoTributaria: string;
   informacoesComplementares: string;
+  /**
+   * Como o prestador se declara na DPS Nacional. Só existem no padrão da
+   * empresa: a emissão lê do padrão, nunca da tela.
+   */
+  regimeEspecialTributacao?: string;
+  regimeApuracaoSimplesNacional?: string;
+};
+
+/** O que a política de emissão diz à tela, além do modelo. */
+export type PoliticaEmissaoResumo = {
+  /** Grupo da Reforma Tributária obrigatório nesta emissão. */
+  exigeRtc: boolean;
+  motivo: string;
+  regimeTributario: string;
 };
 
 export type ServicoCadastro = {
@@ -98,6 +115,7 @@ export type ServicosOSResponse = {
   message?: string;
   servicos?: ServicoOS[];
   modeloEmissao?: ModeloEmissao | null;
+  politicaEmissao?: PoliticaEmissaoResumo | null;
   padraoFiscal?: Partial<CodigosFiscaisForm> | null;
   cliente?: ClienteResumo | null;
   /** Texto inicial das informações complementares, já composto para edição. */
@@ -117,6 +135,7 @@ export const EMPTY_CODIGOS: CodigosFiscaisForm = {
   itemListaServico: "",
   codigoCnae: "",
   codigoTributacaoNacionalIss: "",
+  codigoTributacaoMunicipalIss: "",
   codigoNbs: "",
   aliquotaIss: "",
   naturezaOperacao: "",

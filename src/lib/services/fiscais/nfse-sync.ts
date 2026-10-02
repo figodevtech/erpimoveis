@@ -1,5 +1,6 @@
 import { NFSeService, normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
 import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
+import { familiaDoModeloNFSe } from "@/lib/services/fiscais/nfse-politica";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type NfseSyncRecord = {
@@ -50,7 +51,7 @@ export async function syncNfseWithFocus(nfse: NfseSyncRecord) {
   const service = new NFSeService();
   service.configurarAmbiente(company.ambiente, config?.token);
 
-  const model = nfse.modelo_emissao === "NACIONAL" ? "NACIONAL" : "MUNICIPAL";
+  const model = familiaDoModeloNFSe(nfse.modelo_emissao);
   const result = await service.consultar(nfse.referencia, model);
 
   if (!result.ok) {
