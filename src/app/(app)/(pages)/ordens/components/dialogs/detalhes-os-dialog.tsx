@@ -52,6 +52,7 @@ import {
   Wrench
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { enviarAnexo } from "@/lib/anexos/enviar-anexo";
 import { toast } from "@/lib/toast";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1563,18 +1564,9 @@ export function OSDetalhesDialog({
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("categoria", anexoCategoria);
-
     setUploadingAnexo(true);
     try {
-      const response = await fetch(`/api/ordens/${osId}/anexos`, {
-        method: "POST",
-        body: formData,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error || "Erro ao anexar arquivo");
+      await enviarAnexo(`/api/ordens/${osId}/anexos`, file, { categoria: anexoCategoria });
 
       toast.success("Anexo adicionado");
       await carregarAnexos();

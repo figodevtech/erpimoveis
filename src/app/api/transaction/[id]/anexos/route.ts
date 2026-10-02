@@ -5,7 +5,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { requireFinanceiroEdit, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import {
+  attachmentPrefix,
   attachmentWithSignedUrl,
+  ensureAttachmentSlot,
+  ensureAttachmentTransaction,
   existingUserId,
   isSupportedAttachment,
   MAX_ANEXOS_POR_TRANSACAO,
@@ -17,9 +20,14 @@ import {
   type TransacaoAnexoRow,
 } from "@/app/api/transaction/_lib/anexos";
 import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
+import {
+  consolidarEnvioDireto,
+  descartarEnvioDireto,
+  processarImagem,
+  type ArquivoConsolidado,
+} from "@/lib/anexos/envio-direto";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exigirAcessoATransacao, exigirLeituraDeTransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 const SELECT_FIELDS =
@@ -39,30 +47,62 @@ async function transactionId(ctx: Params) {
   return parsePositiveId(id, "ID da transação");
 }
 
-async function ensureTransactionExists(id: number, modo: "ler" | "alterar") {
-  const { data, error } = await supabaseAdmin
-    .from("transacao")
-    .select("id")
-    .eq("id", id)
-    .eq("is_deleted", false)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) {
-    const notFound = new Error("Transação não encontrada.");
-    (notFound as Error & { statusCode?: number }).statusCode = 404;
-    throw notFound;
+/**
+ * Envio antigo, com o arquivo no corpo. Só cabe até 4,5 MB na Vercel; fica
+ * para as abas que ainda rodam o cliente anterior ao envio direto.
+ */
+async function receberFormulario(request: NextRequest, id: number) {
+  const form = await request.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    return NextResponse.json({ error: "Envie um arquivo em 'file'." }, { status: 400 });
   }
-  // Aqui, e nao em cada handler: GET e POST passam os dois por esta funcao.
-  // Ler abre tambem a transacao alheia de OS; anexar exige o dono.
-  if (modo === "ler") await exigirLeituraDeTransacao(id);
-  else await exigirAcessoATransacao(id);
+  if (file.size <= 0) {
+    return NextResponse.json({ error: "O arquivo está vazio." }, { status: 400 });
+  }
+  if (file.size > MAX_TRANSACAO_ANEXO_SIZE) {
+    return NextResponse.json({ error: "Arquivo muito grande. Máximo: 10 MB." }, { status: 413 });
+  }
+  if (!isSupportedAttachment(file)) {
+    return NextResponse.json(
+      { error: "Tipo de arquivo inválido. Envie JPG, PNG, WebP ou PDF." },
+      { status: 415 },
+    );
+  }
+
+  const isImage = file.type.startsWith("image/");
+  let buffer: Buffer = Buffer.from(await file.arrayBuffer());
+  let extension = "pdf";
+  let contentType = "application/pdf";
+
+  if (isImage) {
+    try {
+      buffer = await processarImagem(buffer);
+    } catch {
+      return NextResponse.json({ error: "A imagem enviada é inválida ou está corrompida." }, { status: 415 });
+    }
+    extension = "webp";
+    contentType = "image/webp";
+  }
+
+  const path = `${attachmentPrefix(id)}${randomUUID()}.${extension}`;
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from(TRANSACAO_ANEXOS_BUCKET)
+    .upload(path, buffer, { contentType, upsert: false });
+  if (uploadError) throw uploadError;
+
+  return {
+    arquivo: { path, tipo: contentType, tamanho: buffer.length } satisfies ArquivoConsolidado,
+    nome: file.name,
+    descricao: form.get("descricao"),
+  };
 }
 
 export async function GET(_request: NextRequest, ctx: Params) {
   try {
     await requireFinanceirosAccess();
     const id = await transactionId(ctx);
-    await ensureTransactionExists(id, "ler");
+    await ensureAttachmentTransaction(id, "ler");
 
     const { data, error } = await supabaseAdmin
       .from("transacao_anexo")
@@ -81,8 +121,14 @@ export async function GET(_request: NextRequest, ctx: Params) {
   }
 }
 
+/**
+ * Registra o anexo. O corpo JSON é a etapa 2 do envio direto (`./envio`):
+ * traz só o caminho do arquivo que o navegador já subiu ao Storage.
+ */
 export async function POST(request: NextRequest, ctx: Params) {
   let uploadedPath: string | null = null;
+  let body: Record<string, unknown> | null = null;
+  let prefix = "";
 
   try {
     await requireFinanceiroEdit();
@@ -90,65 +136,32 @@ export async function POST(request: NextRequest, ctx: Params) {
     if (bloqueio) return bloqueio;
 
     const id = await transactionId(ctx);
-    await ensureTransactionExists(id, "alterar");
-
-    const { count, error: countError } = await supabaseAdmin
-      .from("transacao_anexo")
-      .select("id", { count: "exact", head: true })
-      .eq("transacao_id", id);
-    if (countError) throw countError;
-    if ((count ?? 0) >= MAX_ANEXOS_POR_TRANSACAO) {
-      return NextResponse.json(
-        { error: `Limite de ${MAX_ANEXOS_POR_TRANSACAO} anexos por transação atingido.` },
-        { status: 409 },
-      );
+    prefix = attachmentPrefix(id);
+    if ((request.headers.get("content-type") ?? "").includes("application/json")) {
+      body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     }
 
-    const form = await request.formData();
-    const file = form.get("file");
-    const descricao = String(form.get("descricao") ?? "").trim() || null;
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "Envie um arquivo em 'file'." }, { status: 400 });
-    }
-    if (file.size <= 0) {
-      return NextResponse.json({ error: "O arquivo está vazio." }, { status: 400 });
-    }
-    if (file.size > MAX_TRANSACAO_ANEXO_SIZE) {
-      return NextResponse.json({ error: "Arquivo muito grande. Máximo: 10 MB." }, { status: 413 });
-    }
-    if (!isSupportedAttachment(file)) {
-      return NextResponse.json(
-        { error: "Tipo de arquivo inválido. Envie JPG, PNG, WebP ou PDF." },
-        { status: 415 },
-      );
-    }
+    await ensureAttachmentTransaction(id, "alterar");
+    await ensureAttachmentSlot(id);
 
-    const originalName = sanitizeAttachmentName(file.name);
-    const isImage = file.type.startsWith("image/");
-    let buffer: Buffer = Buffer.from(await file.arrayBuffer());
-    let extension = "pdf";
-    let contentType = "application/pdf";
+    const recebido = body
+      ? {
+          arquivo: await consolidarEnvioDireto({
+            bucket: TRANSACAO_ANEXOS_BUCKET,
+            prefixo: prefix,
+            path: body.path,
+            maxBytes: MAX_TRANSACAO_ANEXO_SIZE,
+          }),
+          nome: body.nome,
+          descricao: body.descricao,
+        }
+      : await receberFormulario(request, id);
+    if (recebido instanceof NextResponse) return recebido;
 
-    if (isImage) {
-      const { default: sharp } = await import("sharp");
-      try {
-        buffer = await sharp(buffer)
-          .rotate()
-          .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
-          .webp({ quality: 80 })
-          .toBuffer();
-      } catch {
-        return NextResponse.json({ error: "A imagem enviada é inválida ou está corrompida." }, { status: 415 });
-      }
-      extension = "webp";
-      contentType = "image/webp";
-    }
-
-    uploadedPath = `transacao/${id}/anexos/${randomUUID()}.${extension}`;
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from(TRANSACAO_ANEXOS_BUCKET)
-      .upload(uploadedPath, buffer, { contentType, upsert: false });
-    if (uploadError) throw uploadError;
+    // Daqui em diante o objeto é deste anexo: falhas o removem pelo caminho
+    // final, não pelo caminho enviado pelo navegador.
+    body = null;
+    uploadedPath = recebido.arquivo.path;
 
     const url = await signedAttachmentUrl(uploadedPath);
     const session = await auth();
@@ -158,11 +171,11 @@ export async function POST(request: NextRequest, ctx: Params) {
       .from("transacao_anexo")
       .insert({
         transacao_id: id,
-        nome: originalName,
-        tipo: contentType,
-        tamanho: buffer.length,
+        nome: sanitizeAttachmentName(String(recebido.nome ?? "")),
+        tipo: recebido.arquivo.tipo,
+        tamanho: recebido.arquivo.tamanho,
         path: uploadedPath,
-        descricao,
+        descricao: String(recebido.descricao ?? "").trim() || null,
         created_by: createdBy,
       })
       .select(SELECT_FIELDS)
@@ -176,6 +189,8 @@ export async function POST(request: NextRequest, ctx: Params) {
   } catch (error) {
     if (uploadedPath) {
       await supabaseAdmin.storage.from(TRANSACAO_ANEXOS_BUCKET).remove([uploadedPath]).catch(() => undefined);
+    } else if (body && prefix) {
+      await descartarEnvioDireto(TRANSACAO_ANEXOS_BUCKET, prefix, body.path);
     }
     console.error("POST /api/transaction/[id]/anexos", error);
     return errorResponse(error, "Erro ao anexar arquivo na transação.");

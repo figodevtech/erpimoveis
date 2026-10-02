@@ -28,7 +28,7 @@ const TEXTOS = {
       "a parte do total da venda (com acréscimo financeiro) que nenhum pagamento cobre. Vendas canceladas ou recusadas não têm saldo nessa coluna.",
     receitaBruta: "subtotal de produtos e frete antes dos descontos",
     ajuste:
-      "valor de venda cancelada ou recusada, que não vira valor a receber, e pagamento lançado acima do total da venda.",
+      "valor de venda cancelada ou recusada, que não vira valor a receber; venda ainda em orçamento, que já conta no valor a receber mas não gerou receita; e pagamento lançado acima do total da venda.",
   },
 } as const;
 

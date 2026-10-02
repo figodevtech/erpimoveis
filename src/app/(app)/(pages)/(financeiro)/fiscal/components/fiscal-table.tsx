@@ -353,6 +353,52 @@ function documentosVinculados(nota: NotaFiscal): DocumentoVinculado[] {
     .map((origem) => ({ tipo: origem.tipo, id: origem.id, inventory: "produto", grupo: origem.tipo }));
 }
 
+/**
+ * De onde a nota própria saiu: o documento âncora e, se consolidada, quantos
+ * mais vieram junto. Sem origem nenhuma no ERP, a nota é avulsa.
+ */
+function OrigemNotaBadge({ documentos }: { documentos: DocumentoVinculado[] }) {
+  if (documentos.length === 0) {
+    return (
+      <Badge variant="outline" className="text-muted-foreground">
+        Avulsa
+      </Badge>
+    );
+  }
+
+  const [ancora, ...demais] = documentos;
+  const rotulo = `${GRUPOS_DOCUMENTO[ancora.grupo]?.item ?? ancora.tipo} #${ancora.id}`;
+  const className = "border-violet-500/40 bg-violet-500/10 text-violet-700";
+
+  if (demais.length === 0) {
+    return (
+      <Badge variant="outline" className={className}>
+        {rotulo}
+      </Badge>
+    );
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge variant="outline" tabIndex={0} className={`cursor-help ${className}`}>
+          {rotulo} +{demais.length}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={6} className="max-w-[280px] text-left">
+        <p className="mb-1 font-medium">Nota consolidada</p>
+        <ul className="space-y-0.5">
+          {documentos.map((documento) => (
+            <li key={`${documento.grupo}-${documento.id}`}>
+              {GRUPOS_DOCUMENTO[documento.grupo]?.item ?? documento.tipo} #{documento.id}
+            </li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function DocumentosVinculadosItens({
   documentos,
   onAbrir,
@@ -1303,6 +1349,7 @@ export default function FiscalTable({
                           </span>
                         ) : null}
                         {nota.serie ? <Badge variant="outline">Série {nota.serie}</Badge> : null}
+                        {nota.origem !== "TERCEIROS" ? <OrigemNotaBadge documentos={documentos} /> : null}
                         <EntradaRealizadaBadge nota={nota} />
                         {nota.xmlStatusLabel ? (
                           <Badge variant="outline" className={xmlStatusClass(nota.xmlStatus)}>

@@ -35,6 +35,7 @@ import {
   MapPin,
   type LucideIcon,
 } from "lucide-react"
+import { enviarAnexo } from "@/lib/anexos/enviar-anexo"
 import { toast } from "@/lib/toast"
 import type { VendaCanal, VendaStatusEntrega, vendaStatus } from "../types"
 import { useMediaQuery } from "@/hooks/use-media-query"
@@ -834,19 +835,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
     setUploadingAnexo(true)
 
     try {
-      const formData = new FormData()
-      formData.append("file", file)
-      formData.append("categoria", anexoCategoria)
-
-      const response = await fetch(`/api/venda/${vendaId}/anexos`, {
-        method: "POST",
-        body: formData,
-      })
-      const data = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Erro ao anexar arquivo")
-      }
+      await enviarAnexo(`/api/venda/${vendaId}/anexos`, file, { categoria: anexoCategoria })
 
       toast.success("Anexo enviado", {
         description: file.type.startsWith("image/")
