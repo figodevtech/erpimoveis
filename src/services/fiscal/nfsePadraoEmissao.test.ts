@@ -191,10 +191,10 @@ function osMista() {
   };
 }
 
-function bancoDemir(padroesEmissao: Record<string, unknown>) {
+function bancoDemir(padroesEmissao: Record<string, unknown>, empresa: Record<string, unknown> = {}) {
   return new BancoFalso(
     {
-      empresa: [{ ...DEMIR, cnpj: "12260723000109", inscricaomunicipal: "1094653" }],
+      empresa: [{ ...DEMIR, cnpj: "12260723000109", inscricaomunicipal: "1094653", ...empresa }],
       nfse_config: [{ empresa_id: 1, token: "token-de-teste", padroes_emissao: padroesEmissao, incluir_garantia_os: false }],
       ordemservico: [osMista()],
       config_geral: [],
@@ -267,10 +267,13 @@ describe("POST /api/nfse/contexto-emissao — a revisão usa a seleção real", 
   });
 });
 
+/** MEI de Cabedelo: emite de verdade no Emissor Público Nacional (`/v2/nfsen`). */
+const MEI_CABEDELO = { codigomunicipio: "2503209", regimetributario: "4" };
+
 describe("POST /api/nfse/de-os — Teste 8: sem código obrigatório não sai nada", () => {
   it("Nacional sem padrão e sem códigos: 400, mensagem clara, nenhuma chamada à Focus", async () => {
     fixarHoje();
-    const banco = bancoDemir({ MUNICIPAL_JOAO_PESSOA: PADRAO_JOAO_PESSOA });
+    const banco = bancoDemir({}, MEI_CABEDELO);
     const chamadas: string[] = [];
     mock.method(globalThis, "fetch", async (url: string) => {
       chamadas.push(String(url));
@@ -292,9 +295,9 @@ describe("POST /api/nfse/de-os — Teste 8: sem código obrigatório não sai na
     assert.equal(banco.tabela("nfse").length, 0, "nenhum registro de NFS-e criado");
   });
 
-  it("Nacional com padrão completo chega à Focus pelo /v2/nfsen", async () => {
+  it("Nacional com padrão completo chega à Focus pelo /v2/nfsen (MEI, município habilitado)", async () => {
     fixarHoje();
-    bancoDemir({ MUNICIPAL_JOAO_PESSOA: PADRAO_JOAO_PESSOA, NACIONAL: PADRAO_NACIONAL });
+    bancoDemir({ NACIONAL: PADRAO_NACIONAL }, MEI_CABEDELO);
     const chamadas: string[] = [];
     mock.method(globalThis, "fetch", async (url: string) => {
       chamadas.push(String(url));

@@ -363,7 +363,8 @@ export function EmissaoNotaDialog({
       regimeTributario: empresaFiscal.regimetributario,
       dataCompetencia: dataDoDiaNFSe(new Date()),
     });
-    if (politica?.modelo === "NACIONAL") return "NFS-e Nacional · Focus NFe";
+    if (politica?.autorizador === "JOAO_PESSOA_DSF_DPS") return "João Pessoa · DPS nacional (sem integração)";
+    if (politica?.autorizador === "FOCUS_NACIONAL") return "NFS-e Nacional · Focus NFe";
     if (politica?.modelo === "MUNICIPAL_CABEDELO") return "Cabedelo · Focus NFe";
     if (politica?.modelo === "MUNICIPAL_JOAO_PESSOA") return "João Pessoa · Focus NFe";
     return `Município ${municipio || "não configurado"}`;

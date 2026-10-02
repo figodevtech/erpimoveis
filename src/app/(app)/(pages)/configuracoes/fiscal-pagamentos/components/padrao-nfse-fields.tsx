@@ -16,6 +16,7 @@ import {
   modelosPossiveisNFSe,
   resolverPoliticaNFSe,
   rotuloModeloNFSe,
+  rotuloPoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
 import type { ModeloEmissao } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
 
@@ -98,6 +99,8 @@ export function PadraoNFSeFields({
           modelo={modelo}
           principal={modelo === politicaComum?.modelo}
           exigeRtc={modelo === "NACIONAL" && Boolean(politicaComum?.exigeRtc)}
+          rotulo={modelo === politicaComum?.modelo ? rotuloPoliticaNFSe(politicaComum) : rotuloModeloNFSe(modelo)}
+          semIntegracao={modelo === politicaComum?.modelo && politicaComum?.autorizador === "JOAO_PESSOA_DSF_DPS"}
           regimeTributario={String(empresa.regimetributario ?? "")}
           register={register}
           setValue={setValue}
@@ -112,6 +115,8 @@ function PadraoDoModelo({
   modelo,
   principal,
   exigeRtc,
+  rotulo,
+  semIntegracao,
   regimeTributario,
   register,
   setValue,
@@ -120,6 +125,9 @@ function PadraoDoModelo({
   modelo: ModeloEmissao;
   principal: boolean;
   exigeRtc: boolean;
+  rotulo: string;
+  /** O autorizador deste padrão ainda não tem integração (emissor próprio de João Pessoa). */
+  semIntegracao: boolean;
   regimeTributario: string;
   register: UseFormRegister<FormValues>;
   setValue: UseFormSetValue<FormValues>;
@@ -160,13 +168,21 @@ function PadraoDoModelo({
           aria-hidden
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${principal ? "bg-emerald-500" : "bg-amber-500"}`}
         />
-        <span className="text-xs font-medium">{rotuloModeloNFSe(modelo)}</span>
+        <span className="text-xs font-medium">{rotulo}</span>
         <span className="text-muted-foreground text-[11px]">
           {principal
             ? "usado na emissão comum — determinado pelo município, pelo regime e pela data"
             : "só para os itens 01.03, 01.05, 01.09 e 16.01, ainda aceitos pelo emissor municipal"}
         </span>
       </div>
+
+      {semIntegracao ? (
+        <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-[11px] leading-snug text-muted-foreground">
+          João Pessoa adotou a DPS do padrão nacional no emissor próprio da prefeitura, que ainda não tem
+          integração no ERP nem na Focus NFe. Estes códigos ficam guardados para quando a integração existir;
+          enquanto isso a emissão desta operação fica bloqueada.
+        </p>
+      ) : null}
 
       {modelo === "NACIONAL" ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -21,11 +21,35 @@
  * e regApTribSN do leiaute nacional).
  */
 
+/**
+ * Chave do padrão fiscal e do formulário — e o valor de `nfse.modelo_emissao`
+ * das notas da Focus. "NACIONAL" aqui é o LAYOUT da DPS nacional, não o
+ * autorizador: quem diz para onde a nota vai é `autorizador`.
+ */
 export type NFSeModeloEmissao = "NACIONAL" | "MUNICIPAL_CABEDELO" | "MUNICIPAL_JOAO_PESSOA";
+
+/** O formato do documento: RPS do emissor municipal antigo ou DPS do padrão nacional. */
+export type LayoutNFSe = "MUNICIPAL_LEGADO" | "DPS_NACIONAL";
+
+/**
+ * Para onde a nota é enviada. Padrão nacional (layout) NÃO implica Emissor
+ * Público Nacional (autorizador): João Pessoa adotou a DPS nacional mantendo
+ * emissor próprio, e a Sefin Nacional recusa a cidade com E0039 (nota 139 da
+ * Demir, 02/10/2026).
+ *
+ * - FOCUS_MUNICIPAL: Focus `/v2/nfse`, emissor municipal antigo;
+ * - FOCUS_NACIONAL: Focus `/v2/nfsen`, Emissor Público Nacional (Sefin);
+ * - JOAO_PESSOA_DSF_DPS: novo emissor da prefeitura (DSF, DPS nacional). A
+ *   Focus não o integra e o contrato do webservice não é público — ver
+ *   `nfse-transport.ts`.
+ */
+export type AutorizadorNFSe = "FOCUS_MUNICIPAL" | "FOCUS_NACIONAL" | "JOAO_PESSOA_DSF_DPS";
 
 export type PoliticaNFSe = {
   modelo: NFSeModeloEmissao;
-  /** O envio é uma DPS do padrão Nacional (`/v2/nfsen`), não um RPS municipal. */
+  layout: LayoutNFSe;
+  autorizador: AutorizadorNFSe;
+  /** O documento é uma DPS no layout nacional (mesmo que o autorizador seja municipal). */
   usaDps: boolean;
   /** CST, cClassTrib, cIndOp e os indicadores da Reforma são exigidos na emissão. */
   exigeRtc: boolean;
@@ -100,7 +124,13 @@ function regraJoaoPessoa(
   itens: string[],
 ): PoliticaNFSe {
   const municipal = (regra: string, motivo: string): PoliticaNFSe => ({
-    modelo: "MUNICIPAL_JOAO_PESSOA", usaDps: false, exigeRtc: false, regra, motivo,
+    modelo: "MUNICIPAL_JOAO_PESSOA",
+    layout: "MUNICIPAL_LEGADO",
+    autorizador: "FOCUS_MUNICIPAL",
+    usaDps: false,
+    exigeRtc: false,
+    regra,
+    motivo,
   });
 
   if (data < INICIO_NACIONAL_JOAO_PESSOA) {
@@ -123,13 +153,52 @@ function regraJoaoPessoa(
     );
   }
 
-  return nacional(
-    regime,
-    data,
-    "JOAO_PESSOA_NACIONAL",
-    "João Pessoa exige o padrão Nacional para esta operação desde 01/10/2026.",
+  if (simples) {
+    // Simples: CGSN 191/2026 e o comunicado da SEREM falam em emissão "no
+    // Sistema de Emissão no Portal Nacional". A recusa E0039 da nota 139 foi
+    // para regime normal; se a Sefin aceita João Pessoa para o Simples ainda
+    // não foi verificado — confirmar antes de 01/11/2026.
+    return nacional(
+      regime,
+      data,
+      "JOAO_PESSOA_SIMPLES_NACIONAL",
+      "Simples Nacional de João Pessoa no Emissor Público Nacional a partir de 01/11/2026 (CGSN 191/2026).",
+    );
+  }
+
+  // Regime normal: DPS nacional, mas no emissor PRÓPRIO da prefeitura (DSF).
+  // Não é a Sefin Nacional — enviar por `/v2/nfsen` dá E0039.
+  return {
+    modelo: "NACIONAL",
+    layout: "DPS_NACIONAL",
+    autorizador: "JOAO_PESSOA_DSF_DPS",
+    usaDps: true,
+    exigeRtc: rtcObrigatorio(regime, data),
+    regra: "JOAO_PESSOA_DPS_2026",
+    motivo: "Novo emissor municipal de João Pessoa ajustado ao padrão nacional (DPS), desde 01/10/2026.",
+  };
+}
+
+/**
+ * A Sefin Nacional recusa a DPS porque o município não usa os emissores
+ * públicos nacionais (E0039). Não é erro dos códigos fiscais: é o autorizador
+ * errado para aquele município.
+ */
+export function detectarMunicipioForaDoEmissorNacional(erros: unknown): boolean {
+  const lista = Array.isArray(erros) ? erros : erros ? [erros] : [];
+  const porCodigo = lista.some((erro) =>
+    erro && typeof erro === "object" && String((erro as Record<string, unknown>).codigo ?? "").trim().toUpperCase() === "E0039",
+  );
+  return porCodigo || mensagensDosErros(erros).some((mensagem) =>
+    semAcento(mensagem).includes(ASSINATURA_FORA_DO_EMISSOR_NACIONAL),
   );
 }
+
+const ASSINATURA_FORA_DO_EMISSOR_NACIONAL = "deve estar parametrizado para utilizar os emissores publicos nacionais";
+
+export const MENSAGEM_FORA_DO_EMISSOR_NACIONAL =
+  "João Pessoa não está habilitada para emissão através do Emissor Público Nacional. "
+  + "Esta operação deve utilizar o novo emissor municipal compatível com a DPS.";
 
 /**
  * A recusa de João Pessoa que manda usar o padrão Nacional. Chega com o código
@@ -143,8 +212,17 @@ export function detectarEmissorMunicipalEncerrado(erros: unknown): boolean {
 
 // ---------------------------------------------------------------------------
 
+/** DPS nacional pelo Emissor Público Nacional (Focus `/v2/nfsen`). */
 function nacional(regime: string, data: string, regra: string, motivo: string): PoliticaNFSe {
-  return { modelo: "NACIONAL", usaDps: true, exigeRtc: rtcObrigatorio(regime, data), regra, motivo };
+  return {
+    modelo: "NACIONAL",
+    layout: "DPS_NACIONAL",
+    autorizador: "FOCUS_NACIONAL",
+    usaDps: true,
+    exigeRtc: rtcObrigatorio(regime, data),
+    regra,
+    motivo,
+  };
 }
 
 /**
@@ -184,6 +262,8 @@ export function resolverPoliticaNFSe(entrada: EntradaPoliticaNFSe): PoliticaNFSe
   if (municipio === IBGE_CABEDELO) {
     return {
       modelo: "MUNICIPAL_CABEDELO",
+      layout: "MUNICIPAL_LEGADO",
+      autorizador: "FOCUS_MUNICIPAL",
       usaDps: false,
       exigeRtc: false,
       regra: "CABEDELO_MUNICIPAL",
@@ -311,17 +391,51 @@ export function familiaDoModeloNFSe(modeloEmissao: unknown): "NACIONAL" | "MUNIC
 }
 
 /**
- * "Reenviar sem alterar" repete o envio no modelo em que a nota nasceu — e isso
- * não adianta quando a nota é municipal e a prefeitura já mandou usar o
- * Nacional, ou quando a política de hoje leva a operação para o Nacional.
- * Nota Nacional nunca é bloqueada aqui: ela volta ao `/v2/nfsen`.
+ * "Reenviar sem alterar" repete o envio no autorizador em que a nota nasceu. Ele
+ * é recusado — devolvendo o motivo — quando repetir só traria a mesma recusa:
+ *
+ * - a nota municipal levou o L999 de emissor encerrado, ou a operação hoje já
+ *   não é municipal;
+ * - a nota foi pelo Emissor Público Nacional e levou E0039, ou a operação hoje
+ *   é de outro autorizador (João Pessoa: emissor próprio).
+ *
+ * Fora disso a nota volta pelo mesmo caminho — uma Nacional legítima (MEI)
+ * continua no `/v2/nfsen`. `politicaHoje` nula (sem empresa) não bloqueia.
  */
+export function motivoParaNaoReenviar(
+  nota: { modelo_emissao?: unknown; erros?: unknown },
+  politicaHoje: Pick<PoliticaNFSe, "modelo" | "autorizador"> | null | undefined,
+): string | null {
+  if (detectarMunicipioForaDoEmissorNacional(nota.erros)) return MENSAGEM_FORA_DO_EMISSOR_NACIONAL;
+  if (familiaDoModeloNFSe(nota.modelo_emissao) === "NACIONAL") {
+    if (politicaHoje && politicaHoje.autorizador !== "FOCUS_NACIONAL") {
+      return politicaHoje.autorizador === "JOAO_PESSOA_DSF_DPS"
+        ? MENSAGEM_FORA_DO_EMISSOR_NACIONAL
+        : MENSAGEM_EMISSOR_NACIONAL_EXIGIDO;
+    }
+    return null;
+  }
+  if (detectarEmissorMunicipalEncerrado(nota.erros)) return MENSAGEM_EMISSOR_NACIONAL_EXIGIDO;
+  if (politicaHoje && politicaHoje.autorizador !== "FOCUS_MUNICIPAL") return MENSAGEM_EMISSOR_NACIONAL_EXIGIDO;
+  return null;
+}
+
+/** Compatível com o uso anterior: o reenvio não pode repetir o mesmo caminho. */
 export function reenvioExigeNovoModelo(
   nota: { modelo_emissao?: unknown; erros?: unknown },
   modeloVigente: NFSeModeloEmissao | null | undefined,
 ): boolean {
-  if (familiaDoModeloNFSe(nota.modelo_emissao) === "NACIONAL") return false;
+  if (familiaDoModeloNFSe(nota.modelo_emissao) === "NACIONAL") {
+    return detectarMunicipioForaDoEmissorNacional(nota.erros);
+  }
   return detectarEmissorMunicipalEncerrado(nota.erros) || modeloVigente === "NACIONAL";
+}
+
+/** Rótulo do destino da nota, para cabeçalhos e configurações. */
+export function rotuloPoliticaNFSe(politica: Pick<PoliticaNFSe, "modelo" | "autorizador"> | null | undefined): string {
+  if (!politica) return rotuloModeloNFSe(null);
+  if (politica.autorizador === "JOAO_PESSOA_DSF_DPS") return "NFS-e João Pessoa · DPS nacional (emissor próprio)";
+  return rotuloModeloNFSe(politica.modelo);
 }
 
 export function rotuloModeloNFSe(modelo: NFSeModeloEmissao | null | undefined): string {
@@ -364,12 +478,12 @@ export function resumirErrosNFSe(erros: unknown): { codigo: string | null; mensa
     const codigo = erro && typeof erro === "object"
       ? String((erro as Record<string, unknown>).codigo ?? "").trim() || null
       : null;
-    return {
-      codigo,
-      mensagem: detectarEmissorMunicipalEncerrado(erros)
-        ? `${MENSAGEM_EMISSOR_NACIONAL_EXIGIDO} Retorno da Focus: ${mensagem}`
-        : mensagem,
-    };
+    const explicacao = detectarMunicipioForaDoEmissorNacional(erros)
+      ? MENSAGEM_FORA_DO_EMISSOR_NACIONAL
+      : detectarEmissorMunicipalEncerrado(erros)
+        ? MENSAGEM_EMISSOR_NACIONAL_EXIGIDO
+        : null;
+    return { codigo, mensagem: explicacao ? `${explicacao} Retorno da Focus: ${mensagem}` : mensagem };
   }
   return null;
 }

@@ -485,7 +485,7 @@ export function EmissaoNfseDialog({
             <div className="w-full lg:max-w-80"><DialogStepIndicator currentStep={currentStep} /></div>
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-4 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><ShieldCheck aria-hidden="true" className="size-4 text-emerald-600" />{rotuloModeloNFSe(modeloEmissao)}</span>
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><ShieldCheck aria-hidden="true" className="size-4 text-emerald-600" />{politicaEmissao?.rotulo ?? rotuloModeloNFSe(modeloEmissao)}</span>
             <span>{servicos.length} serviços</span><span>{autorizadas} autorizadas</span><span>{selecionados.length} selecionados</span>
             <span className={comPendencias ? "font-medium text-amber-700" : undefined}>{comPendencias} com pendências</span>
           </div>
@@ -494,6 +494,13 @@ export function EmissaoNfseDialog({
         <ScrollArea className="min-h-0 flex-1">
           <main className="px-4 py-5 sm:px-7 sm:py-6">
             <div className="mx-auto max-w-4xl space-y-5">
+              {politicaEmissao?.bloqueio && !revisando ? (
+                <Alert variant="destructive" className="rounded-sm border-l-4">
+                  <AlertCircle aria-hidden="true" className="size-4" />
+                  <AlertTitle>Emissão pela API indisponível para esta operação</AlertTitle>
+                  <AlertDescription>{politicaEmissao.bloqueio}</AlertDescription>
+                </Alert>
+              ) : null}
               {!modeloEmissao && !fetching && <Alert variant="destructive" className="rounded-sm border-l-4"><AlertCircle aria-hidden="true" className="size-4" /><AlertTitle>Emissão não configurada</AlertTitle><AlertDescription>Preencha o código IBGE e o regime tributário da empresa.</AlertDescription></Alert>}
               {rejeitadas > 0 && !revisando && <Alert variant="destructive" className="rounded-sm border-l-4"><AlertCircle aria-hidden="true" className="size-4" /><AlertTitle>{rejeitadas} emissões rejeitadas</AlertTitle><AlertDescription>Os serviços rejeitados podem ser selecionados novamente após a correção.</AlertDescription></Alert>}
 
@@ -513,6 +520,8 @@ export function EmissaoNfseDialog({
                   modelo={modeloEmissao}
                   exigeRtc={Boolean(politicaEmissao?.exigeRtc)}
                   padraoAusente={padraoAusente}
+                  bloqueioEmissao={politicaEmissao?.bloqueio ?? null}
+                  rotuloModelo={politicaEmissao?.rotulo ?? null}
                   motivoModelo={politicaEmissao?.motivo ?? null}
                   codigos={codigosFiscais}
                   validationError={validationError}

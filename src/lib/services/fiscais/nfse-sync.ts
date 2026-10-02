@@ -1,6 +1,10 @@
 import { NFSeService, normalizarStatusNFSe } from "@/lib/services/fiscais/nfse-service";
-import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
-import { familiaDoModeloNFSe } from "@/lib/services/fiscais/nfse-politica";
+import {
+  atualizarRegistroNFSe,
+  interacaoNFSe,
+  registrarInteracaoNFSe,
+} from "@/lib/services/fiscais/nfse-registro";
+import { transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type NfseSyncRecord = {
@@ -51,8 +55,14 @@ export async function syncNfseWithFocus(nfse: NfseSyncRecord) {
   const service = new NFSeService();
   service.configurarAmbiente(company.ambiente, config?.token);
 
-  const model = familiaDoModeloNFSe(nfse.modelo_emissao);
-  const result = await service.consultar(nfse.referencia, model);
+  // O transporte sai do modelo gravado na nota, não da política de hoje.
+  const transport = transportDoRegistro(nfse.modelo_emissao, service);
+  if (!transport.disponivel) {
+    return { ok: false as const, message: transport.motivoIndisponivel ?? "Consulta indisponível.", errors: null };
+  }
+  const result = await transport.consultar(nfse.referencia);
+  // Cada consulta entra no histórico; `retorno_bruto` fica só com a última.
+  await registrarInteracaoNFSe(nfse.id, interacaoNFSe("CONSULTA", nfse.referencia, result.retornoBruto));
 
   if (!result.ok) {
     const errors = result.erros && result.erros.length > 0 ? result.erros : null;

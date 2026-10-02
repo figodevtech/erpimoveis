@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
+  NFSeService,
   listarPendenciasNFSe,
   type NFSeModeloEmissao,
 } from "@/lib/services/fiscais/nfse-service";
@@ -8,7 +9,9 @@ import {
   dataDoDiaNFSe,
   itensListaDosServicos,
   resolverContextoEmissaoNFSe,
+  rotuloPoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
+import { transportDaPolitica } from "@/lib/services/fiscais/nfse-transport";
 import type { CodigosFiscaisForm } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
 import { CAMPOS_ALVO_OS, carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
 import { distribuirDinheiro, particionarDescontoDaOs } from "@/lib/nfe/descontoOrigem";
@@ -184,8 +187,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       modeloEmissao,
       // O que a tela precisa da política além do modelo: se o grupo da Reforma
       // é obrigatório e o porquê do emissor escolhido.
-      politicaEmissao: politica
-        ? { exigeRtc: politica.exigeRtc, motivo: politica.motivo, regimeTributario: String(empresa?.regimetributario ?? "") }
+      politicaEmissao: politica && empresa
+        ? {
+            exigeRtc: politica.exigeRtc,
+            motivo: politica.motivo,
+            regimeTributario: String(empresa.regimetributario ?? ""),
+            layout: politica.layout,
+            autorizador: politica.autorizador,
+            rotulo: rotuloPoliticaNFSe(politica),
+            // Sem integração com o autorizador, a tela mostra o motivo e não
+            // deixa emitir — a rota de emissão recusa do mesmo jeito.
+            bloqueio: transportDaPolitica(politica, new NFSeService()).motivoIndisponivel,
+          }
         : null,
       codigoMunicipio,
       padraoFiscal,

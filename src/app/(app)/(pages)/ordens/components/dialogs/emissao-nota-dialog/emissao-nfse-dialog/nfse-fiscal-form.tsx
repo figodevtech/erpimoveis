@@ -47,6 +47,8 @@ export function NfseFiscalForm({
   modelo,
   exigeRtc = false,
   padraoAusente = false,
+  bloqueioEmissao = null,
+  rotuloModelo = null,
   motivoModelo,
   codigos,
   validationError,
@@ -68,6 +70,13 @@ export function NfseFiscalForm({
   exigeRtc?: boolean;
   /** O modelo desta nota não tem padrão fiscal cadastrado. */
   padraoAusente?: boolean;
+  /**
+   * O autorizador desta nota não tem integração (João Pessoa, emissor próprio
+   * no padrão nacional). A revisão abre para conferir os códigos, mas não envia.
+   */
+  bloqueioEmissao?: string | null;
+  /** Destino da nota, quando difere do nome do modelo. */
+  rotuloModelo?: string | null;
   /** Por que a nota vai por este emissor. */
   motivoModelo?: string | null;
   codigos: CodigosFiscaisForm;
@@ -112,7 +121,7 @@ export function NfseFiscalForm({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Nota em revisão</p>
-                <Badge variant="outline" className="rounded-sm">{rotuloModeloNFSe(modelo)}</Badge>
+                <Badge variant="outline" className="rounded-sm">{rotuloModelo ?? rotuloModeloNFSe(modelo)}</Badge>
               </div>
               <h2 id="servicos-selecionados-title" className="mt-1 text-base font-bold">
                 {servicos.length} {servicos.length === 1 ? "serviço selecionado" : "serviços consolidados"}
@@ -244,6 +253,14 @@ export function NfseFiscalForm({
           {/* Sem padrão do modelo, os campos abrem vazios de propósito: os
               códigos do municipal não servem para a DPS Nacional e não são
               emprestados. O aviso diz por quê, e onde cadastrar. */}
+          {bloqueioEmissao ? (
+            <Alert variant="destructive" className="rounded-sm border-l-4" role="alert">
+              <ShieldAlert aria-hidden="true" className="size-4" />
+              <AlertTitle>Esta nota não pode ser enviada pela API</AlertTitle>
+              <AlertDescription>{bloqueioEmissao}</AlertDescription>
+            </Alert>
+          ) : null}
+
           {padraoAusente ? (
             <Alert className="rounded-sm border-l-4 border-l-amber-500" role="status">
               <AlertCircle aria-hidden="true" className="size-4" />
@@ -579,7 +596,7 @@ export function NfseFiscalForm({
             <p className="max-w-[60ch] text-xs leading-relaxed text-muted-foreground">
               Revise os valores e a classificação. Após o envio, alterações exigem cancelamento e nova emissão.
             </p>
-            <Button type="submit" className="min-h-11 rounded-sm px-5" disabled={loading}>
+            <Button type="submit" className="min-h-11 rounded-sm px-5" disabled={loading || Boolean(bloqueioEmissao)}>
               {loading ? <Loader2 aria-hidden="true" className="mr-2 size-4 animate-spin" /> : <Send aria-hidden="true" className="mr-2 size-4" />}
               {loading ? "Enviando..." : `Emitir ${BRL_FORMATTER.format(total)}`}
             </Button>

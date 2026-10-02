@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { atualizarRegistroNFSe } from "@/lib/services/fiscais/nfse-registro";
+import { atualizarRegistroNFSe, interacaoNFSe } from "@/lib/services/fiscais/nfse-registro";
+import { transportDaPolitica } from "@/lib/services/fiscais/nfse-transport";
 import {
   NFSeService,
   NFSeValidationError,
@@ -13,6 +14,8 @@ import {
 } from "@/lib/services/fiscais/nfse-service";
 import {
   MENSAGEM_EMISSOR_NACIONAL_EXIGIDO,
+  MENSAGEM_FORA_DO_EMISSOR_NACIONAL,
+  detectarMunicipioForaDoEmissorNacional,
   dataDoDiaNFSe,
   detectarEmissorMunicipalEncerrado,
   contextoEmissaoOuErro,
@@ -244,6 +247,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const { politica } = resolvido.contexto;
     const modeloEmissao = { modelo: politica.modelo };
 
+    // O autorizador vem da política; o transporte diz se há integração. Sem
+    // ela, nada é gravado nem enviado — João Pessoa no regime normal cai aqui
+    // desde 01/10/2026, e mandar pelo `/v2/nfsen` dava E0039.
+    const nfseService = new NFSeService();
+    nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
+    const transport = transportDaPolitica(politica, nfseService);
+    if (!transport.disponivel) {
+      return NextResponse.json(
+        {
+          ok: false,
+          codigo: "TRANSPORTE_INDISPONIVEL",
+          message: transport.motivoIndisponivel,
+          autorizador: transport.autorizador,
+        },
+        { status: 422 },
+      );
+    }
+
     const pendencias = validarDadosObrigatoriosNFSe(os, empresa, itensSelecionados, modeloEmissao.modelo);
     if (pendencias.length > 0) {
       return NextResponse.json(
@@ -389,16 +410,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const nfseService = new NFSeService();
-    nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
-
-    const parametrosNacionais = modeloEmissao.modelo === "NACIONAL"
+    // O mapeador segue o layout; o transporte, o autorizador.
+    const parametrosNacionais = politica.layout === "DPS_NACIONAL"
       ? nfseService.mapearOSParaFocusNacional(os, empresa, itensSelecionados, validacaoFiscal.codigos, {
           politica,
           dataCompetencia,
         })
       : null;
-    const parametrosMunicipais = modeloEmissao.modelo === "NACIONAL"
+    const parametrosMunicipais = politica.layout === "DPS_NACIONAL"
       ? null
       : modeloEmissao.modelo === "MUNICIPAL_CABEDELO"
         ? nfseService.mapearOSParaFocusCabedelo(os, empresa, itensSelecionados, validacaoFiscal.codigos)
@@ -435,7 +454,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         status: "PROCESSANDO",
         erros: null,
         valor_total: valorTotal,
-        modelo_emissao: modeloEmissao.modelo,
+        modelo_emissao: transport.modeloEmissao,
         servico_ids: servicoIds,
         itens: snapshotItens,
         informacoes_complementares: validacaoFiscal.codigos.informacoes_complementares ?? null,
@@ -484,9 +503,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const resultado = parametrosNacionais
-      ? await nfseService.emitirNacional(parametrosNacionais)
-      : await nfseService.emitir(parametrosMunicipais!);
+    const resultado = await transport.emitir(parametrosNacionais ?? parametrosMunicipais);
 
     // O payload que a Focus recebeu de fato: o mapeador nao conhece o
     // data_emissao, que e calculado na hora do envio.
@@ -505,7 +522,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         status: statusFinal,
         erros: resultado.ok ? null : resultado.erros,
       },
-      { payload_enviado: payloadEnviado, retorno_bruto: retornoBruto },
+      {
+        payload_enviado: payloadEnviado,
+        retorno_bruto: retornoBruto,
+        tentativas: [interacaoNFSe("EMISSAO", referencia, resultado.retornoBruto, payloadEnviado)].filter(Boolean),
+      },
     );
 
     if (updateError) {
@@ -523,9 +544,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     if (!resultado.ok) {
       // A recusa de emissor encerrado ganha explicação na frente, mas o
       // retorno da Focus segue inteiro na mensagem e em `erros`.
-      const message = detectarEmissorMunicipalEncerrado(resultado.erros)
-        ? `${MENSAGEM_EMISSOR_NACIONAL_EXIGIDO} Retorno da Focus: ${resultado.message}`
-        : resultado.message;
+      const explicacao = detectarMunicipioForaDoEmissorNacional(resultado.erros)
+        ? MENSAGEM_FORA_DO_EMISSOR_NACIONAL
+        : detectarEmissorMunicipalEncerrado(resultado.erros)
+          ? MENSAGEM_EMISSOR_NACIONAL_EXIGIDO
+          : null;
+      const message = explicacao ? `${explicacao} Retorno da Focus: ${resultado.message}` : resultado.message;
       return NextResponse.json(
         { ok: false, message, erros: resultado.erros, referencia },
         { status: 400 },

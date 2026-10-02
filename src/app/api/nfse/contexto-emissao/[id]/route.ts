@@ -1,11 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { listarPendenciasNFSe } from "@/lib/services/fiscais/nfse-service";
+import { NFSeService, listarPendenciasNFSe } from "@/lib/services/fiscais/nfse-service";
+import { transportDaPolitica } from "@/lib/services/fiscais/nfse-transport";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 import {
   contextoEmissaoOuErro,
   dataDoDiaNFSe,
   itensListaDosServicos,
+  rotuloPoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
 
 export const runtime = "nodejs";
@@ -109,6 +111,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         exigeRtc: politica.exigeRtc,
         motivo: politica.motivo,
         regimeTributario: String(empresa.regimetributario ?? ""),
+        layout: politica.layout,
+        autorizador: politica.autorizador,
+        rotulo: rotuloPoliticaNFSe(politica),
+        // Sem integração com o autorizador, a tela mostra o motivo e não
+        // deixa emitir — a rota de emissão recusa do mesmo jeito.
+        bloqueio: transportDaPolitica(politica, new NFSeService()).motivoIndisponivel,
       },
       padraoFiscal,
       padraoAusente,

@@ -36,6 +36,12 @@ export type PoliticaEmissaoResumo = {
   exigeRtc: boolean;
   motivo: string;
   regimeTributario: string;
+  layout?: "MUNICIPAL_LEGADO" | "DPS_NACIONAL";
+  autorizador?: "FOCUS_MUNICIPAL" | "FOCUS_NACIONAL" | "JOAO_PESSOA_DSF_DPS";
+  /** Nome do destino da nota para o cabeçalho. */
+  rotulo?: string;
+  /** Sem integração com o autorizador: o motivo, e a emissão fica travada. */
+  bloqueio?: string | null;
 };
 
 export type ServicoCadastro = {
