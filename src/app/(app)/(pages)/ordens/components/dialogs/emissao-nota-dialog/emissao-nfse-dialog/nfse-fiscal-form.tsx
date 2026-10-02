@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { descricaoComplementarDoItem } from "@/lib/services/fiscais/nfse-service";
-import { rotuloModeloNFSe } from "@/lib/services/fiscais/nfse-politica";
+import { MENSAGEM_PADRAO_NACIONAL_AUSENTE, rotuloModeloNFSe } from "@/lib/services/fiscais/nfse-politica";
 import type { BlocoDeObservacao } from "@/lib/fiscal/blocosDeObservacao";
 import { LIMITE_INFORMACOES_COMPLEMENTARES } from "./types";
 import type {
@@ -46,6 +46,7 @@ export function NfseFiscalForm({
   valores,
   modelo,
   exigeRtc = false,
+  padraoAusente = false,
   motivoModelo,
   codigos,
   validationError,
@@ -65,6 +66,8 @@ export function NfseFiscalForm({
   modelo: ModeloEmissao;
   /** A política exige o grupo da Reforma Tributária nesta emissão. */
   exigeRtc?: boolean;
+  /** O modelo desta nota não tem padrão fiscal cadastrado. */
+  padraoAusente?: boolean;
   /** Por que a nota vai por este emissor. */
   motivoModelo?: string | null;
   codigos: CodigosFiscaisForm;
@@ -237,6 +240,37 @@ export function NfseFiscalForm({
               <span className="text-lg font-bold tabular-nums">{BRL_FORMATTER.format(total)}</span>
             </div>
           </fieldset>
+
+          {/* Sem padrão do modelo, os campos abrem vazios de propósito: os
+              códigos do municipal não servem para a DPS Nacional e não são
+              emprestados. O aviso diz por quê, e onde cadastrar. */}
+          {padraoAusente ? (
+            <Alert className="rounded-sm border-l-4 border-l-amber-500" role="status">
+              <AlertCircle aria-hidden="true" className="size-4" />
+              <AlertTitle>
+                {isNacional ? "Padrão Nacional não configurado" : "Padrão fiscal não configurado"}
+              </AlertTitle>
+              <AlertDescription>
+                <p>
+                  {isNacional
+                    ? MENSAGEM_PADRAO_NACIONAL_AUSENTE
+                    : `O padrão fiscal da ${rotuloModeloNFSe(modelo)} ainda não foi configurado para esta empresa. Preencha os códigos em Configurações > Fiscal > NFS-e.`}
+                </p>
+                <p className="mt-1">
+                  Os campos abaixo podem ser preenchidos à mão para esta nota; a emissão é bloqueada
+                  enquanto faltar algum obrigatório.{" "}
+                  <a
+                    href="/configuracoes/fiscal-pagamentos"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium underline underline-offset-2"
+                  >
+                    Abrir Configurações Fiscais
+                  </a>
+                </p>
+              </AlertDescription>
+            </Alert>
+          ) : null}
 
           <fieldset className="space-y-4 border bg-card p-4 sm:p-5">
             <legend className="px-2 text-sm font-bold">Classificação fiscal</legend>

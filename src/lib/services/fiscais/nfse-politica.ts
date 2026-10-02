@@ -193,6 +193,91 @@ export function resolverPoliticaNFSe(entrada: EntradaPoliticaNFSe): PoliticaNFSe
   return null;
 }
 
+export type ContextoEmissaoNFSe = {
+  politica: PoliticaNFSe;
+  modeloEmissao: NFSeModeloEmissao;
+  /** O padrão cadastrado para ESTE modelo, ou null. Nunca o de outro modelo. */
+  padraoFiscal: Record<string, unknown> | null;
+  /** O modelo escolhido não tem padrão cadastrado — a tela precisa avisar. */
+  padraoAusente: boolean;
+};
+
+function padraoPreenchido(valor: unknown): Record<string, unknown> | null {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) return null;
+  const preenchido = Object.values(valor as Record<string, unknown>)
+    .some((campo) => campo !== null && campo !== undefined && String(campo).trim() !== "");
+  return preenchido ? valor as Record<string, unknown> : null;
+}
+
+/**
+ * Modelo e padrão fiscal de UMA emissão, a partir dos serviços que vão nela.
+ *
+ * É a regra única de "qual emissor e quais códigos pré-preenchidos": a tela
+ * chama (pela rota de contexto) ao abrir a revisão, e a emissão chama de novo
+ * com a mesma seleção antes de enviar. Por isso recebe os itens SELECIONADOS —
+ * com os da OS inteira, uma OS que mistura 01.03 e 14.01 abria a revisão no
+ * Nacional enquanto a emissão de só 01.03 saía pelo municipal.
+ *
+ * Serviço sem item no cadastro usa o item do padrão municipal da empresa, só
+ * para decidir a exceção de João Pessoa. Os códigos de um modelo nunca
+ * preenchem outro: CNAE, item da LC 116 e natureza da operação não são os
+ * códigos da DPS Nacional, então sem `padroes_emissao.NACIONAL` o padrão vem
+ * null e a tela avisa.
+ */
+export function resolverContextoEmissaoNFSe(entrada: {
+  empresa: { codigomunicipio?: unknown; regimetributario?: unknown } | null | undefined;
+  /** Item da LC 116 do cadastro de cada serviço selecionado. */
+  itensListaServico: Array<unknown>;
+  dataCompetencia: string;
+  padroesEmissao: unknown;
+}): ContextoEmissaoNFSe | null {
+  const padroes = entrada.padroesEmissao && typeof entrada.padroesEmissao === "object" && !Array.isArray(entrada.padroesEmissao)
+    ? entrada.padroesEmissao as Record<string, unknown>
+    : {};
+  const padraoMunicipal = padraoPreenchido(padroes.MUNICIPAL_JOAO_PESSOA) ?? padraoPreenchido(padroes.MUNICIPAL_CABEDELO);
+  const itemPadrao = String(padraoMunicipal?.itemListaServico ?? "");
+
+  const politica = resolverPoliticaNFSe({
+    codigoMunicipio: entrada.empresa?.codigomunicipio,
+    regimeTributario: entrada.empresa?.regimetributario,
+    dataCompetencia: entrada.dataCompetencia,
+    itensListaServico: entrada.itensListaServico.map((item) => String(item ?? "").trim() || itemPadrao),
+  });
+  if (!politica) return null;
+
+  const padraoFiscal = padraoPreenchido(padroes[politica.modelo]);
+  return { politica, modeloEmissao: politica.modelo, padraoFiscal, padraoAusente: padraoFiscal === null };
+}
+
+/** O item da LC 116 do cadastro de cada linha de serviço (`osservico.servico`). */
+export function itensListaDosServicos(
+  itens: Array<{ servico?: unknown } | null | undefined>,
+): unknown[] {
+  return itens.map((item) => (item?.servico as { itemlistaservico?: unknown } | null | undefined)?.itemlistaservico ?? null);
+}
+
+/**
+ * `resolverContextoEmissaoNFSe` com as recusas que as rotas devolvem ao
+ * usuário — empresa sem IBGE e município sem emissor configurado.
+ */
+export function contextoEmissaoOuErro(
+  entrada: Parameters<typeof resolverContextoEmissaoNFSe>[0],
+): { ok: true; contexto: ContextoEmissaoNFSe } | { ok: false; message: string } {
+  const codigoMunicipio = String(entrada.empresa?.codigomunicipio ?? "").replace(/\D/g, "");
+  if (codigoMunicipio.length !== 7) {
+    return { ok: false, message: "Preencha o código IBGE do município da empresa com 7 dígitos antes de emitir a NFS-e." };
+  }
+  const contexto = resolverContextoEmissaoNFSe(entrada);
+  if (!contexto) {
+    return { ok: false, message: `A emissão municipal ainda não está configurada para o município IBGE ${codigoMunicipio}.` };
+  }
+  return { ok: true, contexto };
+}
+
+export const MENSAGEM_PADRAO_NACIONAL_AUSENTE =
+  "O padrão fiscal da NFS-e Nacional ainda não foi configurado para esta empresa. "
+  + "Preencha os códigos fiscais necessários em Configurações > Fiscal > NFS-e.";
+
 /**
  * Modelos cujo padrão a empresa pode precisar ter cadastrado hoje — o vigente
  * para a operação comum e, durante a transição de João Pessoa, também o

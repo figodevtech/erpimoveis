@@ -116,6 +116,8 @@ export type ServicosOSResponse = {
   servicos?: ServicoOS[];
   modeloEmissao?: ModeloEmissao | null;
   politicaEmissao?: PoliticaEmissaoResumo | null;
+  /** Visão da OS inteira; a revisão usa o padrão de `ContextoEmissaoResponse`. */
+  padraoAusente?: boolean;
   padraoFiscal?: Partial<CodigosFiscaisForm> | null;
   cliente?: ClienteResumo | null;
   /** Texto inicial das informações complementares, já composto para edição. */
@@ -124,6 +126,22 @@ export type ServicosOSResponse = {
   alvo?: AlvoFiscal | null;
   /** Divisão do desconto da OS. Null quando a ordem não tem desconto geral. */
   descontoOrigem?: DescontoOrigemNfse | null;
+};
+
+/**
+ * Resposta de `POST /api/nfse/contexto-emissao/[osId]`: o modelo e o padrão
+ * dos serviços SELECIONADOS. É o que preenche a etapa de revisão.
+ */
+export type ContextoEmissaoResponse = {
+  ok: boolean;
+  message?: string;
+  modeloEmissao?: ModeloEmissao;
+  politicaEmissao?: PoliticaEmissaoResumo;
+  /** Padrão do modelo final, ou null. Nunca o de outro modelo. */
+  padraoFiscal?: Partial<CodigosFiscaisForm> | null;
+  padraoAusente?: boolean;
+  observacoesFiscais?: string | null;
+  pendenciasCadastro?: PendenciaCadastro[];
 };
 
 /** Limite das informações complementares nos três modelos de NFS-e. */

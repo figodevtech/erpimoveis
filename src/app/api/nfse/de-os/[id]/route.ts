@@ -15,7 +15,8 @@ import {
   MENSAGEM_EMISSOR_NACIONAL_EXIGIDO,
   dataDoDiaNFSe,
   detectarEmissorMunicipalEncerrado,
-  resolverPoliticaNFSe,
+  contextoEmissaoOuErro,
+  itensListaDosServicos,
   type PoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
@@ -229,11 +230,19 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // Uma data só para a nota inteira: a mesma que escolhe o emissor vai como
     // data de competência da DPS.
     const dataCompetencia = dataDoDiaNFSe(new Date(), empresa.timezone_iana);
-    const modeloEmissao = resolverPolitica(empresa, dataCompetencia, itensSelecionados, padroesEmissao);
-    if (!modeloEmissao.ok) {
-      return NextResponse.json({ ok: false, message: modeloEmissao.message }, { status: 400 });
+    // Mesma função que a tela chamou ao abrir a revisão, com a mesma seleção:
+    // o modelo e o padrão daqui são os que o usuário viu.
+    const resolvido = contextoEmissaoOuErro({
+      empresa,
+      itensListaServico: itensListaDosServicos(itensSelecionados),
+      dataCompetencia,
+      padroesEmissao,
+    });
+    if (!resolvido.ok) {
+      return NextResponse.json({ ok: false, message: resolvido.message }, { status: 400 });
     }
-    const politica = modeloEmissao.politica;
+    const { politica } = resolvido.contexto;
+    const modeloEmissao = { modelo: politica.modelo };
 
     const pendencias = validarDadosObrigatoriosNFSe(os, empresa, itensSelecionados, modeloEmissao.modelo);
     if (pendencias.length > 0) {
@@ -254,11 +263,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       codigosRecebidos,
       "informacoes_complementares",
     );
-    const padraoDoModelo = padroesEmissao[modeloEmissao.modelo]
-      && typeof padroesEmissao[modeloEmissao.modelo] === "object"
-      && !Array.isArray(padroesEmissao[modeloEmissao.modelo])
-      ? padroesEmissao[modeloEmissao.modelo] as Record<string, unknown>
-      : {};
+    // Só o padrão do modelo escolhido; sem ele, nada é emprestado de outro.
+    const padraoDoModelo = resolvido.contexto.padraoFiscal ?? {};
     const codigosParaValidar = informouTextoLivre
       ? codigosRecebidos
       : {
@@ -595,45 +601,6 @@ function validarServicosRequisitados(
   }
 
   return { ok: true, servicos };
-}
-
-/**
- * O emissor da nota sai da política, com a data do dia e os itens dos serviços
- * selecionados. O item vem do cadastro de cada serviço; serviço sem item cai no
- * item do padrão municipal da empresa. Sem nenhum dos dois a nota não conta
- * como exceção — a exceção de João Pessoa precisa de evidência positiva.
- */
-function resolverPolitica(
-  empresa: Record<string, unknown>,
-  dataCompetencia: string,
-  itens: NFSeItemEmissao[],
-  padroesEmissao: Record<string, unknown>,
-): { ok: true; modelo: PoliticaNFSe["modelo"]; politica: PoliticaNFSe } | { ok: false; message: string } {
-  const codigoMunicipio = String(empresa.codigomunicipio ?? "").replace(/\D/g, "");
-  if (codigoMunicipio.length !== 7) {
-    return { ok: false, message: "Preencha o código IBGE do município da empresa com 7 dígitos antes de emitir a NFS-e." };
-  }
-
-  const padraoMunicipal = padroesEmissao.MUNICIPAL_JOAO_PESSOA ?? padroesEmissao.MUNICIPAL_CABEDELO;
-  const itemPadrao = padraoMunicipal && typeof padraoMunicipal === "object"
-    ? (padraoMunicipal as Record<string, unknown>).itemListaServico
-    : undefined;
-  const politica = resolverPoliticaNFSe({
-    codigoMunicipio,
-    regimeTributario: empresa.regimetributario,
-    dataCompetencia,
-    itensListaServico: itens.map((item) => {
-      const cadastro = (item.servico as Record<string, unknown> | null | undefined)?.itemlistaservico;
-      return String(cadastro ?? "").trim() || String(itemPadrao ?? "");
-    }),
-  });
-  if (!politica) {
-    return {
-      ok: false,
-      message: `A emissão municipal ainda não está configurada para o município IBGE ${codigoMunicipio}.`,
-    };
-  }
-  return { ok: true, modelo: politica.modelo, politica };
 }
 
 function validarCodigosFiscais(

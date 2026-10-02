@@ -30,6 +30,7 @@ import { rotuloModeloNFSe } from "@/lib/services/fiscais/nfse-politica";
 import { NfseClienteCard } from "./nfse-cliente-card";
 import { NfseFiscalForm } from "./nfse-fiscal-form";
 import { NfseServiceCard } from "./nfse-service-card";
+import { montarCodigosDaRevisao } from "./codigos-da-revisao";
 import {
   blocosDeObservacao,
   concatenarBloco,
@@ -40,6 +41,7 @@ import {
   LIMITE_INFORMACOES_COMPLEMENTARES,
   type ClienteResumo,
   type CodigosFiscaisForm,
+  type ContextoEmissaoResponse,
   type DescontoOrigemNfse,
   type ModeloEmissao,
   type PoliticaEmissaoResumo,
@@ -74,12 +76,6 @@ function valorOriginal(servico: ServicoOS) {
   const preco = Number(servico.precounitario);
   const total = quantidade * preco;
   return Number.isFinite(total) && total > 0 ? total.toFixed(2).replace(".", ",") : "";
-}
-
-function valorComum(values: Array<string | number | null | undefined>) {
-  const normalizados = values.map((value) => String(value ?? "").trim()).filter(Boolean);
-  if (normalizados.length === 0 || new Set(normalizados).size !== 1) return "";
-  return normalizados[0];
 }
 
 function validarFormulario(
@@ -212,7 +208,9 @@ export function EmissaoNfseDialog({
   const [servicos, setServicos] = useState<ServicoOS[]>([]);
   const [modeloEmissao, setModeloEmissao] = useState<ModeloEmissao | null>(null);
   const [politicaEmissao, setPoliticaEmissao] = useState<PoliticaEmissaoResumo | null>(null);
-  const [padraoFiscal, setPadraoFiscal] = useState<Partial<CodigosFiscaisForm> | null>(null);
+  /** O modelo da revisão não tem padrão cadastrado — a tela avisa. */
+  const [padraoAusente, setPadraoAusente] = useState(false);
+  const [preparandoRevisao, setPreparandoRevisao] = useState(false);
   const [observacoesFiscaisOs, setObservacoesFiscaisOs] = useState("");
   const [alvo, setAlvo] = useState<AlvoFiscal | null>(null);
   const [descontoOrigem, setDescontoOrigem] = useState<DescontoOrigemNfse | null>(null);
@@ -245,8 +243,6 @@ export function EmissaoNfseDialog({
       setServicos(nextServices);
       setModeloEmissao(payload.modeloEmissao ?? null);
       setPoliticaEmissao(payload.politicaEmissao ?? null);
-      setPadraoFiscal(payload.padraoFiscal ?? null);
-      setObservacoesFiscaisOs((payload.observacoesFiscais ?? "").trim());
       setAlvo(payload.alvo ?? null);
       setDescontoOrigem(payload.descontoOrigem ?? null);
       setCliente(payload.cliente ?? null);
@@ -266,7 +262,8 @@ export function EmissaoNfseDialog({
     setServicos([]);
     setModeloEmissao(null);
     setPoliticaEmissao(null);
-    setPadraoFiscal(null);
+    setPadraoAusente(false);
+    setPreparandoRevisao(false);
     setObservacoesFiscaisOs("");
     setAlvo(null);
     setDescontoOrigem(null);
@@ -289,38 +286,66 @@ export function EmissaoNfseDialog({
     }
   };
 
-  const iniciarRevisao = () => {
-    if (!modeloEmissao || servicosSelecionados.length === 0) {
+  /**
+   * Abre a revisão com o modelo e o padrão dos serviços SELECIONADOS.
+   *
+   * O modelo da listagem é o da OS inteira e serve só ao cabeçalho: numa OS que
+   * mistura item comum e exceção de João Pessoa, selecionar só a exceção muda o
+   * emissor. Por isso a política é resolvida de novo no servidor — pela mesma
+   * função que a emissão vai usar — e só então o formulário é preenchido.
+   */
+  const iniciarRevisao = async () => {
+    if (!osId || servicosSelecionados.length === 0) {
       toast.error("Selecione ao menos um serviço para continuar.");
       return;
     }
-    const pendencias = [...new Set(
+    const pendenciasListagem = [...new Set(
       servicosSelecionados.flatMap((servico) => servico.pendenciasCadastro ?? []).map((item) => item.mensagem),
     )];
-    if (pendencias.length) {
-      toast.error(`Preencha os dados obrigatórios antes de emitir: ${pendencias.join(", ")}.`);
+    if (pendenciasListagem.length) {
+      toast.error(`Preencha os dados obrigatórios antes de emitir: ${pendenciasListagem.join(", ")}.`);
       return;
     }
 
-    // No padrão Nacional os códigos do cadastro de serviço não servem: item da
-    // LC 116, CNAE e código municipal são do emissor antigo, e a alíquota de
-    // município conveniado vem parametrizada do Sistema Nacional. Ali, só o
-    // padrão Nacional da empresa preenche.
-    const nacional = modeloEmissao === "NACIONAL";
-    const doCadastro = (valores: Array<string | number | null | undefined>) => nacional ? "" : valorComum(valores);
-    setCodigosFiscais({
-      ...EMPTY_CODIGOS,
-      ...padraoFiscal,
-      itemListaServico: doCadastro(servicosSelecionados.map((item) => item.servico?.itemlistaservico)) || padraoFiscal?.itemListaServico || "",
-      codigoCnae: doCadastro(servicosSelecionados.map((item) => item.servico?.cnae)) || padraoFiscal?.codigoCnae || "",
-      aliquotaIss: doCadastro(servicosSelecionados.map((item) => item.servico?.aliquotaiss)) || padraoFiscal?.aliquotaIss || "",
-      // Herda o texto fiscal preparado a partir da OS, incluindo a garantia
-      // quando configurada. Continua editável, e apagar o campo é uma escolha
-      // explícita que o servidor respeita.
-      informacoesComplementares: observacoesFiscaisOs || padraoFiscal?.informacoesComplementares || "",
-    });
-    setValidationError(null);
-    setRevisando(true);
+    setPreparandoRevisao(true);
+    try {
+      const response = await fetch(`/api/nfse/contexto-emissao/${osId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          servicos: selecionados,
+          ...(osIdsAdicionais?.length ? { osIdsAdicionais } : {}),
+        }),
+      });
+      const contexto = await response.json().catch(() => ({})) as ContextoEmissaoResponse;
+      if (!response.ok || !contexto.ok || !contexto.modeloEmissao) {
+        toast.error(contexto.message || "Não foi possível preparar a revisão da NFS-e.");
+        return;
+      }
+      const pendencias = [...new Set((contexto.pendenciasCadastro ?? []).map((item) => item.mensagem))];
+      if (pendencias.length) {
+        toast.error(`Preencha os dados obrigatórios antes de emitir: ${pendencias.join(", ")}.`);
+        return;
+      }
+
+      const observacoes = (contexto.observacoesFiscais ?? "").trim();
+      setModeloEmissao(contexto.modeloEmissao);
+      setPoliticaEmissao(contexto.politicaEmissao ?? null);
+      setPadraoAusente(Boolean(contexto.padraoAusente));
+      setObservacoesFiscaisOs(observacoes);
+      setCodigosFiscais(montarCodigosDaRevisao({
+        modelo: contexto.modeloEmissao,
+        padraoFiscal: contexto.padraoFiscal,
+        servicos: servicosSelecionados,
+        observacoes,
+      }));
+      setValidationError(null);
+      setRevisando(true);
+    } catch {
+      toast.error("Não foi possível preparar a revisão da NFS-e.");
+    } finally {
+      setPreparandoRevisao(false);
+    }
   };
 
   // O que falta no tomador vale para a nota inteira, não para um serviço só:
@@ -487,6 +512,7 @@ export function EmissaoNfseDialog({
                   valores={valores}
                   modelo={modeloEmissao}
                   exigeRtc={Boolean(politicaEmissao?.exigeRtc)}
+                  padraoAusente={padraoAusente}
                   motivoModelo={politicaEmissao?.motivo ?? null}
                   codigos={codigosFiscais}
                   validationError={validationError}
@@ -521,7 +547,7 @@ export function EmissaoNfseDialog({
 
                   <div className="sticky bottom-0 mt-5 flex flex-col gap-3 border bg-card p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-sm text-muted-foreground"><strong className="text-foreground">{selecionados.length}</strong> {selecionados.length === 1 ? "serviço selecionado" : "serviços selecionados"}</p>
-                    <Button type="button" className="min-h-11 rounded-sm px-5" disabled={!modeloEmissao || selecionados.length === 0 || fetching} onClick={iniciarRevisao}>Revisar nota<ArrowRight aria-hidden="true" className="ml-2 size-4" /></Button>
+                    <Button type="button" className="min-h-11 rounded-sm px-5" disabled={!modeloEmissao || selecionados.length === 0 || fetching || preparandoRevisao} onClick={() => void iniciarRevisao()}>{preparandoRevisao ? "Preparando..." : "Revisar nota"}<ArrowRight aria-hidden="true" className="ml-2 size-4" /></Button>
                   </div>
                 </section>
               )}

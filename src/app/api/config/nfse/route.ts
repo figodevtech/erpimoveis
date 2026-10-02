@@ -11,51 +11,10 @@ import {
   prepararPatchGarantiaNfse,
   serializarConfigGarantiaNfse,
 } from "@/lib/fiscal/configGarantia";
+import { mesclarPadroesEmissaoNfse } from "@/lib/fiscal/padroesEmissaoNfse";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
-
-/**
- * Modelos que podem ter padrão gravado. Chave errada no jsonb é padrão que
- * nunca é lido: a emissão procura pelo modelo que `resolverPoliticaNFSe` dá e
- * ignora o resto.
- */
-const MODELOS = ["NACIONAL", "MUNICIPAL_CABEDELO", "MUNICIPAL_JOAO_PESSOA"] as const;
-
-/**
- * Deixa o padrão pronto para a emissão usar sem retoque.
- *
- * A versão anterior gravava o texto cru do formulário. Um espaço sobrando no
- * CNAE ou um "1401" no lugar de "14.01" ficavam guardados assim e voltavam
- * assim para a tela de emissão — no banco da Demir o CNAE está gravado com um
- * branco no fim, e no da Demonstração o item da lista está sem o ponto. Campo
- * vazio é descartado em vez de virar string vazia, para não mascarar um padrão
- * que nunca foi preenchido como se fosse um preenchido em branco.
- */
-function normalizarPadrao(entrada: unknown): Record<string, string> | null {
-  if (!entrada || typeof entrada !== "object" || Array.isArray(entrada)) return null;
-
-  const saida: Record<string, string> = {};
-  for (const [campo, valor] of Object.entries(entrada as Record<string, unknown>)) {
-    if (valor == null) continue;
-    const texto = String(valor).trim();
-    if (!texto) continue;
-    saida[campo] = campo === "codigoCnae" ? texto.replace(/\D/g, "") : texto;
-  }
-  return Object.keys(saida).length > 0 ? saida : null;
-}
-
-function normalizarPadroesEmissao(entrada: unknown): Record<string, unknown> {
-  if (!entrada || typeof entrada !== "object" || Array.isArray(entrada)) return {};
-
-  const bruto = entrada as Record<string, unknown>;
-  const saida: Record<string, unknown> = {};
-  for (const modelo of MODELOS) {
-    const padrao = normalizarPadrao(bruto[modelo]);
-    if (padrao) saida[modelo] = padrao;
-  }
-  return saida;
-}
 
 /**
  * O modelo que a emissão comum vai procurar no jsonb hoje, e todos os que a
@@ -133,7 +92,7 @@ export async function PUT(req: NextRequest) {
     const garantiaRecebida = prepararPatchGarantiaNfse(nfse);
     const atual = await supabase
       .from("nfse_config")
-      .select("empresa_id")
+      .select("empresa_id, padroes_emissao")
       .eq("empresa_id", empresaId)
       .maybeSingle();
     if (atual.error) throw atual.error;
@@ -158,7 +117,7 @@ export async function PUT(req: NextRequest) {
         ? { senha_certificado: nfse.senhaCertificado ?? null }
         : {}),
       ...(informou("padroesEmissao")
-        ? { padroes_emissao: normalizarPadroesEmissao(nfse.padroesEmissao) }
+        ? { padroes_emissao: mesclarPadroesEmissaoNfse(atual.data?.padroes_emissao, nfse.padroesEmissao) }
         : {}),
       updated_at: new Date().toISOString(),
     };

@@ -4,7 +4,11 @@ import {
   listarPendenciasNFSe,
   type NFSeModeloEmissao,
 } from "@/lib/services/fiscais/nfse-service";
-import { dataDoDiaNFSe, resolverPoliticaNFSe } from "@/lib/services/fiscais/nfse-politica";
+import {
+  dataDoDiaNFSe,
+  itensListaDosServicos,
+  resolverContextoEmissaoNFSe,
+} from "@/lib/services/fiscais/nfse-politica";
 import type { CodigosFiscaisForm } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
 import { CAMPOS_ALVO_OS, carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
 import { distribuirDinheiro, particionarDescontoDaOs } from "@/lib/nfe/descontoOrigem";
@@ -91,20 +95,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       Record<NFSeModeloEmissao, Partial<CodigosFiscaisForm>>
     >;
 
-    // Mesma regra e mesma fonte de item da rota de emissão: o item do cadastro
-    // de cada serviço, e o do padrão municipal quando o serviço não tem. A tela
-    // decide pela OS inteira; a emissão confere de novo com os selecionados.
-    const itemPadrao = (padroesEmissao.MUNICIPAL_JOAO_PESSOA ?? padroesEmissao.MUNICIPAL_CABEDELO)?.itemListaServico;
-    const politica = resolverPoliticaNFSe({
-      codigoMunicipio,
-      regimeTributario: empresa?.regimetributario,
+    // Visão da OS inteira, só para o cabeçalho e as pendências da listagem. O
+    // modelo e o padrão que preenchem a revisão vêm de `contexto-emissao`, com
+    // os serviços efetivamente selecionados — uma OS que mistura item comum e
+    // exceção de João Pessoa muda de emissor conforme a seleção.
+    const contexto = resolverContextoEmissaoNFSe({
+      empresa,
+      itensListaServico: itensListaDosServicos(Array.isArray(os.osservico) ? os.osservico : []),
       dataCompetencia: dataDoDiaNFSe(new Date()),
-      itensListaServico: (Array.isArray(os.osservico) ? os.osservico : []).map(
-        (item: any) => String(item?.servico?.itemlistaservico ?? "").trim() || itemPadrao,
-      ),
+      padroesEmissao,
     });
-    const modeloEmissao: NFSeModeloEmissao | null = politica?.modelo ?? null;
-    const padraoFiscal = modeloEmissao ? padroesEmissao[modeloEmissao] ?? null : null;
+    const politica = contexto?.politica ?? null;
+    const modeloEmissao: NFSeModeloEmissao | null = contexto?.modeloEmissao ?? null;
+    const padraoFiscal = contexto?.padraoFiscal ?? null;
 
     // O desconto geral da OS é rateado entre peças e mão de obra: a NF-e leva a
     // fatia dos produtos, esta NFS-e leva a dos serviços. Mesma partição e mesmos
@@ -186,6 +189,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         : null,
       codigoMunicipio,
       padraoFiscal,
+      padraoAusente: Boolean(contexto?.padraoAusente),
       // A observação da OS continua vencendo o padrão do modelo, como antes.
       // A garantia é acrescentada sobre o texto que efetivamente abriria no
       // campo, sem fazer o padrão municipal/nacional desaparecer.
