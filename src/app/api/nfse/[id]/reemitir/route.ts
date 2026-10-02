@@ -17,7 +17,7 @@ import {
   motivoParaNaoReenviar,
   resolverPoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
-import { transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
+import { transportDaPolitica, transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
 
 export const runtime = "nodejs";
 
@@ -115,7 +115,13 @@ export async function POST(_req: Request, { params }: RouteParams) {
           itensListaServico: [String(payload.servico?.item_lista_servico ?? "")],
         })
       : null;
-    const motivo = motivoParaNaoReenviar(origem, politicaHoje);
+    // O destino EFETIVO de hoje: com a trava de João Pessoa desligada, o
+    // emissor próprio sai pela Focus `/v2/nfsen` e uma nota Nacional dela
+    // volta pelo mesmo caminho. O E0039 continua barrando o reenvio igual.
+    const autorizadorEfetivo = politicaHoje
+      ? { modelo: politicaHoje.modelo, autorizador: transportDaPolitica(politicaHoje, new NFSeService()).autorizador }
+      : null;
+    const motivo = motivoParaNaoReenviar(origem, autorizadorEfetivo);
     if (motivo) {
       return NextResponse.json(
         {
@@ -123,7 +129,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
           codigo: "MODELO_EMISSAO_DESATUALIZADO",
           message: motivo,
           modeloDaNota: origem.modelo_emissao,
-          autorizadorVigente: politicaHoje?.autorizador ?? null,
+          autorizadorVigente: autorizadorEfetivo?.autorizador ?? null,
           erros: origem.erros ?? null,
         },
         { status: 409 },

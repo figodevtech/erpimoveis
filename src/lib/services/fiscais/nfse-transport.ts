@@ -120,13 +120,28 @@ class JoaoPessoaDpsTransport implements NFSeTransport {
   }
 }
 
+/**
+ * Trava de João Pessoa DESLIGADA a pedido do usuário (02/10/2026), para testar
+ * o retorno das emissões: sem integração própria, o autorizador
+ * JOAO_PESSOA_DSF_DPS sai pela única rota DPS da Focus, `/v2/nfsen`. A nota 139
+ * voltou dessa rota com E0039 — o retorno fica registrado em `tentativas`.
+ *
+ * `false` volta a bloquear a emissão antes de gravar ou enviar.
+ */
+export const JOAO_PESSOA_ENVIA_PELA_FOCUS_NACIONAL = true;
+
 /** Transporte de uma emissão NOVA, pelo autorizador que a política escolheu. */
 export function transportDaPolitica(
   politica: Pick<PoliticaNFSe, "modelo" | "autorizador">,
   service: NFSeService,
+  opcoes: { joaoPessoaPelaFocusNacional?: boolean } = {},
 ): NFSeTransport {
   if (politica.autorizador === "FOCUS_NACIONAL") return new FocusNacionalTransport(service);
-  if (politica.autorizador === "JOAO_PESSOA_DSF_DPS") return new JoaoPessoaDpsTransport();
+  if (politica.autorizador === "JOAO_PESSOA_DSF_DPS") {
+    return (opcoes.joaoPessoaPelaFocusNacional ?? JOAO_PESSOA_ENVIA_PELA_FOCUS_NACIONAL)
+      ? new FocusNacionalTransport(service)
+      : new JoaoPessoaDpsTransport();
+  }
   return new FocusMunicipalTransport(service, politica.modelo);
 }
 

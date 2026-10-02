@@ -179,8 +179,8 @@ function PadraoDoModelo({
       {semIntegracao ? (
         <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-[11px] leading-snug text-muted-foreground">
           João Pessoa adotou a DPS do padrão nacional no emissor próprio da prefeitura, que ainda não tem
-          integração no ERP nem na Focus NFe. Estes códigos ficam guardados para quando a integração existir;
-          enquanto isso a emissão desta operação fica bloqueada.
+          integração no ERP nem na Focus NFe. Por ora a emissão sai pela Focus no Emissor Público Nacional
+          (/v2/nfsen), que recusou a cidade com E0039 em 02/10/2026.
         </p>
       ) : null}
 

@@ -25,6 +25,7 @@ import {
   resumirErrosNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
 import {
+  JOAO_PESSOA_ENVIA_PELA_FOCUS_NACIONAL,
   MOTIVO_JOAO_PESSOA_SEM_INTEGRACAO,
   transportDaPolitica,
   transportDoRegistro,
@@ -200,11 +201,12 @@ describe("Caso 1 — João Pessoa CRT 3 não vai para o Emissor Público Naciona
     assert.equal(politica?.exigeRtc, true);
   });
 
-  it("o transporte de João Pessoa está indisponível e não toca na rede", async () => {
+  it("com a trava ligada, o transporte de João Pessoa está indisponível e não toca na rede", async () => {
     const chamadas = focusFalsa();
     const transporte = transportDaPolitica(
       { modelo: "NACIONAL", autorizador: "JOAO_PESSOA_DSF_DPS" },
       new NFSeService(),
+      { joaoPessoaPelaFocusNacional: false },
     );
     assert.equal(transporte.disponivel, false);
     assert.equal(transporte.motivoIndisponivel, MOTIVO_JOAO_PESSOA_SEM_INTEGRACAO);
@@ -214,10 +216,21 @@ describe("Caso 1 — João Pessoa CRT 3 não vai para o Emissor Público Naciona
     assert.deepEqual(chamadas, []);
   });
 
-  it("emissão da OS 525 com o padrão completo da Demir: 422, nada gravado, nenhuma chamada", async () => {
+  it("trava desligada (pedido de 02/10/2026): o emissor próprio sai pela Focus /v2/nfsen", () => {
+    assert.equal(JOAO_PESSOA_ENVIA_PELA_FOCUS_NACIONAL, true);
+    const transporte = transportDaPolitica({ modelo: "NACIONAL", autorizador: "JOAO_PESSOA_DSF_DPS" }, new NFSeService());
+    assert.equal(transporte.disponivel, true);
+    assert.equal(transporte.autorizador, "FOCUS_NACIONAL");
+    assert.equal(transporte.modeloEmissao, "NACIONAL");
+  });
+
+  it("emissão da OS 525 com o padrão da Demir: vai a /v2/nfsen e o E0039 fica registrado", async () => {
     fixarHoje();
     const db = banco();
-    const chamadas = focusFalsa({ POST: { status: "processando_autorizacao" } });
+    const chamadas = focusFalsa({
+      POST: { status: "processando_autorizacao" },
+      GET: { ref: "x", status: "erro_autorizacao", erros: ERROS_139 },
+    });
 
     const resposta = await emitirDeOs(
       post("http://localhost/api/nfse/de-os/525", {
@@ -226,14 +239,16 @@ describe("Caso 1 — João Pessoa CRT 3 não vai para o Emissor Público Naciona
       }),
       { params: Promise.resolve({ id: "525" }) },
     );
-    const corpo = await resposta.json();
+    assert.equal(resposta.status, 202, JSON.stringify(await resposta.clone().json()));
+    assert.match(chamadas[0].url, /\/v2\/nfsen\?ref=OS_525_SRVS_12-15_/);
 
-    assert.equal(resposta.status, 422);
-    assert.equal(corpo.codigo, "TRANSPORTE_INDISPONIVEL");
-    assert.equal(corpo.autorizador, "JOAO_PESSOA_DSF_DPS");
-    assert.deepEqual(chamadas, [], "nenhuma chamada à Focus — nem /v2/nfsen, nem /v2/nfse");
-    assert.equal(db.tabela("nfse").length, 0);
-    assert.equal(db.chamadasRpc.length, 0, "nenhum serviço vinculado");
+    const id = Number(db.tabela("nfse")[0].id);
+    await consultar(post(`http://localhost/api/nfse/consultar/${id}`, {}), { params: Promise.resolve({ id: String(id) }) });
+    const linha = db.tabela("nfse")[0];
+    assert.equal(linha.modelo_emissao, "NACIONAL");
+    assert.equal(linha.status, "REJEITADA");
+    assert.deepEqual(linha.erros, ERROS_139);
+    assert.deepEqual((linha.tentativas as Array<Record<string, unknown>>).map((t) => t.tipo), ["EMISSAO", "CONSULTA"]);
   });
 });
 
