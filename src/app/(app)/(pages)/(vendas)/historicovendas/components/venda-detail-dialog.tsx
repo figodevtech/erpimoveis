@@ -216,6 +216,18 @@ interface Venda {
   ultimo_evento_rastreio_em?: string | null
   nfe_chave_acesso?: string | null
   danfe_url?: string | null
+  endereco_entrega_snapshot?: {
+    deliveryMethod?: "delivery" | "pickup" | string | null
+    deliveryLabel?: string | null
+    logradouro?: string | null
+    numero?: string | null
+    complemento?: string | null
+    bairro?: string | null
+    cidade?: string | null
+    estado?: string | null
+    cep?: string | null
+    pickupAddress?: string | null
+  } | null
   valortotal: number
   datavenda: string | null
   createdat: string | null
@@ -1284,6 +1296,38 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                 </div>
                               </div>
                             </div>
+                            {venda.endereco_entrega_snapshot ? (
+                              <div className="flex items-start gap-3 rounded-lg border bg-card p-4">
+                                <div className="rounded-full bg-primary/10 p-2">
+                                  <MapPin className="h-4 w-4 text-primary" />
+                                </div>
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-xs font-medium text-muted-foreground">Forma de recebimento</p>
+                                    <Badge variant={venda.endereco_entrega_snapshot.deliveryMethod === "pickup" ? "secondary" : "outline"}>
+                                      {venda.endereco_entrega_snapshot.deliveryMethod === "pickup" ? "Retirada no local" : "Entrega no endereço"}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm font-semibold">
+                                    {venda.endereco_entrega_snapshot.logradouro || "Endereço não informado"}
+                                    {venda.endereco_entrega_snapshot.numero ? `, ${venda.endereco_entrega_snapshot.numero}` : ""}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {[
+                                      venda.endereco_entrega_snapshot.bairro,
+                                      venda.endereco_entrega_snapshot.cidade,
+                                      venda.endereco_entrega_snapshot.estado,
+                                      venda.endereco_entrega_snapshot.cep ? `CEP ${venda.endereco_entrega_snapshot.cep}` : null,
+                                    ].filter(Boolean).join(" · ")}
+                                  </p>
+                                  {venda.endereco_entrega_snapshot.deliveryMethod === "pickup" && venda.endereco_entrega_snapshot.pickupAddress ? (
+                                    <p className="text-xs text-muted-foreground">
+                                      Local de retirada: {venda.endereco_entrega_snapshot.pickupAddress}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
                           </div>
                         ) : (
                           <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">

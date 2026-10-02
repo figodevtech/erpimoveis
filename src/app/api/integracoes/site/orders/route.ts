@@ -55,10 +55,10 @@ export async function GET(request: NextRequest) {
       .from("site_order_link")
       .select(`
         id, site_order_id, site_status, payment_provider, gateway_payment_id,
-        total_amount, order_created_at, import_status, import_error, last_synced_at,
+        total_amount, order_created_at, import_status, import_error, last_synced_at, raw_order,
         venda:venda_id (
           id, status, status_entrega, codigo_rastreio, transportadora_rastreio,
-          valortotal, datavenda,
+          valortotal, datavenda, endereco_entrega_snapshot,
           cliente:clienteid ( id, nomerazaosocial, cpfcnpj, email, telefone )
         )
       `, { count: "exact" })
@@ -85,7 +85,29 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      data: rows.map((row) => ({ ...row, invoice: invoiceBySale.get(Number(row.venda?.id)) ?? null })),
+      data: rows.map((row) => {
+        const address = row.venda?.endereco_entrega_snapshot
+          ?? row.raw_order?.shippingAddress
+          ?? {};
+        return {
+          ...row,
+          raw_order: undefined,
+          delivery: {
+            method: address.deliveryMethod === "pickup" ? "pickup" : "delivery",
+            label: address.deliveryMethod === "pickup" ? "Retirada no local" : "Entrega no endereço",
+            address: {
+              street: address.logradouro ?? null,
+              number: address.numero ?? null,
+              complement: address.complemento ?? null,
+              neighborhood: address.bairro ?? null,
+              city: address.cidade ?? null,
+              state: address.estado ?? null,
+              zipCode: address.cep ?? null,
+            },
+          },
+          invoice: invoiceBySale.get(Number(row.venda?.id)) ?? null,
+        };
+      }),
       count: count ?? rows.length,
       pagination: {
         page,

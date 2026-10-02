@@ -141,7 +141,7 @@ export async function GET(
     // 1) garantir que venda existe
     const { data: venda, error: vendaError } = await supabaseAdmin
       .from("venda")
-      .select("id, clienteid, observacoes_fiscais, garantia, canal, valor_frete, valortotal")
+      .select("id, clienteid, observacoes_fiscais, garantia, canal, valor_frete, valortotal, endereco_entrega_snapshot")
       .eq("id", vendaId)
       .maybeSingle();
 
@@ -298,6 +298,24 @@ export async function GET(
           .maybeSingle()
       : { data: null };
 
+    const enderecoPedido = venda.endereco_entrega_snapshot &&
+      typeof venda.endereco_entrega_snapshot === "object" &&
+      !Array.isArray(venda.endereco_entrega_snapshot)
+      ? venda.endereco_entrega_snapshot as Record<string, unknown>
+      : null;
+    const clienteFiscal = cliente
+      ? {
+          ...cliente,
+          endereco: String(enderecoPedido?.logradouro || cliente.endereco || ""),
+          endereconumero: String(enderecoPedido?.numero || cliente.endereconumero || ""),
+          enderecocomplemento: String(enderecoPedido?.complemento || cliente.enderecocomplemento || ""),
+          bairro: String(enderecoPedido?.bairro || cliente.bairro || ""),
+          cidade: String(enderecoPedido?.cidade || cliente.cidade || ""),
+          estado: String(enderecoPedido?.estado || cliente.estado || ""),
+          cep: String(enderecoPedido?.cep || cliente.cep || ""),
+        }
+      : null;
+
     return NextResponse.json({
       ok: true,
       vendaId,
@@ -330,11 +348,11 @@ export async function GET(
         baseProdutos: Number(totalLiquidoItens.toFixed(2)),
         baseServicos: 0,
       },
-      cliente: cliente
+      cliente: clienteFiscal
         ? {
-            ...cliente,
-            nome: cliente.nomerazaosocial,
-            uf: cliente.estado,
+            ...clienteFiscal,
+            nome: clienteFiscal.nomerazaosocial,
+            uf: clienteFiscal.estado,
           }
         : null,
       itens: resposta,

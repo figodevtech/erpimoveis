@@ -6,9 +6,12 @@ import {
   AlertTriangle,
   ClipboardList,
   ExternalLink,
+  FilePenLine,
   Loader2,
+  MoreHorizontal,
   PackageCheck,
   ReceiptText,
+  Store,
   Truck,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -32,6 +35,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -40,6 +50,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { MarketplacePagination } from "./marketplace-layout";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { VendaDetailsDialog } from "../(vendas)/historicovendas/components/venda-detail-dialog";
+import { EmissaoNotaDialog } from "../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
 
 type SiteOrder = {
   id: number;
@@ -60,6 +79,19 @@ type SiteOrder = {
       nomerazaosocial?: string | null;
       cpfcnpj?: string | null;
     } | null;
+  } | null;
+  delivery?: {
+    method: "delivery" | "pickup";
+    label: string;
+    address: {
+      street?: string | null;
+      number?: string | null;
+      complement?: string | null;
+      neighborhood?: string | null;
+      city?: string | null;
+      state?: string | null;
+      zipCode?: string | null;
+    };
   } | null;
   invoice?: {
     id: number;
@@ -96,8 +128,11 @@ export function StorefrontOrders({
   const [totalPages, setTotalPages] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<SiteOrder | null>(null);
+  const [editingSaleId, setEditingSaleId] = useState<number | null>(null);
+  const [invoiceSaleId, setInvoiceSaleId] = useState<number | null>(null);
   const [savingShipment, setSavingShipment] = useState(false);
   const [shipment, setShipment] = useState({
+    deliveryStatus: "SEPARACAO" as "SEPARACAO" | "FATURADO" | "ENVIADO" | "ENTREGUE",
     carrier: "Correios",
     trackingCode: "",
     trackingUrl: "",
@@ -171,6 +206,13 @@ export function StorefrontOrders({
   function openShipment(order: SiteOrder) {
     setSelectedOrder(order);
     setShipment({
+      deliveryStatus: order.venda?.status_entrega === "ENTREGUE"
+        ? "ENTREGUE"
+        : order.venda?.status_entrega === "ENVIO"
+          ? "ENVIADO"
+          : order.invoice?.chave_acesso
+            ? "FATURADO"
+            : "SEPARACAO",
       carrier: order.venda?.transportadora_rastreio || "Correios",
       trackingCode: order.venda?.codigo_rastreio || "",
       trackingUrl: "",
@@ -178,10 +220,11 @@ export function StorefrontOrders({
   }
 
   async function saveShipment() {
+    const pickup = selectedOrder?.delivery?.method === "pickup";
     if (
       !selectedOrder ||
-      !shipment.carrier.trim() ||
-      !shipment.trackingCode.trim()
+      (!pickup && shipment.deliveryStatus === "ENVIADO" &&
+        (!shipment.carrier.trim() || !shipment.trackingCode.trim()))
     ) {
       toast.error("Informe a transportadora e o código de rastreio.");
       return;
@@ -199,10 +242,22 @@ export function StorefrontOrders({
       const json = await response.json();
       if (!response.ok)
         throw new Error(json?.error || "Falha ao registrar postagem.");
-      toast.success("Postagem enviada para a loja", {
-        description: json.invoiceSent
-          ? "Rastreio e dados da NF-e foram atualizados no pedido."
-          : "Rastreio atualizado. A NF-e será enviada quando estiver autorizada.",
+      toast.success("Andamento enviado para a loja", {
+        description: shipment.deliveryStatus === "SEPARACAO"
+          ? "O cliente já pode acompanhar a etapa de separação."
+          : shipment.deliveryStatus === "FATURADO"
+            ? "Os dados da NF-e foram atualizados no pedido."
+          : shipment.deliveryStatus === "ENTREGUE"
+              ? pickup
+                ? "A retirada foi confirmada no pedido da loja."
+                : "A entrega foi confirmada no pedido da loja."
+              : json.invoiceSent
+                ? pickup
+                  ? "O pedido está pronto para retirada e a NF-e foi atualizada."
+                  : "Rastreio e dados da NF-e foram atualizados no pedido."
+                : pickup
+                  ? "O cliente já pode acompanhar a retirada."
+                  : "O rastreio foi atualizado no pedido.",
       });
       setSelectedOrder(null);
       await loadOrders();
@@ -222,9 +277,13 @@ export function StorefrontOrders({
     (order) => order.import_status === "IMPORTADA",
   ).length;
   const awaitingShipment = orders.filter(
-    (order) => order.venda && !order.venda.codigo_rastreio,
+    (order) => order.venda && order.delivery?.method !== "pickup" && !order.venda.codigo_rastreio,
+  ).length;
+  const awaitingPickup = orders.filter(
+    (order) => order.venda && order.delivery?.method === "pickup" && order.venda.status_entrega !== "ENTREGUE",
   ).length;
   const invoiced = orders.filter((order) => order.invoice?.chave_acesso).length;
+  const selectedIsPickup = selectedOrder?.delivery?.method === "pickup";
 
   return (
     <>
@@ -260,13 +319,14 @@ export function StorefrontOrders({
           </CardHeader>
         ) : null}
         <CardContent className="space-y-5 p-4 lg:p-6">
-          <div className="grid grid-cols-1 overflow-hidden rounded-lg border sm:grid-cols-3">
+          <div className="grid grid-cols-1 overflow-hidden rounded-lg border sm:grid-cols-2 xl:grid-cols-4">
             <Summary label="Importados" value={imported} icon={PackageCheck} />
             <Summary
               label="Aguardando postagem"
               value={awaitingShipment}
               icon={Truck}
             />
+            <Summary label="Aguardando retirada" value={awaitingPickup} icon={Store} />
             <Summary label="Com NF-e" value={invoiced} icon={ReceiptText} />
           </div>
 
@@ -320,16 +380,19 @@ export function StorefrontOrders({
                       {formatMoney(order.total_amount)}
                     </TableCell>
                     <TableCell>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant="outline" className="gap-1">
+                          {order.delivery?.method === "pickup" ? <Store className="h-3 w-3" /> : <Truck className="h-3 w-3" />}
+                          {order.delivery?.method === "pickup" ? "Retirada" : "Envio"}
+                        </Badge>
+                        <FulfillmentBadge order={order} />
+                      </div>
                       {order.venda?.codigo_rastreio ? (
-                        <>
-                          <Badge variant="outline">Enviado</Badge>
-                          <p className="mt-1 font-mono text-xs">
-                            {order.venda.codigo_rastreio}
-                          </p>
-                        </>
-                      ) : (
-                        <Badge variant="secondary">Em separação</Badge>
-                      )}
+                        <p className="mt-1 font-mono text-xs">{order.venda.codigo_rastreio}</p>
+                      ) : null}
+                      <p className="mt-1 max-w-64 truncate text-xs text-muted-foreground">
+                        {formatDeliveryAddress(order)}
+                      </p>
                     </TableCell>
                     <TableCell>
                       {order.invoice?.chave_acesso ? (
@@ -349,21 +412,40 @@ export function StorefrontOrders({
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button asChild size="sm" variant="ghost">
-                          <Link href="/historicovendas">
-                            <ExternalLink className="mr-1 h-4 w-4" /> Venda
-                          </Link>
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => openShipment(order)}
-                          disabled={!order.venda?.id}
-                        >
-                          <Truck className="mr-1 h-4 w-4" /> Postagem
-                        </Button>
-                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label={`Ações do pedido ${order.site_order_id}`}>
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuItem
+                            disabled={!order.venda?.id}
+                            onSelect={() => setEditingSaleId(order.venda?.id ?? null)}
+                          >
+                            <FilePenLine className="h-4 w-4" /> Editar venda
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!order.venda?.id}
+                            onSelect={() => setInvoiceSaleId(order.venda?.id ?? null)}
+                          >
+                            <ReceiptText className="h-4 w-4" /> {order.invoice ? "Gerenciar NF-e" : "Emitir NF-e"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!order.venda?.id}
+                            onSelect={() => openShipment(order)}
+                          >
+                            {order.delivery?.method === "pickup" ? <Store className="h-4 w-4" /> : <Truck className="h-4 w-4" />}
+                            Atualizar andamento
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem asChild>
+                            <Link href="/historicovendas">
+                              <ExternalLink className="h-4 w-4" /> Abrir histórico de vendas
+                            </Link>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -409,56 +491,71 @@ export function StorefrontOrders({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Registrar postagem</DialogTitle>
+            <DialogTitle>Atualizar andamento do pedido</DialogTitle>
             <DialogDescription>
-              O rastreio será salvo na venda e enviado para o pedido #
+              {selectedIsPickup
+                ? "Atualize a preparação e a retirada do pedido #"
+                : "A etapa, a NF-e e o rastreio serão enviados para o pedido #"}
               {selectedOrder?.site_order_id} na loja.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
-              <Label htmlFor="site-carrier">Transportadora</Label>
-              <Input
-                id="site-carrier"
-                value={shipment.carrier}
-                onChange={(event) =>
+              <Label htmlFor="site-delivery-status">Etapa do pedido</Label>
+              <Select
+                value={shipment.deliveryStatus}
+                onValueChange={(value) =>
                   setShipment((current) => ({
                     ...current,
-                    carrier: event.target.value,
+                    deliveryStatus: value as typeof current.deliveryStatus,
                   }))
                 }
-              />
+              >
+                <SelectTrigger id="site-delivery-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SEPARACAO">Em separação</SelectItem>
+                  <SelectItem value="FATURADO">Faturado / NF-e emitida</SelectItem>
+                  <SelectItem value="ENVIADO">{selectedIsPickup ? "Pronto para retirada" : "Enviado"}</SelectItem>
+                  <SelectItem value="ENTREGUE">{selectedIsPickup ? "Retirado pelo cliente" : "Entregue"}</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="site-tracking">Código de rastreio/postagem</Label>
-              <Input
-                id="site-tracking"
-                value={shipment.trackingCode}
-                onChange={(event) =>
-                  setShipment((current) => ({
-                    ...current,
-                    trackingCode: event.target.value,
-                  }))
-                }
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="site-tracking-url">
-                Link de acompanhamento (opcional)
-              </Label>
-              <Input
-                id="site-tracking-url"
-                type="url"
-                placeholder="https://..."
-                value={shipment.trackingUrl}
-                onChange={(event) =>
-                  setShipment((current) => ({
-                    ...current,
-                    trackingUrl: event.target.value,
-                  }))
-                }
-              />
-            </div>
+            {!selectedIsPickup ? (
+              <>
+                <div className="grid gap-2">
+                  <Label htmlFor="site-carrier">Transportadora</Label>
+                  <Input
+                    id="site-carrier"
+                    value={shipment.carrier}
+                    onChange={(event) => setShipment((current) => ({ ...current, carrier: event.target.value }))}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="site-tracking">Código de rastreio/postagem</Label>
+                  <Input
+                    id="site-tracking"
+                    value={shipment.trackingCode}
+                    onChange={(event) => setShipment((current) => ({ ...current, trackingCode: event.target.value }))}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="site-tracking-url">Link de acompanhamento (opcional)</Label>
+                  <Input
+                    id="site-tracking-url"
+                    type="url"
+                    placeholder="https://..."
+                    value={shipment.trackingUrl}
+                    onChange={(event) => setShipment((current) => ({ ...current, trackingUrl: event.target.value }))}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                Este pedido será retirado no local. Transportadora e código de postagem não são necessários.
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
               Se a venda já possuir uma NF-e autorizada, número, série e chave
               de acesso também serão enviados à loja.
@@ -475,11 +572,31 @@ export function StorefrontOrders({
               {savingShipment ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
-              Salvar e enviar
+              Atualizar pedido
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <VendaDetailsDialog
+        vendaId={editingSaleId}
+        open={editingSaleId !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingSaleId(null);
+        }}
+        onSaved={() => void loadOrders()}
+      />
+
+      <EmissaoNotaDialog
+        vendaId={invoiceSaleId}
+        open={invoiceSaleId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInvoiceSaleId(null);
+            void loadOrders();
+          }
+        }}
+      />
     </>
   );
 }
@@ -525,6 +642,30 @@ function ImportBadge({ status }: { status: SiteOrder["import_status"] }) {
       {status === "PROCESSANDO" ? "Processando" : "Pendente"}
     </Badge>
   );
+}
+
+function FulfillmentBadge({ order }: { order: SiteOrder }) {
+  const pickup = order.delivery?.method === "pickup";
+  if (order.venda?.status_entrega === "ENTREGUE") {
+    return <Badge className="bg-emerald-600 text-white">{pickup ? "Retirado" : "Entregue"}</Badge>;
+  }
+  if (order.venda?.status_entrega === "ENVIO" || order.venda?.codigo_rastreio) {
+    return <Badge variant="outline">{pickup ? "Pronto para retirada" : "Enviado"}</Badge>;
+  }
+  if (order.invoice?.chave_acesso) {
+    return <Badge variant="outline">Faturado</Badge>;
+  }
+  return <Badge variant="secondary">Em separação</Badge>;
+}
+
+function formatDeliveryAddress(order: SiteOrder) {
+  const address = order.delivery?.address;
+  if (!address) return "Endereço não informado";
+  return [
+    [address.street, address.number].filter(Boolean).join(", "),
+    address.neighborhood,
+    [address.city, address.state].filter(Boolean).join("/"),
+  ].filter(Boolean).join(" · ") || "Endereço não informado";
 }
 
 function formatMoney(value: number) {

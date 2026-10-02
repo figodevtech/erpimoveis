@@ -89,6 +89,7 @@ const VENDA_SELECT = `
   rastreio_atualizado_em,
   nfe_chave_acesso,
   danfe_url,
+  endereco_entrega_snapshot,
   valortotal,
   datavenda,
   createdat,
