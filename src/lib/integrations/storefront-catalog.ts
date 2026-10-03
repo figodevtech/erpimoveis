@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { storefrontFetch } from "@/lib/integrations/storefront-http";
 
 type QueueItem = {
   queue_id: number;
@@ -109,7 +110,7 @@ export async function syncStorefrontCatalog(empresaId: number, limit = 100) {
       })),
     };
 
-    const response = await fetch(endpoint, {
+    const response = await storefrontFetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${secret}`,
