@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -57,8 +58,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { VendaDetailsDialog } from "../(vendas)/historicovendas/components/venda-detail-dialog";
-import { EmissaoNotaDialog } from "../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
+
+const VendaDetailsDialog = dynamic(
+  () =>
+    import("../(vendas)/historicovendas/components/venda-detail-dialog").then(
+      (module) => module.VendaDetailsDialog,
+    ),
+  { ssr: false },
+);
+
+const EmissaoNotaDialog = dynamic(
+  () =>
+    import("../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog").then(
+      (module) => module.EmissaoNotaDialog,
+    ),
+  { ssr: false },
+);
 
 type SiteOrder = {
   id: number;

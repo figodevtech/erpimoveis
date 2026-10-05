@@ -6,12 +6,12 @@
 -- "ativo" continua fora da regra de visibilidade (ver
 -- 20261001153000_site_catalog_visibility_by_publication): ele diz se o grupo pode
 -- ser usado em novos cadastros, nao se aparece na loja.
-BEGIN;
+begin;
 
-ALTER TABLE public.produtogrupo
-  ADD COLUMN IF NOT EXISTS "exibirSite" boolean NOT NULL DEFAULT true;
+alter table public.produtogrupo
+  add column if not exists "exibirSite" boolean not null default true;
 
-COMMENT ON COLUMN public.produtogrupo."exibirSite" IS
+comment on column public.produtogrupo."exibirSite" is
   'Quando false, oculta a categoria e todos os produtos do grupo no site, independentemente de site_product_link.status. Quando true, respeita a publicacao individual do produto.';
 
 create or replace view public.site_catalog_export
@@ -55,6 +55,7 @@ left join public.produtogrupo grupo on grupo.id = p.grupo_produto_id;
 -- Alternar "exibirSite" precisa reenfileirar os produtos publicados do grupo,
 -- senao o site so descobre a mudanca quando cada produto mudar por outro motivo.
 drop trigger if exists trg_site_product_group_changed on public.produtogrupo;
+
 create trigger trg_site_product_group_changed
 after update of nome, ativo, "exibirSite"
 on public.produtogrupo
@@ -66,4 +67,4 @@ when (
 )
 execute function public.fn_site_product_group_changed();
 
-COMMIT;
+commit;

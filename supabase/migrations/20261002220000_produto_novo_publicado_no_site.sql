@@ -18,47 +18,48 @@
 --   deve continuar fora. Para publicar o catalogo antigo use "Publicar todos".
 -- * Instalacoes sem loja configurada apenas acumulam o vinculo/fila; nada e
 --   enviado sem STOREFRONT_API_URL e STOREFRONT_CATALOG_SYNC_SECRET.
-BEGIN;
+begin;
 
-CREATE OR REPLACE FUNCTION public.fn_publicar_produto_novo_no_site()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
+create or replace function public.fn_publicar_produto_novo_no_site()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
   v_empresas integer;
   v_empresa_id integer;
-BEGIN
-  SELECT count(*), min(id)
-    INTO v_empresas, v_empresa_id
-    FROM (SELECT id FROM public.empresa ORDER BY id LIMIT 2) empresas;
+begin
+  select count(*), min(id)
+    into v_empresas, v_empresa_id
+    from (select id from public.empresa order by id limit 2) empresas;
 
-  IF v_empresas <> 1 THEN
-    RETURN NEW;
-  END IF;
+  if v_empresas <> 1 then
+    return new;
+  end if;
 
-  BEGIN
+  begin
     -- O trigger de site_product_link enfileira a sincronizacao com a loja.
-    INSERT INTO public.site_product_link (empresa_id, produto_id, status)
-    VALUES (v_empresa_id, NEW.id, 'PUBLICADO')
-    ON CONFLICT (empresa_id, produto_id) DO NOTHING;
-  EXCEPTION WHEN others THEN
-    RAISE WARNING 'Produto % cadastrado sem publicacao no site: %', NEW.id, SQLERRM;
-  END;
+    insert into public.site_product_link (empresa_id, produto_id, status)
+    values (v_empresa_id, new.id, 'PUBLICADO')
+    on conflict (empresa_id, produto_id) do nothing;
+  exception when others then
+    raise warning 'Produto % cadastrado sem publicacao no site: %', new.id, sqlerrm;
+  end;
 
-  RETURN NEW;
-END;
+  return new;
+end;
 $$;
 
-DROP TRIGGER IF EXISTS trg_publicar_produto_novo_no_site ON public.produto;
-CREATE TRIGGER trg_publicar_produto_novo_no_site
-AFTER INSERT ON public.produto
-FOR EACH ROW
-WHEN (NEW."exibirPdv" IS TRUE AND COALESCE(NEW.is_deleted, false) = false)
-EXECUTE FUNCTION public.fn_publicar_produto_novo_no_site();
+drop trigger if exists trg_publicar_produto_novo_no_site on public.produto;
 
-COMMENT ON FUNCTION public.fn_publicar_produto_novo_no_site() IS
+create trigger trg_publicar_produto_novo_no_site
+after insert on public.produto
+for each row
+when (new."exibirPdv" is true and coalesce(new.is_deleted, false) = false)
+execute function public.fn_publicar_produto_novo_no_site();
+
+comment on function public.fn_publicar_produto_novo_no_site() is
   'Cria site_product_link PUBLICADO para produto novo visivel no PDV. Ocultar do site e escolha explicita na aba Marketplace.';
 
-COMMIT;
+commit;

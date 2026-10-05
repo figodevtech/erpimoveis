@@ -1,4 +1,4 @@
-BEGIN;
+begin;
 
 -- Chamada pela API, `salvar_os_termos_impressao` falhava com "DELETE requires a
 -- WHERE clause" (SQLSTATE 21000): o Supabase carrega o pg_safeupdate nas
@@ -6,34 +6,34 @@ BEGIN;
 -- O teste SQL não pegou porque roda como postgres, fora do PostgREST.
 -- O `WHERE true` só existe para satisfazer a extensão; a lista inteira
 -- continua sendo trocada numa transação só.
-CREATE OR REPLACE FUNCTION public.salvar_os_termos_impressao(p_termos jsonb)
-RETURNS SETOF public.os_termo_impressao
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $fn$
-BEGIN
-  IF p_termos IS NULL OR jsonb_typeof(p_termos) <> 'array' THEN
-    RAISE EXCEPTION 'Os dizeres devem vir como uma lista.' USING ERRCODE = '22023';
-  END IF;
+create or replace function public.salvar_os_termos_impressao(p_termos jsonb)
+returns setof public.os_termo_impressao
+language plpgsql security definer set search_path = public as $fn$
+begin
+  if p_termos is null or jsonb_typeof(p_termos) <> 'array' then
+    raise exception 'Os dizeres devem vir como uma lista.' using errcode = '22023';
+  end if;
 
-  DELETE FROM public.os_termo_impressao WHERE true;
+  delete from public.os_termo_impressao where true;
 
-  RETURN QUERY
-  WITH inseridos AS (
-    INSERT INTO public.os_termo_impressao (titulo, intro, itens, status, alvos, ordem)
-    SELECT
+  return query
+  with inseridos as (
+    insert into public.os_termo_impressao (titulo, intro, itens, status, alvos, ordem)
+    select
       btrim(termo->>'titulo'),
       coalesce(btrim(termo->>'intro'), ''),
-      CASE WHEN jsonb_typeof(termo->'itens') = 'array' THEN termo->'itens' ELSE '[]'::jsonb END,
-      ARRAY(SELECT jsonb_array_elements_text(termo->'status'))::public.enum_status_os[],
-      ARRAY(SELECT jsonb_array_elements_text(termo->'alvos')),
+      case when jsonb_typeof(termo->'itens') = 'array' then termo->'itens' else '[]'::jsonb end,
+      array(select jsonb_array_elements_text(termo->'status'))::public.enum_status_os[],
+      array(select jsonb_array_elements_text(termo->'alvos')),
       (posicao - 1) * 10
-    FROM jsonb_array_elements(p_termos) WITH ORDINALITY AS entrada(termo, posicao)
-    RETURNING *
+    from jsonb_array_elements(p_termos) with ordinality as entrada(termo, posicao)
+    returning *
   )
-  SELECT * FROM inseridos ORDER BY ordem, id;
-END;
+  select * from inseridos order by ordem, id;
+end;
 $fn$;
 
-REVOKE ALL ON FUNCTION public.salvar_os_termos_impressao(jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.salvar_os_termos_impressao(jsonb) TO service_role;
+revoke all on function public.salvar_os_termos_impressao(jsonb) from public, anon, authenticated;
+grant execute on function public.salvar_os_termos_impressao(jsonb) to service_role;
 
-COMMIT;
+commit;
