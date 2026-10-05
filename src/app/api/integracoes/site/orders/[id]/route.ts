@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { storefrontFetch } from "@/lib/integrations/storefront-http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,7 +92,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const secret = process.env.STOREFRONT_ORDER_SYNC_SECRET?.trim();
     if (!baseUrl || !secret) throw new Error("Integração de pedidos da loja não configurada.");
 
-    const callback = await fetch(`${baseUrl}/api/integrations/erp/orders/${siteOrderId}`, {
+    const callback = await storefrontFetch(`${baseUrl}/api/integrations/erp/orders/${siteOrderId}`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
       body: JSON.stringify({

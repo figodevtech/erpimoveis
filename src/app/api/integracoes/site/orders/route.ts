@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { storefrontFetch } from "@/lib/integrations/storefront-http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -137,7 +138,7 @@ export async function POST() {
       );
     }
 
-    const response = await fetch(`${baseUrl}/api/integrations/erp/orders?limit=100`, {
+    const response = await storefrontFetch(`${baseUrl}/api/integrations/erp/orders?limit=100`, {
       headers: { Authorization: `Bearer ${secret}`, Accept: "application/json" },
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),
