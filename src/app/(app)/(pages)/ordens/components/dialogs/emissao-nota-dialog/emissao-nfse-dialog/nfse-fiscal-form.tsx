@@ -70,10 +70,7 @@ export function NfseFiscalForm({
   exigeRtc?: boolean;
   /** O modelo desta nota não tem padrão fiscal cadastrado. */
   padraoAusente?: boolean;
-  /**
-   * O autorizador desta nota não tem integração (João Pessoa, emissor próprio
-   * no padrão nacional). A revisão abre para conferir os códigos, mas não envia.
-   */
+  /** Motivo de eventual bloqueio devolvido pelo contexto da emissão. */
   bloqueioEmissao?: string | null;
   /** Destino da nota, quando difere do nome do modelo. */
   rotuloModelo?: string | null;
@@ -368,6 +365,22 @@ export function NfseFiscalForm({
                   disabled={loading}
                 />
               </div>
+              {isNacional ? (
+                <div className="space-y-2">
+                  <Label htmlFor="nfse-pis-cofins">CST do PIS/COFINS</Label>
+                  <Input
+                    id="nfse-pis-cofins"
+                    className={inputClassName}
+                    value={codigos.situacaoTributariaPisCofins}
+                    onChange={(event) => onChange("situacaoTributariaPisCofins", event.target.value)}
+                    placeholder="2 dígitos, quando aplicável"
+                    inputMode="numeric"
+                    maxLength={2}
+                    disabled={loading}
+                  />
+                  <p className="text-xs text-muted-foreground">Opcional, conforme a contabilidade e a tabela da Focus. Em branco, não é enviado.</p>
+                </div>
+              ) : null}
               <div className="space-y-2">
                 <Label htmlFor="nfse-nbs">Código NBS</Label>
                 <Input

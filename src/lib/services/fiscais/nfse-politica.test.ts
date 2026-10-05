@@ -50,10 +50,10 @@ describe("política da NFS-e — João Pessoa, CRT 3, item 14.01", () => {
     const politica = demir("2026-10-01");
     assert.equal(politica?.modelo, "NACIONAL");
     assert.equal(politica?.layout, "DPS_NACIONAL");
-    assert.equal(politica?.autorizador, "JOAO_PESSOA_DSF_DPS");
+    assert.equal(politica?.autorizador, "FOCUS_FORMATO_NACIONAL_MUNICIPAL");
     assert.notEqual(politica?.autorizador, "FOCUS_NACIONAL");
     assert.equal(politica?.usaDps, true);
-    assert.equal(politica?.regra, "JOAO_PESSOA_DPS_2026");
+    assert.equal(politica?.regra, "JOAO_PESSOA_FORMATO_NACIONAL_2026");
   });
 
   it("Caso C: 02/10/2026 (dia da OS 525) segue no padrão Nacional", () => {

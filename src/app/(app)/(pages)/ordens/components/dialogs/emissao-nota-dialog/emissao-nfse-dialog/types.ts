@@ -9,6 +9,7 @@ export type CodigosFiscaisForm = {
   codigoTributacaoNacionalIss: string;
   /** cTribMun do padrão Nacional (3 dígitos), quando o município exige. */
   codigoTributacaoMunicipalIss: string;
+  situacaoTributariaPisCofins: string;
   codigoNbs: string;
   aliquotaIss: string;
   naturezaOperacao: string;
@@ -37,7 +38,7 @@ export type PoliticaEmissaoResumo = {
   motivo: string;
   regimeTributario: string;
   layout?: "MUNICIPAL_LEGADO" | "DPS_NACIONAL";
-  autorizador?: "FOCUS_MUNICIPAL" | "FOCUS_NACIONAL" | "JOAO_PESSOA_DSF_DPS";
+  autorizador?: "FOCUS_MUNICIPAL" | "FOCUS_NACIONAL" | "FOCUS_FORMATO_NACIONAL_MUNICIPAL";
   /** Nome do destino da nota para o cabeçalho. */
   rotulo?: string;
   /** Sem integração com o autorizador: o motivo, e a emissão fica travada. */
@@ -160,6 +161,7 @@ export const EMPTY_CODIGOS: CodigosFiscaisForm = {
   codigoCnae: "",
   codigoTributacaoNacionalIss: "",
   codigoTributacaoMunicipalIss: "",
+  situacaoTributariaPisCofins: "",
   codigoNbs: "",
   aliquotaIss: "",
   naturezaOperacao: "",

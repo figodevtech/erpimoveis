@@ -247,6 +247,9 @@ describe("POST /api/nfse/contexto-emissao — a revisão usa a seleção real", 
     assert.equal(corpo.modeloEmissao, "NACIONAL");
     assert.deepEqual(corpo.padraoFiscal, PADRAO_NACIONAL);
     assert.equal(corpo.politicaEmissao.exigeRtc, true);
+    assert.equal(corpo.politicaEmissao.autorizador, "FOCUS_FORMATO_NACIONAL_MUNICIPAL");
+    assert.equal(corpo.politicaEmissao.bloqueio, null);
+    assert.match(corpo.politicaEmissao.rotulo, /Formato Nacional via Focus/);
   });
 
   it("OS mista com os dois selecionados é Nacional", async () => {
@@ -330,6 +333,53 @@ describe("POST /api/nfse/de-os — Teste 8: sem código obrigatório não sai na
 });
 
 describe("GET/PUT /api/config/nfse — Teste 6 pela rota", () => {
+  it("CST PIS/COFINS salva, carrega na revisão e permanece editável, sem copiar o municipal", async () => {
+    fixarHoje();
+    const db = bancoDemir({ MUNICIPAL_JOAO_PESSOA: PADRAO_JOAO_PESSOA });
+    const padrao = { ...PADRAO_NACIONAL, situacaoTributariaPisCofins: "01", codigoTributacaoMunicipalIss: "123" };
+    assert.equal((await salvarConfigNfse(requisicao("http://localhost/api/config/nfse", { nfse: { padroesEmissao: { NACIONAL: padrao } } }, "PUT"))).status, 200);
+    const lido = await (await lerConfigNfse()).json();
+    assert.equal(lido.nfse.padroesEmissao.NACIONAL.situacaoTributariaPisCofins, "01");
+    const revisao = await (await contextoEmissao(requisicao("http://localhost/api/nfse/contexto-emissao/900", { servicos: [12] }), { params: Promise.resolve({ id: "900" }) })).json();
+    const formulario = montarCodigosDaRevisao({ modelo: "NACIONAL", padraoFiscal: revisao.padraoFiscal, servicos: [], observacoes: "" });
+    assert.equal(formulario.situacaoTributariaPisCofins, "01");
+    assert.equal(formulario.codigoTributacaoMunicipalIss, "123");
+    assert.deepEqual(db.tabela("nfse_config")[0].padroes_emissao.MUNICIPAL_JOAO_PESSOA, PADRAO_JOAO_PESSOA);
+
+    const enviados: Record<string, unknown>[] = [];
+    mock.method(globalThis, "fetch", async (_url: unknown, init?: RequestInit) => {
+      enviados.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ status: "processando_autorizacao" }), { status: 202 });
+    });
+    const emitir = (cst: string) => emitirDeOs(requisicao("http://localhost/api/nfse/de-os/900", {
+      servicos: [{ osservicoId: 12, valor: 300 }],
+      codigosFiscais: {
+        codigo_tributacao_nacional_iss: formulario.codigoTributacaoNacionalIss,
+        codigo_tributacao_municipal_iss: formulario.codigoTributacaoMunicipalIss,
+        situacao_tributaria_pis_cofins: cst,
+        tributacao_iss: 1, tipo_retencao_iss: 1, finalidade_emissao: 0,
+        consumidor_final: 0, indicador_destinatario: 0, codigo_indicador_operacao: "050101",
+        ibs_cbs_situacao_tributaria: "000", ibs_cbs_classificacao_tributaria: "000001",
+      },
+    }), { params: Promise.resolve({ id: "900" }) });
+    assert.equal((await emitir("10")).status, 400);
+    assert.equal(enviados.length, 0);
+    assert.equal((await emitir(formulario.situacaoTributariaPisCofins)).status, 202);
+    assert.equal(enviados[0].situacao_tributaria_pis_cofins, "01");
+    assert.equal(enviados[0].codigo_tributacao_municipal_iss, "123");
+  });
+
+  it("configuração recusa CST inválido sem modificar o padrão gravado", async () => {
+    fixarHoje();
+    const db = bancoDemir({ NACIONAL: PADRAO_NACIONAL });
+    for (const cst of ["0", "10", "000", "XX"]) {
+      const resposta = await salvarConfigNfse(requisicao("http://localhost/api/config/nfse", { nfse: { padroesEmissao: { NACIONAL: { ...PADRAO_NACIONAL, situacaoTributariaPisCofins: cst } } } }, "PUT"));
+      assert.equal(resposta.status, 400);
+      assert.match((await resposta.json()).error, /PIS\/COFINS/);
+      assert.deepEqual(db.tabela("nfse_config")[0].padroes_emissao.NACIONAL, PADRAO_NACIONAL);
+    }
+  });
+
   it("salvar a aba com o Nacional preserva o municipal de João Pessoa", async () => {
     fixarHoje();
     const banco = bancoDemir({ MUNICIPAL_JOAO_PESSOA: PADRAO_JOAO_PESSOA });
