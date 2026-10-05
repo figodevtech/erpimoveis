@@ -1,3 +1,5 @@
+import { eventoManualDoOperador } from "@/lib/financeiro/documento-evento";
+
 export type EventoParaExclusao = {
   id: number;
   origem: string;
@@ -39,7 +41,8 @@ export type ImpactoExclusaoEvento = {
 };
 
 type OpcoesAnalise = {
-  statusOs: string;
+  statusOs?: string;
+  documentoTipo?: "ORDEM_SERVICO" | "VENDA";
   mesesFechados?: string[];
 };
 
@@ -68,7 +71,7 @@ export function eventoTemProvenienciaExcluivel(evento: EventoParaExclusao) {
   if (evento.origem === "COMISSAO") return false;
   if (evento.origem === "FRETE" && evento.natureza === "RECEITA") return false;
   if (consumoComBaixaDeEstoque(evento)) return evento.is_manual === true;
-  return evento.is_manual === true && String(evento.chave_origem ?? "").startsWith("MANUAL:");
+  return eventoManualDoOperador(evento);
 }
 
 export function analisarExclusaoEventoFinanceiro(
@@ -78,20 +81,24 @@ export function analisarExclusaoEventoFinanceiro(
   const origem = String(evento.origem ?? "").toUpperCase();
   const status = String(evento.status ?? "").toUpperCase();
   const statusOs = String(opcoes.statusOs ?? "").toUpperCase();
-  const comEstoque = consumoComBaixaDeEstoque(evento);
+  const venda = opcoes.documentoTipo === "VENDA";
+  const documento = venda ? "venda" : "OS";
+  const comEstoque = !venda && consumoComBaixaDeEstoque(evento);
   const transacaoId = evento.transacaoid == null ? null : Number(evento.transacaoid);
   const lancamentoId = evento.lancamento_id == null ? null : Number(evento.lancamento_id);
   let bloqueio: string | null = null;
 
   if (!eventoTemProvenienciaExcluivel(evento)) {
     bloqueio = origem === "FRETE" && evento.natureza === "RECEITA"
-      ? "A receita de frete é automática. Para removê-la, edite o orçamento da OS e zere o frete."
+      ? `A receita de frete é automática. Para removê-la, edite o orçamento da ${documento} e zere o frete.`
       : "Este evento foi gerado automaticamente e deve ser corrigido na origem que o criou.";
+  } else if (venda && (!eventoManualDoOperador(evento) || consumoComBaixaDeEstoque(evento))) {
+    bloqueio = "Este evento possui efeitos na origem e deve ser corrigido por ela.";
   } else if (status === "CONVERTIDO" || transacaoId != null || lancamentoId != null) {
     bloqueio = "Este evento já foi lançado no Financeiro. Exclua primeiro a transação ou o lançamento vinculado; nenhuma exclusão financeira será feita automaticamente.";
   } else if (status !== "ATIVO") {
     bloqueio = "Somente eventos financeiros ativos podem ser excluídos.";
-  } else if (statusOs === "CANCELADO") {
+  } else if (!venda && statusOs === "CANCELADO") {
     bloqueio = "Esta OS está cancelada e seus eventos financeiros não podem mais ser alterados.";
   } else if (comEstoque && ["CONCLUIDO", "SEM_COBRANCA"].includes(statusOs)) {
     bloqueio = "A OS já foi finalizada. Reabra a OS para excluir este consumo e devolver o item ao estoque.";
@@ -111,12 +118,12 @@ export function analisarExclusaoEventoFinanceiro(
 
   const efeitos: string[] = [];
   if (evento.natureza === "RECEITA") {
-    efeitos.push(`A receita de ${moeda(evento.valor)} será removida e o resultado da OS diminuirá no mesmo valor.`);
-    efeitos.push("O orçamento, os itens da OS e o saldo de estoque não serão alterados.");
+    efeitos.push(`A receita de ${moeda(evento.valor)} será removida e o resultado da ${documento} diminuirá no mesmo valor.`);
+    efeitos.push(`O orçamento, os itens da ${documento} e o saldo de estoque não serão alterados.`);
   } else {
-    efeitos.push(`A despesa de ${moeda(evento.valor)} será removida e o resultado da OS aumentará no mesmo valor.`);
+    efeitos.push(`A despesa de ${moeda(evento.valor)} será removida e o resultado da ${documento} aumentará no mesmo valor.`);
     if (origem === "FRETE") {
-      efeitos.push("O frete cobrado do cliente, o valor do orçamento e o total da OS não serão alterados.");
+      efeitos.push(`O frete cobrado do cliente, o valor do orçamento e o total da ${documento} não serão alterados.`);
       efeitos.push("O custo deixará de compor a linha 4.6 — Serviços terceirizados diretos da DRE.");
       efeitos.push("Nenhum saldo de estoque será alterado.");
     } else if (comEstoque && estoque) {
@@ -125,7 +132,7 @@ export function analisarExclusaoEventoFinanceiro(
     } else if (origem === "CONSUMO") {
       efeitos.push("Este consumo não possui saída de estoque vinculada; somente o custo financeiro será removido.");
     } else {
-      efeitos.push("Nenhum item da OS ou saldo de estoque será alterado.");
+      efeitos.push(`Nenhum item da ${documento} ou saldo de estoque será alterado.`);
     }
   }
   if (status === "CONVERTIDO" || transacaoId != null || lancamentoId != null) {

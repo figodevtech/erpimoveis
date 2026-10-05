@@ -1,9 +1,11 @@
+import { comCriadoPor } from "@/lib/financeiro/eventos-autoria";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 
 import { analisarExclusaoEventoFinanceiro } from "@/lib/ordens/exclusao-evento-financeiro";
 import { somarEventosDaOs } from "@/lib/ordens/eventos-financeiros";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { eventoManualDoOperador } from "@/lib/financeiro/documento-evento";
 
 import { mesesDeCompetenciaFechada } from "./competencia";
 import { bloqueioDeStatusParaEventos } from "./status-os";
@@ -85,36 +87,7 @@ async function carregarOs(osId: number) {
   return data;
 }
 
-/** Nomes de quem criou, para as linhas manuais dizerem de onde vieram. */
-async function comCriadoPor(eventos: any[]) {
-  const usuarioIds = Array.from(new Set(
-    eventos
-      .map((evento: any) => String(evento.created_by ?? "").trim())
-      .filter(Boolean),
-  ));
-  if (usuarioIds.length === 0) return eventos.map((evento) => ({ ...evento, criado_por: null }));
-
-  const { data, error } = await supabaseAdmin
-    .from("usuario")
-    .select("id, nome, email")
-    .in("id", usuarioIds);
-  if (error) throw error;
-
-  const porId = new Map(
-    (data ?? []).map((usuario: any) => [String(usuario.id), {
-      id: String(usuario.id),
-      nome: String(usuario.nome || usuario.email || "Usuário"),
-    }]),
-  );
-  return eventos.map((evento: any) => ({
-    ...evento,
-    criado_por: evento.created_by
-      ? porId.get(String(evento.created_by)) ?? { id: String(evento.created_by), nome: "Usuário não identificado" }
-      : null,
-  }));
-}
-
-export { comCriadoPor };
+export { comCriadoPor } from "@/lib/financeiro/eventos-autoria";
 
 // ------------------------------------------------------------------ listar
 
@@ -404,7 +377,7 @@ export async function editarEventoDaOs(
 
   const { data: evento, error: eventoError } = await supabaseAdmin
     .from("eventos_financeiros")
-    .select("id, origem, natureza, valor, descricao, detalhe, status, transacaoid, dados_snapshot, competencia_em, is_manual")
+    .select("id, origem, natureza, valor, descricao, detalhe, status, transacaoid, lancamento_id, chave_origem, dados_snapshot, competencia_em, is_manual")
     .eq("id", eventId)
     .eq("ordemservicoid", osId)
     .neq("status", "CANCELADO")
@@ -412,11 +385,11 @@ export async function editarEventoDaOs(
   if (eventoError) throw eventoError;
   if (!evento) return erro("Evento financeiro não encontrado.", 404);
 
-  if (evento.status === "CONVERTIDO" || evento.transacaoid) {
+  if (evento.status === "CONVERTIDO" || evento.transacaoid != null || evento.lancamento_id != null) {
     return erro(
       "Exclua a transação vinculada antes de editar este evento financeiro.",
       409,
-      { transacaoId: evento.transacaoid },
+      { transacaoId: evento.transacaoid, lancamentoId: evento.lancamento_id },
     );
   }
 
@@ -440,14 +413,15 @@ export async function editarEventoDaOs(
   if (editandoDespesa && !evento.is_manual && !overrideDeComissao) {
     return erro("Despesas automáticas devem ser corrigidas na origem que gerou o evento.", 409);
   }
-  const descricao = editandoDespesa
+  const editandoTextos = evento.origem !== "COMISSAO" && (editandoDespesa || eventoManualDoOperador(evento));
+  const descricao = editandoTextos
     ? String(body?.descricao ?? evento.descricao ?? "").trim()
     : evento.descricao;
-  const detalhe = editandoDespesa && body?.detalhe !== undefined
+  const detalhe = editandoTextos && body?.detalhe !== undefined
     ? String(body.detalhe ?? "").trim() || null
     : evento.detalhe;
-  if (editandoDespesa && !descricao) {
-    return erro("O título da despesa é obrigatório.", 400);
+  if (editandoTextos && !descricao) {
+    return erro("O título do evento é obrigatório.", 400);
   }
 
   const ajustadoEm = new Date().toISOString();
