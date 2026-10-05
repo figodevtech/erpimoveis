@@ -42,6 +42,7 @@ type GrupoProduto = {
   descricao: string | null;
   ativo: boolean | null;
   exibirPdv: boolean;
+  exibirSite: boolean;
 };
 
 type GrupoForm = {
@@ -49,6 +50,7 @@ type GrupoForm = {
   descricao: string;
   ativo: boolean;
   exibirPdv: boolean;
+  exibirSite: boolean;
 };
 
 const emptyForm: GrupoForm = {
@@ -56,6 +58,7 @@ const emptyForm: GrupoForm = {
   descricao: "",
   ativo: true,
   exibirPdv: true,
+  exibirSite: true,
 };
 
 const DEFAULT_LIMIT = 10;
@@ -102,6 +105,9 @@ export default function GruposProdutoSection() {
             <div className="h-5 w-16 bg-muted rounded-full" />
           </TableCell>
           <TableCell className="text-right">
+            <div className="h-5 w-16 bg-muted rounded-full" />
+          </TableCell>
+          <TableCell className="text-right">
             <div className="h-6 w-10 bg-muted rounded-full ml-auto" />
           </TableCell>
         </TableRow>
@@ -124,6 +130,7 @@ export default function GruposProdutoSection() {
         descricao: (g.descricao as string | null) ?? null,
         ativo: typeof g.ativo === "boolean" ? (g.ativo as boolean) : true,
         exibirPdv: g.exibirPdv ?? true,
+        exibirSite: g.exibirSite ?? true,
       }));
       setGrupos(items);
     } catch (e: any) {
@@ -157,8 +164,26 @@ export default function GruposProdutoSection() {
       descricao: g.descricao ?? "",
       ativo: g.ativo ?? true,
       exibirPdv: g.exibirPdv,
+      exibirSite: g.exibirSite,
     });
     setDialogOpen(true);
+  }
+
+  // Instalacoes sem loja tambem passam por aqui; so avisa da falha quando o
+  // usuario mexeu justamente no "Exibir no site".
+  async function syncSite(avisarFalha: boolean) {
+    try {
+      const res = await fetch("/api/integracoes/site/catalog/sync", { method: "POST" });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || "Falha ao sincronizar com o site.");
+      if (avisarFalha) toast.success("Site atualizado.");
+    } catch (e: any) {
+      if (avisarFalha) {
+        toast.warning("Grupo salvo, mas o site não foi atualizado.", {
+          description: e?.message || "Sincronize o catálogo no módulo Marketplace.",
+        });
+      }
+    }
   }
 
   async function handleSave() {
@@ -172,6 +197,7 @@ export default function GruposProdutoSection() {
       descricao: form.descricao.trim() || null,
       ativo: form.ativo,
       exibirPdv: form.exibirPdv,
+      exibirSite: form.exibirSite,
     };
 
     try {
@@ -186,6 +212,13 @@ export default function GruposProdutoSection() {
         const j = await res.json();
         if (!res.ok) throw new Error(j?.error || "Falha ao atualizar grupo de produto");
         toast.success("Grupo de produto atualizado.");
+
+        // Nome, status e exibirSite chegam ao site; o banco ja enfileirou os
+        // produtos do grupo, falta enviar.
+        const exibirSiteMudou = editing.exibirSite !== form.exibirSite;
+        if (exibirSiteMudou || editing.nome !== payload.nome || editing.ativo !== form.ativo) {
+          await syncSite(exibirSiteMudou);
+        }
       } else {
         const res = await fetch("/api/tipos/grupos-produto", {
           method: "POST",
@@ -290,6 +323,21 @@ export default function GruposProdutoSection() {
                     onCheckedChange={(val) => handleChange("exibirPdv", val)}
                   />
                 </div>
+                <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 bg-muted/40">
+                  <div className="space-y-0.5">
+                    <label htmlFor="grupo-exibir-site" className="text-sm font-medium">Exibir no site</label>
+                    <p id="grupo-exibir-site-descricao" className="text-xs text-muted-foreground">
+                      Ao desativar, a categoria e todos os produtos deste grupo ficam ocultos no site,
+                      mesmo que estejam publicados individualmente.
+                    </p>
+                  </div>
+                  <Switch
+                    id="grupo-exibir-site"
+                    aria-describedby="grupo-exibir-site-descricao"
+                    checked={form.exibirSite}
+                    onCheckedChange={(val) => handleChange("exibirSite", val)}
+                  />
+                </div>
               </div>
 
               <div className="mt-6 flex justify-end gap-2">
@@ -334,6 +382,7 @@ export default function GruposProdutoSection() {
               <TableHead>Descricao</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Exibir no PDV</TableHead>
+              <TableHead>Exibir no site</TableHead>
               <TableHead className="text-right">Acoes</TableHead>
             </TableRow>
           </TableHeader>
@@ -342,7 +391,7 @@ export default function GruposProdutoSection() {
               linhasSkeleton
             ) : total === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={6} className="py-10 text-center text-sm text-muted-foreground">
                   Nenhum grupo cadastrado. Clique em <b>+ Grupo</b> para cadastrar.
                 </TableCell>
               </TableRow>
@@ -362,6 +411,11 @@ export default function GruposProdutoSection() {
                   <TableCell>
                     <Badge variant={g.exibirPdv ? "default" : "outline"}>
                       {g.exibirPdv ? "Sim" : "Não"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={g.exibirSite ? "default" : "outline"}>
+                      {g.exibirSite ? "Sim" : "Não"}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">

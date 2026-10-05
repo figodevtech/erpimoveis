@@ -12,6 +12,16 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "@/lib/toast";
@@ -298,6 +308,7 @@ export function EmissaoNotaDialog({
   const [anexandoDanfeId, setAnexandoDanfeId] = useState<number | null>(null);
   const [reenviandoNfseId, setReenviandoNfseId] = useState<number | null>(null);
   const [excluindoNfseId, setExcluindoNfseId] = useState<number | null>(null);
+  const [nfseParaExcluir, setNfseParaExcluir] = useState<NfeResumo | null>(null);
   const [clienteEmRevisao, setClienteEmRevisao] = useState<number | null>(null);
   /** Status da volta anterior, para avisar só quem mudou de estado. */
   const statusAnteriorRef = useRef<Map<number, string>>(new Map());
@@ -363,7 +374,7 @@ export function EmissaoNotaDialog({
       regimeTributario: empresaFiscal.regimetributario,
       dataCompetencia: dataDoDiaNFSe(new Date()),
     });
-    if (politica?.autorizador === "JOAO_PESSOA_DSF_DPS") return "João Pessoa · DPS nacional via Focus /v2/nfsen";
+    if (politica?.autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL") return "João Pessoa · Formato Nacional via Focus";
     if (politica?.autorizador === "FOCUS_NACIONAL") return "NFS-e Nacional · Focus NFe";
     if (politica?.modelo === "MUNICIPAL_CABEDELO") return "Cabedelo · Focus NFe";
     if (politica?.modelo === "MUNICIPAL_JOAO_PESSOA") return "João Pessoa · Focus NFe";
@@ -554,12 +565,7 @@ export function EmissaoNotaDialog({
    * e ela não prende numeração nenhuma.
    */
   const excluirNfse = async (nfe: NfeResumo) => {
-    if (excluindoNfseId === nfe.id) return;
-
-    const confirmado = window.confirm(
-      "Excluir esta NFS-e rejeitada?\nO envio e o retorno da prefeitura vão junto, e essa ação não pode ser desfeita.",
-    );
-    if (!confirmado) return;
+    if (excluindoNfseId !== null) return;
 
     const toastId = toast.loading("Excluindo NFS-e rejeitada...");
     setExcluindoNfseId(nfe.id);
@@ -573,6 +579,7 @@ export function EmissaoNotaDialog({
       }
 
       toast.success("NFS-e rejeitada excluída.", { id: toastId });
+      setNfseParaExcluir(null);
       fetchNfes();
     } catch (error: any) {
       toast.error("Não foi possível excluir a NFS-e.", { id: toastId, description: error?.message });
@@ -888,6 +895,7 @@ export function EmissaoNotaDialog({
         onOpenChange(nextOpen);
         if (!nextOpen) {
           setNfes([]);
+          setNfseParaExcluir(null);
           setAvisoListagem(null);
           // Zerado junto com a lista: reabrir em outra OS não pode oferecer os
           // botões da anterior enquanto a contagem nova não chega.
@@ -1270,7 +1278,7 @@ export function EmissaoNotaDialog({
                                     <Button
                                       size="sm"
                                       disabled={excluindoNfseId === nfe.id}
-                                      onClick={() => void excluirNfse(nfe)}
+                                      onClick={() => setNfseParaExcluir(nfe)}
                                       className="size-full flex items-center gap-1 text-xs justify-start px-0 rounded-sm py-2 hover:cursor-pointer not-dark:text-gray-800 bg-red-500/20 hover:bg-red-900 group hover:text-white transition-all"
                                     >
                                       {excluindoNfseId === nfe.id ? (
@@ -1732,6 +1740,36 @@ export function EmissaoNotaDialog({
           id={selectedNfseId ?? 0}
           onSuccess={() => fetchNfes()}
         />
+        <AlertDialog
+          open={Boolean(nfseParaExcluir)}
+          onOpenChange={(aberto) => {
+            if (!aberto && excluindoNfseId === null) setNfseParaExcluir(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir NFS-e rejeitada?</AlertDialogTitle>
+              <AlertDialogDescription>
+                A NFS-e {nfseParaExcluir?.numero ?? `#${nfseParaExcluir?.id}`} será excluída junto
+                com o envio e o retorno da prefeitura. Essa ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={excluindoNfseId !== null}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={excluindoNfseId !== null}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (nfseParaExcluir) void excluirNfse(nfseParaExcluir);
+                }}
+              >
+                {excluindoNfseId !== null ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {excluindoNfseId !== null ? "Excluindo..." : "Excluir NFS-e"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

@@ -81,8 +81,8 @@ BEGIN
     AND lancamento_id IS NULL) THEN RAISE EXCEPTION 'Desfazer lançamento não liberou despesa.'; END IF;
 
   UPDATE public.venda SET status='CANCELADA',motivo_cancelamento='Teste de despesa de frete' WHERE id=v_venda;
-  IF (SELECT status FROM public.eventos_financeiros WHERE id=v_despesa)<>'CANCELADO' THEN
-    RAISE EXCEPTION 'Cancelamento da venda manteve despesa ativa.';
+  IF (SELECT status FROM public.eventos_financeiros WHERE id=v_despesa)<>'ATIVO' THEN
+    RAISE EXCEPTION 'Cancelamento da venda cancelou despesa manual.';
   END IF;
   RAISE NOTICE 'Frete de venda: vínculo, valor, competência, fila, sincronização, lançamento, duplicidade e estorno verificados.';
 END;

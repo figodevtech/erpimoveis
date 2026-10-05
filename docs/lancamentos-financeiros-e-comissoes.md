@@ -28,6 +28,27 @@
 
 ## 1. A regra que organiza tudo
 
+Eventos avulsos de venda são fatos informados pelo operador, com `is_manual=true`
+e chave `MANUAL:<uuid>`. A sincronização da venda governa apenas os automáticos;
+manuais não são cancelados ao remover produtos, zerar frete/desconto ou mudar
+status. Criação, edição e exclusão são independentes do status comercial, com
+permissões financeiras e acesso a Vendas/Financeiro. Edição/exclusão de venda
+ocorrem sob lock em RPC restrita a `service_role`, com auditoria e preservação
+de `created_by`; os vínculos financeiros bloqueiam ambas. Não há efeito em estoque.
+
+O POST de venda distingue `modalidade=AVULSO` de `modalidade=DESPESA_FRETE`;
+o payload legado com `eventoReceitaId` continua aceito apenas para frete. A
+competência manual segue `coalesce(datavenda,createdat,now())` e a classificação
+usa `natureza_dre_de_evento`. Receita complementar vincula-se somente por
+`evento_financeiro_id`, sem `vendaid` comercial, para não abater o cliente. Despesa
+manual legítima usa o mesmo grupo/parcelas das comissões. A regra de transação
+continua ignorando estes vínculos para evitar duplicação na DRE.
+
+Validação transacional da migration (aplicada duas vezes e revertida):
+`npx tsx scripts/db/test-eventos-manuais-venda-migration.ts`. Executa
+`eventos_manuais_venda.sql` sobre todos os valores do enum real e as regressões
+existentes de frete, comissão de venda e exclusão/estoque da OS.
+
 **O valor não nasce no evento financeiro. Ele é calculado e gravado num
 snapshot, e o evento é uma cópia publicada desse snapshot.**
 
