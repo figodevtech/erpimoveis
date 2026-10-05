@@ -27,7 +27,7 @@ test("proveniência exige a marca e a chave; override de comissão continua auto
   assert.equal(eventoManualDoOperador({ ...evento, is_manual: false }), false);
   assert.equal(eventoManualDoOperador({ ...evento, chave_origem: "COMISSAO_VENDA" }), false);
   const [linha] = montarLinhas([{ ...evento, origem: "COMISSAO", chave_origem: "COMISSAO_VENDA" }]);
-  assert.equal(capacidadesDoEvento(linha).editar, false);
+  assert.equal(capacidadesDoEvento(linha).editar, true);
   assert.equal(capacidadesDoEvento(linha).excluir, false);
 });
 
@@ -58,6 +58,28 @@ test("automáticos da venda não recebem CRUD; somente despesa manual legítima 
   assert.equal(despesaDeVendaLancavel({ ...evento, pode_gerar_transacao: false }), false);
   assert.equal(despesaDeVendaLancavel({ ...evento, natureza: "RECEITA" }), false);
   assert.equal(despesaDeVendaLancavel({ ...evento, source_id: null }), false);
+});
+
+test("edição da venda separa snapshots, comissões e avulsos sem liberar exclusão", () => {
+  for (const status of ["ATIVO", "CONVERTIDO"] as const) {
+    for (const automatico of [
+      { origem: "PRODUTO", natureza: "RECEITA", chave_origem: "10" },
+      { origem: "FRETE", natureza: "RECEITA", chave_origem: "FRETE" },
+      { origem: "COMISSAO", natureza: "DESPESA", chave_origem: "COMISSAO_VENDA" },
+    ] as const) {
+      const [linha] = montarLinhas([{ ...evento, ...automatico, status, is_manual: false }]);
+      assert.equal(capacidadesDoEvento(linha).editar, true);
+      assert.equal(capacidadesDoEvento(linha).editarTextos, false);
+      assert.equal(capacidadesDoEvento(linha).excluir, false);
+    }
+    const [manual] = montarLinhas([{ ...evento, status }]);
+    assert.equal(capacidadesDoEvento(manual).editar, true);
+    assert.equal(capacidadesDoEvento(manual).editarTextos, true);
+  }
+  const [ajustada] = montarLinhas([{ ...evento, origem: "COMISSAO", chave_origem: "COMISSAO_VENDA", dados_snapshot: { comissao_ajustada_a_mao: true } }]);
+  assert.equal(capacidadesDoEvento(ajustada).editar, true);
+  assert.equal(capacidadesDoEvento(ajustada).excluir, false);
+  assert.equal(ajustada.comissaoAjustada, true);
 });
 
 test("impacto de venda usa sua linguagem e protege qualquer vínculo, sem estorno de estoque", () => {

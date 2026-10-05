@@ -11,7 +11,7 @@ import * as exclusaoEvento from "@/lib/ordens/exclusao-evento-financeiro";
 import * as competencia from "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia";
 
 const session = { user: { id: "usuario-autenticado" } };
-function loadPost(file: string, supabaseAdmin: unknown, denied?: string) {
+function loadPost(file: string, supabaseAdmin: unknown, denied?: string, metodo = "POST") {
   const guard = (name: string) => async () => {
     if (name === denied) throw Object.assign(new Error("Sem permissão"), { statusCode: 403 });
     return session;
@@ -20,7 +20,7 @@ function loadPost(file: string, supabaseAdmin: unknown, denied?: string) {
     "next/server": { NextResponse },
     "@/lib/supabaseAdmin": { supabaseAdmin },
     "@/app/api/_authz/perms": Object.fromEntries(
-      ["requireAuthenticated", "requireFinanceirosAccess", "requireVendasAccess", "requireFinanceiroCreate"]
+      ["requireAuthenticated", "requireFinanceirosAccess", "requireVendasAccess", "requireFinanceiroCreate", "requireFinanceiroEdit", "requireFinanceiroDelete"]
         .map(name => [name, guard(name)]),
     ),
     "@/lib/auth": { auth: async () => session },
@@ -32,6 +32,8 @@ function loadPost(file: string, supabaseAdmin: unknown, denied?: string) {
     "@/lib/ordens/exclusao-evento-financeiro": exclusaoEvento,
     "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia": competencia,
     "@/app/api/ordens/[id]/eventos-financeiros/_lib/servico": {
+      idValido: (value: unknown) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null,
+      editarEventoDaOs: async () => ({ ok: true, corpo: { evento: { id: 10, ordemservicoid: 9 } } }),
       responder: (resultado: { ok: boolean; corpo?: unknown; error?: string; status?: number }, status = 200) =>
         NextResponse.json(resultado.ok ? resultado.corpo : { error: resultado.error }, {
           status: resultado.ok ? status : resultado.status,
@@ -55,7 +57,7 @@ function loadPost(file: string, supabaseAdmin: unknown, denied?: string) {
   // da rota até a RPC sem copiar suas regras nem abrir uma conexão externa.
   dependencies["@/lib/financeiro/eventos-documento"] = loadModule("src/lib/financeiro/eventos-documento.ts");
   dependencies["@/lib/financeiro/eventos-autoria"] = loadModule("src/lib/financeiro/eventos-autoria.ts");
-  return loadModule(file).POST as (request: NextRequest, context: { params: Promise<{ id: string }> }) => Promise<Response>;
+  return loadModule(file)[metodo] as (request: NextRequest, context: { params: Promise<Record<string, string>> }) => Promise<Response>;
 }
 const vendaRoute = "src/app/api/venda/[id]/eventos-financeiros/route.ts";
 const contexto = { params: Promise.resolve({ id: "150" }) };
@@ -79,6 +81,58 @@ test("criação vincula frete à venda da URL e usa o usuário autenticado", asy
   assert.equal(payload.p_usuario, session.user.id);
   assert.equal(payload.p_descricao, "Transportadora");
   assert.deepEqual(await response.json(), { evento: { id: 10 } });
+});
+
+const edicaoRoute = "src/app/api/eventos-financeiros/[eventoId]/route.ts";
+const contextoEdicao = { params: Promise.resolve({ eventoId: "10" }) };
+function bancoEdicao(rpc: (name: string, args: any) => Promise<unknown>, documento = { ordemservicoid: null as number | null, source_type: "VENDA", source_id: 150 }) {
+  const consulta = { select: () => consulta, eq: () => consulta, maybeSingle: async () => ({ data: documento, error: null }) };
+  return { from: () => consulta, rpc };
+}
+
+test("PATCH resolve venda real, usa a RPC de edição e ignora autor/documento forjados", async () => {
+  const patch = loadPost(edicaoRoute, bancoEdicao(async (name, args) => {
+    assert.equal(name, "editar_evento_financeiro_venda");
+    assert.equal(args.p_venda_id, 150);
+    assert.equal(args.p_evento_id, 10);
+    assert.equal(args.p_usuario, session.user.id);
+    assert.equal(args.p_payload.valor, 55.13);
+    assert.equal(args.p_payload.descricao, "Corrigido");
+    assert.equal(args.p_payload.detalhe, null);
+    assert.equal(args.p_payload.natureza, undefined);
+    return { data: { id: 10, valor: 55.13, competencia_em: "2000-01-01" }, error: null };
+  }), undefined, "PATCH");
+  const response = await patch(request({ valor: 55.13, descricao: "Corrigido", detalhe: null, usuarioId: "forjado", vendaId: 999, natureza: "RECEITA" }), contextoEdicao);
+  assert.equal(response.status, 200);
+  assert.match((await response.json()).aviso, /DRE.*recalculada/);
+});
+
+for (const denied of ["requireFinanceiroEdit", "requireVendasAccess", "requireFinanceirosAccess"]) {
+  test(`PATCH exige ${denied} antes de alterar o banco`, async () => {
+    const patch = loadPost(edicaoRoute, bancoEdicao(async () => { assert.fail("Não pode editar sem permissão"); }), denied, "PATCH");
+    assert.equal((await patch(request({ valor: 20 }), contextoEdicao)).status, 403);
+  });
+}
+for (const body of [null, [], {}, { valor: null }, { valor: "" }, { valor: true }, { valor: -1 }, { valor: "Infinity" }]) {
+  test(`PATCH rejeita valor/payload inválido: ${JSON.stringify(body)}`, async () => {
+    const patch = loadPost(edicaoRoute, bancoEdicao(async () => { assert.fail("Não pode chamar RPC para valor inválido"); }), undefined, "PATCH");
+    assert.equal((await patch(request(body), contextoEdicao)).status, 400);
+  });
+}
+for (const [code, status] of [["P0001", 409], ["P0002", 404], ["22023", 400]] as const) {
+  test(`PATCH preserva bloqueios da RPC ${code}`, async () => {
+    const patch = loadPost(edicaoRoute, bancoEdicao(async () => ({ data: null, error: { code, message: "Recusa financeira" } })), undefined, "PATCH");
+    const response = await patch(request({ valor: 20 }), contextoEdicao);
+    assert.equal(response.status, status);
+    assert.deepEqual(await response.json(), { error: "Recusa financeira" });
+  });
+}
+test("PATCH de OS continua delegando ao serviço original", async () => {
+  const patch = loadPost(edicaoRoute, bancoEdicao(async () => { assert.fail("Não pode usar RPC de venda para OS"); },
+    { ordemservicoid: 9, source_type: "ORDEM_SERVICO", source_id: 9 }), undefined, "PATCH");
+  const response = await patch(request({ valor: 20 }), contextoEdicao);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).evento.ordemservicoid, 9);
 });
 
 for (const [tipo, natureza] of [

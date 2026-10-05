@@ -53,7 +53,9 @@ export function VendaEventosFinanceiros({ vendaId }: { vendaId: number }) {
         </div>
         <Button variant="outline" size="icon" aria-label="Atualizar eventos da venda" disabled={carregando} onClick={recarregar}><RefreshCw className={`size-4 ${carregando ? "animate-spin" : ""}`} /></Button>
       </div>
-      {carregando ? <div className="space-y-3"><Skeleton className="h-24 w-full" /><Skeleton className="h-48 w-full" /></div> : erro ? (
+      {/* Atualizar a mesma venda preserva o painel e seus diálogos. Desmontá-lo
+          após desfazer um pagamento fechava a edição que acabava de abrir. */}
+      {resultado?.vendaId !== vendaId ? <div className="space-y-3"><Skeleton className="h-24 w-full" /><Skeleton className="h-48 w-full" /></div> : erro ? (
         <div role="alert" className="flex items-center gap-3 rounded-xl border border-destructive/30 p-4 text-sm"><AlertCircle className="size-5 shrink-0 text-destructive" /><p className="flex-1">{erro}</p><Button variant="outline" size="sm" onClick={recarregar}>Tentar novamente</Button></div>
       ) : <>
         <div className="grid gap-3 sm:grid-cols-3">

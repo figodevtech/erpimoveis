@@ -30,6 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -103,6 +104,8 @@ export type PermissoesDoPainel = {
   podeCriar?: boolean;
   /** Excluir o evento. */
   podeExcluir: boolean;
+  /** Desfazer dinheiro vinculado exige exclusão financeira, inclusive no contexto da OS. */
+  podeDesfazerLancamento?: boolean;
   /** Transformar despesa em título no financeiro. */
   podeLancar: boolean;
 };
@@ -591,7 +594,12 @@ export function PainelEventosFinanceiros({
   }
 
   function abrirEdicao(linha: LinhaDeEvento) {
-    if (linha.status === "CONVERTIDO") {
+    if (!permissoes.podeEditar || !capacidadesDoEvento(linha).editar) return;
+    if (linha.status === "CONVERTIDO" || linha.transacaoId != null || linha.lancamentoId != null) {
+      if (!(permissoes.podeDesfazerLancamento ?? permissoes.podeExcluir)) {
+        toast.error("É necessária permissão de exclusão financeira para desfazer o lançamento antes de editar.");
+        return;
+      }
       const vinculo = vinculoDaLinha(linha);
       if (!vinculo.transacaoId && !vinculo.lancamentoId) {
         toast.error("O lançamento vinculado não foi localizado.");
@@ -628,7 +636,8 @@ export function PainelEventosFinanceiros({
   }
 
   async function excluirTransacaoEEditarEvento() {
-    if (!eventoConvertidoParaEditar) return;
+    if (!eventoConvertidoParaEditar || !permissoes.podeEditar
+      || !(permissoes.podeDesfazerLancamento ?? permissoes.podeExcluir)) return;
     setExcluindoTransacaoEvento(true);
     try {
       // Boleto em grupo some por inteiro; transação avulsa, sozinha. As guardas
@@ -688,7 +697,8 @@ export function PainelEventosFinanceiros({
       // O aviso vem do servidor quando a competência do evento é de um mês já
       // encerrado: a alteração recalculou a DRE daquele período.
       toast.success(
-        eventoEdicao.natureza === "DESPESA" ? "Despesa atualizada." : "Valor do snapshot atualizado.",
+        eventoEdicao.origem === "COMISSAO" ? "Comissão corrigida."
+          : eventoEdicao.editarTextos ? "Evento financeiro atualizado." : "Valor do snapshot atualizado.",
         { description: payload?.aviso || undefined, duration: payload?.aviso ? 8000 : undefined },
       );
       await recarregar();
@@ -728,6 +738,10 @@ export function PainelEventosFinanceiros({
           && (linha.origem === "FRETE" || (linha.origem === "SERVICO" && Boolean(linha.servicoid))));
     const capacidades = capacidadesDoEvento(linha);
     const podeEditarLinha = permissoes.podeEditar && capacidades.editar;
+    const temVinculoFinanceiro = linha.status === "CONVERTIDO" || linha.transacaoId != null || linha.lancamentoId != null;
+    const bloqueioEdicao = !permissoes.podeEditar ? "Requer permissão para editar eventos financeiros."
+      : temVinculoFinanceiro && !(permissoes.podeDesfazerLancamento ?? permissoes.podeExcluir)
+        ? "Requer exclusão financeira para desfazer o lançamento antes de editar." : null;
     const podeExcluirLinha = permissoes.podeExcluir && capacidades.excluir;
     const mostrarContextoDaOs = osIdUnica == null && vendaIdUnica == null;
 
@@ -740,7 +754,7 @@ export function PainelEventosFinanceiros({
       : linha.podeGerarTransacao
         ? "border-amber-500/20 bg-amber-500/10 text-amber-800 dark:text-amber-300"
         : "border-border bg-muted/50 text-muted-foreground";
-    const temAcoes = podeEditarLinha || (linha.produtoid && onVisualizarProduto)
+    const temAcoes = capacidades.editar || (linha.produtoid && onVisualizarProduto)
       || podeAdicionarDespesa
       || linha.status === "CONVERTIDO"
       || (permissoes.podeEditar && capacidades.origemDaOs && (capacidades.sincronizarSnapshot || linha.origem === "FRETE" || linha.origem === "SERVICO"))
@@ -812,15 +826,20 @@ export function PainelEventosFinanceiros({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-60">
-              {podeEditarLinha ? (
-                <DropdownMenuItem onSelect={() => abrirEdicao(linha)}>
+              {capacidades.editar ? (
+                <DropdownMenuItem disabled={!podeEditarLinha || Boolean(bloqueioEdicao)} onSelect={() => abrirEdicao(linha)}>
                   <Pencil />{" "}
                   {linha.origem === "COMISSAO"
                     ? "Corrigir valor da comissão"
-                    : linha.tipo === "SAIDA"
+                    : capacidades.editarTextos ? "Editar evento financeiro" : linha.tipo === "SAIDA"
                       ? "Editar despesa"
                       : "Editar valor do lançamento"}
                 </DropdownMenuItem>
+              ) : null}
+              {capacidades.editar && bloqueioEdicao ? (
+                <DropdownMenuLabel className="whitespace-normal text-xs font-normal text-muted-foreground">
+                  {bloqueioEdicao}
+                </DropdownMenuLabel>
               ) : null}
               {linha.produtoid && onVisualizarProduto ? (
                 <DropdownMenuItem onSelect={() => onVisualizarProduto(linha.produtoid!)}>
@@ -1215,24 +1234,23 @@ export function PainelEventosFinanceiros({
           <div className="space-y-3 rounded-2xl bg-card p-4">
             <label className="block text-sm font-medium">
               Tipo
-              <select
-                className="mt-1 h-10 w-full rounded-md border bg-background px-3"
+              <Select
                 value={eventoTipo}
-                onChange={(event) => {
-                  const proximo = event.target.value as "" | "PRODUTO" | "SERVICO" | "CONSUMO";
+                onValueChange={(value) => {
+                  const proximo = value as "PRODUTO" | "SERVICO" | "CONSUMO";
                   setEventoTipo(proximo);
                   // Só existe CONSUMO:DESPESA na DRE (linha 4.4, Materiais
                   // aplicados). Consumo que rende receita não é consumo.
                   if (proximo === "CONSUMO") setEventoNatureza("DESPESA");
                 }}
               >
-                <option value="" disabled>
-                  Selecione o tipo
-                </option>
-                <option value="PRODUTO">Produto</option>
-                <option value="SERVICO">Serviço</option>
-                <option value="CONSUMO">Consumo (material de uso)</option>
-              </select>
+                <SelectTrigger className="mt-1 h-10 w-full" aria-label="Tipo"><SelectValue placeholder="Selecione o tipo" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PRODUTO">Produto</SelectItem>
+                  <SelectItem value="SERVICO">Serviço</SelectItem>
+                  <SelectItem value="CONSUMO">Consumo (material de uso)</SelectItem>
+                </SelectContent>
+              </Select>
               {eventoTipo === "CONSUMO" ? (
                 <span className="mt-1 block text-xs font-normal text-muted-foreground">
                   Material aplicado sem repasse ao cliente e sem movimentar o estoque.
@@ -1241,15 +1259,17 @@ export function PainelEventosFinanceiros({
             </label>
             <label className="block text-sm font-medium">
               Natureza
-              <select
-                className="mt-1 h-10 w-full rounded-md border bg-background px-3 disabled:opacity-60"
+              <Select
                 value={eventoNatureza}
                 disabled={eventoTipo === "CONSUMO"}
-                onChange={(e) => setEventoNatureza(e.target.value as "RECEITA" | "DESPESA")}
+                onValueChange={(value) => setEventoNatureza(value as "RECEITA" | "DESPESA")}
               >
-                <option value="DESPESA">Despesa</option>
-                <option value="RECEITA">Receita</option>
-              </select>
+                <SelectTrigger className="mt-1 h-10 w-full" aria-label="Natureza"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="DESPESA">Despesa</SelectItem>
+                  <SelectItem value="RECEITA">Receita</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
             <label className="block text-sm font-medium">
               Descrição
@@ -1380,9 +1400,9 @@ export function PainelEventosFinanceiros({
           <div className="space-y-4">
             {eventoEdicao?.origem === "COMISSAO" ? (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs leading-relaxed text-amber-900 dark:text-amber-200">
-                O valor da comissão é calculado pelo sistema (base do serviço × percentual do
-                realizador). Corrigi-lo aqui congela o número: ele deixa de acompanhar o recálculo
-                automático, e mudar o orçamento ou os realizadores depois não o atualiza mais. A linha
+                O valor da comissão é calculado pelo sistema (base × percentual do
+                beneficiário). Corrigi-lo aqui congela o número: ele deixa de acompanhar o recálculo
+                automático para esse beneficiário. A linha
                 fica marcada como &quot;Comissão ajustada&quot;.
               </div>
             ) : null}
@@ -1460,7 +1480,7 @@ export function PainelEventosFinanceiros({
           <AlertDialogFooter>
             <AlertDialogCancel disabled={excluindoTransacaoEvento}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              disabled={excluindoTransacaoEvento}
+              disabled={excluindoTransacaoEvento || !(permissoes.podeDesfazerLancamento ?? permissoes.podeExcluir)}
               onClick={(event) => {
                 event.preventDefault();
                 void excluirTransacaoEEditarEvento();

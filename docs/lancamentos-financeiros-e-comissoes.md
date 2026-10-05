@@ -49,6 +49,19 @@ Validação transacional da migration (aplicada duas vezes e revertida):
 `eventos_manuais_venda.sql` sobre todos os valores do enum real e as regressões
 existentes de frete, comissão de venda e exclusão/estoque da OS.
 
+Edição da venda segue a OS: avulsos editam textos/valor; receitas automáticas de
+produto/frete editam só o valor do snapshot e podem ser recalculadas pela origem;
+comissões editam só valor. A RPC `editar_evento_financeiro_venda` mantém proveniência,
+competência e autoria, bloqueia qualquer vínculo financeiro e audita o ajuste.
+Comissão corrigida espelha no snapshot `venda_comissao` e congela o valor efetivo
+para o mesmo beneficiário. Trocar vendedor, sem vínculo, limpa o ajuste e reapura;
+comissão comprometida bloqueia a transferência. Não há backfill na migration.
+Validação: o runner acima com `--edicao` aplica a nova migration duas vezes e
+executa `edicao_eventos_venda.sql`; `scripts/db/test-edicao-venda-concorrencia.ts`
+valida os locks em dois clientes, com função de sessão `pg_temp` e rollback.
+`node scripts/tests/eventos-venda-ui.mjs` verifica os componentes reais com APIs
+isoladas, incluindo permissões, desfazer pagamento, teclado e tela pequena.
+
 **O valor não nasce no evento financeiro. Ele é calculado e gravado num
 snapshot, e o evento é uma cópia publicada desse snapshot.**
 

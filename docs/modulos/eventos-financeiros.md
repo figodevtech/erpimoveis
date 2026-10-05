@@ -34,8 +34,9 @@ ao financeiro: `GET /api/venda/[id]/eventos-financeiros`.
 
 A aba consulta os eventos ativos ou convertidos da própria venda: receitas,
 custos, descontos, frete e comissão, com totais de receitas, despesas/deduções e
-resultado. Eventos cancelados ficam fora. Os valores derivados são alterados na
-venda; os eventos automáticos continuam protegidos e são corrigidos na origem.
+resultado. Eventos cancelados ficam fora. Receitas automáticas de produto/frete
+permitem ajustar somente o valor do snapshot, como na OS; um recálculo posterior
+pela origem pode substituí-lo. Custos automáticos e descontos são corrigidos na origem.
 
 **Novo lançamento** cria um fato econômico complementar com natureza Receita ou
 Despesa e tipo Produto, Serviço ou Consumo (consumo é sempre despesa). Não altera
@@ -56,9 +57,19 @@ global também mostra os manuais. A competência é `datavenda/createdat` e alte
 avisam quando afetam meses anteriores.
 
 A proveniência exige **ambos** `is_manual=true` e `chave_origem=MANUAL:<uuid>`.
-Overrides de comissão continuam governados pela regra existente. A sincronização
+Comissões permitem corrigir somente o valor, sem ganhar exclusão de avulso. O ajuste
+espelha em `venda_comissao.valor_comissao_manual` e `valor_comissao`, mantendo a
+Central Pessoal e o evento financeiro coerentes. O recálculo preserva a correção
+para o mesmo beneficiário; trocar vendedor sem vínculo financeiro descarta o ajuste
+e reapura pela taxa do novo vendedor. Com vínculo, a troca continua bloqueada.
+A sincronização
 automática preserva manuais em mudanças de status, produtos, frete e desconto.
 O recurso depende de `20261005162941_eventos_financeiros_manuais_venda.sql`.
+A edição de automáticos e o espelhamento da comissão dependem também de
+`20261005193130_editar_eventos_financeiros_venda.sql`. Desfazer um pagamento antes
+de editar exige `financeiro:excluir`; pagamentos baixados e grupos com OS finalizada
+continuam protegidos. Falta de permissão é explicada no menu. A atualização da lista
+preserva o diálogo aberto. Os campos Tipo/Natureza usam o Select do sistema.
 
 Quem tem permissão para criar lançamentos financeiros pode usar **Adicionar despesa
 de frete** no menu da receita de frete da venda. A despesa guarda o vínculo com a

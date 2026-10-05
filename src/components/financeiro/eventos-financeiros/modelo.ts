@@ -1,7 +1,7 @@
 import { competenciaEmMesFechado } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia";
 import { eventoTemProvenienciaExcluivel } from "@/lib/ordens/exclusao-evento-financeiro";
 import { ordenarEventosDaOs } from "@/lib/ordens/eventos-financeiros";
-import { eventoManualDoOperador } from "@/lib/financeiro/documento-evento";
+import { eventoEditavelDaVenda, eventoManualDoOperador } from "@/lib/financeiro/documento-evento";
 
 /**
  * A leitura de um evento financeiro de OS, do jeito que a tela precisa.
@@ -183,7 +183,11 @@ export function capacidadesDoEvento(linha: LinhaDeEvento) {
   const manual = eventoManualDoOperador({ is_manual: linha.isManual, chave_origem: linha.chaveOrigem });
   const daOs = linha.osId != null;
   return {
-    editar: linha.vendaId != null ? manual && !linha.temBaixaDeEstoque && podeOferecerExclusao(linha)
+    editar: linha.vendaId != null ? eventoEditavelDaVenda({
+      origem: linha.origem, natureza: linha.natureza, status: linha.status,
+      is_manual: linha.isManual, chave_origem: linha.chaveOrigem,
+      consumo_saida_id: linha.consumoSaidaId, consumo_usoconsumo_saida_id: linha.consumoUsoConsumoSaidaId,
+    })
       : daOs && (linha.tipo === "ENTRADA" || linha.isManual || linha.origem === "COMISSAO"),
     excluir: podeOferecerExclusao(linha),
     editarTextos: linha.origem !== "COMISSAO" && (manual || linha.tipo === "SAIDA"),

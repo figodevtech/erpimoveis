@@ -6,6 +6,7 @@ import { splitLikeSupabaseCli } from "./supabase-splitter";
 
 const migration = "20261005162941_eventos_financeiros_manuais_venda.sql";
 const testes = ["eventos_manuais_venda.sql", "despesa_frete_venda.sql", "comissao_de_vendas.sql", "exclusao_evento_manual_e_despesa_frete.sql"];
+const edicao = process.argv.includes("--edicao");
 
 async function main() {
   const banco = loadDatabaseConfigs().find((item) => item.key === "demo");
@@ -34,11 +35,20 @@ async function main() {
     await client.query("BEGIN");
     await client.query("SET LOCAL venda_manual_teste.guarda = 'ativa'");
     await executar(path.join(projectRoot, "supabase/migrations", migration));
+    if (edicao) {
+      const arquivo = path.join(projectRoot, "supabase/migrations/20261005193130_editar_eventos_financeiros_venda.sql");
+      await executar(arquivo);
+      await executar(arquivo);
+    }
     // Idempotência da nova migration, inclusive os patches nas funções vigentes.
     await executar(path.join(projectRoot, "supabase/migrations", migration));
     for (const teste of testes) {
       await executar(path.join(projectRoot, "supabase/tests", teste));
       console.log(`${teste}: OK`);
+    }
+    if (edicao) {
+      await executar(path.join(projectRoot, "supabase/tests/edicao_eventos_venda.sql"));
+      console.log("edicao_eventos_venda.sql: OK");
     }
     console.log("Migration idempotente e regressões aprovadas. Todas as alterações serão revertidas.");
   } finally {

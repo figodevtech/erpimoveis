@@ -2877,6 +2877,7 @@ export function OSDetalhesDialog({
                       permissoes={{
                         podeEditar: osAceitaEventos && podeEditarEventosFinanceiros,
                         podeExcluir: osAceitaEventos && podeEditarEventosFinanceiros,
+                        podeDesfazerLancamento: podeExcluirFinanceiro,
                         podeLancar: osAceitaEventos && podeEditarEventosFinanceiros,
                       }}
                       osIdUnica={data.os.id}

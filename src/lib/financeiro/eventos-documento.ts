@@ -63,9 +63,11 @@ export async function editarEventoDoDocumento(documento: DocumentoFinanceiro, ev
   }
   if (documento.tipo === "ORDEM_SERVICO") return editarEventoDaOs(documento.id, eventoId, body, usuarioId);
   const valor = Number(body?.valor);
-  if (!Number.isFinite(valor) || valor < 0) return { ok: false as const, error: "Informe um valor válido, igual ou maior que zero.", status: 400 };
-  const { data, error } = await supabaseAdmin.rpc("alterar_evento_financeiro_manual_venda", {
-    p_venda_id: documento.id, p_evento_id: eventoId, p_operacao: "EDITAR",
+  if (body.valor == null || !["string", "number"].includes(typeof body.valor)
+    || (typeof body.valor === "string" && !body.valor.trim())
+    || !Number.isFinite(valor) || valor < 0) return { ok: false as const, error: "Informe um valor válido, igual ou maior que zero.", status: 400 };
+  const { data, error } = await supabaseAdmin.rpc("editar_evento_financeiro_venda", {
+    p_venda_id: documento.id, p_evento_id: eventoId,
     p_payload: { valor, ...(body.descricao !== undefined ? { descricao: String(body.descricao ?? "") } : {}),
       ...(body.detalhe !== undefined ? { detalhe: body.detalhe } : {}) }, p_usuario: usuarioId,
   });
