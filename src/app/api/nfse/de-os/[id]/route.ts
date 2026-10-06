@@ -247,9 +247,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const { politica } = resolvido.contexto;
     const modeloEmissao = { modelo: politica.modelo };
 
-    // O autorizador vem da política; o transporte diz se há integração. Sem
-    // ela, nada é gravado nem enviado — João Pessoa no regime normal cai aqui
-    // desde 01/10/2026, e mandar pelo `/v2/nfsen` dava E0039.
+    // A política separa o layout do autorizador integrado pela Focus.
     const nfseService = new NFSeService();
     nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
     const transport = transportDaPolitica(politica, nfseService);
@@ -660,6 +658,7 @@ function validarCodigosFiscais(
     codigo_cnae: codigoCnae || undefined,
     codigo_tributacao_nacional_iss: codigoTributacaoNacional || undefined,
     codigo_tributacao_municipal_iss: codigoTributacaoMunicipal || undefined,
+    situacao_tributaria_pis_cofins: texto(input.situacao_tributaria_pis_cofins) || undefined,
     codigo_nbs: codigoNbs || undefined,
     aliquota_iss: numeroOpcional(input.aliquota_iss),
     natureza_operacao: numeroOpcional(input.natureza_operacao) as NFSeCodigosFiscais["natureza_operacao"],

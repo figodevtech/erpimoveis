@@ -1,6 +1,7 @@
 import { competenciaEmMesFechado } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia";
 import { eventoTemProvenienciaExcluivel } from "@/lib/ordens/exclusao-evento-financeiro";
 import { ordenarEventosDaOs } from "@/lib/ordens/eventos-financeiros";
+import { eventoEditavelDaVenda, eventoManualDoOperador } from "@/lib/financeiro/documento-evento";
 
 /**
  * A leitura de um evento financeiro de OS, do jeito que a tela precisa.
@@ -162,6 +163,7 @@ export function podeSincronizar(linha: Pick<LinhaDeEvento, "origem" | "status" |
 }
 
 export function podeOferecerExclusao(linha: LinhaDeEvento) {
+  if (linha.vendaId != null && (!eventoManualDoOperador({ is_manual: linha.isManual, chave_origem: linha.chaveOrigem }) || linha.temBaixaDeEstoque)) return false;
   return eventoTemProvenienciaExcluivel({
     id: linha.id,
     origem: linha.origem,
@@ -174,6 +176,24 @@ export function podeOferecerExclusao(linha: LinhaDeEvento) {
     consumo_saida_id: linha.consumoSaidaId,
     consumo_usoconsumo_saida_id: linha.consumoUsoConsumoSaidaId,
   } as any);
+}
+
+/** Capacidade da origem: o status comercial da venda não participa. */
+export function capacidadesDoEvento(linha: LinhaDeEvento) {
+  const manual = eventoManualDoOperador({ is_manual: linha.isManual, chave_origem: linha.chaveOrigem });
+  const daOs = linha.osId != null;
+  return {
+    editar: linha.vendaId != null ? eventoEditavelDaVenda({
+      origem: linha.origem, natureza: linha.natureza, status: linha.status,
+      is_manual: linha.isManual, chave_origem: linha.chaveOrigem,
+      consumo_saida_id: linha.consumoSaidaId, consumo_usoconsumo_saida_id: linha.consumoUsoConsumoSaidaId,
+    })
+      : daOs && (linha.tipo === "ENTRADA" || linha.isManual || linha.origem === "COMISSAO"),
+    excluir: podeOferecerExclusao(linha),
+    editarTextos: linha.origem !== "COMISSAO" && (manual || linha.tipo === "SAIDA"),
+    sincronizarSnapshot: daOs && podeSincronizar(linha),
+    origemDaOs: daOs,
+  };
 }
 
 /** As linhas de uma lista global, na ordem em que as OSs devem aparecer. */

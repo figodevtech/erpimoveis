@@ -23,6 +23,7 @@ import {
   ArrowUpRight,
   Handshake,
 } from "lucide-react";
+import { toast } from "@/lib/toast";
 import { Produto } from "../../../types";
 import { MercadoLivreEditListingDialog } from "@/app/(app)/(pages)/marketplace/mercadolivre/edit-listing/edit-listing-dialog";
 import { MercadoLivrePublishProductDialog } from "@/app/(app)/(pages)/marketplace/mercadolivre/create-listing/publish-product-dialog";
@@ -30,9 +31,10 @@ import { MercadoLivrePublishProductDialog } from "@/app/(app)/(pages)/marketplac
 type Props = {
   produto: Produto;
   onChange: (field: keyof Produto, value: any) => void;
+  onSiteVisibilityChange?: () => void;
 };
 
-export function TabMarketplace({ produto, onChange }: Props) {
+export function TabMarketplace({ produto, onChange, onSiteVisibilityChange }: Props) {
   const LIMITE_TITULO = 100;
   const LIMITE_DESCRICAO = 300;
 
@@ -67,6 +69,57 @@ export function TabMarketplace({ produto, onChange }: Props) {
     loadIntegration();
   }, [loadIntegration]);
 
+  // "Exibir no site" e a publicacao do produto na loja (site_product_link), nao
+  // um campo de produto: por isso grava na hora, fora do botao Salvar.
+  const [siteVisible, setSiteVisible] = useState<boolean | null>(null);
+  const [savingSiteVisible, setSavingSiteVisible] = useState(false);
+
+  useEffect(() => {
+    if (!produtoId) return;
+    let cancelled = false;
+    setSiteVisible(null);
+    fetch(`/api/integracoes/site/products/${produtoId}`, { cache: "no-store" })
+      .then(async (response) => {
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(json?.error || "Falha ao consultar a publicação no site.");
+        if (!cancelled) setSiteVisible(Boolean(json?.data?.visible));
+      })
+      .catch((error) => {
+        if (!cancelled) toast.error(error?.message || "Falha ao consultar a publicação no site.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [produtoId]);
+
+  async function changeSiteVisible(visible: boolean) {
+    setSavingSiteVisible(true);
+    try {
+      const response = await fetch(`/api/integracoes/site/products/${produtoId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visible }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao alterar a exibição no site.");
+      setSiteVisible(Boolean(json?.data?.visible));
+      onSiteVisibilityChange?.();
+
+      const sync = await fetch("/api/integracoes/site/catalog/sync", { method: "POST" });
+      if (sync.ok) {
+        toast.success(visible ? "Produto exibido no site." : "Produto ocultado do site.");
+      } else {
+        toast.warning("Alteração salva, mas a sincronização com o site falhou.", {
+          description: "Sincronize o catálogo no módulo Marketplace.",
+        });
+      }
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao alterar a exibição no site.");
+    } finally {
+      setSavingSiteVisible(false);
+    }
+  }
+
   const isListingActive = String(integration?.status).toLowerCase() === "active";
   const isListingPaused = String(integration?.status).toLowerCase() === "paused";
   const qualityScore = integration?.quality?.score != null ? Math.round(integration.quality.score) : null;
@@ -76,9 +129,9 @@ export function TabMarketplace({ produto, onChange }: Props) {
       <div className="rounded-lg border bg-card p-4">
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
-            <Label htmlFor="exibirMarketplace" className="text-sm font-semibold">Exibir no catálogo</Label>
+            <Label htmlFor="exibirMarketplace" className="text-sm font-semibold">Exibir no PDV</Label>
             <p className="mt-1 text-xs text-muted-foreground">
-              Exibe o produto no catálogo online do PDV/Site.
+              Exibe o produto na busca do PDV.
             </p>
           </div>
           <Switch
@@ -86,6 +139,21 @@ export function TabMarketplace({ produto, onChange }: Props) {
             className="shrink-0"
             checked={!!(produto as any).exibirPdv}
             onCheckedChange={(value) => onChange("exibirPdv" as any, value)}
+          />
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-4 border-t pt-4">
+          <div className="min-w-0">
+            <Label htmlFor="exibirSite" className="text-sm font-semibold">Exibir no site</Label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Publica o produto na loja online. A alteração é aplicada na hora, sem precisar salvar.
+            </p>
+          </div>
+          <Switch
+            id="exibirSite"
+            className="shrink-0"
+            checked={siteVisible === true}
+            disabled={!produtoId || siteVisible === null || savingSiteVisible}
+            onCheckedChange={changeSiteVisible}
           />
         </div>
       </div>

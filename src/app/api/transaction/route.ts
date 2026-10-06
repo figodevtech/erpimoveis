@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
-import { requireFinanceiroCreate, requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import { requireFinanceiroCreate, requireFinanceirosAccess, requireVendasAccess } from "@/app/api/_authz/perms";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
 import { distribuirPorPesos } from "@/lib/financeiro/rateio";
 import { somarRecebimentosDeFace } from "@/lib/financeiro/recebimentos-do-documento";
@@ -507,6 +507,16 @@ export async function POST(req: Request) {
     }
 
     const payload = sanitizeTransacaoPayload(json, { strict: true });
+    if (payload.evento_financeiro_id != null) {
+      const { data: evento, error: eventoError } = await supabaseAdmin.from("eventos_financeiros")
+        .select("source_type").eq("id", payload.evento_financeiro_id).maybeSingle();
+      if (eventoError) throw eventoError;
+      if (!evento) return NextResponse.json({ error: "Evento financeiro não encontrado." }, { status: 404 });
+      if (evento.source_type === "VENDA") {
+        await requireVendasAccess();
+        await requireFinanceirosAccess();
+      }
+    }
 
     const problemaNoBanco = erroDeBancoNoLancamento(payload);
     if (problemaNoBanco) {

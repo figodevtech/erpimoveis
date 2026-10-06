@@ -21,6 +21,7 @@ import {
 import type { ModeloEmissao } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
 
 import type { FormValues } from "../types";
+import { conferirSituacaoTributariaPisCofins } from "@/lib/services/fiscais/nfse-pis-cofins";
 
 function Campo({
   label,
@@ -100,7 +101,7 @@ export function PadraoNFSeFields({
           principal={modelo === politicaComum?.modelo}
           exigeRtc={modelo === "NACIONAL" && Boolean(politicaComum?.exigeRtc)}
           rotulo={modelo === politicaComum?.modelo ? rotuloPoliticaNFSe(politicaComum) : rotuloModeloNFSe(modelo)}
-          semIntegracao={modelo === politicaComum?.modelo && politicaComum?.autorizador === "JOAO_PESSOA_DSF_DPS"}
+          formatoNacionalMunicipal={modelo === politicaComum?.modelo && politicaComum?.autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL"}
           regimeTributario={String(empresa.regimetributario ?? "")}
           register={register}
           setValue={setValue}
@@ -116,7 +117,7 @@ function PadraoDoModelo({
   principal,
   exigeRtc,
   rotulo,
-  semIntegracao,
+  formatoNacionalMunicipal,
   regimeTributario,
   register,
   setValue,
@@ -126,8 +127,8 @@ function PadraoDoModelo({
   principal: boolean;
   exigeRtc: boolean;
   rotulo: string;
-  /** O autorizador deste padrão ainda não tem integração (emissor próprio de João Pessoa). */
-  semIntegracao: boolean;
+  /** Formato nacional via Focus em ambiente municipal próprio. */
+  formatoNacionalMunicipal: boolean;
   regimeTributario: string;
   register: UseFormRegister<FormValues>;
   setValue: UseFormSetValue<FormValues>;
@@ -176,11 +177,10 @@ function PadraoDoModelo({
         </span>
       </div>
 
-      {semIntegracao ? (
+      {formatoNacionalMunicipal ? (
         <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-[11px] leading-snug text-muted-foreground">
-          João Pessoa adotou a DPS do padrão nacional no emissor próprio da prefeitura, que ainda não tem
-          integração no ERP nem na Focus NFe. Por ora a emissão sai pela Focus no Emissor Público Nacional
-          (/v2/nfsen), que recusou a cidade com E0039 em 02/10/2026.
+          João Pessoa utiliza NFS-e no formato nacional via Focus, em ambiente municipal próprio.
+          No painel da Focus, mantenha NFSe padrão habilitada e Ambiente da NFSe Nacional desabilitado.
         </p>
       ) : null}
 
@@ -213,9 +213,20 @@ function PadraoDoModelo({
               maxLength={14}
             />
           </Campo>
+          <Campo label="CST do PIS/COFINS" hint={conferirSituacaoTributariaPisCofins(watch(`${base}.situacaoTributariaPisCofins`)) ?? "Opcional. Informe 2 dígitos da tabela da Focus conforme a contabilidade, inclusive para Simples/MEI. Em branco, não é enviado."}>
+            <Input
+              {...register(`${base}.situacaoTributariaPisCofins`, {
+                validate: (valor) => conferirSituacaoTributariaPisCofins(valor) ?? true,
+              })}
+              placeholder="2 dígitos, quando aplicável"
+              inputMode="numeric"
+              maxLength={2}
+              aria-invalid={Boolean(conferirSituacaoTributariaPisCofins(watch(`${base}.situacaoTributariaPisCofins`)))}
+            />
+          </Campo>
           <Campo
             label="Alíquota do ISS (%)"
-            hint="Município conveniado ao Sistema Nacional já tem a alíquota parametrizada: deixe em branco, salvo orientação contrária."
+            hint={formatoNacionalMunicipal ? "Informe a alíquota aplicável ao serviço no ambiente municipal próprio." : "Município conveniado ao Sistema Nacional já tem a alíquota parametrizada: deixe em branco, salvo orientação contrária."}
           >
             <Input
               {...register(`${base}.aliquotaIss`)}

@@ -1,9 +1,10 @@
+import { storefrontFetch } from "@/lib/integrations/storefront-http";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export async function refreshSiteRefundStatus(empresaId: number, siteOrderId: number) {
   const baseUrl = process.env.STOREFRONT_API_URL?.trim().replace(/\/+$/, "");
   const secret = process.env.STOREFRONT_ORDER_SYNC_SECRET?.trim();
   if (!baseUrl || !secret) throw new Error("Integração da loja não configurada.");
-  const response = await fetch(`${baseUrl}/api/integrations/erp/orders/${siteOrderId}`, {
+  const response = await storefrontFetch(`${baseUrl}/api/integrations/erp/orders/${siteOrderId}`, {
     headers: { Authorization: `Bearer ${secret}` }, cache: "no-store", signal: AbortSignal.timeout(20_000),
   });
   const status = await response.json();

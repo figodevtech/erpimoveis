@@ -5,6 +5,7 @@ import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
+import { storefrontFetch } from "@/lib/integrations/storefront-http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,7 +94,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const secret = process.env.STOREFRONT_ORDER_SYNC_SECRET?.trim();
     if (!baseUrl || !secret) throw new Error("Integração de pedidos da loja não configurada.");
 
-    const callback = await fetch(`${baseUrl}/api/integrations/erp/orders/${siteOrderId}`, {
+    const callback = await storefrontFetch(`${baseUrl}/api/integrations/erp/orders/${siteOrderId}`, {
       method: "PATCH",
       headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -154,7 +155,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .update({ refund_requested_at: new Date().toISOString(), refund_reason: reason, refund_status: "REQUESTING" })
       .eq("empresa_id", empresaId).eq("site_order_id", siteOrderId);
     if (markError) throw markError;
-    const response = await fetch(`${baseUrl}/api/integrations/erp/orders/${siteOrderId}`, {
+    const response = await storefrontFetch(`${baseUrl}/api/integrations/erp/orders/${siteOrderId}`, {
       method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
       body: JSON.stringify({ reason }), cache: "no-store", signal: AbortSignal.timeout(90_000),
     });

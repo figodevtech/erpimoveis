@@ -70,6 +70,7 @@ function carregarPatch({ temPermissao }: { temPermissao: boolean }) {
         }
       },
     },
+    "@/lib/integrations/site-sale-guard": { isSiteSale: async () => false },
     "@/lib/integrations/mercadolivre-stock-sync": { syncPendingMercadoLivreStock: async () => {} },
     "@/lib/financial-surcharge": {
       calculateFinancialTotal: (v: number) => v,

@@ -1,8 +1,11 @@
+import { criarEventoDaVenda } from "@/lib/financeiro/eventos-documento";
+import { modalidadeDeCriacaoVenda } from "@/lib/financeiro/documento-evento";
+import { comCriadoPor } from "@/lib/financeiro/eventos-autoria";
 import { NextResponse } from "next/server";
 import { requireAuthenticated, requireFinanceiroCreate, requireFinanceirosAccess, requireVendasAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
-import { responderFalha } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/servico";
+import { responder, responderFalha } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/servico";
 
 export const runtime = "nodejs";
 
@@ -15,6 +18,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const id = Number((await params).id);
     if (!Number.isSafeInteger(id) || id <= 0) return NextResponse.json({ error: "ID de venda inválido." }, { status: 400 });
     const body = await request.json().catch(() => null);
+    const modalidade = modalidadeDeCriacaoVenda(body);
+    if (modalidade === "AVULSO") {
+      return responder(await criarEventoDaVenda(id, body, session.user.id), 201);
+    }
+    if (modalidade !== "DESPESA_FRETE") {
+      return NextResponse.json({ error: "Informe a modalidade AVULSO ou DESPESA_FRETE." }, { status: 400 });
+    }
     const receitaId = Number(body?.eventoReceitaId);
     const valor = Number(body?.valor);
     const descricao = typeof body?.descricao === "string" ? body.descricao.trim() : "";
@@ -54,11 +64,11 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
     if (!venda) return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
 
     const eventos = await fetchAllSupabaseRows<any>(() => supabaseAdmin.from("eventos_financeiros")
-      .select("id, ordemservicoid, source_type, source_id, origem, natureza, status, descricao, detalhe, valor, data_evento, competencia_em, produtoid, servicoid, usuarioid, chave_origem, dados_snapshot, is_manual, pode_gerar_transacao, transacaoid, lancamento_id")
+      .select("id, ordemservicoid, source_type, source_id, origem, natureza, status, descricao, detalhe, valor, data_evento, competencia_em, produtoid, servicoid, usuarioid, chave_origem, dados_snapshot, is_manual, created_by, pode_gerar_transacao, transacaoid, lancamento_id")
       .eq("source_type", "VENDA").eq("source_id", id).neq("status", "CANCELADO")
       .order("data_evento", { ascending: false }).order("id", { ascending: false }));
     const comissao = Array.isArray(venda.comissao) ? venda.comissao[0] : venda.comissao;
-    return NextResponse.json({ eventos, comissaoHistorica: comissao?.integrada === false }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ eventos: await comCriadoPor(eventos), comissaoHistorica: comissao?.integrada === false }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return responderFalha(error, "Erro ao carregar eventos financeiros da venda.");
   }

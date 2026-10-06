@@ -376,7 +376,11 @@ export default function EdicaoProduto({
               precoMedioCompraObrigatorio={precoMedioCompraObrigatorio}
             />
 
-            <TabMarketplace produto={selectedProduct} onChange={handleChange} />
+            <TabMarketplace
+              produto={selectedProduct}
+              onChange={handleChange}
+              onSiteVisibilityChange={onAfterSaveProduct}
+            />
 
             <TabImagensEdit
               productId={productId}

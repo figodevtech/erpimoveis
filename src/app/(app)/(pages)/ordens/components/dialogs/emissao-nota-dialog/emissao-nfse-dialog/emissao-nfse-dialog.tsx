@@ -27,6 +27,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/lib/toast";
 import { rotuloModeloNFSe } from "@/lib/services/fiscais/nfse-politica";
+import { conferirSituacaoTributariaPisCofins } from "@/lib/services/fiscais/nfse-pis-cofins";
 import { NfseClienteCard } from "./nfse-cliente-card";
 import { NfseFiscalForm } from "./nfse-fiscal-form";
 import { NfseServiceCard } from "./nfse-service-card";
@@ -96,6 +97,8 @@ function validarFormulario(
   if (modelo === "NACIONAL") {
     if (codigos.codigoTributacaoNacionalIss.replace(/\D/g, "").length !== 6) return "Informe o Código de Tributação Nacional do ISS com 6 dígitos.";
     const municipal = codigos.codigoTributacaoMunicipalIss.trim();
+    const pendenciaPisCofins = conferirSituacaoTributariaPisCofins(codigos.situacaoTributariaPisCofins);
+    if (pendenciaPisCofins) return pendenciaPisCofins;
     if (municipal && !/^\d{3}$/.test(municipal)) return "Quando informado, o Código de Tributação Municipal do padrão Nacional deve possuir 3 dígitos.";
     if (!["1", "2", "3", "4"].includes(codigos.tributacaoIss)) return "Selecione a tributação do ISS.";
     if (!["1", "2", "3"].includes(codigos.tipoRetencaoIss)) return "Selecione a retenção do ISS.";
@@ -428,6 +431,7 @@ export function EmissaoNfseDialog({
             codigo_cnae: codigosFiscais.codigoCnae,
             codigo_tributacao_nacional_iss: codigosFiscais.codigoTributacaoNacionalIss,
             codigo_tributacao_municipal_iss: codigosFiscais.codigoTributacaoMunicipalIss,
+            situacao_tributaria_pis_cofins: codigosFiscais.situacaoTributariaPisCofins,
             codigo_nbs: codigosFiscais.codigoNbs,
             aliquota_iss: codigosFiscais.aliquotaIss === "" ? undefined : numero(codigosFiscais.aliquotaIss),
             natureza_operacao: optionalNumber(codigosFiscais.naturezaOperacao),

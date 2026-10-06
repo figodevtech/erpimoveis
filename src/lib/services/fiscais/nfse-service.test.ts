@@ -11,6 +11,7 @@ import {
   type NFSeItemEmissao,
 } from "./nfse-service";
 import { resolverPoliticaNFSe } from "./nfse-politica";
+import { conferirSituacaoTributariaPisCofins, SITUACOES_TRIBUTARIAS_PIS_COFINS } from "./nfse-pis-cofins";
 
 /*
  * Substitui o antigo nfse-service.test.mjs, que o runner (`*.test.ts`) nunca
@@ -82,6 +83,33 @@ const politicaDe = (empresa: Record<string, unknown>, dataCompetencia: string) =
   dataCompetencia,
   itensListaServico: ["14.01"],
 })!;
+
+describe("CST de PIS/COFINS configurável da DPS", () => {
+  it("aceita somente os códigos de duas posições da tabela Focus", () => {
+    for (const codigo of SITUACOES_TRIBUTARIAS_PIS_COFINS) assert.equal(conferirSituacaoTributariaPisCofins(codigo), null);
+    for (const invalido of ["0", "1", "10", "57", "68", "76", "000", "AA", 0, 1]) {
+      assert.match(conferirSituacaoTributariaPisCofins(invalido)!, /PIS\/COFINS/);
+    }
+    for (const vazio of ["", "  ", null, undefined]) assert.equal(conferirSituacaoTributariaPisCofins(vazio), null);
+  });
+
+  for (const regime of ["3", "1", "2", "4"]) {
+    it(`CRT ${regime}: omite quando vazio e preserva o CST configurado, inclusive zeros iniciais`, () => {
+      const empresa = { ...empresaJoaoPessoa, regimetributario: regime };
+      const contexto = { dataCompetencia: "2026-11-02" };
+      const service = new NFSeService();
+      const codigos = { ...fiscalNacional, regime_apuracao_simples_nacional: 2 as const };
+      const semCst = service.mapearOSParaFocusNacional(os, empresa, itens, codigos, contexto);
+      assert.equal(semCst.situacao_tributaria_pis_cofins, undefined);
+      assert.ok(!JSON.stringify(semCst).includes("situacao_tributaria_pis_cofins"));
+      for (const cst of ["00", "01", "49", "99"]) {
+        const payload = service.mapearOSParaFocusNacional(os, empresa, itens, { ...codigos, situacao_tributaria_pis_cofins: cst }, contexto);
+        assert.equal(payload.situacao_tributaria_pis_cofins, cst);
+      }
+      assert.throws(() => service.mapearOSParaFocusNacional(os, empresa, itens, { ...codigos, situacao_tributaria_pis_cofins: "10" }, contexto), /PIS\/COFINS/);
+    });
+  }
+});
 
 describe("emissor municipal (inalterado)", () => {
   it("João Pessoa consolida serviços, soma os valores e leva as informações complementares", () => {
