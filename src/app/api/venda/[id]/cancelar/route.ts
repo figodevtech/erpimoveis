@@ -1,3 +1,4 @@
+import { isSiteSale } from "@/lib/integrations/site-sale-guard";
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -62,6 +63,9 @@ export async function POST(req: Request, context: Context) {
     const vendaId = Number((await context.params).id);
     if (!Number.isInteger(vendaId) || vendaId <= 0) {
       return NextResponse.json({ error: "Venda inválida." }, { status: 400 });
+    }
+    if (await isSiteSale(vendaId)) {
+      return NextResponse.json({ error: "Cancele o pedido do site pelo Marketplace para confirmar o estorno no Asaas." }, { status: 409 });
     }
     const body = await req.json().catch(() => ({}));
     const motivo = String(body?.motivo ?? "").trim();

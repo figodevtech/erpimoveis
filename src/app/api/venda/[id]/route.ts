@@ -1,3 +1,4 @@
+import { isSiteSale } from "@/lib/integrations/site-sale-guard";
 // src/app/api/venda/[id]/route.ts
 
 export const runtime = "nodejs";
@@ -275,6 +276,8 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
 
     const vendaId = parsed.id as number;
 
+
+
     const { data, error } = await supabaseAdmin
       .from("venda")
       .select(VENDA_SELECT)
@@ -316,6 +319,10 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
     const usuarioInternoId = await resolveUsuarioInternoId(session);
 
     const vendaId = parsed.id as number;
+    if (await isSiteSale(vendaId)) {
+      return NextResponse.json({ error: "Vendas do site são protegidas. Use as ações do pedido em Marketplace; exclusão não permitida, mesmo após estorno." }, { status: 409 });
+    }
+
     const body = (await req.json().catch(() => null)) as VendaPatchBody | null;
 
     if (!body || typeof body !== "object") {
@@ -1103,6 +1110,10 @@ export async function DELETE(_req: NextRequest, ctx: ParamsCtx) {
     }
 
     const vendaId = parsed.id as number;
+    if (await isSiteSale(vendaId)) {
+      return NextResponse.json({ error: "Vendas do site são protegidas. Use as ações do pedido em Marketplace; exclusão não permitida, mesmo após estorno." }, { status: 409 });
+    }
+
 
     const { data: vendaBaseEstorno, error: vendaBaseEstornoError } = await supabaseAdmin
       .from("venda")

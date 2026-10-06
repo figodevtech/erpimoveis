@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
@@ -76,6 +76,9 @@ const EmissaoNotaDialog = dynamic(
 );
 
 type SiteOrder = {
+  refund_status?: string | null;
+  refund_requested_at?: string | null;
+  refund_reason?: string | null;
   id: number;
   site_order_id: number;
   site_status: string;
@@ -134,6 +137,10 @@ export function StorefrontOrders({
   embedded = false,
   onActionsChange,
 }: StorefrontOrdersProps) {
+  const syncLock = useRef(false);
+  const [cancelOrder, setCancelOrder] = useState<SiteOrder | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [canceling, setCanceling] = useState(false);
   const [orders, setOrders] = useState<SiteOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -153,8 +160,8 @@ export function StorefrontOrders({
     trackingUrl: "",
   });
 
-  const loadOrders = useCallback(async () => {
-    setLoading(true);
+  const loadOrders = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
       const response = await fetch(
         `/api/integracoes/site/orders?page=${page}&limit=${pageSize}`,
@@ -182,8 +189,18 @@ export function StorefrontOrders({
     void loadOrders();
   }, [loadOrders]);
 
-  const syncOrders = useCallback(async () => {
-    if (syncing) return;
+  useEffect(() => {
+    const onNotification = (event: Event) => {
+      const row = (event as CustomEvent<{ source?: string }>).detail;
+      if(row?.source === "SITE_ORDER") void loadOrders(true);
+    };
+    window.addEventListener("erp:system-notification", onNotification);
+    return () => window.removeEventListener("erp:system-notification", onNotification);
+  }, [loadOrders]);
+
+  const syncOrders = useCallback(async (silent = false) => {
+    if (syncLock.current) return;
+    syncLock.current = true;
     setSyncing(true);
     try {
       const response = await fetch("/api/integracoes/site/orders", {
@@ -192,12 +209,12 @@ export function StorefrontOrders({
       const json = await response.json();
       if (!response.ok)
         throw new Error(json?.error || "Falha ao sincronizar pedidos.");
-      toast.success("Pedidos sincronizados", {
+      if (!silent || json.imported > 0) toast.success("Pedidos sincronizados", {
         description: `${json.imported || 0} novo(s) pedido(s) importado(s) e ${json.errors || 0} erro(s).`,
       });
-      await loadOrders();
+      await loadOrders(silent);
     } catch (requestError) {
-      toast.error("Erro ao sincronizar pedidos", {
+      if (!silent) toast.error("Erro ao sincronizar pedidos", {
         description:
           requestError instanceof Error
             ? requestError.message
@@ -205,8 +222,46 @@ export function StorefrontOrders({
       });
     } finally {
       setSyncing(false);
+      syncLock.current = false;
     }
-  }, [loadOrders, syncing]);
+  }, [loadOrders]);
+
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === "visible") void syncOrders(true); };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, [syncOrders]);
+
+  async function checkRefund(order: SiteOrder) {
+    try {
+      const response = await fetch(`/api/integracoes/site/orders/${order.site_order_id}`, {cache:"no-store"});
+      const result = await response.json();
+      if(!response.ok) throw new Error(result.error || "Falha ao consultar estorno.");
+      toast.info(result.gatewayStatus === "REFUNDED" ? "Estorno confirmado e estoque devolvido." : result.requestedAt ? `Estorno solicitado. Status Asaas: ${result.gatewayStatus}` : `Nenhum estorno solicitado. Status Asaas: ${result.gatewayStatus}`);
+      await loadOrders(true);
+    } catch(error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar estorno."); }
+  }
+
+  async function confirmCancellation() {
+    if (!cancelOrder || canceling) return;
+    setCanceling(true);
+    try {
+      const response = await fetch(`/api/integracoes/site/orders/${cancelOrder.site_order_id}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: cancelReason }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Falha ao cancelar pedido.");
+      if (result.pending) toast.info(result.message || "Estorno em processamento. Consulte novamente para concluir.");
+      else toast.success("Pedido estornado e estoque devolvido.");
+      setCancelOrder(null);
+      await loadOrders();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao cancelar pedido.");
+    } finally { setCanceling(false); }
+  }
 
   useEffect(() => {
     onActionsChange?.({
@@ -453,6 +508,12 @@ export function StorefrontOrders({
                             {order.delivery?.method === "pickup" ? <Store className="h-4 w-4" /> : <Truck className="h-4 w-4" />}
                             Atualizar andamento
                           </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={!order.venda?.id || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")}
+                            onSelect={() => { setCancelOrder(order); setCancelReason(""); }}
+                            className="text-destructive"
+                          >Cancelar e estornar</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => void checkRefund(order)}>Consultar estorno</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem asChild>
                             <Link href="/historicovendas">
@@ -612,6 +673,16 @@ export function StorefrontOrders({
           }
         }}
       />
+      <Dialog open={Boolean(cancelOrder)} onOpenChange={open => { if (!open && !canceling) setCancelOrder(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Cancelar pedido #{cancelOrder?.site_order_id}</DialogTitle>
+            <DialogDescription>Solicitar estorno integral no Asaas e devolver os itens ao estoque após a confirmação. Caso haja NF-e autorizada, cancele-a antes.</DialogDescription></DialogHeader>
+          <Label htmlFor="site-cancel-reason">Motivo do cancelamento</Label>
+          <Input id="site-cancel-reason" value={cancelReason} onChange={e => setCancelReason(e.target.value)} maxLength={500} disabled={canceling} />
+          <DialogFooter><Button variant="outline" onClick={() => setCancelOrder(null)} disabled={canceling}>Voltar</Button>
+            <Button variant="destructive" disabled={canceling || cancelReason.trim().length < 3} onClick={() => void confirmCancellation()}>{canceling ? "Processando..." : "Confirmar estorno"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -660,6 +731,8 @@ function ImportBadge({ status }: { status: SiteOrder["import_status"] }) {
 }
 
 function FulfillmentBadge({ order }: { order: SiteOrder }) {
+  if(order.refund_requested_at && order.refund_status !== "REFUNDED") return <Badge variant="outline">Estorno: {order.refund_status === "REFUND_REQUESTED" || order.refund_status === "REFUND_IN_PROGRESS" ? "Em processamento" : order.refund_status === "REQUESTING" ? "Solicitando" : "Aguardando confirmação"}</Badge>;
+  if (["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")) return <Badge variant="destructive">Cancelado</Badge>;
   const pickup = order.delivery?.method === "pickup";
   if (order.venda?.status_entrega === "ENTREGUE") {
     return <Badge className="bg-emerald-600 text-white">{pickup ? "Retirado" : "Entregue"}</Badge>;
