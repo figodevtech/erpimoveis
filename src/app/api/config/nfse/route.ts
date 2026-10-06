@@ -12,6 +12,7 @@ import {
   serializarConfigGarantiaNfse,
 } from "@/lib/fiscal/configGarantia";
 import { mesclarPadroesEmissaoNfse } from "@/lib/fiscal/padroesEmissaoNfse";
+import { conferirSituacaoTributariaPisCofins } from "@/lib/services/fiscais/nfse-pis-cofins";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -86,6 +87,10 @@ export async function PUT(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const nfse = body?.nfse || {};
+    const pendenciaPisCofins = conferirSituacaoTributariaPisCofins(nfse.padroesEmissao?.NACIONAL?.situacaoTributariaPisCofins);
+    if (pendenciaPisCofins) {
+      return NextResponse.json({ error: pendenciaPisCofins }, { status: 400 });
+    }
 
     const empresa = await buscarEmpresaAtual();
     const empresaId = empresa?.id ?? 1;

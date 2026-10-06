@@ -211,7 +211,11 @@ describe("NF-e modelo 55 não regride", () => {
     assert.ok(xml.includes("<tpImp>1</tpImp>"));
   });
 
-  it("modelo 55 explícito é igual ao modelo omitido", () => {
+  it("modelo 55 explícito é igual ao modelo omitido", (t) => {
+    // Relógio parado: o dhEmi sai do instante da montagem, e as duas montagens
+    // caíram em segundos diferentes num build lento da Vercel (02/10/2026),
+    // derrubando o deploy por um falso negativo.
+    t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-02T15:27:45Z") });
     const explicito = buildNFePreviewXml(empresa, 1, 1, itens, consumidor, {
       ...base,
       indFinal: 1,

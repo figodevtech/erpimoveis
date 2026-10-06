@@ -1,11 +1,5 @@
-// Integração: layout ≠ autorizador.
-//
-// A nota 139 da Demir (OS 525, 02/10/2026) saiu em DPS nacional pela Focus
-// `/v2/nfsen`, passou na pré-validação e no schema, e voltou da Sefin com
-// E0039: João Pessoa não usa os emissores públicos nacionais. A cidade adotou
-// a DPS nacional no emissor PRÓPRIO (DSF), que a Focus não integra. Padrão
-// nacional (layout) não implica Emissor Público Nacional (autorizador).
-
+// Integração: formato nacional via Focus em ambiente municipal próprio.
+// A nota 139 e seu E0039 são históricos; novas emissões seguem a reimplementação.
 import "./__testEnv";
 
 import assert from "node:assert/strict";
@@ -16,6 +10,7 @@ import { BancoFalso } from "./__bancoFalso";
 import { POST as emitirDeOs } from "@/app/api/nfse/de-os/[id]/route";
 import { POST as reemitir } from "@/app/api/nfse/[id]/reemitir/route";
 import { POST as consultar } from "@/app/api/nfse/consultar/[id]/route";
+import { POST as cancelar } from "@/app/api/nfse/cancelar/[id]/route";
 import { NFSeService } from "@/lib/services/fiscais/nfse-service";
 import {
   MENSAGEM_FORA_DO_EMISSOR_NACIONAL,
@@ -25,8 +20,6 @@ import {
   resumirErrosNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
 import {
-  JOAO_PESSOA_ENVIA_PELA_FOCUS_NACIONAL,
-  MOTIVO_JOAO_PESSOA_SEM_INTEGRACAO,
   transportDaPolitica,
   transportDoRegistro,
 } from "@/lib/services/fiscais/nfse-transport";
@@ -197,39 +190,25 @@ describe("Caso 1 — João Pessoa CRT 3 não vai para o Emissor Público Naciona
       codigoMunicipio: "2507507", regimeTributario: "3", dataCompetencia: "2026-10-02", itensListaServico: ["14.01"],
     });
     assert.equal(politica?.layout, "DPS_NACIONAL");
-    assert.equal(politica?.autorizador, "JOAO_PESSOA_DSF_DPS");
+    assert.equal(politica?.autorizador, "FOCUS_FORMATO_NACIONAL_MUNICIPAL");
     assert.equal(politica?.exigeRtc, true);
+    assert.equal(politica?.regra, "JOAO_PESSOA_FORMATO_NACIONAL_2026");
   });
 
-  it("com a trava ligada, o transporte de João Pessoa está indisponível e não toca na rede", async () => {
-    const chamadas = focusFalsa();
-    const transporte = transportDaPolitica(
-      { modelo: "NACIONAL", autorizador: "JOAO_PESSOA_DSF_DPS" },
-      new NFSeService(),
-      { joaoPessoaPelaFocusNacional: false },
-    );
-    assert.equal(transporte.disponivel, false);
-    assert.equal(transporte.motivoIndisponivel, MOTIVO_JOAO_PESSOA_SEM_INTEGRACAO);
-    await assert.rejects(transporte.emitir({}), /não está integrada/);
-    await assert.rejects(transporte.consultar("x"), /não está integrada/);
-    await assert.rejects(transporte.cancelar("x"), /não está integrada/);
-    assert.deepEqual(chamadas, []);
-  });
-
-  it("trava desligada (pedido de 02/10/2026): o emissor próprio sai pela Focus /v2/nfsen", () => {
-    assert.equal(JOAO_PESSOA_ENVIA_PELA_FOCUS_NACIONAL, true);
-    const transporte = transportDaPolitica({ modelo: "NACIONAL", autorizador: "JOAO_PESSOA_DSF_DPS" }, new NFSeService());
+  it("transporte disponível: formato nacional via Focus no ambiente municipal", () => {
+    const transporte = transportDaPolitica({ modelo: "NACIONAL", autorizador: "FOCUS_FORMATO_NACIONAL_MUNICIPAL" }, new NFSeService());
     assert.equal(transporte.disponivel, true);
-    assert.equal(transporte.autorizador, "FOCUS_NACIONAL");
+    assert.equal(transporte.motivoIndisponivel, null);
+    assert.equal(transporte.autorizador, "FOCUS_FORMATO_NACIONAL_MUNICIPAL");
     assert.equal(transporte.modeloEmissao, "NACIONAL");
   });
 
-  it("emissão da OS 525 com o padrão da Demir: vai a /v2/nfsen e o E0039 fica registrado", async () => {
+  it("nova emissão da OS 525: PROCESSANDO → AUTORIZADA sem alterar a nota histórica 139", async () => {
     fixarHoje();
-    const db = banco();
+    const db = banco({ nfse: [structuredClone(NOTA_139)] });
     const chamadas = focusFalsa({
       POST: { status: "processando_autorizacao" },
-      GET: { ref: "x", status: "erro_autorizacao", erros: ERROS_139 },
+      GET: { ref: "x", status: "autorizado", numero: "999" },
     });
 
     const resposta = await emitirDeOs(
@@ -242,13 +221,40 @@ describe("Caso 1 — João Pessoa CRT 3 não vai para o Emissor Público Naciona
     assert.equal(resposta.status, 202, JSON.stringify(await resposta.clone().json()));
     assert.match(chamadas[0].url, /\/v2\/nfsen\?ref=OS_525_SRVS_12-15_/);
 
-    const id = Number(db.tabela("nfse")[0].id);
+    const nova = db.tabela("nfse").find((linha) => Number(linha.id) !== 139)!;
+    assert.equal(nova.status, "PROCESSANDO");
+    const id = Number(nova.id);
     await consultar(post(`http://localhost/api/nfse/consultar/${id}`, {}), { params: Promise.resolve({ id: String(id) }) });
-    const linha = db.tabela("nfse")[0];
+    const linha = db.tabela("nfse").find((linha) => Number(linha.id) === id)!;
     assert.equal(linha.modelo_emissao, "NACIONAL");
-    assert.equal(linha.status, "REJEITADA");
-    assert.deepEqual(linha.erros, ERROS_139);
+    assert.equal(linha.status, "AUTORIZADA");
+    assert.equal(linha.erros, null);
+    assert.deepEqual(db.tabela("nfse").find((linha) => Number(linha.id) === 139), NOTA_139);
     assert.deepEqual((linha.tentativas as Array<Record<string, unknown>>).map((t) => t.tipo), ["EMISSAO", "CONSULTA"]);
+    assert.deepEqual(chamadas.map((c) => c.metodo), ["POST", "GET"]);
+    assert.ok(chamadas.every((c) => c.url.includes("/v2/nfsen")));
+    assert.doesNotMatch(JSON.stringify(linha.tentativas), /token-de-teste/);
+  });
+
+  it("reenvio de tentativa sem E0039 aceita o autorizador municipal com formato nacional", () => {
+    assert.equal(motivoParaNaoReenviar(
+      { modelo_emissao: "NACIONAL", erros: [{ codigo: "L999", mensagem: "Indisponibilidade temporária" }] },
+      { modelo: "NACIONAL", autorizador: "FOCUS_FORMATO_NACIONAL_MUNICIPAL" },
+    ), null);
+  });
+
+  it("nova nota NACIONAL consulta/cancela em /v2/nfsen e registra CANCELAMENTO", async () => {
+    fixarHoje();
+    const nota = { ...structuredClone(NOTA_139), id: 140, status: "AUTORIZADA", erros: null, tentativas: [] };
+    const db = banco({ nfse: [nota] });
+    const chamadas = focusFalsa({ GET: { status: "autorizado" }, DELETE: { status: "cancelado" } });
+    const params = { params: Promise.resolve({ id: "140" }) };
+    assert.equal((await consultar(post("http://localhost/api/nfse/consultar/140", {}), params)).status, 200);
+    assert.equal((await cancelar(post("http://localhost/api/nfse/cancelar/140", { justificativa: "Cancelamento de teste automatizado" }), params)).status, 200);
+    assert.equal(db.tabela("nfse")[0].status, "CANCELADA");
+    assert.deepEqual(chamadas.map((c) => c.metodo), ["GET", "DELETE"]);
+    assert.ok(chamadas.every((c) => c.url.includes("/v2/nfsen/")));
+    assert.deepEqual(db.tabela("nfse")[0].tentativas.map((t: { tipo: string }) => t.tipo), ["CONSULTA", "CANCELAMENTO"]);
   });
 });
 
@@ -289,7 +295,6 @@ describe("Caso 3 — João Pessoa legado segue no transporte municipal antigo", 
     assert.equal(transportDoRegistro("NACIONAL", service).autorizador, "FOCUS_NACIONAL");
     assert.equal(transportDoRegistro("MUNICIPAL", service).autorizador, "FOCUS_MUNICIPAL");
     assert.equal(transportDoRegistro(null, service).autorizador, "FOCUS_MUNICIPAL");
-    assert.equal(transportDoRegistro("DPS_JOAO_PESSOA", service).autorizador, "JOAO_PESSOA_DSF_DPS");
   });
 });
 
@@ -308,7 +313,7 @@ describe("Caso 4 — E0039", () => {
     assert.ok(resumo?.mensagem.includes(ERROS_139[0].mensagem));
   });
 
-  it("não é tratado como erro dos códigos: o reenvio recusa pelo autorizador", () => {
+  it("a rejeição histórica bloqueia somente o reenvio exato, sem presumir falta de integração", () => {
     assert.equal(motivoParaNaoReenviar(NOTA_139, null), MENSAGEM_FORA_DO_EMISSOR_NACIONAL);
     // MEI legítimo no Nacional, sem E0039, reenvia normalmente.
     assert.equal(

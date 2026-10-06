@@ -16,7 +16,7 @@ function parseId(paramId: string): number | null {
   return n;
 }
 
-// PUT -> atualizar nome/descricao/ativo/exibirPdv
+// PUT -> atualizar nome/descricao/ativo/exibirPdv/exibirSite
 export async function PUT(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -31,11 +31,17 @@ export async function PUT(
     }
 
     const body = await req.json().catch(() => ({}));
-    const { nome, descricao, ativo, exibirPdv } = body ?? {};
+    const { nome, descricao, ativo, exibirPdv, exibirSite } = body ?? {};
 
     if (exibirPdv !== undefined && typeof exibirPdv !== "boolean") {
       return NextResponse.json(
         { error: "Campo 'exibirPdv' deve ser booleano." },
+        { status: 400 }
+      );
+    }
+    if (exibirSite !== undefined && typeof exibirSite !== "boolean") {
+      return NextResponse.json(
+        { error: "Campo 'exibirSite' deve ser booleano." },
         { status: 400 }
       );
     }
@@ -61,6 +67,9 @@ export async function PUT(
     if (typeof exibirPdv === "boolean") {
       payload.exibirPdv = exibirPdv;
     }
+    if (typeof exibirSite === "boolean") {
+      payload.exibirSite = exibirSite;
+    }
 
     const { data, error } = await supabaseAdmin
       .from("produtogrupo")
@@ -71,7 +80,8 @@ export async function PUT(
         nome,
         descricao,
         ativo,
-        exibirPdv
+        exibirPdv,
+        exibirSite
       `)
       .maybeSingle();
 
@@ -89,6 +99,7 @@ export async function PUT(
       descricao: (data.descricao as string | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
       exibirPdv: data.exibirPdv,
+      exibirSite: data.exibirSite,
     };
 
     return NextResponse.json({ item });
@@ -140,7 +151,8 @@ export async function PATCH(
         nome,
         descricao,
         ativo,
-        exibirPdv
+        exibirPdv,
+        exibirSite
       `)
       .maybeSingle();
 
@@ -158,6 +170,7 @@ export async function PATCH(
       descricao: (data.descricao as string | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : ativo,
       exibirPdv: data.exibirPdv,
+      exibirSite: data.exibirSite,
     };
 
     return NextResponse.json({ item });

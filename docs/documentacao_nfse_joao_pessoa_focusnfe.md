@@ -2,13 +2,38 @@
 
 ## Visão geral
 
-Esta documentação resume os requisitos técnicos para emissão de **NFS-e em João Pessoa/PB** utilizando a **API da Focus NFe**, com base no guia específico do município.
+Atualizado em 05/10/2026 após a reimplementação confirmada pela Focus.
+
+João Pessoa usa layout DPS nacional pela Focus em **ambiente municipal próprio**.
+Emissão: `POST /v2/nfsen?ref=...`; consulta: `GET /v2/nfsen/{ref}`;
+cancelamento: `DELETE /v2/nfsen/{ref}`. No painel da Focus, mantenha NFSe padrão
+habilitada e **Ambiente da NFSe Nacional desabilitado**. A integração continua
+pela Focus, com certificado digital, sem comunicação direta do ERP com a DSF.
+
+Para CRT 3 / item 14.01 desde 01/10/2026, o ERP resolve `modelo=NACIONAL`,
+`layout=DPS_NACIONAL` e `autorizador=FOCUS_FORMATO_NACIONAL_MUNICIPAL`.
+As exceções municipais 01.03, 01.05, 01.09 e 16.01 e os cronogramas próprios
+de Simples/MEI permanecem na política de emissão.
+
+O padrão fiscal usado é `padroes_emissao.NACIONAL`. O campo opcional
+`codigo_tributacao_municipal_iss` aceita 3 dígitos configurados, sem copiar o
+código do emissor antigo. `situacao_tributaria_pis_cofins` é opcional no contrato
+publicado, com códigos CST de duas posições; deve ser configurado conforme a
+contabilidade, sem atribuir automaticamente o valor do exemplo. Consulte a
+[tabela de campos Focus](https://campos.focusnfe.com.br/nfse_nacional/EmissaoDPSXml.html).
+
+Notas antigas `MUNICIPAL_JOAO_PESSOA` continuam na família `/v2/nfse` e não são
+migradas. A rejeição E0039 da nota 139 é histórica: o reenvio exato fica bloqueado,
+mas uma nova emissão usa a configuração reimplementada.
+
+Veja o [relatório de validação](relatorio_correcao_nfse_joao_pessoa_focus_reimplementada.md)
+e o [payload simulado da OS 525](payload_simulado_nfse_os525_focus_reimplementada.json).
 
 ## Informações gerais
 
 - **Município:** João Pessoa/PB
 - **Provedor:** DSF
-- **Formato:** Próprio (ABRASF)
+- **Formato atual:** Nacional (DPS), em ambiente municipal próprio
 - **Autenticação:** Certificado digital
 - **Cancelamento:** Ativo
 
@@ -19,7 +44,15 @@ Esta documentação resume os requisitos técnicos para emissão de **NFS-e em J
 | Produção     | Sim        | Portal da Prefeitura de João Pessoa |
 | Homologação  | Sim        | Não disponível |
 
-## Campos importantes
+## Referência histórica do emissor municipal legado
+
+As seções abaixo descrevem o layout antigo `/v2/nfse`, preservado para notas
+históricas e operações que a política ainda direciona ao emissor legado.
+Esses campos e esse JSON não são o payload da nova emissão DPS.
+
+Fonte das seções históricas: [guia Focus do município legado](https://focusnfe.com.br/guides/nfse/municipios-legados/joao-pessoa-pb/).
+
+### Campos importantes do legado
 
 ### Obrigatórios
 

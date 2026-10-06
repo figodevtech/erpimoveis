@@ -22,7 +22,8 @@ export async function GET() {
         nome,
         descricao,
         ativo,
-        exibirPdv
+        exibirPdv,
+        exibirSite
       `)
       .order("nome", { ascending: true });
 
@@ -34,6 +35,7 @@ export async function GET() {
       descricao: (g.descricao as string | null) ?? null,
       ativo: typeof g.ativo === "boolean" ? g.ativo : true,
       exibirPdv: g.exibirPdv,
+      exibirSite: g.exibirSite,
     }));
 
     return NextResponse.json({ items });
@@ -55,11 +57,17 @@ export async function POST(req: Request) {
     await ensureAuth();
 
     const body = await req.json().catch(() => ({}));
-    const { nome, descricao, ativo, exibirPdv } = body ?? {};
+    const { nome, descricao, ativo, exibirPdv, exibirSite } = body ?? {};
 
     if (exibirPdv !== undefined && typeof exibirPdv !== "boolean") {
       return NextResponse.json(
         { error: "Campo 'exibirPdv' deve ser booleano." },
+        { status: 400 }
+      );
+    }
+    if (exibirSite !== undefined && typeof exibirSite !== "boolean") {
+      return NextResponse.json(
+        { error: "Campo 'exibirSite' deve ser booleano." },
         { status: 400 }
       );
     }
@@ -78,6 +86,7 @@ export async function POST(req: Request) {
       descricao: descricao?.trim() || null,
       ativo: typeof ativo === "boolean" ? ativo : true,
       exibirPdv: exibirPdv ?? true,
+      exibirSite: exibirSite ?? true,
       createdat: now,
       updatedat: now,
     };
@@ -90,7 +99,8 @@ export async function POST(req: Request) {
         nome,
         descricao,
         ativo,
-        exibirPdv
+        exibirPdv,
+        exibirSite
       `)
       .maybeSingle();
 
@@ -108,6 +118,7 @@ export async function POST(req: Request) {
       descricao: (data.descricao as string | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
       exibirPdv: data.exibirPdv,
+      exibirSite: data.exibirSite,
     };
 
     return NextResponse.json({ item }, { status: 201 });

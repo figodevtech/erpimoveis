@@ -1,4 +1,5 @@
 import { extractNfseUrls } from "@/lib/nfse-urls";
+import { conferirSituacaoTributariaPisCofins } from "./nfse-pis-cofins";
 import {
   isValidCnpj,
   isValidCpf,
@@ -64,6 +65,8 @@ export type NFSeCodigosFiscais = {
   codigo_tributacao_nacional_iss?: string;
   /** cTribMun da DPS Nacional: 3 posições. Não é o código do emissor municipal antigo. */
   codigo_tributacao_municipal_iss?: string;
+  /** CST PIS/COFINS opcional da DPS, configurado pela empresa. */
+  situacao_tributaria_pis_cofins?: string;
   codigo_nbs?: string;
   aliquota_iss?: number;
   /** regEspTrib da DPS Nacional. Vem do padrão da empresa, não da tela de emissão. */
@@ -304,6 +307,8 @@ export function conferirCodigosFiscaisNFSe(
   };
 
   if (modelo === "NACIONAL") {
+    const pendenciaPisCofins = conferirSituacaoTributariaPisCofins(codigos.situacao_tributaria_pis_cofins);
+    if (pendenciaPisCofins) return pendenciaPisCofins;
     if (digitos(codigos.codigo_tributacao_nacional_iss).length !== 6) {
       return "Informe o C\u00f3digo de Tributa\u00e7\u00e3o Nacional do ISS com 6 d\u00edgitos.";
     }
@@ -463,6 +468,7 @@ export type NFSeNacionalEmitirParams = {
   codigo_municipio_prestacao: string;
   codigo_tributacao_nacional_iss: string;
   codigo_tributacao_municipal_iss?: string;
+  situacao_tributaria_pis_cofins?: string;
   codigo_nbs?: string;
   descricao_servico: string;
   informacoes_complementares?: string;
@@ -1198,6 +1204,7 @@ export class NFSeService {
       // cTribMun tem 3 posições no leiaute nacional. O `codigoservicomunicipal`
       // do cadastro de serviço é do emissor municipal antigo e não serve aqui.
       codigo_tributacao_municipal_iss: textoOpcional(codigosFiscais.codigo_tributacao_municipal_iss),
+      situacao_tributaria_pis_cofins: textoOpcional(codigosFiscais.situacao_tributaria_pis_cofins),
       codigo_nbs: codigosFiscais.codigo_nbs
         ? String(codigosFiscais.codigo_nbs).replace(/\D/g, "")
         : undefined,

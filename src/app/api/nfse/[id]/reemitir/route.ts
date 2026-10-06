@@ -17,7 +17,7 @@ import {
   motivoParaNaoReenviar,
   resolverPoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
-import { transportDaPolitica, transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
+import { transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
 
 export const runtime = "nodejs";
 
@@ -96,9 +96,9 @@ export async function POST(_req: Request, { params }: RouteParams) {
      * O reenvio nunca troca o autorizador da nota: `modelo_emissao` é parte do
      * registro fiscal da tentativa, e a nota volta pelo transporte em que
      * nasceu. O que muda é quando reenviar NÃO adianta — a recusa já disse que
-     * o caminho está errado (L999 de emissor encerrado, E0039 de município fora
-     * do Emissor Público Nacional), ou a política de hoje leva a operação para
-     * outro autorizador. Nada é enviado e a nota fica como está, com `erros`,
+     * o modelo está desatualizado (L999 de emissor encerrado), a tentativa
+     * histórica levou E0039, ou a política de hoje usa outro layout/endpoint.
+     * Nada é enviado e a nota fica como está, com `erros`,
      * `retorno_bruto` e `tentativas` intactos.
      */
     const { data: empresaPolitica } = await supabaseAdmin
@@ -115,13 +115,9 @@ export async function POST(_req: Request, { params }: RouteParams) {
           itensListaServico: [String(payload.servico?.item_lista_servico ?? "")],
         })
       : null;
-    // O destino EFETIVO de hoje: com a trava de João Pessoa desligada, o
-    // emissor próprio sai pela Focus `/v2/nfsen` e uma nota Nacional dela
-    // volta pelo mesmo caminho. O E0039 continua barrando o reenvio igual.
-    const autorizadorEfetivo = politicaHoje
-      ? { modelo: politicaHoje.modelo, autorizador: transportDaPolitica(politicaHoje, new NFSeService()).autorizador }
-      : null;
-    const motivo = motivoParaNaoReenviar(origem, autorizadorEfetivo);
+    // E0039 bloqueia somente o reenvio exato da tentativa histórica.
+    // Novas emissões seguem a política reimplementada, sem flag temporária.
+    const motivo = motivoParaNaoReenviar(origem, politicaHoje);
     if (motivo) {
       return NextResponse.json(
         {
@@ -129,7 +125,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
           codigo: "MODELO_EMISSAO_DESATUALIZADO",
           message: motivo,
           modeloDaNota: origem.modelo_emissao,
-          autorizadorVigente: autorizadorEfetivo?.autorizador ?? null,
+          autorizadorVigente: politicaHoje?.autorizador ?? null,
           erros: origem.erros ?? null,
         },
         { status: 409 },

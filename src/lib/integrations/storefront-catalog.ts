@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { storefrontFetch } from "@/lib/integrations/storefront-http";
 
 type QueueItem = {
   queue_id: number;
@@ -47,7 +48,7 @@ export async function syncStorefrontCatalog(empresaId: number, limit = 100) {
         .in("produto_id", productIds),
       supabaseAdmin
         .from("produtogrupo")
-        .select("id,nome,descricao,ativo")
+        .select("id,nome,descricao,ativo,exibirSite")
         .order("nome"),
       supabaseAdmin
         .from("produto_imagem")
@@ -82,7 +83,8 @@ export async function syncStorefrontCatalog(empresaId: number, limit = 100) {
         id: Number(category.id),
         name: String(category.nome || `Categoria #${category.id}`).slice(0, 160),
         description: category.descricao ? String(category.descricao).slice(0, 2000) : null,
-        active: Boolean(category.ativo),
+        // No site, "ativo" decide se a categoria aparece; aqui isso e exibirSite.
+        active: Boolean(category.ativo) && category.exibirSite !== false,
       })),
       products: rows.map((product) => ({
         id: Number(product.produto_id),
@@ -108,7 +110,7 @@ export async function syncStorefrontCatalog(empresaId: number, limit = 100) {
       })),
     };
 
-    const response = await fetch(endpoint, {
+    const response = await storefrontFetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${secret}`,

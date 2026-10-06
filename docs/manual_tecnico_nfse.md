@@ -2,6 +2,13 @@
 
 Este documento detalha a implementação técnica do fluxo de emissão de Notas Fiscais de Serviço Eletrônicas (NFS-e) para a prefeitura de João Pessoa/PB utilizando a API da Focus NFe v2.
 
+Atualização de 05/10/2026: João Pessoa CRT 3 / item 14.01 desde 01/10 usa
+formato nacional via Focus em ambiente municipal próprio (`/v2/nfsen`), com
+Ambiente da NFSe Nacional desabilitado no painel. Consulte a
+[documentação atualizada](documentacao_nfse_joao_pessoa_focusnfe.md).
+As referências abaixo a CNAE e item da LC 116 descrevem o emissor municipal
+legado, preservado para o histórico e as exceções da transição.
+
 ---
 
 ## 1. Arquitetura da Integração

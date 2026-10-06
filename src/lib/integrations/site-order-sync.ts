@@ -1,3 +1,4 @@
+import { storefrontFetch } from "@/lib/integrations/storefront-http";
 import { refreshSiteRefundStatus } from "@/lib/integrations/site-refund-status";
 import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -48,7 +49,7 @@ export async function syncSiteOrders(empresaId: number, orderId?: number) {
     const secret = process.env.STOREFRONT_ORDER_SYNC_SECRET?.trim();
     if (!baseUrl || !secret) throw new Error("Configure a integração de pedidos da loja no ERP.");
 
-    const response = await fetch(`${baseUrl}/api/integrations/erp/orders?limit=100${orderId ? `&orderId=${orderId}` : ""}`, {
+    const response = await storefrontFetch(`${baseUrl}/api/integrations/erp/orders?limit=100${orderId ? `&orderId=${orderId}` : ""}`, {
       headers: { Authorization: `Bearer ${secret}`, Accept: "application/json" },
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),
