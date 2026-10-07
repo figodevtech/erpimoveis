@@ -85,6 +85,8 @@ function isPublicApi(pathname: string) {
   if (!pathname.startsWith("/api")) return false;
   if (pathname.startsWith("/api/auth")) return true; // NextAuth sempre pÃºblico
   if (pathname === "/api/webhooks/focus") return true;
+  // Server-to-server endpoint: the handler validates its own Bearer secret.
+  if (pathname === "/api/integracoes/site/webhook") return true;
   return PUBLIC_API_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(p + "/"),
   );
