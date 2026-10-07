@@ -349,10 +349,10 @@ export function StorefrontOrders({
     (order) => order.import_status === "IMPORTADA",
   ).length;
   const awaitingShipment = orders.filter(
-    (order) => order.venda && order.delivery?.method !== "pickup" && !order.venda.codigo_rastreio,
+    (order) => !order.refund_requested_at && order.site_status !== "CANCELADO" && order.venda && !["CANCELADA", "CANCELADO"].includes(order.venda.status || "") && order.delivery?.method !== "pickup" && !order.venda.codigo_rastreio,
   ).length;
   const awaitingPickup = orders.filter(
-    (order) => order.venda && order.delivery?.method === "pickup" && order.venda.status_entrega !== "ENTREGUE",
+    (order) => !order.refund_requested_at && order.site_status !== "CANCELADO" && order.venda && !["CANCELADA", "CANCELADO"].includes(order.venda.status || "") && order.delivery?.method === "pickup" && order.venda.status_entrega !== "ENTREGUE",
   ).length;
   const invoiced = orders.filter((order) => order.invoice?.chave_acesso).length;
   const selectedIsPickup = selectedOrder?.delivery?.method === "pickup";
@@ -430,7 +430,9 @@ export function StorefrontOrders({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orders.map((order) => (
+                {orders.map((order) => {
+                  const actionsBlocked = Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || order.site_status === "CANCELADO" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "");
+                  return (
                   <TableRow key={order.id}>
                     <TableCell>
                       <p className="font-medium">Site #{order.site_order_id}</p>
@@ -491,18 +493,24 @@ export function StorefrontOrders({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
+                          {!actionsBlocked ? (
                           <DropdownMenuItem
                             disabled={!order.venda?.id}
                             onSelect={() => setEditingSaleId(order.venda?.id ?? null)}
                           >
                             <FilePenLine className="h-4 w-4" /> Editar venda
                           </DropdownMenuItem>
+                          ) : null}
+                          {!actionsBlocked || order.invoice ? (
                           <DropdownMenuItem
                             disabled={!order.venda?.id}
                             onSelect={() => setInvoiceSaleId(order.venda?.id ?? null)}
                           >
                             <ReceiptText className="h-4 w-4" /> {order.invoice ? "Gerenciar NF-e" : "Emitir NF-e"}
                           </DropdownMenuItem>
+                          ) : null}
+                          {!actionsBlocked ? (
+                            <>
                           <DropdownMenuItem
                             disabled={!order.venda?.id || Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")}
                             onSelect={() => openShipment(order)}
@@ -515,6 +523,8 @@ export function StorefrontOrders({
                             onSelect={() => { setCancelOrder(order); setCancelReason(""); }}
                             className="text-destructive"
                           >Cancelar e estornar</DropdownMenuItem>
+                            </>
+                          ) : null}
                           <DropdownMenuItem onSelect={() => void checkRefund(order)}>Consultar estorno</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem asChild>
@@ -526,7 +536,8 @@ export function StorefrontOrders({
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                );
+                })}
                 {!loading && !orders.length ? (
                   <TableRow>
                     <TableCell colSpan={6}>
