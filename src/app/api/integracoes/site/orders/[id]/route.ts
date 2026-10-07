@@ -1,3 +1,4 @@
+import { readJsonResponse } from "@/lib/read-json-response";
 import { refreshSiteRefundStatus } from "@/lib/integrations/site-refund-status";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -34,13 +35,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const { data: link, error: linkError } = await supabaseAdmin
       .from("site_order_link")
-      .select("site_order_id, venda_id, raw_order")
+      .select("site_order_id, venda_id, raw_order, refund_requested_at, refund_status, site_status")
       .eq("empresa_id", empresaId)
       .eq("site_order_id", siteOrderId)
       .maybeSingle();
     if (linkError) throw linkError;
     if (!link?.venda_id) return NextResponse.json({ error: "Pedido ainda não foi importado para uma venda." }, { status: 409 });
 
+    if (link.refund_requested_at || link.refund_status === "REFUNDED" || link.site_status === "CANCELADO") {
+      return NextResponse.json({ error: "Pedido com cancelamento ou estorno solicitado nao pode ter o andamento atualizado. Consulte o estorno." }, { status: 409 });
+    }
     const value = parsed.data;
     const shippingAddress = (link.raw_order as { shippingAddress?: { deliveryMethod?: string } } | null)?.shippingAddress;
     const isPickup = shippingAddress?.deliveryMethod === "pickup";
@@ -142,6 +146,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .select("venda_id").eq("empresa_id", empresaId).eq("site_order_id", siteOrderId).maybeSingle();
     if (error) throw error;
     if (!link?.venda_id) return NextResponse.json({ error: "Pedido não importado." }, { status: 409 });
+    const { data: fulfillment, error: fulfillmentError } = await supabaseAdmin.from("venda")
+      .select("status_entrega").eq("id", link.venda_id).single();
+    if (fulfillmentError) throw fulfillmentError;
+    if (["ENVIO", "ENVIADO", "ENTREGUE"].includes(String(fulfillment.status_entrega))) {
+      return NextResponse.json({ error: "Pedido enviado ou entregue exige devolucao fisica conferida. O cancelamento automatico foi bloqueado." }, { status: 409 });
+    }
     const { data: invoices, error: invoiceError } = await supabaseAdmin.from("nfe")
       .select("status").eq("vendaid", link.venda_id);
     if (invoiceError) throw invoiceError;
@@ -159,14 +169,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       method: "POST", headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
       body: JSON.stringify({ reason }), cache: "no-store", signal: AbortSignal.timeout(90_000),
     });
-    const result = await response.json();
+    const result = await readJsonResponse(response, "Loja");
     if (!response.ok) throw new Error(result.error || `A loja respondeu HTTP ${response.status}.`);
     const { error: refundUpdateError } = await supabaseAdmin.from("site_order_link").update({ refund_status: result.gatewayStatus, refund_checked_at: new Date().toISOString() }).eq("empresa_id", empresaId).eq("site_order_id", siteOrderId);
     if (refundUpdateError) throw refundUpdateError;
     if (result.pending || result.gatewayStatus !== "REFUNDED") return NextResponse.json({ ...result, pending: true });
     const { data: sale, error: saleError } = await supabaseAdmin.from("venda")
-      .select("status").eq("id", link.venda_id).single();
+      .select("status, status_entrega").eq("id", link.venda_id).single();
     if (saleError) throw saleError;
+    if (result.requiresPhysicalReturn || ["ENVIO", "ENVIADO", "ENTREGUE"].includes(String(sale.status_entrega))) {
+      return NextResponse.json({ ok: true, pending: false, requiresPhysicalReturn: true, gatewayStatus: "REFUNDED", message: "Estorno confirmado. Estoque aguarda devolucao fisica conferida." });
+    }
     if (!["CANCELADA", "CANCELADO"].includes(String(sale.status))) {
       const session = await auth();
       const { error: cancelError } = await supabaseAdmin.rpc("cancelar_venda", {
