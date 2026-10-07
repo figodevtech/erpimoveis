@@ -526,6 +526,11 @@ export function StorefrontOrders({
                           >Cancelar e estornar</DropdownMenuItem>
                             </>
                           ) : null}
+                          {order.refund_status === "DENIED" && order.venda?.id && !["CANCELADA", "CANCELADO"].includes(order.venda.status || "") && !["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda.status_entrega || "") ? (
+                            <DropdownMenuItem className="text-destructive" onSelect={() => { setCancelOrder(order); setCancelReason(""); }}>
+                              Tentar estorno novamente
+                            </DropdownMenuItem>
+                          ) : null}
                           <DropdownMenuItem onSelect={() => void checkRefund(order)}>Consultar estorno</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem asChild>

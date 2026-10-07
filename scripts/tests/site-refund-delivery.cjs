@@ -12,7 +12,7 @@ const { PGlite } = require('../../central.figosoftwares.com.br/node_modules/@ele
       event_type text, payment_id text, venda_id bigint, gateway_status text, resulting_order_status text,
       unique(provider,event_id));
     insert into produto values(1,10,null);`);
-  await db.exec(fs.readFileSync('site_demirdiesel/supabase/migrations/20261007_refund_physical_stock_guard.sql','utf8'));
+  await db.exec(fs.readFileSync('site_demirdiesel/supabase/migrations/20261007090000_refund_physical_stock_guard.sql','utf8'));
   for (const [id, delivery, gateway, expected] of [
     [1,'SEPARACAO','REFUNDED',11], [2,'ENVIADO','REFUNDED',11],
     [3,'ENTREGUE','REFUNDED',11], [4,'SEPARACAO','CHARGEBACK_REQUESTED',11],
