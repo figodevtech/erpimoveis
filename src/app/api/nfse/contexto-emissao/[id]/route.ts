@@ -10,6 +10,10 @@ import {
   rotuloPoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
 
+import { carregarSelecaoNFSe } from "@/app/api/nfse/_lib/carregar-selecao";
+import { normalizarSelecaoNFSe, SelecaoNFSeError } from "@/lib/services/fiscais/nfse-selecao";
+import { carregarAlvoDaOs } from "@/services/fiscal/alvoDaOs";
+
 export const runtime = "nodejs";
 
 type RouteParams = {
@@ -26,7 +30,7 @@ type RouteParams = {
  * mesma função (`contextoEmissaoOuErro`). Assim a tela nunca carrega o padrão
  * de um modelo e a emissão sai por outro.
  *
- * Nas OS agregadas entram todos os serviços, como na emissão agrupada.
+ * Revisão e emissão resolvem a mesma seleção de OS + serviço.
  */
 export async function POST(req: NextRequest, { params }: RouteParams) {
   try {
@@ -37,43 +41,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     const body = await req.json().catch(() => null) as Record<string, unknown> | null;
-    const selecionados = [...new Set((Array.isArray(body?.servicos) ? body!.servicos : []).map(Number))]
-      .filter((valor) => Number.isInteger(valor) && valor > 0);
-    if (selecionados.length === 0) {
-      return NextResponse.json({ ok: false, message: "Selecione ao menos um serviço para emitir a NFS-e." }, { status: 400 });
-    }
-    const osIdsAdicionais = [...new Set((Array.isArray(body?.osIdsAdicionais) ? body!.osIdsAdicionais : []).map(Number))]
-      .filter((valor) => Number.isInteger(valor) && valor > 0 && valor !== osId);
-
-    const { data: os, error: osError } = await supabaseAdmin
-      .from("ordemservico")
-      .select("*, cliente (*), osservico (*, servico (*))")
-      .eq("id", osId)
-      .single();
-    if (osError || !os) {
-      return NextResponse.json({ ok: false, message: "OS não encontrada." }, { status: 404 });
-    }
-
-    const daAncora = (Array.isArray(os.osservico) ? os.osservico : []) as any[];
-    const itens: any[] = [];
-    for (const servicoId of selecionados) {
-      const item = daAncora.find((linha) => Number(linha.servicoid) === servicoId);
-      if (!item) {
-        return NextResponse.json({ ok: false, message: `O serviço ${servicoId} não pertence a esta OS.` }, { status: 400 });
-      }
-      itens.push(item);
-    }
-
-    if (osIdsAdicionais.length > 0) {
-      const { data: outras, error: outrasError } = await supabaseAdmin
-        .from("ordemservico")
-        .select("id, osservico (*, servico (*))")
-        .in("id", osIdsAdicionais);
-      if (outrasError) throw outrasError;
-      for (const outra of outras ?? []) {
-        itens.push(...((Array.isArray(outra.osservico) ? outra.osservico : []) as any[]));
-      }
-    }
+    const selecao = normalizarSelecaoNFSe(osId, body);
+    const { os, itensSelecionados: itens } = await carregarSelecaoNFSe(selecao);
 
     const { data: empresa, error: empresaError } = await supabaseAdmin
       .from("empresa")
@@ -106,6 +75,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const { politica, modeloEmissao, padraoFiscal, padraoAusente } = resolvido.contexto;
     return NextResponse.json({
       ok: true,
+      alvo: await carregarAlvoDaOs(os),
       modeloEmissao,
       politicaEmissao: {
         exigeRtc: politica.exigeRtc,
@@ -135,6 +105,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       pendenciasCadastro: listarPendenciasNFSe(os, empresa, itens, modeloEmissao),
     });
   } catch (error: unknown) {
+    if (error instanceof SelecaoNFSeError) {
+      return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
+    }
     console.error("[POST /api/nfse/contexto-emissao]", error);
     return NextResponse.json({ ok: false, message: "Erro ao preparar a revisão da NFS-e." }, { status: 500 });
   }
