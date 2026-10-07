@@ -14,7 +14,7 @@ export async function refreshSiteRefundStatus(empresaId: number, siteOrderId: nu
     .eq("empresa_id", empresaId).eq("site_order_id", siteOrderId).single();
   if (error) throw error;
   const { error: updateError } = await supabaseAdmin.from("site_order_link").update({
-    refund_status: status.gatewayStatus, refund_requested_at: status.requestedAt, refund_reason: status.reason,
+    refund_status: status.refundStatus || status.gatewayStatus, refund_denial_reason: status.denialReason || null, refund_requested_at: status.requestedAt, refund_reason: status.reason,
     refund_checked_at: new Date().toISOString(),
   }).eq("empresa_id", empresaId).eq("site_order_id", siteOrderId);
   if (updateError) throw updateError;
