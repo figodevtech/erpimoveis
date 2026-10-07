@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -31,6 +31,8 @@ import { conferirSituacaoTributariaPisCofins } from "@/lib/services/fiscais/nfse
 import { NfseClienteCard } from "./nfse-cliente-card";
 import { NfseFiscalForm } from "./nfse-fiscal-form";
 import { NfseServiceCard } from "./nfse-service-card";
+import { grupoOsNFSe } from "@/lib/services/fiscais/nfse-selecao";
+import { ancoraDaSelecao, chaveDoServico, selecaoParaEmissao, selecaoParaRevisao, servicoDisponivel, valorDoServico } from "./selecao-servicos";
 import { montarCodigosDaRevisao } from "./codigos-da-revisao";
 import {
   blocosDeObservacao,
@@ -57,8 +59,7 @@ type EmissaoNfseDialogProps = {
   osId: number | null;
   /**
    * Outras OS do MESMO cliente que esta nota tambem documenta, vindas da
-   * selecao multipla. Delas entram todos os servicos; a selecao fina de
-   * servicos vale para a OS ancora.
+   * selecao multipla. Os servicos de todas as OS podem ser selecionados.
    */
   osIdsAdicionais?: number[];
   onAfterGenerate?: () => void;
@@ -88,9 +89,9 @@ function validarFormulario(
 ) {
   if (servicos.length === 0) return "Selecione ao menos um serviço.";
   for (const servico of servicos) {
-    const value = numero(valores[servico.servicoid] ?? "");
+    const value = valorDoServico(servico, valores);
     if (!Number.isFinite(value) || value <= 0) {
-      return `Informe um valor maior que zero para o serviço ${servico.servicoid}.`;
+      return `Informe um valor maior que zero para o serviço ${servico.servicoid} da OS ${servico.ordemservicoid}.`;
     }
   }
 
@@ -219,29 +220,46 @@ export function EmissaoNfseDialog({
   const [descontoOrigem, setDescontoOrigem] = useState<DescontoOrigemNfse | null>(null);
   const [cliente, setCliente] = useState<ClienteResumo | null>(null);
   const [editandoCliente, setEditandoCliente] = useState(false);
-  const [selecionados, setSelecionados] = useState<number[]>([]);
+  const [selecionados, setSelecionados] = useState<string[]>([]);
   const [valores, setValores] = useState<ValoresServicosForm>({});
   const [revisando, setRevisando] = useState(false);
   const [codigosFiscais, setCodigosFiscais] = useState<CodigosFiscaisForm>(EMPTY_CODIGOS);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [erroCarga, setErroCarga] = useState<string | null>(null);
+  const [grupoCarregado, setGrupoCarregado] = useState<string | null>(null);
+  const cargaRef = useRef<AbortController | null>(null);
+  const revisaoRef = useRef<AbortController | null>(null);
+  const grupoChave = osId ? grupoOsNFSe(osId, osIdsAdicionais ?? []).join(",") : "";
+  const osDoGrupo = useMemo(() => grupoChave ? grupoChave.split(",").map(Number) : [], [grupoChave]);
+  const cargaCompleta = grupoCarregado === grupoChave && !fetching && !erroCarga;
+
 
   const servicosSelecionados = useMemo(
-    () => selecionados.map((id) => servicos.find((servico) => servico.servicoid === id)).filter((servico): servico is ServicoOS => Boolean(servico)),
+    () => servicos.filter((servico) => selecionados.includes(chaveDoServico(servico))),
     [selecionados, servicos],
   );
 
+  const ancoraSelecionada = ancoraDaSelecao(osDoGrupo, servicosSelecionados);
+
   const carregarServicos = useCallback(async () => {
     if (!osId) return;
+    cargaRef.current?.abort();
+    revisaoRef.current?.abort();
+    const controller = new AbortController();
+    cargaRef.current = controller;
     setFetching(true);
+    setPreparandoRevisao(false);
+    setRevisando(false);
+    setGrupoCarregado(null);
+    setErroCarga(null);
+    setValidationError(null);
     try {
-      const response = await fetch(`/api/nfse/servicos-de-os/${osId}`);
+      const query = new URLSearchParams({ osIdsAdicionais: osDoGrupo.slice(1).join(",") });
+      const response = await fetch(`/api/nfse/servicos-de-os/${osId}?${query}`, { signal: controller.signal, cache: "no-store" });
       const payload = await response.json() as ServicosOSResponse;
-      if (!response.ok || !payload.ok) {
-        setModeloEmissao(null);
-        setPoliticaEmissao(null);
-        toast.error(payload.message || "Erro ao carregar serviços da OS");
-        return;
-      }
+      if (controller.signal.aborted) return;
+      if (!response.ok || !payload.ok) throw new Error(payload.message || "Erro ao carregar serviços das OS");
+      if (payload.osIds?.join(",") !== grupoChave) throw new Error("Não foi possível carregar todas as OS selecionadas.");
       const nextServices = payload.servicos ?? [];
       setServicos(nextServices);
       setModeloEmissao(payload.modeloEmissao ?? null);
@@ -249,20 +267,25 @@ export function EmissaoNfseDialog({
       setAlvo(payload.alvo ?? null);
       setDescontoOrigem(payload.descontoOrigem ?? null);
       setCliente(payload.cliente ?? null);
-      setSelecionados((current) => current.filter((id) => nextServices.some((item) => item.servicoid === id)));
-    } catch {
-      toast.error("Erro ao carregar serviços da OS");
+      setSelecionados((current) => current.filter((chave) => nextServices.some((item) => chaveDoServico(item) === chave && servicoDisponivel(item))));
+      setGrupoCarregado(grupoChave);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const message = error instanceof Error ? error.message : "Erro ao carregar serviços das OS";
+      setErroCarga(message);
+      setServicos([]);
+      setModeloEmissao(null);
+      setPoliticaEmissao(null);
+      toast.error(message);
     } finally {
-      setFetching(false);
+      if (!controller.signal.aborted) setFetching(false);
     }
-  }, [osId]);
+  }, [osId, osDoGrupo, grupoChave]);
 
   useEffect(() => {
-    if (open && osId) {
-      void carregarServicos();
-      return;
-    }
     setServicos([]);
+    setGrupoCarregado(null);
+    setErroCarga(null);
     setModeloEmissao(null);
     setPoliticaEmissao(null);
     setPadraoAusente(false);
@@ -277,15 +300,22 @@ export function EmissaoNfseDialog({
     setRevisando(false);
     setCodigosFiscais(EMPTY_CODIGOS);
     setValidationError(null);
+    if (open && osId) void carregarServicos();
+    return () => {
+      cargaRef.current?.abort();
+      revisaoRef.current?.abort();
+    };
   }, [open, osId, carregarServicos]);
 
   const alternarServico = (servico: ServicoOS, selected: boolean) => {
+    if (!cargaCompleta || preparandoRevisao || loading || !servicoDisponivel(servico)) return;
+    const chave = chaveDoServico(servico);
     setValidationError(null);
     setSelecionados((current) => selected
-      ? current.includes(servico.servicoid) ? current : [...current, servico.servicoid]
-      : current.filter((id) => id !== servico.servicoid));
+      ? current.includes(chave) ? current : [...current, chave]
+      : current.filter((id) => id !== chave));
     if (selected) {
-      setValores((current) => ({ ...current, [servico.servicoid]: current[servico.servicoid] ?? valorOriginal(servico) }));
+      setValores((current) => ({ ...current, [chave]: current[chave] ?? valorOriginal(servico) }));
     }
   };
 
@@ -298,7 +328,7 @@ export function EmissaoNfseDialog({
    * função que a emissão vai usar — e só então o formulário é preenchido.
    */
   const iniciarRevisao = async () => {
-    if (!osId || servicosSelecionados.length === 0) {
+    if (!cargaCompleta || !ancoraSelecionada || servicosSelecionados.length === 0) {
       toast.error("Selecione ao menos um serviço para continuar.");
       return;
     }
@@ -310,17 +340,21 @@ export function EmissaoNfseDialog({
       return;
     }
 
+    revisaoRef.current?.abort();
+    const controller = new AbortController();
+    revisaoRef.current = controller;
     setPreparandoRevisao(true);
     try {
-      const response = await fetch(`/api/nfse/contexto-emissao/${osId}`, {
+      const response = await fetch(`/api/nfse/contexto-emissao/${ancoraSelecionada}`, {
+        signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          servicos: selecionados,
-          ...(osIdsAdicionais?.length ? { osIdsAdicionais } : {}),
+          servicos: selecaoParaRevisao(servicosSelecionados),
         }),
       });
       const contexto = await response.json().catch(() => ({})) as ContextoEmissaoResponse;
+      if (controller.signal.aborted) return;
       if (!response.ok || !contexto.ok || !contexto.modeloEmissao) {
         toast.error(contexto.message || "Não foi possível preparar a revisão da NFS-e.");
         return;
@@ -336,6 +370,7 @@ export function EmissaoNfseDialog({
       setPoliticaEmissao(contexto.politicaEmissao ?? null);
       setPadraoAusente(Boolean(contexto.padraoAusente));
       setObservacoesFiscaisOs(observacoes);
+      setAlvo(contexto.alvo ?? null);
       setCodigosFiscais(montarCodigosDaRevisao({
         modelo: contexto.modeloEmissao,
         padraoFiscal: contexto.padraoFiscal,
@@ -345,9 +380,9 @@ export function EmissaoNfseDialog({
       setValidationError(null);
       setRevisando(true);
     } catch {
-      toast.error("Não foi possível preparar a revisão da NFS-e.");
+      if (!controller.signal.aborted) toast.error("Não foi possível preparar a revisão da NFS-e.");
     } finally {
-      setPreparandoRevisao(false);
+      if (!controller.signal.aborted) setPreparandoRevisao(false);
     }
   };
 
@@ -390,14 +425,14 @@ export function EmissaoNfseDialog({
     }
   };
 
-  const atualizarValor = (servicoId: number, valor: string) => {
+  const atualizarValor = (chave: string, valor: string) => {
     setValidationError(null);
-    setValores((current) => ({ ...current, [servicoId]: valor }));
+    setValores((current) => ({ ...current, [chave]: valor }));
   };
 
   const handleEmitir = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!osId || !modeloEmissao) return;
+    if (!cargaCompleta || !ancoraSelecionada || !modeloEmissao || !revisando || loading) return;
     const error = validarFormulario(
       modeloEmissao,
       Boolean(politicaEmissao?.exigeRtc),
@@ -417,15 +452,11 @@ export function EmissaoNfseDialog({
     const optionalNumber = (value: string) => value === "" ? undefined : Number(value);
 
     try {
-      const response = await fetch(`/api/nfse/de-os/${osId}`, {
+      const response = await fetch(`/api/nfse/de-os/${ancoraSelecionada}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          servicos: servicosSelecionados.map((servico) => ({
-            osservicoId: servico.servicoid,
-            valor: numero(valores[servico.servicoid]),
-          })),
-          ...(osIdsAdicionais?.length ? { osIdsAdicionais } : {}),
+          servicos: selecaoParaEmissao(servicosSelecionados, valores),
           codigosFiscais: {
             item_lista_servico: codigosFiscais.itemListaServico,
             codigo_cnae: codigosFiscais.codigoCnae,
@@ -481,7 +512,7 @@ export function EmissaoNfseDialog({
             <div className="flex min-w-0 items-start gap-4">
               <div className="grid size-12 shrink-0 place-items-center border-2 border-amber-500 bg-amber-500/10 text-amber-700"><FileText aria-hidden="true" className="size-6" /></div>
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2"><p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">Documento fiscal de serviço</p><Badge variant="outline" className="rounded-sm">OS #{osId ?? "—"}</Badge></div>
+                <div className="flex flex-wrap items-center gap-2"><p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">Documento fiscal de serviço</p><Badge variant="outline" className="rounded-sm">{osDoGrupo.map((id) => `OS #${id}`).join(", ") || "—"}</Badge></div>
                 <DialogTitle className="mt-1 text-xl font-bold tracking-tight sm:text-2xl">Emitir NFS-e</DialogTitle>
                 <DialogDescription className="mt-1 max-w-[68ch] text-sm leading-relaxed">Selecione um ou mais serviços, informe os valores da nota e revise a tributação antes do envio.</DialogDescription>
               </div>
@@ -505,7 +536,8 @@ export function EmissaoNfseDialog({
                   <AlertDescription>{politicaEmissao.bloqueio}</AlertDescription>
                 </Alert>
               ) : null}
-              {!modeloEmissao && !fetching && <Alert variant="destructive" className="rounded-sm border-l-4"><AlertCircle aria-hidden="true" className="size-4" /><AlertTitle>Emissão não configurada</AlertTitle><AlertDescription>Preencha o código IBGE e o regime tributário da empresa.</AlertDescription></Alert>}
+              {erroCarga ? <Alert variant="destructive" role="alert"><AlertCircle className="size-4" /><AlertTitle>Não foi possível carregar as OS</AlertTitle><AlertDescription>{erroCarga} Atualize a listagem para tentar novamente.</AlertDescription></Alert> : null}
+              {!erroCarga && !modeloEmissao && !fetching && <Alert variant="destructive" className="rounded-sm border-l-4"><AlertCircle aria-hidden="true" className="size-4" /><AlertTitle>Emissão não configurada</AlertTitle><AlertDescription>Preencha o código IBGE e o regime tributário da empresa.</AlertDescription></Alert>}
               {rejeitadas > 0 && !revisando && <Alert variant="destructive" className="rounded-sm border-l-4"><AlertCircle aria-hidden="true" className="size-4" /><AlertTitle>{rejeitadas} emissões rejeitadas</AlertTitle><AlertDescription>Os serviços rejeitados podem ser selecionados novamente após a correção.</AlertDescription></Alert>}
 
               {cliente && (
@@ -517,7 +549,7 @@ export function EmissaoNfseDialog({
                 />
               )}
 
-              {revisando && modeloEmissao ? (
+              {revisando && modeloEmissao && cargaCompleta ? (
                 <NfseFiscalForm
                   servicos={servicosSelecionados}
                   valores={valores}
@@ -529,7 +561,7 @@ export function EmissaoNfseDialog({
                   motivoModelo={politicaEmissao?.motivo ?? null}
                   codigos={codigosFiscais}
                   validationError={validationError}
-                  loading={loading}
+                  loading={loading || !cargaCompleta}
                   herdouObservacoesDaOs={
                     Boolean(observacoesFiscaisOs)
                     && codigosFiscais.informacoesComplementares === observacoesFiscaisOs
@@ -547,20 +579,28 @@ export function EmissaoNfseDialog({
                 <section aria-labelledby="selecao-servico-title">
                   <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div><p className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><ListChecks aria-hidden="true" className="size-4" />Etapa 1 de 3</p><h2 id="selecao-servico-title" className="mt-1 text-lg font-bold">Serviços que irão compor a nota</h2><p className="mt-1 text-sm text-muted-foreground">Serviços selecionados serão consolidados em uma única NFS-e.</p></div>
-                    <Button type="button" variant="ghost" size="sm" className="min-h-11 rounded-sm" disabled={fetching} onClick={() => void carregarServicos()}><RefreshCw aria-hidden="true" className={`mr-2 size-4 ${fetching ? "animate-spin" : ""}`} />Atualizar</Button>
+                    <Button type="button" variant="ghost" size="sm" className="min-h-11 rounded-sm" disabled={fetching || preparandoRevisao || loading} onClick={() => void carregarServicos()}><RefreshCw aria-hidden="true" className={`mr-2 size-4 ${fetching ? "animate-spin" : ""}`} />Atualizar</Button>
                   </div>
 
                   {fetching ? <ServiceListSkeleton /> : servicos.length === 0 ? (
                     <div className="border border-dashed px-6 py-12 text-center"><FileText aria-hidden="true" className="mx-auto size-8 text-muted-foreground" /><h3 className="mt-3 text-sm font-semibold">Nenhum serviço encontrado</h3></div>
                   ) : (
                     <div className="space-y-3">
-                      {servicos.map((servico) => <NfseServiceCard key={servico.servicoid} servico={servico} selected={selecionados.includes(servico.servicoid)} loading={loading} onToggle={alternarServico} />)}
+                      {osDoGrupo.map((id) => (
+                        <section key={id} className="space-y-3" aria-label={`Serviços da OS #${id}`}>
+                          <h3 className="border-b pb-2 text-sm font-semibold">OS #{id}</h3>
+                          {servicos.filter((servico) => servico.ordemservicoid === id).map((servico) => (
+                            <NfseServiceCard key={chaveDoServico(servico)} servico={servico} selected={selecionados.includes(chaveDoServico(servico))} loading={loading || preparandoRevisao || !cargaCompleta} onToggle={alternarServico} />
+                          ))}
+                          {!servicos.some((servico) => servico.ordemservicoid === id) ? <p className="text-sm text-muted-foreground">Nenhum serviço nesta OS.</p> : null}
+                        </section>
+                      ))}
                     </div>
                   )}
 
                   <div className="sticky bottom-0 mt-5 flex flex-col gap-3 border bg-card p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-sm text-muted-foreground"><strong className="text-foreground">{selecionados.length}</strong> {selecionados.length === 1 ? "serviço selecionado" : "serviços selecionados"}</p>
-                    <Button type="button" className="min-h-11 rounded-sm px-5" disabled={!modeloEmissao || selecionados.length === 0 || fetching || preparandoRevisao} onClick={() => void iniciarRevisao()}>{preparandoRevisao ? "Preparando..." : "Revisar nota"}<ArrowRight aria-hidden="true" className="ml-2 size-4" /></Button>
+                    <Button type="button" className="min-h-11 rounded-sm px-5" disabled={!modeloEmissao || selecionados.length === 0 || !cargaCompleta || preparandoRevisao || loading} onClick={() => void iniciarRevisao()}>{preparandoRevisao ? "Preparando..." : "Revisar nota"}<ArrowRight aria-hidden="true" className="ml-2 size-4" /></Button>
                   </div>
                 </section>
               )}

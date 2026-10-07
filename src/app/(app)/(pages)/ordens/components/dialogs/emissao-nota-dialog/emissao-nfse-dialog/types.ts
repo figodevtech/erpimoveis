@@ -91,6 +91,7 @@ export type DescontoOrigemNfse = {
 };
 
 export type ServicoOS = {
+  ordemservicoid: number;
   servicoid: number;
   quantidade: number | null;
   precounitario: number | null;
@@ -119,6 +120,7 @@ export type ServicoOS = {
 
 export type ServicosOSResponse = {
   ok: boolean;
+  osIds?: number[];
   message?: string;
   servicos?: ServicoOS[];
   modeloEmissao?: ModeloEmissao | null;
@@ -141,6 +143,7 @@ export type ServicosOSResponse = {
  */
 export type ContextoEmissaoResponse = {
   ok: boolean;
+  alvo?: AlvoFiscal | null;
   message?: string;
   modeloEmissao?: ModeloEmissao;
   politicaEmissao?: PoliticaEmissaoResumo;
@@ -154,7 +157,7 @@ export type ContextoEmissaoResponse = {
 /** Limite das informações complementares nos três modelos de NFS-e. */
 export const LIMITE_INFORMACOES_COMPLEMENTARES = 2000;
 
-export type ValoresServicosForm = Record<number, string>;
+export type ValoresServicosForm = Record<string, string>;
 
 export const EMPTY_CODIGOS: CodigosFiscaisForm = {
   itemListaServico: "",
