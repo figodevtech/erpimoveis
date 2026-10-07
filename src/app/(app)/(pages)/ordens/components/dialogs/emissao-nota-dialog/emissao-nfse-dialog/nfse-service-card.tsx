@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { descricaoComplementarDoItem } from "@/lib/services/fiscais/nfse-service";
 import { resumirErrosNFSe } from "@/lib/services/fiscais/nfse-politica";
 import { cn } from "@/lib/utils";
+import { chaveDoServico, servicoDisponivel } from "./selecao-servicos";
 import type { ServicoOS } from "./types";
 
 type StatusVisual = {
@@ -48,6 +49,9 @@ function getStatusVisual(status?: string | null): StatusVisual {
       badgeClassName: "border-destructive/25 bg-destructive/10 text-destructive",
       borderClassName: "border-l-destructive",
     };
+  }
+  if (normalized === "DENEGADA") {
+    return { label: "Denegada", Icon: Ban, badgeClassName: "text-destructive", borderClassName: "border-l-destructive" };
   }
   if (["CANCELADA", "CANCELADO"].includes(normalized)) {
     return {
@@ -89,7 +93,7 @@ export function NfseServiceCard({
   const hasPendingData = Boolean(servico.pendenciasCadastro?.length);
   const isProcessing = status.label === "Processando";
   const isAuthorized = status.label === "Autorizada";
-  const canSelect = !loading && !isProcessing && !isAuthorized && !hasPendingData;
+  const canSelect = !loading && servicoDisponivel(servico);
   // Com a explicação da migração na frente quando a prefeitura recusou o
   // emissor; o retorno original da Focus vem sempre junto.
   const rejectionMessage = status.label === "Rejeitada"
@@ -103,7 +107,7 @@ export function NfseServiceCard({
     (Math.max(0, Number(servico.descontoItem ?? 0)) + Math.max(0, Number(servico.descontoRateado ?? 0))).toFixed(2),
   );
   const valorLiquido = Number(servico.valorLiquidoSugerido ?? 0);
-  const checkboxId = `nfse-servico-${servico.servicoid}`;
+  const checkboxId = `nfse-servico-${chaveDoServico(servico)}`;
 
   return (
     <article
@@ -138,7 +142,7 @@ export function NfseServiceCard({
               </p>
             )}
             <p className="mt-1 text-xs text-muted-foreground">
-              Serviço #{servico.servicoid}
+              OS #{servico.ordemservicoid} · Serviço #{servico.servicoid}
               {hasValidValue ? ` · ${quantidade} × ${BRL_FORMATTER.format(precoUnitario)}` : " · valor original pendente"}
             </p>
           </div>
@@ -192,7 +196,7 @@ export function NfseServiceCard({
               onCheckedChange={(checked) => onToggle(servico, checked === true)}
             />
             <Label htmlFor={checkboxId} className={cn("cursor-pointer text-sm font-semibold", !canSelect && "cursor-not-allowed text-muted-foreground")}>
-              {isAuthorized ? "Já emitido" : isProcessing ? "Processando" : hasPendingData ? "Indisponível" : "Incluir"}
+              {isAuthorized ? "Já emitido" : isProcessing ? "Processando" : !canSelect && !loading ? "Indisponível" : "Incluir"}
             </Label>
           </div>
         </div>

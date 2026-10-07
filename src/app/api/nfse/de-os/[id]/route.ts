@@ -10,7 +10,6 @@ import {
   normalizarStatusNFSe,
   validarDadosObrigatoriosNFSe,
   type NFSeCodigosFiscais,
-  type NFSeItemEmissao,
 } from "@/lib/services/fiscais/nfse-service";
 import {
   MENSAGEM_EMISSOR_NACIONAL_EXIGIDO,
@@ -23,33 +22,15 @@ import {
   type PoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
+import { notaDoServicoNFSe } from "@/lib/services/fiscais/nfse-nota-servico";
+import { carregarSelecaoNFSe } from "@/app/api/nfse/_lib/carregar-selecao";
+import { normalizarSelecaoNFSe, SelecaoNFSeError } from "@/lib/services/fiscais/nfse-selecao";
 import { verificarStatusOSParaEmissao } from "@/lib/nfe/elegibilidadeEmissaoServidor";
 
 export const runtime = "nodejs";
 
 type RouteParams = {
   params: Promise<{ id: string }>;
-};
-
-type ServicoRequisitado = {
-  osservicoId: number;
-  valor: number;
-};
-
-type ItemServicoBanco = {
-  servicoid: number;
-  quantidade: number | string | null;
-  precounitario: number | string | null;
-  /**
-   * Valor da linha já com o desconto do item. Na OS âncora quem manda é o
-   * valor que a tela enviou; nas OS agregadas, que entram inteiras, é este.
-   */
-  subtotal?: number | string | null;
-  /** Texto livre da linha da OS, que entra na discriminação abaixo do item. */
-  descricao?: string | null;
-  servico?: {
-    descricao?: string | null;
-  } | null;
 };
 
 const STATUS_ATIVOS = ["PROCESSANDO", "AUTORIZADA", "DENEGADA"];
@@ -70,142 +51,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     const body = await req.json().catch(() => null) as Record<string, unknown> | null;
-    const servicosRequisitados = validarServicosRequisitados(body?.servicos);
-    if (!servicosRequisitados.ok) {
-      return NextResponse.json({ ok: false, message: servicosRequisitados.message }, { status: 400 });
-    }
-
-    // Na emissão agrupada, cada OS do grupo precisa estar num status liberado.
-    const statusOk = await verificarStatusOSParaEmissao([
-      osId,
-      ...(Array.isArray(body?.osIdsAdicionais) ? body!.osIdsAdicionais : []).map(Number),
-    ]);
+    const selecao = normalizarSelecaoNFSe(osId, body, true);
+    const statusOk = await verificarStatusOSParaEmissao(selecao.osIds);
     if (!statusOk.ok) {
       return NextResponse.json({ ok: false, message: statusOk.message }, { status: 422 });
     }
-
-    const { data: os, error: osError } = await supabaseAdmin
-      .from("ordemservico")
-      .select(`
-        *,
-        cliente (*),
-        osservico (
-          *,
-          servico (*)
-        )
-      `)
-      .eq("id", osId)
-      .single();
-
-    if (osError || !os) {
-      console.error("[POST /api/nfse/de-os] Erro ao buscar OS", osError);
-      return NextResponse.json({ ok: false, message: "OS não encontrada ou erro no banco." }, { status: 404 });
-    }
-
-    // A OS pode existir sem cliente, mas a nota fiscal exige um tomador.
-    if (!os.cliente?.id) {
-      return NextResponse.json(
-        { ok: false, message: "Vincule um cliente à OS antes de emitir a NFS-e." },
-        { status: 400 },
-      );
-    }
-
-    const itensDaOs = (Array.isArray(os.osservico) ? os.osservico : []) as ItemServicoBanco[];
-    const itensSelecionados: NFSeItemEmissao[] = [];
-
-    for (const requisitado of servicosRequisitados.servicos) {
-      const item = itensDaOs.find((candidate) => Number(candidate.servicoid) === requisitado.osservicoId);
-      if (!item) {
-        return NextResponse.json(
-          { ok: false, message: `O serviço ${requisitado.osservicoId} não pertence a esta OS.` },
-          { status: 400 },
-        );
-      }
-
-      itensSelecionados.push({
-        servicoid: Number(item.servicoid),
-        quantidade: Number(item.quantidade),
-        valor: requisitado.valor,
-        descricaoItem: item.descricao,
-        servico: item.servico,
-        ordemServicoId: osId,
-      });
-    }
-
-    /*
-     * Emissao agrupada: outras OS do MESMO cliente entram na mesma nota.
-     *
-     * Da ancora vem a selecao de servicos que a tela montou; das agregadas
-     * entram todos os servicos, porque o gesto que as trouxe foi marcar a OS
-     * inteira na lista de pagamentos. O tomador e unico — `nfse.clienteid` e
-     * uma coluna so —, entao cliente diferente e erro de emissao, nao algo a
-     * conciliar.
-     */
-    const osIdsAdicionais = [
-      ...new Set(
-        (Array.isArray(body?.osIdsAdicionais) ? body!.osIdsAdicionais : [])
-          .map((valor) => Number(valor))
-          .filter((valor) => Number.isInteger(valor) && valor > 0 && valor !== osId),
-      ),
-    ];
-    const osDoGrupo: any[] = [os];
-
-    if (osIdsAdicionais.length > 0) {
-      const { data: outras, error: outrasError } = await supabaseAdmin
-        .from("ordemservico")
-        .select(`*, cliente (*), osservico (*, servico (*))`)
-        .in("id", osIdsAdicionais);
-
-      if (outrasError) {
-        console.error("[POST /api/nfse/de-os] Erro ao buscar as OS agrupadas", outrasError);
-        return NextResponse.json(
-          { ok: false, message: "Nao foi possivel carregar as OS agrupadas." },
-          { status: 500 },
-        );
-      }
-
-      const encontradas = new Map<number, any>((outras ?? []).map((linha: any) => [Number(linha.id), linha]));
-      for (const idAdicional of osIdsAdicionais) {
-        const outra = encontradas.get(idAdicional);
-        if (!outra) {
-          return NextResponse.json(
-            { ok: false, message: `A OS ${idAdicional} nao foi encontrada.` },
-            { status: 404 },
-          );
-        }
-        if (Number(outra.cliente?.id) !== Number(os.cliente.id)) {
-          return NextResponse.json(
-            {
-              ok: false,
-              message:
-                `A OS ${idAdicional} pertence a outro cliente. ` +
-                "Uma NFS-e tem um unico tomador — emita uma nota para cada cliente.",
-            },
-            { status: 400 },
-          );
-        }
-
-        const servicosDaOutra = (Array.isArray(outra.osservico) ? outra.osservico : []) as ItemServicoBanco[];
-        if (servicosDaOutra.length === 0) {
-          return NextResponse.json(
-            { ok: false, message: `A OS ${idAdicional} nao tem servicos para faturar.` },
-            { status: 400 },
-          );
-        }
-
-        for (const item of servicosDaOutra) {
-          itensSelecionados.push({
-            servicoid: Number(item.servicoid),
-            quantidade: Number(item.quantidade),
-            valor: Number(item.subtotal ?? 0),
-            descricaoItem: item.descricao,
-            servico: item.servico,
-            ordemServicoId: idAdicional,
-          });
-        }
-        osDoGrupo.push(outra);
-      }
-    }
+    const { os, osDoGrupo, itensSelecionados } = await carregarSelecaoNFSe(selecao);
 
     const { data: empresa, error: empresaError } = await supabaseAdmin
       .from("empresa")
@@ -380,7 +231,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
       const { data: notasAtivas, error: notasAtivasError } = await supabaseAdmin
         .from("nfse")
-        .select("id, referencia, status")
+        .select("id, ordemservicoid, referencia, status, servico_ids, itens")
         .eq("ordemservicoid", idDaOrdem)
         .overlaps("servico_ids", servicosDaOrdem)
         .in("status", STATUS_ATIVOS)
@@ -394,7 +245,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         );
       }
 
-      if (notasAtivas?.length) {
+      if (notasAtivas?.some((nota) => servicosDaOrdem.some((id) => notaDoServicoNFSe(idDaOrdem, id, [nota], []).nota))) {
         return NextResponse.json(
           {
             ok: false,
@@ -566,6 +417,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       { status: 202 },
     );
   } catch (error: unknown) {
+    if (error instanceof SelecaoNFSeError) {
+      return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
+    }
     console.error("[POST /api/nfse/de-os] Exception", error);
 
     if (registroId) {
@@ -588,41 +442,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       { status: configuracaoAusente ? 400 : 500 },
     );
   }
-}
-
-function validarServicosRequisitados(
-  raw: unknown,
-): { ok: true; servicos: ServicoRequisitado[] } | { ok: false; message: string } {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return { ok: false, message: "Selecione ao menos um serviço para emitir a NFS-e." };
-  }
-
-  const ids = new Set<number>();
-  const servicos: ServicoRequisitado[] = [];
-
-  for (let index = 0; index < raw.length; index += 1) {
-    const item = raw[index];
-    if (!item || typeof item !== "object") {
-      return { ok: false, message: `O serviço ${index + 1} é inválido.` };
-    }
-
-    const record = item as Record<string, unknown>;
-    const osservicoId = Number(record.osservicoId);
-    const valorBruto = Number(record.valor);
-    const valor = Math.round(valorBruto * 100) / 100;
-
-    if (!Number.isInteger(osservicoId) || osservicoId <= 0 || ids.has(osservicoId)) {
-      return { ok: false, message: `O serviço ${index + 1} possui um identificador inválido ou duplicado.` };
-    }
-    if (!Number.isFinite(valorBruto) || valor <= 0 || valor > 9999999999999.99) {
-      return { ok: false, message: `Informe um valor válido e maior que zero para o serviço ${index + 1}.` };
-    }
-
-    ids.add(osservicoId);
-    servicos.push({ osservicoId, valor });
-  }
-
-  return { ok: true, servicos };
 }
 
 function validarCodigosFiscais(

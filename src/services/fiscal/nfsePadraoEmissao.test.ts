@@ -88,7 +88,7 @@ describe("contexto de emissão: modelo e padrão vêm juntos", () => {
 
 describe("formulário da revisão", () => {
   const servicoMunicipal = {
-    servicoid: 12, quantidade: 1, precounitario: 300,
+    ordemservicoid: 900, servicoid: 12, quantidade: 1, precounitario: 300,
     servico: { descricao: "TESTE", itemlistaservico: "14.01", cnae: "452000100", aliquotaiss: 5, codigoservicomunicipal: "4520001" },
   };
 

@@ -335,7 +335,7 @@ export function EmissaoNotaDialog({
       .map((valor) => Number(valor))
       .filter((valor) => Number.isInteger(valor) && valor > 0);
     if (!origemId) return ids;
-    return [origemId, ...ids.filter((valor) => valor !== origemId)];
+    return [...new Set([origemId, ...ids.filter((valor) => valor !== origemId)])];
   }, [origem, osIds, vendaIds, origemId]);
 
   const agrupado = origensDoGrupo.length > 1;
@@ -652,11 +652,15 @@ export function EmissaoNotaDialog({
         // Na emissao agrupada, as NFS-e de todas as OS do grupo. Uma chamada
         // por OS: a rota e por OS e ja faz a uniao com o vinculo, entao o
         // merge aqui e so a concatenacao com dedupe por id.
-        const nfseRes = await fetch(`/api/nfse/por-os/${osId}`, { signal });
-        const nfseJson = await nfseRes.json().catch(() => null);
-        const erroNfse = !nfseRes.ok || !nfseJson?.ok
-          ? nfseJson?.message || `Erro ao buscar NFS-e (HTTP ${nfseRes.status}).`
+        const resultadosNfse = await Promise.all(origensDoGrupo.map(async (id) => {
+          const res = await fetch(`/api/nfse/por-os/${id}`, { signal });
+          const json = await res.json().catch(() => null);
+          return { ok: res.ok && json?.ok, message: json?.message, nfses: json?.nfses ?? [] };
+        }));
+        const erroNfse = resultadosNfse.some((resultado) => !resultado.ok)
+          ? resultadosNfse.find((resultado) => !resultado.ok)?.message || "Erro ao buscar NFS-e das OS selecionadas."
           : null;
+        const nfseJson = { nfses: [...new Map(resultadosNfse.flatMap((resultado) => resultado.nfses).map((nota: any) => [nota.id, nota])).values()] };
 
         if (erroNfe && erroNfse) {
           throw new Error(`${erroNfe} ${erroNfse}`);
@@ -732,13 +736,17 @@ export function EmissaoNotaDialog({
   const fetchComposicaoOs = async (signal?: AbortSignal) => {
     if (!osId) return;
     try {
-      const res = await fetch(`/api/ordens/${osId}/composicao-fiscal`, { signal });
-      const json = await res.json().catch(() => null);
-      if (!res.ok || !json?.ok || signal?.aborted) return;
-      setComposicaoOs({
-        produtos: Number(json.produtos ?? 0),
-        servicos: Number(json.servicos ?? 0),
-      });
+      const composicoes = await Promise.all(origensDoGrupo.map(async (id) => {
+        const res = await fetch(`/api/ordens/${id}/composicao-fiscal`, { signal });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.ok) throw new Error(`Erro ao buscar composição da OS #${id}`);
+        return { produtos: Number(json.produtos ?? 0), servicos: Number(json.servicos ?? 0) };
+      }));
+      if (signal?.aborted) return;
+      setComposicaoOs(composicoes.reduce((total, composicao) => ({
+        produtos: total.produtos + composicao.produtos,
+        servicos: total.servicos + composicao.servicos,
+      }), { produtos: 0, servicos: 0 }));
     } catch (e: any) {
       if (e?.name === "AbortError") return;
       // Falhar aqui não pode esconder a emissão: sem resposta, `composicaoOs`
@@ -768,6 +776,7 @@ export function EmissaoNotaDialog({
     if (!canFetch) return;
 
     const ac = new AbortController();
+    setComposicaoOs(null);
     fetchNfes(ac.signal);
     fetchEmpresa();
     void fetchComposicaoOs(ac.signal);
@@ -776,7 +785,7 @@ export function EmissaoNotaDialog({
       ac.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canFetch, endpointListar]);
+  }, [canFetch, endpointListar, origensDoGrupo]);
 
   /**
    * A Focus autoriza a NFS-e de forma assíncrona: a emissão devolve
@@ -869,11 +878,11 @@ export function EmissaoNotaDialog({
 
   const titulo = useMemo(() => {
     if (!origem || !origemId) return "Emissão de Nota Fiscal";
-    if (origem === "OS") return `Emissão de Nota Fiscal - OS #${origemId}`;
+    if (origem === "OS") return `Emissão de Nota Fiscal - ${origensDoGrupo.map((id) => `OS #${id}`).join(", ")}`;
     if (origem === "VENDA") return `Emissão de Nota Fiscal - Venda #${origemId}`;
     if (origem === "SAIDA") return `Emissão de Nota Fiscal - Saída #${origemId}`;
     return `Emissão de Nota Fiscal - Entrada #${origemId}`;
-  }, [origem, origemId]);
+  }, [origem, origemId, origensDoGrupo]);
 
   // Numa OS, cada botão só aparece se houver o que ele documenta: NF-e e NFC-e
   // com produto, NFS-e com serviço. Emitir nota de produto numa OS só de mão de

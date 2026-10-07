@@ -30,12 +30,10 @@ import type {
   ValoresServicosForm,
 } from "./types";
 
+import { chaveDoServico, totalDosServicos } from "./selecao-servicos";
+
 const BRL_FORMATTER = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const inputClassName = "h-11 rounded-sm font-mono tabular-nums";
-
-function numeroMonetario(value: string) {
-  return Number(value.replace(",", "."));
-}
 
 function RequiredMark() {
   return <span className="text-destructive" aria-hidden="true">*</span>;
@@ -87,7 +85,7 @@ export function NfseFiscalForm({
   blocosDoTextoLivre?: BlocoDeObservacao[];
   onAdicionarBloco?: (texto: string) => void;
   onChange: (campo: keyof CodigosFiscaisForm, valor: string) => void;
-  onValueChange: (servicoId: number, valor: string) => void;
+  onValueChange: (chave: string, valor: string) => void;
   onBack: () => void;
   onRefresh: () => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -102,10 +100,7 @@ export function NfseFiscalForm({
       .flatMap((servico) => servico.pendenciasCadastro ?? [])
       .map((pendencia) => [pendencia.mensagem, pendencia] as const),
   ).values()];
-  const total = servicos.reduce((sum, servico) => {
-    const value = numeroMonetario(valores[servico.servicoid] ?? "");
-    return sum + (Number.isFinite(value) ? value : 0);
-  }, 0);
+  const total = totalDosServicos(servicos, valores);
 
   return (
     <div className="space-y-6">
@@ -176,7 +171,7 @@ export function NfseFiscalForm({
             {descontoOrigem && descontoOrigem.servicos > 0 ? (
               <div className="min-w-0 space-y-1.5 border border-dashed p-2.5">
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  A OS deu <b className="text-foreground">{BRL_FORMATTER.format(descontoOrigem.total)}</b>{" "}
+                  As ordens de serviço deram <b className="text-foreground">{BRL_FORMATTER.format(descontoOrigem.total)}</b>{" "}
                   de desconto sobre {BRL_FORMATTER.format(descontoOrigem.baseProdutos + descontoOrigem.baseServicos)}{" "}
                   em produtos e serviços. O desconto é rateado proporcionalmente, e esta NFS-e fica
                   com a parte dos serviços:
@@ -201,15 +196,16 @@ export function NfseFiscalForm({
             <div className="space-y-3">
               {servicos.map((servico, index) => {
                 // A mesma linha que a discriminação leva abaixo do item.
+                const chave = chaveDoServico(servico);
                 const descricaoDoItem = descricaoComplementarDoItem(servico.descricao, servico.servico?.descricao);
                 const descontoDoServico = Number(
                   (Math.max(0, Number(servico.descontoItem ?? 0))
                     + Math.max(0, Number(servico.descontoRateado ?? 0))).toFixed(2),
                 );
                 return (
-                <div key={servico.servicoid} className="grid gap-3 border bg-muted/20 p-3 sm:grid-cols-[1fr_180px] sm:items-end">
+                <div key={chave} className="grid gap-3 border bg-muted/20 p-3 sm:grid-cols-[1fr_180px] sm:items-end">
                   <div className="min-w-0">
-                    <p className="text-xs font-medium text-muted-foreground">Item {index + 1} · Serviço #{servico.servicoid}</p>
+                    <p className="text-xs font-medium text-muted-foreground">Item {index + 1} · OS #{servico.ordemservicoid} · Serviço #{servico.servicoid}</p>
                     <p className="mt-1 truncate text-sm font-semibold">{servico.servico?.descricao || "Descrição não cadastrada"}</p>
                     {descricaoDoItem && (
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{descricaoDoItem}</p>
@@ -224,12 +220,12 @@ export function NfseFiscalForm({
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor={`nfse-valor-${servico.servicoid}`}>Valor na NFS-e <RequiredMark /></Label>
+                    <Label htmlFor={`nfse-valor-${chave}`}>Valor na NFS-e <RequiredMark /></Label>
                     <Input
-                      id={`nfse-valor-${servico.servicoid}`}
+                      id={`nfse-valor-${chave}`}
                       className={inputClassName}
-                      value={valores[servico.servicoid] ?? ""}
-                      onChange={(event) => onValueChange(servico.servicoid, event.target.value)}
+                      value={valores[chave] ?? ""}
+                      onChange={(event) => onValueChange(chave, event.target.value)}
                       inputMode="decimal"
                       placeholder="0,00"
                       required
