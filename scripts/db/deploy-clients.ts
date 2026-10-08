@@ -50,7 +50,7 @@ async function main() {
 
   const pendingClients = clients.filter((inspection) => inspection.pending.length);
   if (!pendingClients.length) {
-    console.log("Demir e Garage Premium já estão atualizados.");
+    console.log("Todos os clientes cadastrados já estão atualizados.");
     return;
   }
 
@@ -84,7 +84,7 @@ async function main() {
   if (historyDrift || differences.length) {
     throw new Error("A comparação final encontrou divergências.");
   }
-  console.log("\nDemir e Garage Premium atualizados; os três bancos estão alinhados.");
+  console.log("\nDemir, Garage Premium e Jean Car atualizados; os três bancos estão alinhados.");
 }
 
 main().catch((error) => {

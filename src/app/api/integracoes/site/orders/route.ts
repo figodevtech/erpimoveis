@@ -27,6 +27,8 @@ export async function GET(request: NextRequest) {
         )
       `, { count: "exact" })
       .eq("empresa_id", empresaId)
+      // Keep the integration history, but hide canceled orders whose ERP sale was removed.
+      .or("venda_id.not.is.null,site_status.neq.CANCELADO")
       .order("order_created_at", { ascending: false })
       .range(from, from + limit - 1);
 

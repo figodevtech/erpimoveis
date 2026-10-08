@@ -5,7 +5,7 @@ import {
 } from "./lib";
 
 async function main() {
-  console.log("Verificando Demonstração, Demir e Garage Premium...");
+  console.log("Verificando os bancos cadastrados...");
   const { inspections } = await inspectAllDatabases();
   printInspectionSummary(inspections);
 

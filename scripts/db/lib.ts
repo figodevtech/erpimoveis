@@ -9,7 +9,7 @@ const { Client } = pg;
 
 export const projectRoot = path.resolve(import.meta.dirname, "../..");
 
-export type DatabaseKey = "demo" | "demir" | "garage";
+export type DatabaseKey = string;
 
 export type DatabaseConfig = {
   key: DatabaseKey;
@@ -66,6 +66,13 @@ const DATABASES: Omit<DatabaseConfig, "url">[] = [
       "aws-1-ca-central-1.pooler.supabase.com",
     ],
   },
+  {
+    key: "jean",
+    label: "Jean Car",
+    projectRef: "jqpcttqzbdtsrlrsaatf",
+    envName: "ERP_DB_JEAN_CAR",
+    poolerHosts: ["aws-0-us-east-1.pooler.supabase.com"],
+  },
 ];
 
 export function parseSimpleEnv(file: string) {
@@ -115,13 +122,23 @@ function validateDatabaseUrl(value: string, label: string) {
 }
 
 export function loadDatabaseConfigs(): DatabaseConfig[] {
+  const sharedMigrationEnv = parseSimpleEnv(path.join(projectRoot, ".env.migrations"));
   const migrationEnv = parseSimpleEnv(
     path.join(projectRoot, ".env.migrations.local"),
   );
   const legacyUrls = legacyDatabaseUrls();
+  const registryFile = path.join(projectRoot, "scripts/db/clientes.json");
+  const clients: Omit<DatabaseConfig, "url">[] = fs.existsSync(registryFile)
+    ? JSON.parse(fs.readFileSync(registryFile, "utf8")) : [];
+  const definitions = [...DATABASES, ...clients];
+  for (const field of ["key", "projectRef", "envName"] as const) {
+    if (new Set(definitions.map((item) => item[field])).size !== definitions.length) {
+      throw new Error(`Cadastro de bancos duplicado: ${field}.`);
+    }
+  }
 
-  return DATABASES.map((database) => {
-    const explicit = process.env[database.envName] || migrationEnv.get(database.envName);
+  return definitions.map((database) => {
+    const explicit = process.env[database.envName] || migrationEnv.get(database.envName) || sharedMigrationEnv.get(database.envName);
     const fallback = legacyUrls.find((url) => url.includes(database.projectRef));
     const url = explicit || fallback;
 
@@ -132,6 +149,13 @@ export function loadDatabaseConfigs(): DatabaseConfig[] {
     }
 
     validateDatabaseUrl(url, database.label);
+    const parsed = new URL(url);
+    if (!(parsed.hostname === `db.${database.projectRef}.supabase.co` ||
+          parsed.hostname === `db.${database.projectRef}.supabase.com` ||
+          (parsed.hostname.endsWith('.pooler.supabase.com') &&
+           decodeURIComponent(parsed.username) === `postgres.${database.projectRef}`))) {
+      throw new Error(`A conexao de ${database.label} aponta para outro projeto Supabase.`);
+    }
     return { ...database, url };
   });
 }
@@ -288,7 +312,7 @@ export const SCHEMA_QUERIES: Record<string, string> = {
            c.relrowsecurity, c.relforcerowsecurity,
            pg_get_userbyid(c.relowner) owner,
            coalesce((select array_agg(x::text order by x::text)::text
-                       from unnest(c.relacl) x), '') acl
+                       from unnest(coalesce(c.relacl, acldefault(case when c.relkind='S' then 's'::"char" else 'r'::"char" end,c.relowner))) x), '') acl
       from pg_class c
       join pg_namespace n on n.oid = c.relnamespace
      where n.nspname = 'public' and c.relkind in ('r','p','v','m','S')
@@ -333,10 +357,10 @@ export const SCHEMA_QUERIES: Record<string, string> = {
      where schemaname in ('public', 'storage')
      order by 1, 2, 3`,
   enums: `
-    select t.typname, e.enumsortorder, e.enumlabel,
+    select t.typname, row_number() over (partition by t.oid order by e.enumsortorder) enumsortorder, e.enumlabel,
            pg_get_userbyid(t.typowner) owner,
            coalesce((select array_agg(x::text order by x::text)::text
-                       from unnest(t.typacl) x), '') acl
+                       from unnest(coalesce(t.typacl, acldefault('T',t.typowner))) x), '') acl
       from pg_type t
       join pg_namespace n on n.oid = t.typnamespace
       join pg_enum e on e.enumtypid = t.oid
@@ -384,12 +408,18 @@ export const SCHEMA_QUERIES: Record<string, string> = {
            coalesce(array_to_string(p.proconfig, ','), '') config,
            p.prosrc, pg_get_userbyid(p.proowner) owner,
            coalesce((select array_agg(x::text order by x::text)::text
-                       from unnest(p.proacl) x), '') acl
+                       from unnest(coalesce(p.proacl, acldefault('f',p.proowner))) x), '') acl
       from pg_proc p
       join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public'
+     where n.nspname = 'public' and p.prorettype <> 'event_trigger'::regtype
      order by 1, 2`,
 };
+
+// pg_dump pode restaurar um cast de array como casts equivalentes por elemento.
+export function normalizeConstraint(definition: string) {
+  return definition.replace(/ARRAY\[((?:'[^']*'::character varying,?\s*)+)\]::text\[\]/g,
+    (_, elements: string) => `ARRAY[${elements.replace(/::character varying/g, "::character varying::text")}]`);
+}
 
 function fingerprint(rows: unknown[]) {
   return crypto
@@ -425,7 +455,9 @@ export async function inspectDatabase(
               ...row,
               prosrc: normalizeFunction(String(row.prosrc)),
             }))
-          : result.rows;
+          : category === "constraints"
+            ? result.rows.map((row) => ({ ...row, definition: normalizeConstraint(row.definition) }))
+            : result.rows;
       fingerprints[category] = { count: rows.length, hash: fingerprint(rows) };
     }
 
@@ -439,6 +471,7 @@ export async function inspectDatabase(
          join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public'
           and p.prokind in ('f', 'p')
+          and p.prorettype <> 'event_trigger'::regtype
           and not exists (
             select 1 from pg_depend d
              where d.classid = 'pg_proc'::regclass

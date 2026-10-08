@@ -3,6 +3,9 @@
 As migrations ficam em `supabase/migrations`. Os comandos aplicam os mesmos
 arquivos em cada banco; não é necessário copiar schema para o SQL Editor.
 
+Para criar um banco do zero para um novo cliente, siga o
+[roteiro de novos bancos](ROTEIRO_NOVOS_BANCOS.md).
+
 ## 1. Antes do commit/merge
 
 ```powershell

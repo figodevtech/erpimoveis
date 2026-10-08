@@ -38,7 +38,7 @@ async function main() {
   const clients = databases.filter((database) => database.key !== "demo");
   if (!demo) throw new Error("Banco de Demonstração não configurado.");
 
-  console.log("Pré-validação dos três bancos...");
+  console.log(`Pré-validação dos ${databases.length} bancos cadastrados...`);
   const initial = await inspectAllDatabases();
   printInspectionSummary(initial.inspections);
 
@@ -84,7 +84,7 @@ async function main() {
     );
     await confirm(
       "CLIENTES",
-      "Após validar a Demonstração, deseja atualizar Demir e Garage Premium?",
+      `Após validar a Demonstração, deseja atualizar ${clients.map((item) => item.label).join(", ")}?`,
       flags.has("--approve-clients"),
     );
 
@@ -99,7 +99,7 @@ async function main() {
       await runDatabasePush(status.database, false);
     }
   } else {
-    console.log("Demir e Garage Premium já estão atualizados.");
+    console.log("Todos os clientes cadastrados já estão atualizados.");
   }
 
   console.log("\nValidação final...");
@@ -120,7 +120,7 @@ async function main() {
     );
   }
 
-  console.log("\nDeploy concluído: os três bancos estão alinhados.");
+  console.log("\nDeploy concluído: todos os bancos cadastrados estão alinhados.");
 }
 
 main().catch((error) => {
