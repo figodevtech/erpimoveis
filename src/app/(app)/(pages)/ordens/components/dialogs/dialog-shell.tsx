@@ -46,7 +46,7 @@ export function DialogShell({
             : `w-[96vw] p-0 sm:max-w-[95vw] md:max-w-3xl ${fixedHeightClass}`,
           maxW,
           isWorkbench && !loading &&
-            "border-foreground/20 shadow-2xl [&>[data-slot=dialog-close]]:text-background [&>[data-slot=dialog-close]]:ring-offset-foreground",
+            "border-foreground/20 shadow-2xl [&>[data-slot=dialog-close]]:text-foreground [&>[data-slot=dialog-close]]:ring-offset-card",
         )}
         onInteractOutside={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => e.preventDefault()}
