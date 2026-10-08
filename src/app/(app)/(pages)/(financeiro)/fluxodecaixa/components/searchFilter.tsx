@@ -487,9 +487,9 @@ export default function SearchFilter({
                     </label>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      Você vê as transações que lançou, mais os registros sem
-                      autor. Ver o que as outras pessoas lançaram depende da
-                      permissão “Ver transações de todos”.
+                      Você vê os lançamentos compartilhados entre usuários comuns,
+                      incluindo registros sem autor. Lançamentos de quem possui
+                      “Caixa administrativo” ficam ocultos.
                     </p>
                   )}
                 </div>

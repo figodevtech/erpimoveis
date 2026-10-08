@@ -38,7 +38,7 @@ export default function FinanceiroPage() {
   /*
    * "Apenas as minhas" e um recorte opcional de quem pode ver tudo.
    *
-   * Quem nao tem `financeiro:ver_todas_transacoes` ja chega recortado pelo
+   * Sem Caixa administrativo, os lançamentos comuns já chegam compartilhados pelo
    * servidor, e este estado nao muda nada para essa pessoa — e de proposito:
    * um limite que o cliente pudesse desligar nao seria limite.
    */

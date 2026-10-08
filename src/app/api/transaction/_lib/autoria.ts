@@ -1,6 +1,7 @@
-import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { hasOSAccess, hasVendasAccess, podeVerTodasTransacoes } from "@/app/api/_authz/perms";
+import { getCurrentUserAccess, hasOSAccess, hasVendasAccess } from "@/app/api/_authz/perms";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import { fetchAllSupabaseRows, fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
 import {
   decidirRecorte,
   podeAlterarTransacao,
@@ -9,16 +10,6 @@ import {
   type RecorteDeAutoria,
 } from "./autoria-regra";
 
-/**
- * Quem ve o que na listagem do fluxo de caixa.
- *
- * Fonte unica da regra: lista, KPIs, exportacao e as rotas de uma transacao so
- * precisam concordar entre si. Quando divergiam, o cartao somava um recorte e a
- * tabela mostrava outro — e a planilha entregava o que a tela escondia.
- *
- * A decisao em si mora em `./autoria-regra`, que nao importa sessao nem banco e
- * por isso pode ser testada.
- */
 export {
   aplicarRecorteDeAutoria,
   expressaoDeAutoria,
@@ -27,151 +18,161 @@ export {
   type RecorteDeAutoria,
 } from "./autoria-regra";
 
-/** O id do dono vem sempre da sessao. Nunca do corpo nem da query. */
-async function usuarioDaSessao(): Promise<string | null> {
-  const session = await auth();
-  return ((session?.user as { id?: string } | undefined)?.id as string | undefined) ?? null;
-}
+export type ContextoDeAutoria = {
+  podeVerTudo: boolean;
+  usuarioId: string;
+  autoresAdministrativos: ReadonlySet<string>;
+};
 
-export async function recorteDeAutoria(apenasMinhas: boolean): Promise<RecorteDeAutoria> {
-  const podeVerTudo = await podeVerTodasTransacoes();
-  if (podeVerTudo && !apenasMinhas) return decidirRecorte(true, false, null);
-  return decidirRecorte(podeVerTudo, apenasMinhas, await usuarioDaSessao());
-}
-
-function erro403(mensagem: string) {
-  const erro = new Error(mensagem);
-  (erro as { statusCode?: number }).statusCode = 403;
-  return erro;
+function erroDeAcesso(statusCode: number, mensagem: string) {
+  return Object.assign(new Error(mensagem), { statusCode });
 }
 
 /**
- * Quem pode alterar o que, para quem precisa decidir linha a linha (a aba
- * Financeiro da OS marca o que abre so para leitura).
+ * Lê o perfil ATUAL dos criadores, inclusive desativados. Não há classificação
+ * permanente na transação nem cache adicional que atrase mudanças de perfil.
+ * O chamador reutiliza este contexto nas consultas e operações da requisição.
  */
-export async function criterioDeAlteracao(): Promise<(createdBy: string | null) => boolean> {
-  if (await podeVerTodasTransacoes()) return () => true;
-  const usuarioId = await usuarioDaSessao();
-  return (createdBy) => podeAlterarTransacao({ podeVerTudo: false, usuarioId, createdBy });
+export async function contextoDeAutoria(): Promise<ContextoDeAutoria> {
+  const acesso = await getCurrentUserAccess();
+  if (!acesso?.ativo) throw erroDeAcesso(401, "Não autenticado");
+  const podeVerTudo = permissionSetHas(acesso.permissoes, PERMS.FINANCEIRO_VER_TODAS_TRANSACOES);
+  const autoresAdministrativos = new Set<string>();
+  if (!podeVerTudo) {
+    const usuarios = await fetchAllSupabaseRows<{
+      id: string;
+      perfil: { perfilpermissao: Array<{ permissao: { nome: string } | null }> } | null;
+    }>(() => supabaseAdmin
+      .from("usuario")
+      .select("id, perfil:perfilid(perfilpermissao(permissao:permissaoid(nome)))")
+      .order("id", { ascending: true }));
+    for (const usuario of usuarios) {
+      const permissoes = usuario.perfil?.perfilpermissao.map((vinculo) => vinculo.permissao?.nome) ?? [];
+      if (permissionSetHas(permissoes, PERMS.FINANCEIRO_VER_TODAS_TRANSACOES)) {
+        autoresAdministrativos.add(usuario.id);
+      }
+    }
+  }
+  return { podeVerTudo, usuarioId: acesso.id, autoresAdministrativos };
+}
+
+export async function recorteDeAutoria(
+  apenasMinhas: boolean,
+  contexto?: ContextoDeAutoria,
+): Promise<RecorteDeAutoria> {
+  const acesso = contexto ?? await contextoDeAutoria();
+  return decidirRecorte(acesso.podeVerTudo, apenasMinhas, acesso.usuarioId, acesso.autoresAdministrativos);
+}
+
+export async function criterioDeAlteracao(
+  contexto?: ContextoDeAutoria,
+): Promise<(createdBy: string | null) => boolean> {
+  const acesso = contexto ?? await contextoDeAutoria();
+  return (createdBy) => podeAlterarTransacao({ ...acesso, createdBy });
 }
 
 function normalizarIds(ids: number | string | Array<number | string>): number[] {
-  return (Array.isArray(ids) ? ids : [ids])
-    .map((id) => Number(id))
-    .filter((id) => Number.isFinite(id));
+  return [...new Set((Array.isArray(ids) ? ids : [ids])
+    .map(Number)
+    .filter((id) => Number.isSafeInteger(id) && id > 0))];
 }
+
+type DonoDaTransacao = {
+  id: number;
+  created_by: string | null;
+  ordemservicoid: number | null;
+  vendaid: number | null;
+  baixa_de_transacao_id: number | null;
+};
 
 async function donosDasTransacoes(lista: number[]) {
-  const { data, error } = await supabaseAdmin
+  return fetchAllSupabaseRowsByChunks<DonoDaTransacao, number>(lista, (ids) => supabaseAdmin
     .from("transacao")
-    .select("id, created_by, ordemservicoid, vendaid")
-    .in("id", lista);
-
-  if (error) throw error;
-  return (data ?? []) as Array<{
-    id: number;
-    created_by: string | null;
-    ordemservicoid: number | null;
-    vendaid: number | null;
-  }>;
+    .select("id, created_by, ordemservicoid, vendaid, baixa_de_transacao_id")
+    .in("id", ids)
+    .order("id", { ascending: true }), 100);
 }
 
-function recusar(alheias: Array<{ id: number }>): never {
-  throw erro403(
-    alheias.length === 1
-      ? `A transação #${alheias[0].id} foi criada por outra pessoa.`
-      : `${alheias.length} das transações selecionadas foram criadas por outras pessoas.`,
-  );
+function recusar(administrativas: Array<{ id: number }>): never {
+  throw erroDeAcesso(403, administrativas.length === 1
+    ? "A transação #" + administrativas[0].id + " pertence ao Caixa administrativo."
+    : administrativas.length + " das transações pertencem ao Caixa administrativo.");
 }
 
-/**
- * Barra o acesso direto a uma transacao de outra pessoa.
- *
- * A lista esconder a linha nao basta: sem isto bastava saber o id para abrir,
- * editar ou excluir pela rota. Como `created_by IS NULL` continua sendo de
- * todos, isto so morde transacao que nasceu com dono.
- *
- * Vale para escrita. Os GET usam `exigirLeituraDeTransacao`, que tambem abre a
- * transacao de OS.
- */
+/** Compartilha operações comuns; a permissão da ação continua obrigatória. */
 export async function exigirAcessoATransacao(
-  // Aceita string porque nem todo handler converte o id da rota antes de
-  // chegar aqui — `parseId` de algumas rotas devolve o texto cru.
   ids: number | string | Array<number | string>,
+  contexto?: ContextoDeAutoria,
 ): Promise<void> {
   const lista = normalizarIds(ids);
-  if (lista.length === 0) return;
-
-  if (await podeVerTodasTransacoes()) return;
-
-  const usuarioId = await usuarioDaSessao();
-
-  // Id inexistente nao e assunto desta checagem: quem responde 404 e o handler.
-  const alheias = (await donosDasTransacoes(lista)).filter(
-    (linha) => !podeAlterarTransacao({ podeVerTudo: false, usuarioId, createdBy: linha.created_by }),
+  if (!lista.length) return;
+  const acesso = contexto ?? await contextoDeAutoria();
+  if (acesso.podeVerTudo) return;
+  const linhas = await donosDasTransacoes(lista);
+  // Alterar/excluir uma baixa parcial também modifica o saldo do título pai.
+  const pais = [...new Set(linhas.flatMap((linha) =>
+    linha.baixa_de_transacao_id != null ? [Number(linha.baixa_de_transacao_id)] : []))];
+  const afetadas = [...linhas, ...await donosDasTransacoes(pais)];
+  const administrativas = afetadas.filter(
+    (linha) => !podeAlterarTransacao({ ...acesso, createdBy: linha.created_by }),
   );
-
-  if (alheias.length > 0) recusar(alheias);
+  if (administrativas.length) recusar(administrativas);
 }
 
-/**
- * Como `exigirAcessoATransacao`, mas para abrir sem alterar: a transacao alheia
- * que e pagamento de uma OS abre para quem acessa OS, e a de uma venda para
- * quem acessa vendas. A aba Financeiro da OS e as telas de pagamento ja as
- * listam — sem isto o clique na linha visivel virava 403.
- *
- * "Pagamento de" segue o mesmo criterio dessas telas: `ordemservicoid` /
- * `vendaid`, ou o rateio de um pagamento multiplo que cobre o documento.
- */
-export async function exigirLeituraDeTransacao(
+async function transacoesSemLeitura(
   ids: number | string | Array<number | string>,
-): Promise<void> {
+  contexto?: ContextoDeAutoria,
+): Promise<DonoDaTransacao[]> {
   const lista = normalizarIds(ids);
-  if (lista.length === 0) return;
-
-  if (await podeVerTodasTransacoes()) return;
-
-  const usuarioId = await usuarioDaSessao();
-  const linhas = await donosDasTransacoes(lista);
-  const semAlterar = linhas.filter(
-    (linha) => !podeAlterarTransacao({ podeVerTudo: false, usuarioId, createdBy: linha.created_by }),
+  if (!lista.length) return [];
+  const acesso = contexto ?? await contextoDeAutoria();
+  if (acesso.podeVerTudo) return [];
+  const administrativas = (await donosDasTransacoes(lista)).filter(
+    (linha) => !podeAlterarTransacao({ ...acesso, createdBy: linha.created_by }),
   );
-  if (semAlterar.length === 0) return;
-
-  const [acessoAOs, acessoAVendas] = await Promise.all([hasOSAccess(), hasVendasAccess()]);
-  const acessoA: Record<DocumentoDoPagamento, boolean> = { OS: acessoAOs, VENDA: acessoAVendas };
-
+  if (!administrativas.length) return [];
+  const [OS, VENDA] = await Promise.all([hasOSAccess(), hasVendasAccess()]);
+  const acessoA = { OS, VENDA };
   const documentos = new Map<number, Set<DocumentoDoPagamento>>();
-  for (const linha of semAlterar) {
+  for (const linha of administrativas) {
     const conjunto = new Set<DocumentoDoPagamento>();
     if (linha.ordemservicoid != null) conjunto.add("OS");
     if (linha.vendaid != null) conjunto.add("VENDA");
     documentos.set(linha.id, conjunto);
   }
-
-  // O rateio so importa se abrir alguma coisa: sem acesso a nenhum dos dois
-  // modulos, a resposta ja e 403.
-  if (acessoAOs || acessoAVendas) {
-    const { data, error } = await supabaseAdmin
+  if (OS || VENDA) {
+    const rateios = await fetchAllSupabaseRowsByChunks<{
+      transacao_id: number; tipo_documento: DocumentoDoPagamento;
+    }, number>(administrativas.map((linha) => linha.id), (ids) => supabaseAdmin
       .from("pagamento_multiplo_rateio")
-      .select("transacao_id, tipo_documento")
-      .in("transacao_id", semAlterar.map((linha) => linha.id));
-    if (error) throw error;
-    for (const linha of (data ?? []) as Array<{ transacao_id: number; tipo_documento: DocumentoDoPagamento }>) {
-      documentos.get(Number(linha.transacao_id))?.add(linha.tipo_documento);
-    }
+      .select("id, transacao_id, tipo_documento")
+      .in("transacao_id", ids)
+      .order("id", { ascending: true }), 100);
+    for (const linha of rateios) documentos.get(linha.transacao_id)?.add(linha.tipo_documento);
   }
+  const recusadas = administrativas.filter((linha) => !podeLerTransacao({
+    ...acesso,
+    createdBy: linha.created_by,
+    documentos: [...(documentos.get(linha.id) ?? [])],
+    acessoA,
+  }));
+  return recusadas;
+}
 
-  const alheias = semAlterar.filter(
-    (linha) =>
-      !podeLerTransacao({
-        podeVerTudo: false,
-        usuarioId,
-        createdBy: linha.created_by,
-        documentos: [...(documentos.get(linha.id) ?? [])],
-        acessoA,
-      }),
-  );
+/** Preserva a exceção de leitura de pagamentos em OS e vendas. */
+export async function exigirLeituraDeTransacao(
+  ids: number | string | Array<number | string>,
+  contexto?: ContextoDeAutoria,
+): Promise<void> {
+  const recusadas = await transacoesSemLeitura(ids, contexto);
+  if (recusadas.length) recusar(recusadas);
+}
 
-  if (alheias.length > 0) recusar(alheias);
+/** Filtra vínculos auxiliares antes de produzir seus detalhes e somatórios. */
+export async function filtrarTransacoesLegiveis<T extends { id: number }>(
+  linhas: T[],
+  contexto: ContextoDeAutoria,
+): Promise<T[]> {
+  const recusadas = new Set((await transacoesSemLeitura(linhas.map((linha) => linha.id), contexto)).map((linha) => linha.id));
+  return linhas.filter((linha) => !recusadas.has(Number(linha.id)));
 }

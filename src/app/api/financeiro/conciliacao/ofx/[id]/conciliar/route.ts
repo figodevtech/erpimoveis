@@ -5,9 +5,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceiroEdit } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { contextoDeAutoria } from "@/app/api/transaction/_lib/autoria";
 import {
   ACOES_DE_EDICAO,
   aplicarDecisao,
+  validarAcessoDasDecisoes,
   idsDaDecisao,
   normalizarDecisao,
 } from "../../_lib/conciliar";
@@ -114,9 +116,11 @@ export async function POST(req: Request, ctx: Params) {
       );
     }
 
+    const contexto = await contextoDeAutoria();
+    await validarAcessoDasDecisoes(decisoes, contexto);
     const resultados = [];
     for (const [indice, decisao] of (decisoes as any[]).entries()) {
-      resultados.push(await aplicarDecisao(idsPorDecisao[indice], decisao, usuarioId));
+      resultados.push(await aplicarDecisao(idsPorDecisao[indice], decisao, usuarioId, contexto));
     }
 
     return NextResponse.json({

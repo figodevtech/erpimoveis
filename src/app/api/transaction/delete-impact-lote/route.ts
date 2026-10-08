@@ -6,7 +6,7 @@ import { requireFinanceiroDelete } from "@/app/api/_authz/perms";
 import { classificarExclusaoEmLote } from "@/app/api/transaction/_lib/classificar-exclusao";
 import { analisarImpacto } from "@/app/api/transaction/_lib/impacto-exclusao";
 import { lerIdsDoCorpo } from "@/app/api/transaction/_lib/lote-exclusao";
-import { exigirAcessoATransacao } from "../_lib/autoria";
+import { exigirAcessoAOperacao } from "../_lib/autoria-afetadas";
 
 /**
  * A prévia da exclusão em massa: o que acontece com cada linha marcada.
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
 
     const corpo = await req.json().catch(() => ({}));
     const ids = lerIdsDoCorpo((corpo as { ids?: unknown })?.ids);
-    await exigirAcessoATransacao(ids);
+    await exigirAcessoAOperacao(ids, "EXCLUIR");
 
     const impactos = await analisarImpacto(ids);
     const { itens, plano, resumo } = classificarExclusaoEmLote(ids, impactos);
