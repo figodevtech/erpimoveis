@@ -42,10 +42,13 @@ const storefrontResponseSchema = z.object({
 });
 
 export async function syncSiteOrders(empresaId: number, orderId?: number) {
+    // Targeted webhook already reconciles its order; do not scan other refunds.
+    if (!orderId) {
     const { data: pendingRefunds, error: refundError } = await supabaseAdmin.from("site_order_link")
       .select("site_order_id").eq("empresa_id",empresaId).not("refund_requested_at","is",null).neq("site_status","CANCELADO").limit(100);
     if(refundError) throw refundError;
     for (const refund of pendingRefunds || []) await refreshSiteRefundStatus(empresaId, Number(refund.site_order_id));
+    }
     const baseUrl = process.env.STOREFRONT_API_URL?.trim().replace(/\/+$/, "");
     const secret = process.env.STOREFRONT_ORDER_SYNC_SECRET?.trim();
     if (!baseUrl || !secret) throw new Error("Configure a integração de pedidos da loja no ERP.");
