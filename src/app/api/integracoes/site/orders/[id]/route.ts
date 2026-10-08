@@ -171,7 +171,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     });
     const result = await readJsonResponse(response, "Loja");
     if (!response.ok) throw new Error(result.error || `A loja respondeu HTTP ${response.status}.`);
-    const { error: refundUpdateError } = await supabaseAdmin.from("site_order_link").update({ refund_status: result.gatewayStatus, refund_checked_at: new Date().toISOString() }).eq("empresa_id", empresaId).eq("site_order_id", siteOrderId);
+    const { error: refundUpdateError } = await supabaseAdmin.from("site_order_link").update({ refund_status: result.refundStatus || result.gatewayStatus, refund_checked_at: new Date().toISOString() }).eq("empresa_id", empresaId).eq("site_order_id", siteOrderId);
     if (refundUpdateError) throw refundUpdateError;
     if (result.pending || result.gatewayStatus !== "REFUNDED") return NextResponse.json({ ...result, pending: true });
     const { data: sale, error: saleError } = await supabaseAdmin.from("venda")

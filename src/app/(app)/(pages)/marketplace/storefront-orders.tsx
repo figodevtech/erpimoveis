@@ -242,7 +242,7 @@ export function StorefrontOrders({
       const response = await fetch(`/api/integracoes/site/orders/${order.site_order_id}`, {cache:"no-store"});
       const result = await readJsonResponse(response, "ERP");
       if(!response.ok) throw new Error(result.error || "Falha ao consultar estorno.");
-      toast.info(result.refundStatus === "DENIED" ? `Estorno recusado: ${result.denialReason || "Motivo nao informado"}. Nenhum estoque foi devolvido.` : result.gatewayStatus === "REFUNDED" ? result.requiresPhysicalReturn ? "Estorno confirmado. Estoque aguarda devolução física conferida." : "Estorno confirmado e estoque devolvido." : result.requestedAt && ["RECEIVED", "CONFIRMED"].includes(result.gatewayStatus) ? "Solicitação registrada, mas o pagamento continua recebido. O reembolso precisa de verificação antes de nova tentativa." : result.requestedAt ? `Estorno solicitado. Status Asaas: ${result.gatewayStatus}` : `Nenhum estorno solicitado. Status Asaas: ${result.gatewayStatus}`);
+      toast.info(result.refundStatus === "AWAITING_CRITICAL_ACTION_AUTHORIZATION" ? "Reembolso aguarda autorizacao na conta Asaas da Demir. Autorize a acao pendente; nao solicite outro estorno." : result.refundStatus === "DENIED" ? `Estorno recusado: ${result.denialReason || "Motivo nao informado"}. Nenhum estoque foi devolvido.` : result.gatewayStatus === "REFUNDED" ? result.requiresPhysicalReturn ? "Estorno confirmado. Estoque aguarda devolução física conferida." : "Estorno confirmado e estoque devolvido." : result.requestedAt && ["RECEIVED", "CONFIRMED"].includes(result.gatewayStatus) ? "Solicitação registrada, mas o pagamento continua recebido. O reembolso precisa de verificação antes de nova tentativa." : result.requestedAt ? `Estorno solicitado. Status Asaas: ${result.gatewayStatus}` : `Nenhum estorno solicitado. Status Asaas: ${result.gatewayStatus}`);
       await loadOrders(true);
     } catch(error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar estorno."); }
   }
@@ -750,6 +750,7 @@ function ImportBadge({ status }: { status: SiteOrder["import_status"] }) {
 }
 
 function FulfillmentBadge({ order }: { order: SiteOrder }) {
+  if (order.refund_status === "AWAITING_CRITICAL_ACTION_AUTHORIZATION") return <Badge variant="outline">Estorno: autorizar no Asaas</Badge>;
   if (order.refund_status === "DENIED") return <Badge variant="destructive" title={order.refund_denial_reason || "Estorno recusado pelo Asaas"}>Estorno recusado</Badge>;
   if(order.refund_requested_at && order.refund_status !== "REFUNDED") return <Badge variant="outline">Estorno: {order.refund_status === "REFUND_REQUESTED" || order.refund_status === "REFUND_IN_PROGRESS" ? "Em processamento" : order.refund_status === "REQUESTING" ? "Solicitando" : ["RECEIVED", "CONFIRMED"].includes(order.refund_status || "") ? "Verificar solicitação" : "Aguardando confirmação"}</Badge>;
   if (["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")) return <Badge variant="destructive">Cancelado</Badge>;

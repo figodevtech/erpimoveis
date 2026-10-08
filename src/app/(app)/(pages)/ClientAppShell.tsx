@@ -238,7 +238,7 @@ export default function ClientAppShell({
       {(config?.aviso_pagamento || billing.showBanner || billing.blocked) && (
         <div
           role="alert"
-          className="fixed inset-x-0 top-0 z-[60] flex h-10 w-full items-center justify-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-1 text-center text-xs font-medium leading-tight text-amber-900 shadow-sm sm:text-sm"
+          className="fixed inset-x-0 top-0 z-40 flex h-10 w-full items-center justify-center gap-2 border-b border-amber-300 bg-amber-50 px-3 py-1 text-center text-xs font-medium leading-tight text-amber-900 shadow-sm sm:text-sm"
         >
           <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{billing.message || "Débitos pendentes. Acesse Seu Plano para regularização."}</span>
