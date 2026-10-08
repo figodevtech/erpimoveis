@@ -8,7 +8,7 @@ import { carregarAutores } from "@/lib/movement-authors";
 import { modoDeReparcelamento } from "@/lib/financeiro/reparcelamento-modo";
 import { tipoEhEntradaDeCaixa, valorDeFace } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exigirLeituraDeTransacao } from "../../_lib/autoria";
+import { contextoDeAutoria, recorteDeAutoria, aplicarRecorteDeAutoria, exigirLeituraDeTransacao, filtrarTransacoesLegiveis } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -103,7 +103,9 @@ export async function GET(_: Request, { params }: Params) {
       return NextResponse.json({ error: "Transação não encontrada." }, { status: 404 });
     }
 
-    await exigirLeituraDeTransacao(id);
+    const contexto = await contextoDeAutoria();
+    await exigirLeituraDeTransacao(id, contexto);
+    const recorte = await recorteDeAutoria(false, contexto);
 
     /* ---------- Lancamentos relacionados ---------- */
 
@@ -228,13 +230,13 @@ export async function GET(_: Request, { params }: Params) {
       // anteriores à coluna que o backfill não conseguiu amarrar.
       origem = "PARCELAMENTO";
 
-      const { data: itens, error: itensError } = await supabaseAdmin
+      const { data: itens, error: itensError } = await aplicarRecorteDeAutoria(supabaseAdmin
         .from("transacao")
         .select(RELACIONADA_FIELDS)
         .eq("parcelamento_id", transacao.parcelamento_id)
         .eq("is_deleted", false)
         .order("data", { ascending: true })
-        .order("id", { ascending: true });
+        .order("id", { ascending: true }), recorte);
 
       if (itensError) throw itensError;
       relacionadas = itens ?? [];
@@ -245,17 +247,25 @@ export async function GET(_: Request, { params }: Params) {
       origem = "PARCELAMENTO";
       const base = String(transacao.descricao).replace(SUFIXO_PARCELA, "");
 
-      const { data: itens, error: itensError } = await supabaseAdmin
+      const { data: itens, error: itensError } = await aplicarRecorteDeAutoria(supabaseAdmin
         .from("transacao")
         .select(RELACIONADA_FIELDS)
         .eq("created_at", transacao.created_at)
         .eq("is_deleted", false)
         .like("descricao", `${base} - Parcela %`)
         .order("data", { ascending: true })
-        .order("id", { ascending: true });
+        .order("id", { ascending: true }), recorte);
 
       if (itensError) throw itensError;
       relacionadas = itens ?? [];
+    }
+
+    // Os vínculos respeitam as mesmas exceções de leitura do lançamento principal.
+    // Um grupo múltiplo expõe seu total: validar todas as parcelas antes disso.
+    if (transacao.pagamento_multiplo_id != null) {
+      await exigirLeituraDeTransacao(relacionadas.map((item) => item.id), contexto);
+    } else {
+      relacionadas = await filtrarTransacoesLegiveis(relacionadas, contexto);
     }
 
     /* ---------- Pagamento múltiplo ---------- */
@@ -417,7 +427,7 @@ export async function GET(_: Request, { params }: Params) {
         .eq("id", transacao.baixa_de_transacao_id)
         .maybeSingle();
 
-      if (titulo) {
+      if (titulo && (await filtrarTransacoesLegiveis([titulo], contexto)).length > 0) {
         baixaDe = {
           id: Number(titulo.id),
           descricao: titulo.descricao ?? null,
@@ -468,6 +478,7 @@ export async function GET(_: Request, { params }: Params) {
 
       // O tipo gerado do Supabase ainda não conhece `transacao_transferencia`;
       // até ele ser regerado, a leitura passa por `any` como nos demais embeds.
+      if (contraparte) await exigirLeituraDeTransacao(Number(contraparte.id), contexto);
       const op = operacao as any;
       if (op) {
         transferencia = {

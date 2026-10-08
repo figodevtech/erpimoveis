@@ -3,10 +3,11 @@ const Module = require('node:module');
 const path = require('node:path');
 require('tsx/cjs');
 process.env.ERP_ORDER_SYNC_SECRET = 'test-secret';
+let delivery = 'SEPARACAO';
 let status = 'RECEIVED', claimed = false, refunds = 0, processed = 0;
 const db = {
  from(table) {
-  const q = {select(){return q},eq(){return q},async maybeSingle(){return {data:{id:1,gateway_payment_id:'pay_test',payment_provider:'ASAAS',status:'PAGO'}}},
+  const q = {select(){return q},eq(){return q},async maybeSingle(){return {data:{id:1,gateway_payment_id:'pay_test',payment_provider:'ASAAS',status:'PAGO',status_entrega:delivery}}},
    async insert(){ if(claimed) return {error:{code:'23505'}}; claimed=true; return {error:null}},
    delete(){return {eq:async()=>{claimed=false}}}};
   return q;
@@ -32,5 +33,9 @@ function request(token='test-secret'){return new Request('http://localhost/order
  status='REFUNDED';
  const done=await (await POST(request(),{params:Promise.resolve({id:'1'})})).json();
  assert.equal(done.pending,false);assert.equal(processed,1);assert.equal(refunds,1);
+ delivery='ENVIADO';
+ assert.equal((await POST(request(),{params:Promise.resolve({id:'1'})})).status,409);
+ assert.equal(refunds,1);
+ assert.equal(processed,1);
  console.log('PASS: authorization, pending refund preserves stock, duplicate refund prevention, confirmed refund processes cancellation.');
 })().catch(e=>{console.error(e);process.exitCode=1});

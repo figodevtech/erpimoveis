@@ -293,8 +293,9 @@ export interface Transaction {
   created_by?: string | null
   criador?: { id: string; nome: string | null } | null
   /**
-   * Falso quando a transacao e de outra pessoa e quem ve nao pode ver todas:
-   * ela abre, mas so para leitura. Ausente conta como alteravel.
+   * Falso quando a transação pertence ao Caixa administrativo e quem vê não
+   * possui a permissão. Exceções de OS/venda permitem leitura. Ausente conta
+   * como alterável; as permissões específicas de cada ação seguem obrigatórias.
    */
   pode_alterar?: boolean
   /**

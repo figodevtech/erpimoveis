@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 import { requireFinanceiroDelete, requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirLeituraDeTransacao } from "@/app/api/transaction/_lib/autoria";
+import { exigirAcessoAPagamentoMultiplo } from "@/app/api/transaction/_lib/autoria-afetadas";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -39,6 +41,7 @@ export async function GET(_: Request, { params }: Params) {
       return NextResponse.json({ error: "Pagamento múltiplo não encontrado." }, { status: 404 });
     }
     if (linhas.error) throw linhas.error;
+    await exigirLeituraDeTransacao((linhas.data ?? []).map((linha) => Number(linha.id)));
 
     const documentos = [
       ...new Set(
@@ -71,6 +74,7 @@ export async function DELETE(_: Request, { params }: Params) {
     const id = await lerId(params);
     if (id == null) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
 
+    await exigirAcessoAPagamentoMultiplo(id);
     const session = await auth().catch(() => null);
     const deletedBy = (session?.user as { id?: string } | undefined)?.id ?? null;
 

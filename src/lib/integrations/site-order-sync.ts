@@ -1,3 +1,4 @@
+import { readJsonResponse } from "@/lib/read-json-response";
 import { storefrontFetch } from "@/lib/integrations/storefront-http";
 import { refreshSiteRefundStatus } from "@/lib/integrations/site-refund-status";
 import { z } from "zod";
@@ -54,7 +55,7 @@ export async function syncSiteOrders(empresaId: number, orderId?: number) {
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),
     });
-    const raw = await response.json().catch(() => null);
+    const raw = await readJsonResponse(response, "Loja");
     if (!response.ok) {
       throw new Error(raw?.error || `A loja respondeu HTTP ${response.status}.`);
     }

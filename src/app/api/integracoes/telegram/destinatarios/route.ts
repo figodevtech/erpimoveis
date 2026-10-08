@@ -49,6 +49,7 @@ const recipientSchema = z.object({
     .max(FISCAL_NOTIFICATION_EVENT_VALUES.length)
     .refine((events) => events.every(isFiscalNotificationEvent)),
   notificarMarketplace: z.boolean(),
+  notificarSite: z.boolean().default(false),
   marketplaceTopicosSelecionados: z
     .array(z.string())
     .max(MERCADOLIVRE_NOTIFICATION_EVENT_VALUES.length)
@@ -96,7 +97,7 @@ export async function GET() {
       supabaseAdmin.from("usuario").select("id, nome, email, ativo, perfilid").order("nome", { ascending: true }),
       supabaseAdmin
         .from("telegram_usuario_preferencia")
-        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, notificar_receber_diario, horario_resumo_receber, receber_incluir_vencidas, receber_enviar_sem_contas, estoque_eventos_selecionados, fiscal_eventos_selecionados, notificar_marketplace, marketplace_topicos_selecionados, financeiro_eventos_selecionados, financeiro_valor_minimo, financeiro_origens_selecionadas, financeiro_bancos_selecionados, ultimo_erro")
+        .select("usuario_id, chat_id, telegram_username, telegram_nome, vinculado_em, ativo, modo, escopo, notificar_criacao, status_selecionados, notificar_financeiro_diario, horario_resumo_financeiro, financeiro_incluir_atrasadas, financeiro_enviar_sem_contas, notificar_receber_diario, horario_resumo_receber, receber_incluir_vencidas, receber_enviar_sem_contas, estoque_eventos_selecionados, fiscal_eventos_selecionados, notificar_marketplace, notificar_site, marketplace_topicos_selecionados, financeiro_eventos_selecionados, financeiro_valor_minimo, financeiro_origens_selecionadas, financeiro_bancos_selecionados, ultimo_erro")
         .order("updated_at", { ascending: false }),
       supabaseAdmin
         .from("permissao")
@@ -190,6 +191,7 @@ export async function GET() {
       selectedStockEvents: Array.isArray(row.estoque_eventos_selecionados) ? row.estoque_eventos_selecionados : [],
       selectedFiscalEvents: Array.isArray(row.fiscal_eventos_selecionados) ? row.fiscal_eventos_selecionados : [],
       notifyMarketplace: row.notificar_marketplace === true,
+      notifySite: row.notificar_site === true,
       // Nulo é "nunca escolheu": mostra tudo marcado, que era o comportamento
       // antes de existir escolha por evento.
       selectedMarketplaceEvents: Array.isArray(row.marketplace_topicos_selecionados)
@@ -251,7 +253,7 @@ export async function PUT(request: Request) {
     if (parsed.data.fiscalEventosSelecionados.length > 0 && !(await userHasPermission(parsed.data.usuarioId, "financeiro:notas_fiscais"))) {
       return NextResponse.json({ error: "O usuário precisa ter acesso às Notas fiscais para receber esses avisos." }, { status: 400 });
     }
-    if (parsed.data.notificarMarketplace && !(await userHasPermission(parsed.data.usuarioId, "vendas:visualizar"))) {
+    if ((parsed.data.notificarMarketplace || parsed.data.notificarSite) && !(await userHasPermission(parsed.data.usuarioId, "vendas:visualizar"))) {
       return NextResponse.json({ error: "O usuário precisa ter acesso a Vendas para receber avisos do Marketplace." }, { status: 400 });
     }
 
@@ -274,6 +276,7 @@ export async function PUT(request: Request) {
       estoque_eventos_selecionados: Array.from(new Set(parsed.data.estoqueEventosSelecionados)),
       fiscal_eventos_selecionados: Array.from(new Set(parsed.data.fiscalEventosSelecionados)),
       notificar_marketplace: parsed.data.notificarMarketplace,
+      notificar_site: parsed.data.notificarSite,
       marketplace_topicos_selecionados: parsed.data.marketplaceTopicosSelecionados
         ? Array.from(new Set(parsed.data.marketplaceTopicosSelecionados))
         : null,

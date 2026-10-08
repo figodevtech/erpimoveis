@@ -257,7 +257,7 @@ export async function requireFinanceiroDelete() {
 }
 /**
  * Booleano, nao `require`: esta permissao nao barra ninguem da tela — ela
- * decide se a consulta traz o caixa inteiro ou so o que a pessoa lancou.
+ * decide se a consulta traz o caixa inteiro ou o caixa compartilhado.
  * Lancar 403 aqui expulsaria justamente quem deveria apenas ver menos.
  */
 export async function podeVerTodasTransacoes() {

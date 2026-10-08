@@ -158,12 +158,9 @@ export default function StorefrontMarketplace() {
         setError(null);
       })
       .catch((requestError: unknown) => {
-        if (
-          requestError instanceof DOMException &&
-          requestError.name === "AbortError"
-        )
-          return;
-        if (!active) return;
+        // Cleanup and filter changes cancel the previous request intentionally.
+        // Checking the signal also covers abort errors from another JS realm.
+        if (!active || controller.signal.aborted) return;
         setError(
           requestError instanceof Error
             ? requestError.message
@@ -176,7 +173,7 @@ export default function StorefrontMarketplace() {
 
     return () => {
       active = false;
-      controller.abort();
+      controller.abort(new DOMException("Carregamento substituído ou tela fechada.", "AbortError"));
     };
   }, [filters, page, pageSize, reloadKey, search]);
 
@@ -357,14 +354,14 @@ export default function StorefrontMarketplace() {
                     onClick={() =>
                       activeTab === "orders" ? orderActions?.reload() : reload()
                     }
-                    className="h-auto gap-1 p-0 text-foreground/50 hover:bg-transparent hover:text-foreground/70 disabled:cursor-wait disabled:opacity-60"
+                    className="h-auto gap-1 rounded-none p-0 has-[>svg]:px-0 text-foreground/50 hover:bg-transparent hover:text-foreground/70 disabled:cursor-wait disabled:opacity-60"
                     disabled={
                       activeTab === "orders"
                         ? !orderActions || orderActions.loading
                         : loading
                     }
                   >
-                    <span>Recarregar</span>
+                  <span>Recarregar</span>
                     <Loader2
                       className={`h-3 w-3 ${
                         activeTab === "orders"
@@ -385,7 +382,9 @@ export default function StorefrontMarketplace() {
                   </span>
                 </CardDescription>
               </div>
-              {activeTab === "orders" ? (
+              <div className="flex flex-wrap items-center justify-end gap-2 sm:ml-auto">
+
+                {activeTab === "orders" ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -431,6 +430,7 @@ export default function StorefrontMarketplace() {
                   </Button>
                 </div>
               )}
+              </div>
             </div>
           </CardHeader>
           <MarketplaceLoadingLine

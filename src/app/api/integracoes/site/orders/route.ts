@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
       .from("site_order_link")
       .select(`
         id, site_order_id, site_status, payment_provider, gateway_payment_id,
-        total_amount, order_created_at, import_status, import_error, last_synced_at, raw_order, refund_status, refund_requested_at, refund_reason, refund_checked_at,
+        total_amount, order_created_at, import_status, import_error, last_synced_at, raw_order, refund_status, refund_requested_at, refund_reason, refund_denial_reason, refund_checked_at,
         venda:venda_id (
           id, status, status_entrega, codigo_rastreio, transportadora_rastreio,
           valortotal, datavenda, endereco_entrega_snapshot,

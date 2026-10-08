@@ -93,6 +93,7 @@ export type TelegramRecipient = {
   selectedStockEvents: StockNotificationEvent[];
   selectedFiscalEvents: FiscalNotificationEvent[];
   notifyMarketplace: boolean;
+  notifySite: boolean;
   selectedMarketplaceEvents: MercadoLivreNotificationEvent[];
   selectedFinanceiroEvents: FinanceiroNotificationEvent[];
   /** Zero é sem piso. */
@@ -119,6 +120,7 @@ export type RecipientFormData = {
   selectedStockEvents: StockNotificationEvent[];
   selectedFiscalEvents: FiscalNotificationEvent[];
   notifyMarketplace: boolean;
+  notifySite: boolean;
   selectedMarketplaceEvents: MercadoLivreNotificationEvent[];
   selectedFinanceiroEvents: FinanceiroNotificationEvent[];
   /** Zero é sem piso. */
@@ -164,6 +166,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     selectedStockEvents: recipient.selectedStockEvents,
     selectedFiscalEvents: recipient.selectedFiscalEvents,
     notifyMarketplace: recipient.notifyMarketplace,
+    notifySite: recipient.notifySite,
     selectedMarketplaceEvents: recipient.selectedMarketplaceEvents,
     selectedFinanceiroEvents: recipient.selectedFinanceiroEvents,
     financeiroMinimumValue: recipient.financeiroMinimumValue,
@@ -186,6 +189,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     selectedStockEvents: [],
     selectedFiscalEvents: [],
     notifyMarketplace: false,
+    notifySite: false,
     selectedMarketplaceEvents: [...MERCADOLIVRE_NOTIFICATION_EVENT_VALUES],
     selectedFinanceiroEvents: [],
     financeiroMinimumValue: 0,
@@ -342,6 +346,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     || form.notifyReceivableDaily
     || form.selectedStockEvents.length
     || form.selectedFiscalEvents.length
+    || form.notifySite
     || form.notifyMarketplace
     || form.selectedFinanceiroEvents.length,
   );
@@ -353,7 +358,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
     && (!form.notifyReceivableDaily || financialAllowed)
     && (!form.selectedStockEvents.length || stockAllowed)
     && (!form.selectedFiscalEvents.length || fiscalAllowed)
-    && (!form.notifyMarketplace || marketplaceAllowed)
+    && (!(form.notifyMarketplace || form.notifySite) || marketplaceAllowed)
     && (!form.selectedFinanceiroEvents.length || financialAllowed),
   );
 
@@ -861,26 +866,26 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
                 </TabsContent>
 
                 <TabsContent value="marketplace" className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-4">
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary"><ShoppingBag className="size-4" /></span>
-                      <div>
-                        <Label htmlFor="dialog-marketplace-notifications">Atualizações do Mercado Livre</Label>
-                        <p className="text-xs text-muted-foreground">Envia perguntas, mensagens, pedidos, alterações de envio, reclamações e anúncios processados pelo ERP.</p>
-                      </div>
-                    </div>
-                    <Switch
-                      id="dialog-marketplace-notifications"
-                      checked={form.notifyMarketplace}
-                      disabled={!marketplaceAllowed}
-                      onCheckedChange={(notifyMarketplace) => setForm((current) => ({ ...current, notifyMarketplace }))}
-                    />
-                  </div>
                   {!form.usuarioId ? (
                     <p className="text-xs text-muted-foreground">Selecione o usuário para verificar o acesso ao Marketplace.</p>
                   ) : !marketplaceAllowed ? (
                     <p className="text-xs text-amber-700 dark:text-amber-400">Este usuário não possui a permissão Vendas: visualizar.</p>
                   ) : null}
+                  <section aria-labelledby="telegram-site-heading" className="space-y-2 rounded-lg border bg-card p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <Label id="telegram-site-heading" htmlFor="dialog-site-notifications" className="text-sm font-semibold">Site</Label>
+                      <Switch id="dialog-site-notifications" checked={form.notifySite} disabled={!marketplaceAllowed} onCheckedChange={notifySite => setForm(current => ({...current, notifySite}))} />
+                    </div>
+                    <p className="text-xs text-muted-foreground">Receber avisos de novos pedidos pagos da loja, importados pelo ERP.</p>
+                  </section>
+                  <section aria-labelledby="telegram-mercadolivre-heading" className="space-y-3 rounded-lg border bg-card p-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <Label id="telegram-mercadolivre-heading" htmlFor="dialog-marketplace-notifications" className="text-sm font-semibold">Mercado Livre</Label>
+                        <Switch id="dialog-marketplace-notifications" checked={form.notifyMarketplace} disabled={!marketplaceAllowed} onCheckedChange={notifyMarketplace => setForm(current => ({...current, notifyMarketplace}))} />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Escolha quais atualizações do Mercado Livre deseja receber. Estes filtros não afetam os pedidos do site.</p>
+                    </div>
                   <div className="flex items-center justify-end gap-1">
                     <Button
                       type="button"
@@ -937,6 +942,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
                       );
                     })}
                   </div>
+                  </section>
                   <p className="text-xs text-muted-foreground">O usuário recebe somente eventos que também aparecem na Central de Notificações e para os quais possui acesso ao módulo de vendas. Alterações feitas dentro do ERP não geram aviso.</p>
                 </TabsContent>
               </Tabs>

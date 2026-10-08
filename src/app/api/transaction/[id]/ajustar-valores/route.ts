@@ -7,7 +7,7 @@ import { respostaSeEdicaoBloqueada } from "@/app/api/transaction/_lib/edicao";
 import { sincronizarTaxaRecebimento } from "@/app/api/transaction/_lib/taxa";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exigirAcessoATransacao } from "../../_lib/autoria";
+import { contextoDeAutoria, exigirAcessoATransacao } from "../../_lib/autoria";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -83,13 +83,15 @@ export async function POST(req: NextRequest, ctx: Params) {
     if (bloqueio) return bloqueio;
 
     const { id } = await ctx.params;
-    await exigirAcessoATransacao(Number(id));
+    const contexto = await contextoDeAutoria();
+    await exigirAcessoATransacao(Number(id), contexto);
     if (!/^\d+$/.test(id) || id === "0") {
       return NextResponse.json({ error: "Transação inválida." }, { status: 400 });
     }
 
     const body = await req.json().catch(() => ({}));
     const itens = lerItens(body?.itens);
+    await exigirAcessoATransacao(itens.map((item) => item.id), contexto);
 
     if (!itens.some((item) => String(item.id) === id)) {
       return NextResponse.json(

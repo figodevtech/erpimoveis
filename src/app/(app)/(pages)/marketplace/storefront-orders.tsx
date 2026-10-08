@@ -1,4 +1,6 @@
 "use client";
+import { readJsonResponse } from "@/lib/read-json-response";
+
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -79,6 +81,7 @@ type SiteOrder = {
   refund_status?: string | null;
   refund_requested_at?: string | null;
   refund_reason?: string | null;
+  refund_denial_reason?: string | null;
   id: number;
   site_order_id: number;
   site_status: string;
@@ -167,7 +170,7 @@ export function StorefrontOrders({
         `/api/integracoes/site/orders?page=${page}&limit=${pageSize}`,
         { cache: "no-store" },
       );
-      const json = await response.json();
+      const json = await readJsonResponse(response, "ERP");
       if (!response.ok)
         throw new Error(json?.error || "Falha ao carregar pedidos.");
       setOrders(json.data || []);
@@ -201,12 +204,12 @@ export function StorefrontOrders({
   const syncOrders = useCallback(async (silent = false) => {
     if (syncLock.current) return;
     syncLock.current = true;
-    setSyncing(true);
+    if (!silent) setSyncing(true);
     try {
       const response = await fetch("/api/integracoes/site/orders", {
         method: "POST",
       });
-      const json = await response.json();
+      const json = await readJsonResponse(response, "ERP");
       if (!response.ok)
         throw new Error(json?.error || "Falha ao sincronizar pedidos.");
       if (!silent || json.imported > 0) toast.success("Pedidos sincronizados", {
@@ -221,7 +224,7 @@ export function StorefrontOrders({
             : "Tente novamente.",
       });
     } finally {
-      setSyncing(false);
+      if (!silent) setSyncing(false);
       syncLock.current = false;
     }
   }, [loadOrders]);
@@ -237,9 +240,9 @@ export function StorefrontOrders({
   async function checkRefund(order: SiteOrder) {
     try {
       const response = await fetch(`/api/integracoes/site/orders/${order.site_order_id}`, {cache:"no-store"});
-      const result = await response.json();
+      const result = await readJsonResponse(response, "ERP");
       if(!response.ok) throw new Error(result.error || "Falha ao consultar estorno.");
-      toast.info(result.gatewayStatus === "REFUNDED" ? "Estorno confirmado e estoque devolvido." : result.requestedAt ? `Estorno solicitado. Status Asaas: ${result.gatewayStatus}` : `Nenhum estorno solicitado. Status Asaas: ${result.gatewayStatus}`);
+      toast.info(result.refundStatus === "DENIED" ? `Estorno recusado: ${result.denialReason || "Motivo nao informado"}. Nenhum estoque foi devolvido.` : result.gatewayStatus === "REFUNDED" ? result.requiresPhysicalReturn ? "Estorno confirmado. Estoque aguarda devolução física conferida." : "Estorno confirmado e estoque devolvido." : result.requestedAt && ["RECEIVED", "CONFIRMED"].includes(result.gatewayStatus) ? "Solicitação registrada, mas o pagamento continua recebido. O reembolso precisa de verificação antes de nova tentativa." : result.requestedAt ? `Estorno solicitado. Status Asaas: ${result.gatewayStatus}` : `Nenhum estorno solicitado. Status Asaas: ${result.gatewayStatus}`);
       await loadOrders(true);
     } catch(error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar estorno."); }
   }
@@ -252,7 +255,7 @@ export function StorefrontOrders({
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: cancelReason }),
       });
-      const result = await response.json();
+      const result = await readJsonResponse(response, "ERP");
       if (!response.ok) throw new Error(result.error || "Falha ao cancelar pedido.");
       if (result.pending) toast.info(result.message || "Estorno em processamento. Consulte novamente para concluir.");
       else toast.success("Pedido estornado e estoque devolvido.");
@@ -309,7 +312,7 @@ export function StorefrontOrders({
           body: JSON.stringify(shipment),
         },
       );
-      const json = await response.json();
+      const json = await readJsonResponse(response, "ERP");
       if (!response.ok)
         throw new Error(json?.error || "Falha ao registrar postagem.");
       toast.success("Andamento enviado para a loja", {
@@ -347,10 +350,10 @@ export function StorefrontOrders({
     (order) => order.import_status === "IMPORTADA",
   ).length;
   const awaitingShipment = orders.filter(
-    (order) => order.venda && order.delivery?.method !== "pickup" && !order.venda.codigo_rastreio,
+    (order) => !order.refund_requested_at && order.site_status !== "CANCELADO" && order.venda && !["CANCELADA", "CANCELADO"].includes(order.venda.status || "") && order.delivery?.method !== "pickup" && !order.venda.codigo_rastreio,
   ).length;
   const awaitingPickup = orders.filter(
-    (order) => order.venda && order.delivery?.method === "pickup" && order.venda.status_entrega !== "ENTREGUE",
+    (order) => !order.refund_requested_at && order.site_status !== "CANCELADO" && order.venda && !["CANCELADA", "CANCELADO"].includes(order.venda.status || "") && order.delivery?.method === "pickup" && order.venda.status_entrega !== "ENTREGUE",
   ).length;
   const invoiced = orders.filter((order) => order.invoice?.chave_acesso).length;
   const selectedIsPickup = selectedOrder?.delivery?.method === "pickup";
@@ -428,7 +431,9 @@ export function StorefrontOrders({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orders.map((order) => (
+                {orders.map((order) => {
+                  const actionsBlocked = Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || order.site_status === "CANCELADO" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "");
+                  return (
                   <TableRow key={order.id}>
                     <TableCell>
                       <p className="font-medium">Site #{order.site_order_id}</p>
@@ -489,30 +494,43 @@ export function StorefrontOrders({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
+                          {!actionsBlocked ? (
                           <DropdownMenuItem
                             disabled={!order.venda?.id}
                             onSelect={() => setEditingSaleId(order.venda?.id ?? null)}
                           >
                             <FilePenLine className="h-4 w-4" /> Editar venda
                           </DropdownMenuItem>
+                          ) : null}
+                          {!actionsBlocked || order.invoice ? (
                           <DropdownMenuItem
                             disabled={!order.venda?.id}
                             onSelect={() => setInvoiceSaleId(order.venda?.id ?? null)}
                           >
                             <ReceiptText className="h-4 w-4" /> {order.invoice ? "Gerenciar NF-e" : "Emitir NF-e"}
                           </DropdownMenuItem>
+                          ) : null}
+                          {!actionsBlocked ? (
+                            <>
                           <DropdownMenuItem
-                            disabled={!order.venda?.id}
+                            disabled={!order.venda?.id || Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")}
                             onSelect={() => openShipment(order)}
                           >
                             {order.delivery?.method === "pickup" ? <Store className="h-4 w-4" /> : <Truck className="h-4 w-4" />}
                             Atualizar andamento
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            disabled={!order.venda?.id || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")}
+                            disabled={!order.venda?.id || Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")}
                             onSelect={() => { setCancelOrder(order); setCancelReason(""); }}
                             className="text-destructive"
                           >Cancelar e estornar</DropdownMenuItem>
+                            </>
+                          ) : null}
+                          {order.refund_status === "DENIED" && order.venda?.id && !["CANCELADA", "CANCELADO"].includes(order.venda.status || "") && !["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda.status_entrega || "") ? (
+                            <DropdownMenuItem className="text-destructive" onSelect={() => { setCancelOrder(order); setCancelReason(""); }}>
+                              Tentar estorno novamente
+                            </DropdownMenuItem>
+                          ) : null}
                           <DropdownMenuItem onSelect={() => void checkRefund(order)}>Consultar estorno</DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem asChild>
@@ -524,7 +542,8 @@ export function StorefrontOrders({
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                );
+                })}
                 {!loading && !orders.length ? (
                   <TableRow>
                     <TableCell colSpan={6}>
@@ -731,7 +750,8 @@ function ImportBadge({ status }: { status: SiteOrder["import_status"] }) {
 }
 
 function FulfillmentBadge({ order }: { order: SiteOrder }) {
-  if(order.refund_requested_at && order.refund_status !== "REFUNDED") return <Badge variant="outline">Estorno: {order.refund_status === "REFUND_REQUESTED" || order.refund_status === "REFUND_IN_PROGRESS" ? "Em processamento" : order.refund_status === "REQUESTING" ? "Solicitando" : "Aguardando confirmação"}</Badge>;
+  if (order.refund_status === "DENIED") return <Badge variant="destructive" title={order.refund_denial_reason || "Estorno recusado pelo Asaas"}>Estorno recusado</Badge>;
+  if(order.refund_requested_at && order.refund_status !== "REFUNDED") return <Badge variant="outline">Estorno: {order.refund_status === "REFUND_REQUESTED" || order.refund_status === "REFUND_IN_PROGRESS" ? "Em processamento" : order.refund_status === "REQUESTING" ? "Solicitando" : ["RECEIVED", "CONFIRMED"].includes(order.refund_status || "") ? "Verificar solicitação" : "Aguardando confirmação"}</Badge>;
   if (["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")) return <Badge variant="destructive">Cancelado</Badge>;
   const pickup = order.delivery?.method === "pickup";
   if (order.venda?.status_entrega === "ENTREGUE") {
