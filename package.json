@@ -99,7 +99,9 @@
     "test:radios": "tsx --test src/lib/radio/*.test.ts",
     "test:chat": "tsx --test src/lib/chat/*.test.ts src/components/chat/*.test.ts src/components/chat/*.test.tsx",
     "test:central-operacional": "tsx --test src/lib/central-operacional/*.test.ts \"src/app/(app)/(full)/central-operacional/components/*.test.ts\"",
-    "test:mercadolivre": "tsx --test src/lib/integrations/mercadolivre-*.test.ts"
+    "test:mercadolivre": "tsx --test src/lib/integrations/mercadolivre-*.test.ts",
+    "test:ordens:realtime": "tsx --test src/lib/ordens/realtime-client.test.ts src/hooks/use-realtime-tabelas.test.ts",
+    "db:test:ordens-realtime": "node --use-system-ca --import tsx scripts/db/test-ordens-realtime.mjs"
   },
   "overrides": {
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"

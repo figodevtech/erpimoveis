@@ -52,6 +52,8 @@ import {
   Wrench
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
+import { ORDENS_REALTIME_TABLES } from "@/lib/ordens/realtime-contracts";
 import { enviarAnexo } from "@/lib/anexos/enviar-anexo";
 import { toast } from "@/lib/toast";
 
@@ -1014,8 +1016,10 @@ export function OSDetalhesDialog({
     [statusUpper, temServicoSemResponsavel]
   );
 
+  const detalhesRequestRef = useRef(0);
   const recarregarDetalhes = useCallback(async () => {
     if (!osId) return;
+    const requestId = ++detalhesRequestRef.current;
     try {
       setLoading(true);
       const [j, eventosResponse, auditoriaResponse] = await Promise.all([
@@ -1054,18 +1058,24 @@ export function OSDetalhesDialog({
         });
       }
       auditoriaItens.sort((a, b) => new Date(a.ocorridoEm).getTime() - new Date(b.ocorridoEm).getTime());
+      if (requestId !== detalhesRequestRef.current) return;
       setData({
         ...j,
         eventosFinanceiros: eventosPayload?.eventos ?? [],
         auditoriaResumo: auditoriaItens,
       });
     } catch (e: any) {
+      if (requestId !== detalhesRequestRef.current) return;
       toast.error(e?.message || "Erro ao carregar detalhes");
       setData(null);
     } finally {
-      setLoading(false);
+      if (requestId === detalhesRequestRef.current) setLoading(false);
     }
   }, [osId, podeVerEventosFinanceiros]);
+
+  useRealtimeTabelas(canFetch ? [...ORDENS_REALTIME_TABLES] : [], () => {
+    void recarregarDetalhes();
+  });
 
   useEffect(() => {
     if (canFetch) void recarregarDetalhes();

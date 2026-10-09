@@ -328,7 +328,7 @@ export function OrdensTabela({
     sortDir,
   ]);
 
-  const lastRealtimeRef = useRef(0);
+
 
   async function fetchNow(
     {
@@ -490,20 +490,9 @@ export function OrdensTabela({
     dataFim,
   ]);
 
-  // Antes isto criava um client Supabase próprio e trocava de canal a cada aba
-  // de status. Agora divide a inscrição com os contadores das abas.
   useRealtimeTabelas(TABELAS_REALTIME, () => {
-    const nowTs = Date.now();
-    if (nowTs - lastRealtimeRef.current < 700) return;
-    lastRealtimeRef.current = nowTs;
-    fetchNow(currentParamsRef.current, { silent: true });
+    void fetchNow(currentParamsRef.current, { silent: true });
   });
-
-  useEffect(() => {
-    const onLocalRefresh = () => fetchNow(currentParamsRef.current, { silent: true });
-    window.addEventListener("os:refresh", onLocalRefresh);
-    return () => window.removeEventListener("os:refresh", onLocalRefresh);
-  }, []);
 
   const pageCount = rows.length;
   const start = limit * (page - 1) + (pageCount ? 1 : 0);
