@@ -5,6 +5,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { notifySalesUsers } from "@/lib/system-notifications";
 import { processTelegramMarketplaceNotifications } from "@/lib/integrations/telegram-marketplace-notifications";
+import { buildSiteOrderNotification } from "@/lib/integrations/site-order-notification";
 const itemSchema = z.object({
   produtoId: z.coerce.number().int().positive(),
   quantidade: z.coerce.number().int().positive(),
@@ -13,6 +14,8 @@ const itemSchema = z.object({
   valorDesconto: z.coerce.number().nonnegative().default(0),
   valorFrete: z.coerce.number().nonnegative().default(0),
   baixarEstoque: z.boolean().default(true),
+  title: z.string().max(1000).nullish(),
+  reference: z.string().max(300).nullish(),
 });
 
 const orderSchema = z.object({
@@ -42,12 +45,22 @@ const storefrontResponseSchema = z.object({
 });
 
 export async function syncSiteOrders(empresaId: number, orderId?: number) {
+    const refundErrors: Array<{ siteOrderId: number; error: string }> = [];
     // Targeted webhook already reconciles its order; do not scan other refunds.
     if (!orderId) {
     const { data: pendingRefunds, error: refundError } = await supabaseAdmin.from("site_order_link")
       .select("site_order_id").eq("empresa_id",empresaId).not("refund_requested_at","is",null).neq("site_status","CANCELADO").limit(100);
     if(refundError) throw refundError;
-    for (const refund of pendingRefunds || []) await refreshSiteRefundStatus(empresaId, Number(refund.site_order_id));
+    for (const refund of pendingRefunds || []) {
+      const siteOrderId = Number(refund.site_order_id);
+      try {
+        await refreshSiteRefundStatus(empresaId, siteOrderId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        refundErrors.push({ siteOrderId, error: message });
+        console.error(`[site/orders] Falha ao consultar estorno ${siteOrderId}:`, error);
+      }
+    }
     }
     const baseUrl = process.env.STOREFRONT_API_URL?.trim().replace(/\/+$/, "");
     const secret = process.env.STOREFRONT_ORDER_SYNC_SECRET?.trim();
@@ -109,7 +122,7 @@ export async function syncSiteOrders(empresaId: number, orderId?: number) {
           category: "MARKETPLACE",
           priority: "SUCCESS",
           title: "Novo pedido pago no Site",
-          message: `Pedido #${order.id} de ${order.customer.name}. Total: ${order.total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}. Pagamento: ${order.paymentMethod || "Asaas"}.`,
+          message: buildSiteOrderNotification(order),
           href: "/marketplace?canal=loja&secao=orders",
           source: "SITE_ORDER",
           sourceEventId,
@@ -132,6 +145,7 @@ export async function syncSiteOrders(empresaId: number, orderId?: number) {
       received: parsed.data.count,
       imported: results.filter((item) => item.imported).length,
       errors: results.filter((item) => item.error).length,
+      refundErrors,
       results,
     };
 }

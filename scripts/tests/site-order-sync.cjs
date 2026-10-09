@@ -1,0 +1,34 @@
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const Module = require('node:module');
+require('tsx/cjs');
+process.env.STOREFRONT_API_URL = 'https://store.test';
+process.env.STOREFRONT_ORDER_SYNC_SECRET = 'isolated';
+const order = id => ({id,status:'PAGO',subtotal:20,total:20,createdAt:'2026-10-09T15:00:00Z',shippingAddress:{deliveryMethod:'pickup'},customer:{id:1,type:'FISICA',document:'52998224725',name:'Teste',email:'test@example.com',phone:'11987654321'},items:[{produtoId:1,quantidade:1,subTotal:20,valorTotal:20,title:'Peça teste',reference:'ABC'}]});
+let orders=[order(1),order(2)],failImport=1,notificationFail=false,pending=[],refundFail=false,remoteStatus=200;
+let imports=[],notifications=[],telegram=[],saved=[],fetches=0;
+const links=new Map();
+const db={from(){let id;const q={select(){return q},eq(key,value){if(key==='site_order_id')id=value;return q},not(){return q},neq(){return q},limit:async()=>({data:pending,error:null}),maybeSingle:async()=>({data:links.has(id)?{venda_id:links.get(id)}:null,error:null}),upsert:async row=>{saved.push(row);return{error:null}}};return q},rpc:async(name,args)=>{imports.push(args.p_pedido);const id=args.p_pedido.id;if(id===failImport)return{data:null,error:{message:'simulated import failure'}};links.set(id,100+id);return{data:100+id,error:null}}};
+const original=Module._load;
+Module._load=function(name,...args){
+ if(name==='@/lib/supabaseAdmin')return{supabaseAdmin:db};
+ if(name==='@/lib/read-json-response')return{readJsonResponse:async r=>r.json()};
+ if(name==='@/lib/integrations/storefront-http')return{storefrontFetch:async()=>{fetches++;return Response.json(remoteStatus===200?{data:orders,count:orders.length}:{error:'store down'},{status:remoteStatus})}};
+ if(name==='@/lib/integrations/site-refund-status')return{refreshSiteRefundStatus:async()=>{if(refundFail)throw Error('simulated refund lookup failure')}};
+ if(name==='@/lib/system-notifications')return{notifySalesUsers:async input=>{notifications.push(input);if(notificationFail)throw Error('simulated notification failure')}};
+ if(name==='@/lib/integrations/telegram-marketplace-notifications')return{processTelegramMarketplaceNotifications:async input=>{telegram.push(input)}};
+ if(name==='@/lib/integrations/site-order-notification')return require(path.resolve('src/lib/integrations/site-order-notification.ts'));
+ return original.call(this,name,...args);
+};
+const {syncSiteOrders}=require(path.resolve('src/lib/integrations/site-order-sync.ts'));
+(async()=>{
+ let result=await syncSiteOrders(1,2);assert.equal(result.errors,1);assert.equal(result.imported,1);assert.equal(saved[0].import_status,'ERRO');assert.equal(notifications.length,1);assert.ok(notifications[0].message.includes('Peça teste'));assert.equal(imports[1].items[0].reference,'ABC');
+ orders=[order(2)];notificationFail=true;result=await syncSiteOrders(1,2);assert.equal(result.imported,0);assert.equal(result.errors,0);assert.equal(telegram.length,1);
+ notificationFail=false;await syncSiteOrders(1,2);assert.equal(telegram.length,2);assert.equal(notifications.at(-1).sourceEventId,'SITE_ORDER:1:2');assert.equal(links.size,1);
+ remoteStatus=503;await assert.rejects(syncSiteOrders(1,2),/store down/);remoteStatus=200;
+ orders=[{...order(2),items:[]}];const before=imports.length;await assert.rejects(syncSiteOrders(1,2),/formato/);assert.equal(imports.length,before);
+ orders=[order(2)];pending=[{site_order_id:99}];refundFail=true;const previousFetches=fetches;
+ result=await syncSiteOrders(1);assert.equal(fetches,previousFetches+1,'refund failure must not prevent import scan');assert.deepEqual(result.refundErrors,[{siteOrderId:99,error:'simulated refund lookup failure'}]);assert.equal(result.results[0].siteOrderId,2);
+ await syncSiteOrders(1,2);assert.equal(fetches,previousFetches+2,'targeted webhook bypasses unrelated refund sweep');
+ console.log('PASS: per-order import isolation, notification retry, stable event key, item details, HTTP/schema errors and refund failure isolation.');
+})().catch(error=>{console.error(error);process.exitCode=1});

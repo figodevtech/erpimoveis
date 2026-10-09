@@ -79,6 +79,10 @@ const EmissaoNotaDialog = dynamic(
 
 type SiteOrder = {
   refund_status?: string | null;
+  refund_request_url?: string | null;
+  return_requested_at?: string | null;
+  return_received_at?: string | null;
+  returnItems?: Array<{ productId: number; quantity: number; title: string }>;
   refund_requested_at?: string | null;
   refund_reason?: string | null;
   refund_denial_reason?: string | null;
@@ -144,6 +148,28 @@ export function StorefrontOrders({
   const [cancelOrder, setCancelOrder] = useState<SiteOrder | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [canceling, setCanceling] = useState(false);
+  const [returnOrder, setReturnOrder] = useState<SiteOrder | null>(null);
+  const [returnReason, setReturnReason] = useState("");
+  const [returnTracking, setReturnTracking] = useState("");
+  const [returnApproved, setReturnApproved] = useState(false);
+  const [returnSaving, setReturnSaving] = useState(false);
+
+  async function saveReturn() {
+    if (!returnOrder || returnSaving) return;
+    setReturnSaving(true);
+    try {
+      const response = await fetch(`/api/integracoes/site/orders/${returnOrder.site_order_id}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: returnOrder.return_requested_at ? "RECEIVE_RETURN" : "REQUEST_RETURN", reason: returnReason, reverseTracking: returnTracking, ...(returnApproved ? { allItemsApproved: true } : {}) }),
+      });
+      const result = await readJsonResponse(response, "ERP");
+      if (!response.ok) throw new Error(result.error || "Falha ao registrar devolução.");
+      toast.success(result.message);
+      setReturnOrder(null);
+      await loadOrders();
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Falha na devolução."); }
+    finally { setReturnSaving(false); }
+  }
   const [orders, setOrders] = useState<SiteOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -432,7 +458,7 @@ export function StorefrontOrders({
               </TableHeader>
               <TableBody className="block md:table-row-group">
                 {orders.map((order) => {
-                  const actionsBlocked = Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || order.site_status === "CANCELADO" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "");
+                  const actionsBlocked = Boolean(order.return_requested_at || order.refund_requested_at) || order.refund_status === "REFUNDED" || order.site_status === "CANCELADO" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "");
                   return (
                   <TableRow key={order.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 p-3 md:table-row md:p-0">
                     <TableCell className="block p-0 md:table-cell md:p-2">
@@ -522,10 +548,10 @@ export function StorefrontOrders({
                             Atualizar andamento
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            disabled={!order.venda?.id || Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")}
+                            disabled={!order.venda?.id || Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "") || ["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda?.status_entrega || "")}
                             onSelect={() => { setCancelOrder(order); setCancelReason(""); }}
                             className="text-destructive"
-                          >Cancelar e estornar</DropdownMenuItem>
+                          >{["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda?.status_entrega || "") ? "Estorno exige devolução conferida" : "Cancelar e estornar"}</DropdownMenuItem>
                             </>
                           ) : null}
                           {order.refund_status === "DENIED" && order.venda?.id && !["CANCELADA", "CANCELADO"].includes(order.venda.status || "") && !["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda.status_entrega || "") ? (
@@ -534,6 +560,20 @@ export function StorefrontOrders({
                             </DropdownMenuItem>
                           ) : null}
                           <DropdownMenuItem onSelect={() => void checkRefund(order)}>Consultar estorno</DropdownMenuItem>
+                          {order.venda?.id && ["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda.status_entrega || "") && !order.return_received_at ? (
+                            <DropdownMenuItem onSelect={() => { setReturnOrder(order); setReturnReason(""); setReturnTracking(""); setReturnApproved(false); }}>
+                              {order.return_requested_at ? "Conferir recebimento da devolução" : "Solicitar devolução física"}
+                            </DropdownMenuItem>
+                          ) : null}
+                          {order.return_received_at && order.refund_status !== "REFUNDED" && (!order.refund_requested_at || order.refund_status === "DENIED") ? (
+                            <DropdownMenuItem onSelect={() => { setCancelOrder(order); setCancelReason("Devolução integral recebida e conferida"); }}>Reembolsar devolução recebida</DropdownMenuItem>
+                          ) : null}
+                          {order.refund_request_url && order.refund_status !== "REFUNDED" ? (
+                            <>
+                              <DropdownMenuItem asChild><a href={order.refund_request_url} target="_blank" rel="noopener noreferrer">Abrir formulário de reembolso do boleto</a></DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => { void navigator.clipboard.writeText(order.refund_request_url!).then(() => toast.success("Link copiado. Envie ao cliente para preencher os dados."), () => toast.error("Não foi possível copiar. Abra o formulário e copie o endereço.")); }}>Copiar link para o cliente</DropdownMenuItem>
+                            </>
+                          ) : null}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem asChild>
                             <Link href="/historicovendas">
@@ -704,6 +744,19 @@ export function StorefrontOrders({
             <Button variant="destructive" disabled={canceling || cancelReason.trim().length < 3} onClick={() => void confirmCancellation()}>{canceling ? "Processando..." : "Confirmar estorno"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={Boolean(returnOrder)} onOpenChange={open => { if (!open && !returnSaving) setReturnOrder(null); }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{returnOrder?.return_requested_at ? "Conferir devolução recebida" : "Solicitar devolução física"} #{returnOrder?.site_order_id}</DialogTitle>
+            <DialogDescription>Fluxo integral: todos os itens devem voltar e ser aprovados. Itens danificados ou devolução parcial precisam de tratamento separado. O estoque será reposto após a confirmação do reembolso.</DialogDescription></DialogHeader>
+          <ul className="space-y-1 text-sm">{returnOrder?.returnItems?.map((item, index) => <li key={`${item.productId}-${index}`}>{item.quantity} × {item.title}</li>)}</ul>
+          <Label htmlFor="return-reason">{returnOrder?.return_requested_at ? "Resultado da conferência" : "Motivo da devolução"}</Label>
+          <Input id="return-reason" value={returnReason} onChange={e => setReturnReason(e.target.value)} maxLength={500} disabled={returnSaving} />
+          {!returnOrder?.return_requested_at ? <><Label htmlFor="reverse-tracking">Rastreio do frete reverso (opcional)</Label><Input id="reverse-tracking" value={returnTracking} onChange={e => setReturnTracking(e.target.value)} maxLength={160} disabled={returnSaving} /></> : (
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={returnApproved} disabled={returnSaving} onChange={e => setReturnApproved(e.target.checked)} />Confirmo que todos os produtos e quantidades acima foram recebidos e estão aptos a retornar ao estoque.</label>
+          )}
+          <DialogFooter><Button variant="outline" disabled={returnSaving} onClick={() => setReturnOrder(null)}>Voltar</Button><Button disabled={returnSaving || returnReason.trim().length < 3 || Boolean(returnOrder?.return_requested_at && !returnApproved)} onClick={() => void saveReturn()}>{returnSaving ? "Salvando..." : returnOrder?.return_requested_at ? "Confirmar recebimento" : "Registrar solicitação"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -753,6 +806,9 @@ function ImportBadge({ status }: { status: SiteOrder["import_status"] }) {
 
 function FulfillmentBadge({ order }: { order: SiteOrder }) {
   if (order.refund_status === "AWAITING_CRITICAL_ACTION_AUTHORIZATION") return <Badge variant="outline">Estorno: autorizar no Asaas</Badge>;
+  if (order.refund_status === "AWAITING_CUSTOMER") return <Badge variant="outline">Boleto: aguardando dados do cliente</Badge>;
+  if (order.return_received_at && order.refund_status !== "REFUNDED") return <Badge variant="outline">Devolução recebida · reembolso pendente</Badge>;
+  if (order.return_requested_at && !order.return_received_at) return <Badge variant="outline">Aguardando devolução física</Badge>;
   if (order.refund_status === "DENIED") return <Badge variant="destructive" title={order.refund_denial_reason || "Estorno recusado pelo Asaas"}>Estorno recusado</Badge>;
   if(order.refund_requested_at && order.refund_status !== "REFUNDED") return <Badge variant="outline">Estorno: {order.refund_status === "REFUND_REQUESTED" || order.refund_status === "REFUND_IN_PROGRESS" ? "Em processamento" : order.refund_status === "REQUESTING" ? "Solicitando" : ["RECEIVED", "CONFIRMED"].includes(order.refund_status || "") ? "Verificar solicitação" : "Aguardando confirmação"}</Badge>;
   if (["CANCELADA", "CANCELADO"].includes(order.venda?.status || "")) return <Badge variant="destructive">Cancelado</Badge>;
