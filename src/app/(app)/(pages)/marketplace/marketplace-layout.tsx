@@ -110,12 +110,13 @@ export function MarketplaceHeader({
   );
 }
 
-export function MarketplaceSectionNav<T extends string>({ items, trailing }: {
+export function MarketplaceSectionNav<T extends string>({ items, trailing, inlineTrailing = false }: {
   items: Array<MarketplaceSectionItem<T>>;
   trailing?: React.ReactNode;
+  inlineTrailing?: boolean;
 }) {
   return (
-    <div className="grid min-h-10 min-w-0 gap-2 px-3 pt-3 sm:px-6 md:grid-cols-[1fr_auto_1fr] md:items-center">
+    <div className={`grid min-h-10 min-w-0 gap-2 px-3 pt-3 sm:px-6 md:grid-cols-[1fr_auto_1fr] md:items-center ${inlineTrailing ? "grid-cols-[minmax(0,1fr)_auto] items-center" : ""}`}>
       <div className="flex min-w-0 max-w-full justify-center overflow-x-auto md:col-start-2">
         <TabsList className="mx-auto h-auto min-w-max justify-start gap-1 rounded-xl border bg-muted/40 p-1">
           {items.map((item) => {

@@ -19,6 +19,7 @@ import {
   Send,
   Upload,
   X,
+  Filter,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -453,6 +454,7 @@ export default function StorefrontMarketplace() {
           />
 
           <MarketplaceSectionNav
+            inlineTrailing={activeTab === "orders"}
             items={[
               {
                 value: "products",
@@ -468,7 +470,7 @@ export default function StorefrontMarketplace() {
               },
             ]}
             trailing={
-              activeTab === "products" ? productToolbar : undefined
+              activeTab === "products" ? productToolbar : <Button variant="outline" size="sm" onClick={() => orderActions?.openFilters()} disabled={!orderActions}><Filter className="h-4 w-4" />Filtros{orderActions?.activeFilters ? <Badge variant="secondary">{orderActions.activeFilters}</Badge> : null}</Button>
             }
           />
 

@@ -178,3 +178,47 @@ Envio completo com rastreio e devolução física com reembolso após conferênc
 1. Boleto pago: menu do pedido → Cancelar e estornar → motivo. Depois abrir/copiar formulário do boleto e disponibilizar ao pagador; consultar até a confirmação. Não criar segunda solicitação enquanto a primeira está pendente.
 2. Pedido enviado/entregue: menu → Solicitar devolução física → motivo e rastreio opcional. Após chegada real, Conferir recebimento da devolução → conferir lista e quantidades → nota → confirmar todos os itens aprovados.
 3. Recebimento conferido: Reembolsar devolução recebida. Acompanhar estorno; estoque/cancelamento só concluem após confirmação. Se houver NF-e autorizada/processando, o fluxo exige regularização fiscal e não deve ser forçado.
+
+## Validação funcional do frontend no navegador
+
+- Repetida a tentativa de autenticação com `.env.capture`. Não houve resposta de `/api/auth/callback/credentials`; não é possível concluir que a senha está errada. O formulário tem bloqueio de verificação Turnstile antes de enviar credenciais. Login autenticado completo continua pendente.
+- Criado host isolado que compila o componente real `StorefrontOrders` e seus controles Radix/React em um servidor temporário local. Next navigation/link e diálogos fiscais externos são substituídos por adaptadores; endpoints de pedidos têm respostas controladas. Nenhum acesso aos bancos nem envio financeiro nesses testes.
+- Testes passaram com viewport 390×844 e 1440×900: abrir solicitação, conferir lista e quantidade, enviar motivo, exibir ação de recebimento, bloquear confirmação sem checkbox, enviar aprovação integral, exibir ação de reembolso e formulário do boleto com URL correta.
+- Depois de solicitar devolução, menu não oferece atualização de andamento nem reembolso antes do recebimento aprovado.
+- Comandos: `node scripts/tests/site-returns-ui.cjs --component` e `node scripts/tests/site-returns-ui.cjs --component --desktop`.
+- Esta validação comprova interação funcional do componente com o contrato da API, não autenticação/permissões reais, fluxo completo da página publicada nem layout visual com CSS da aplicação (o host isolado não carrega Tailwind). Testes de permissão/backend permanecem nas suítes separadas.
+- Estoque real não alterado; último saldo integrado conferido continua loja 9 / ERP 9. Boleto pago e conclusão do formulário Asaas ainda exigem teste integrado assistido.
+
+## Dialog de pedidos e testes fictícios adicionais
+
+- Detalhes do pedido passa a seguir o formato do dialog de detalhes da OS: tela inteira no celular, largura ampliada no computador, cabeçalho/rodapé fixos e conteúdo rolável em blocos.
+- A abertura agora tem estado separado do pedido selecionado. Fechar preserva os dados durante a animação de saída; a próxima abertura substitui os dados pelo pedido escolhido.
+- Teste funcional do componente passou em celular e computador, incluindo detalhes com cliente/produtos e fechamento. O host isolado não carrega o CSS completo da aplicação; a comparação visual final permanece na página autenticada.
+- Reexecutada a suíte fictícia de estorno: boleto não pago rejeitado, boleto pago gera formulário HTTPS, solicitação duplicada não cria segundo reembolso. Nenhuma cobrança, documento ou alteração de estoque real nesta etapa.
+- Esses testes simulam contratos da API e interação. Não comprovam a liquidação/reembolso bancário de um boleto no Asaas; o formulário do pagador e confirmação oficial continuam pendentes.
+
+## Acompanhamento financeiro no detalhe e boleto #30
+
+- Detalhes reúne provedor/identificador da cobrança, situação e última consulta do estorno, formulário completo com abrir/copiar link e ações de andamento, devolução, reembolso e NF-e. Dados selecionados são atualizados quando a lista é recarregada, preservando conteúdo ao fechar.
+- Teste funcional verifica formulário e estado aguardando cliente dentro do detalhe, consulta disponível e ausência de nova solicitação durante reembolso pendente.
+- Criado pelo checkout local o pedido #30, R$ 20,00, produto #853 × 1, cobrança Sandbox `pay_jjblvp34sh4ewjle`, boleto https://sandbox.asaas.com/i/jjblvp34sh4ewjle. Split 1% configurado e pendente.
+- Conferência após criação: PENDING, pedido PENDENTE, `estoque_baixado=false`, loja 9 / ERP 9, iguais ao início. Sem venda importada enquanto não pago.
+- Próxima etapa manual: confirmar pagamento no painel Sandbox Asaas. Depois solicitar estorno pela integração e fornecer o `requestUrl` real ao pagador. Ainda não há formulário real deste pedido, pagamento confirmado ou reembolso concluído. Não alterar status/estoque diretamente para simular conclusão.
+
+### Continuação #30 — confirmação oficial por API e formulário verdadeiro
+
+- Corrigida a orientação anterior sobre confirmação manual: existe `POST /v3/sandbox/payment/{id}/confirm`. A referência específica e o changelog documentam uso em contas Sandbox; a página geral em inglês contém informação conflitante. Referência: https://docs.asaas.com/reference/confirmar-pagamento.
+- Executada a confirmação autorizada para `pay_jjblvp34sh4ewjle`, após validar Sandbox, ID, referência #30, método BOLETO, valor R$ 20 e estado PENDING. Retorno RECEIVED.
+- Webhook/importação ocorreram: loja PAGO, venda ERP #239; estoque 9 / 9 → 8 / 8; split de 1%, R$ 0,19, DONE.
+- Estorno solicitado pela API local da loja: REFUND_REQUESTED / AWAITING_CUSTOMER. Formulário verdadeiro: https://sandbox.asaas.com/000/solicitar-estorno/y9we5cgsjp1rccm9.
+- Harness espelhou no vínculo ERP #30 somente os metadados da solicitação comprovados pela API oficial e claim da loja, com binding de pagamento/venda; não alterou estado da venda ou estoque. Não comprova solicitação pela UI autenticada.
+- **Teste aberto:** pagador precisa concluir o formulário; reembolso ainda não confirmado. Estoque permanece 8 / 8, uma unidade abaixo do saldo inicial em cada base. Reposição deve ser conferida ao final; não foi realizada antecipadamente e não se declara estoque restaurado.
+
+### Organização do Marketplace e detalhes
+
+- Filtros de número/situação movidos para sheet; botão com contador de filtros ativos alinhado às tabs de Produtos/Pedidos, inclusive com disposição lateral em celular. Limpar filtros restaura a primeira página.
+- Ações do dropdown dos pedidos receberam ícones, incluindo consulta, estorno, devolução e formulário do boleto.
+- Detalhe sem altura fixa de tela inteira, limitado a 90dvh com rolagem quando necessário. Abas Resumo, Entrega, Pagamento e Histórico exibem apenas o conteúdo selecionado; conteúdo é preservado durante o fechamento.
+- Resposta scoped da API passa a fornecer forma de pagamento, subtotal, contato importado e valores/referência dos itens. Detalhe apresenta documento, e-mail, telefone, endereço/complemento/CEP, transportadora, rastreios, NF-e, link do boleto e nota de conferência quando disponíveis; dados ausentes não são inventados.
+- Testes funcionais isolados passaram em celular/computador para sheet/pesquisa, troca de abas, fechamento, reembolso e formulário. Host não carrega o Tailwind completo; validação visual final no ERP autenticado ainda não foi realizada.
+- Nenhuma cobrança ou movimentação de estoque nesta alteração de interface.

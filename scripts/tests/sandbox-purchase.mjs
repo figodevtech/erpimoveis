@@ -6,7 +6,7 @@ const env={...nextEnv.loadEnvConfig(path.resolve('site_demirdiesel'),true,{info(
 const api=(env.ASAAS_API_URL||((env.ASAAS_ENVIRONMENT||'sandbox')==='production'?'https://api.asaas.com/v3':'https://api-sandbox.asaas.com/v3')).replace(/\/$/,'');
 if(new URL(api).hostname!=='api-sandbox.asaas.com')throw Error('Sandbox not confirmed; no mutations allowed');
 const scenario=process.argv[3]||'original';
-if(!['original','saved-card','pix','boleto','shipping','card-regression','physical-return'].includes(scenario))throw Error('Unknown scenario');
+if(!['original','saved-card','pix','boleto','boleto-paid','shipping','card-regression','physical-return'].includes(scenario))throw Error('Unknown scenario');
 const originalFile='node_modules/.cache/order-cleanup/sandbox-purchase-20261009.json';
 const file=scenario==='original'?originalFile:originalFile.replace('.json',`-${scenario}.json`);
 let state=fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):{};
@@ -32,7 +32,7 @@ try{
   const original=JSON.parse(fs.readFileSync(originalFile,'utf8'));
   if(!original.verifiedAt)throw Error('Original test not reconciled');
   const stocks={store:Number((await store.query('select estoque from produto where id=853')).rows[0].estoque),erp:Number((await erp.query('select estoque from produto where id=853')).rows[0].estoque)};
-  state={userId:original.userId,email:original.email,cpf:original.cpf,customerId:original.customerId,addressId:original.addressId,productId:853,quantity:1,total:20,baseline:stocks,scenario,billingType:scenario==='pix'?'PIX':scenario==='boleto'?'BOLETO':'CREDIT_CARD',startedAt:new Date().toISOString()};save();
+  state={userId:original.userId,email:original.email,cpf:original.cpf,customerId:original.customerId,addressId:original.addressId,productId:853,quantity:1,total:20,baseline:stocks,scenario,billingType:scenario==='pix'?'PIX':['boleto','boleto-paid'].includes(scenario)?'BOLETO':'CREDIT_CARD',startedAt:new Date().toISOString()};save();
   if(['shipping','card-regression','physical-return'].includes(scenario)){const saved=JSON.parse(fs.readFileSync(originalFile.replace('.json','-saved-card.json'),'utf8'));if(!saved.verifiedAt)throw Error('Saved card test not reconciled');state.savedCardId=saved.savedCardId;save();}
   console.log(JSON.stringify({stage,scenario,baseline:stocks}));
  }else if(stage==='return-flow'){
@@ -120,6 +120,14 @@ try{
   const order=(await store.query('select gateway_payment_id,commission_percent,commission_wallet_id,status from venda where id=$1',[state.orderId])).rows[0];
   state.paymentId=order.gateway_payment_id;save();
   console.log(JSON.stringify({stage,orderId:state.orderId,paymentId:state.paymentId,status:order.status,commissionPercent:order.commission_percent,walletConfigured:!!order.commission_wallet_id,checkoutUrl:state.checkoutUrl}));
+ }else if(stage==='confirm-boleto'){
+  if(scenario!=='boleto-paid'||state.orderId!==30||state.paymentId!=='pay_jjblvp34sh4ewjle')throw Error('Identified Sandbox boleto #30 required');
+  const payment=await asaas('/payments/'+state.paymentId);
+  if(payment.billingType!=='BOLETO'||payment.value!==20||String(payment.externalReference)!=='30')throw Error('Test charge binding mismatch');
+  if(payment.status!=='PENDING')throw Error('Charge is not pending; no duplicate confirmation attempted');
+  const result=await asaas('/sandbox/payment/'+state.paymentId+'/confirm','POST',{});
+  state.paidAt=new Date().toISOString();save();
+  console.log(JSON.stringify({stage,orderId:state.orderId,status:result.status}));
  }else if(stage==='pay'){
   const payment=await asaas('/payments/'+state.paymentId);
   if(payment.status!=='PENDING'||payment.value!==20||String(payment.externalReference)!==String(state.orderId))throw Error('Payment is not the pending test charge');
@@ -146,6 +154,15 @@ try{
   const link=state.orderId?(await erp.query('select venda_id,site_status,refund_status from site_order_link where site_order_id=$1',[state.orderId])).rows[0]:null;
   const stocks={store:Number((await store.query('select estoque from produto where id=853')).rows[0].estoque),erp:Number((await erp.query('select estoque from produto where id=853')).rows[0].estoque)};
   console.log(JSON.stringify({stage,orderId:state.orderId,paymentStatus:payment?.status,refunds:payment?.refunds?.map(x=>({status:x.status,value:x.value})),split:payment?.split?.map(x=>({status:x.status,percentualValue:x.percentualValue,totalValue:x.totalValue})),order,link,baseline:state.baseline,stocks}));
+ }else if(stage==='record-boleto-request'){
+  if(scenario!=='boleto-paid'||state.orderId!==30)throw Error('Identified boleto test required');
+  const payment=await asaas('/payments/'+state.paymentId);
+  const claim=(await store.query('select payment_id,request_url,created_at,reason from site_order_refund_request where order_id=$1',[state.orderId])).rows[0];
+  if(payment.status!=='REFUND_REQUESTED'||claim?.payment_id!==state.paymentId||new URL(claim.request_url).hostname!=='sandbox.asaas.com')throw Error('Official pending refund and stored Sandbox form required');
+  const saved=await erp.query("update site_order_link set refund_status='AWAITING_CUSTOMER',refund_requested_at=$2,refund_reason=$3,refund_request_url=$4,refund_checked_at=now() where site_order_id=$1 and gateway_payment_id=$5 and venda_id=$6 returning venda_id",[state.orderId,claim.created_at,claim.reason,claim.request_url,state.paymentId,239]);
+  if(saved.rowCount!==1)throw Error('ERP binding mismatch');
+  state.awaitingCustomerAt=new Date().toISOString();save();
+  console.log(JSON.stringify({stage,orderId:state.orderId,refundStatus:'AWAITING_CUSTOMER',requestUrl:claim.request_url,stockChanged:false}));
  }else if(stage==='notification-audit'){
   const rows=(await erp.query("select source_event_id,count(*)::int as total,count(*) filter(where telegram_sent_at is not null)::int as telegram_sent,count(*) filter(where telegram_attempts>0)::int as telegram_attempted,count(*) filter(where telegram_last_error is not null)::int as telegram_errors from system_notification where source='SITE_ORDER' and source_event_id=any($1) group by source_event_id order by source_event_id",[['SITE_ORDER:1:23','SITE_ORDER:1:24','SITE_ORDER:1:25']])).rows;
   console.log(JSON.stringify({stage,rows}));
