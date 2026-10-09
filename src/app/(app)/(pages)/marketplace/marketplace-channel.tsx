@@ -33,7 +33,7 @@ export function MarketplaceChannelSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="h-auto min-w-52 justify-between gap-3 bg-card px-3 py-2 shadow-sm">
+        <Button variant="outline" className="h-auto w-full min-w-0 justify-between gap-3 bg-card px-3 py-2 shadow-sm sm:w-auto sm:min-w-52">
           <span className="flex min-w-0 items-center gap-2.5">
             <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${current.iconClass}`}>
               <CurrentIcon className="h-4 w-4" />

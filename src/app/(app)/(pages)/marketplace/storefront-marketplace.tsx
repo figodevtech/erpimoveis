@@ -11,6 +11,7 @@ import {
   ImageIcon,
   List,
   Loader2,
+  MoreHorizontal,
   PackageCheck,
   PauseCircle,
   Pencil,
@@ -22,6 +23,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
   Card,
   CardContent,
@@ -255,10 +257,10 @@ export default function StorefrontMarketplace() {
   }
 
   const productToolbar = (
-    <div className="flex w-full flex-wrap items-center justify-end gap-2">
+    <div className="flex min-w-0 w-full items-center gap-2 sm:justify-end">
       <form
         role="search"
-        className="relative w-full min-w-[220px] sm:w-[320px]"
+        className="relative min-w-0 flex-1 sm:w-[320px] sm:flex-none"
         onSubmit={(event) => {
           event.preventDefault();
           setSearch(searchInput.trim());
@@ -297,6 +299,7 @@ export default function StorefrontMarketplace() {
           </Button>
         ) : null}
       </form>
+      <div className="flex shrink-0 items-center gap-2">
       <StorefrontProductFiltersSheet
         filters={filters}
         onApply={(nextFilters) => {
@@ -307,6 +310,8 @@ export default function StorefrontMarketplace() {
       <div className="flex rounded-xl border bg-muted/40 p-1">
         <Button
           title="Visualização em lista"
+          aria-label="Visualização em lista"
+          aria-pressed={viewMode === "list"}
           size="sm"
           variant={viewMode === "list" ? "secondary" : "ghost"}
           className="h-8 w-8 rounded-lg p-0"
@@ -316,6 +321,8 @@ export default function StorefrontMarketplace() {
         </Button>
         <Button
           title="Visualização em grade"
+          aria-label="Visualização em grade"
+          aria-pressed={viewMode === "cards"}
           size="sm"
           variant={viewMode === "cards" ? "secondary" : "ghost"}
           className="h-8 w-8 rounded-lg p-0"
@@ -324,11 +331,12 @@ export default function StorefrontMarketplace() {
           <Grid2X2 className="h-4 w-4" />
         </Button>
       </div>
+      </div>
     </div>
   );
 
   return (
-    <div className="mx-auto space-y-4">
+    <div className="mx-auto min-w-0 space-y-4">
       <MarketplaceHeader
         icon={Globe2}
         iconClassName="text-sky-600"
@@ -340,7 +348,7 @@ export default function StorefrontMarketplace() {
 
       <Tabs value={activeTab} onValueChange={changeTab}>
         <Card className="gap-0 overflow-hidden">
-          <CardHeader className="border-b-2 pb-4">
+          <CardHeader className="border-b-2 px-4 pb-4 sm:px-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <CardTitle>
@@ -382,13 +390,14 @@ export default function StorefrontMarketplace() {
                   </span>
                 </CardDescription>
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2 sm:ml-auto">
+              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:ml-auto sm:w-auto sm:justify-end">
 
                 {activeTab === "orders" ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="h-10 w-auto sm:h-9"
                   onClick={() => orderActions?.sync()}
                   disabled={!orderActions || orderActions.syncing}
                 >
@@ -400,7 +409,7 @@ export default function StorefrontMarketplace() {
                   Sincronizar pedidos
                 </Button>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex w-full flex-wrap gap-2 sm:w-auto">
                   <Button
                     type="button"
                     size="sm"
@@ -412,7 +421,8 @@ export default function StorefrontMarketplace() {
                     ) : (
                       <PackageCheck className="mr-2 h-4 w-4" />
                     )}
-                    Publicar todos com imagem
+                    <span className="sm:hidden">Publicar com imagem</span>
+                    <span className="hidden sm:inline">Publicar todos com imagem</span>
                   </Button>
                   <Button
                     type="button"
@@ -426,7 +436,8 @@ export default function StorefrontMarketplace() {
                     ) : (
                       <Send className="mr-2 h-4 w-4" />
                     )}
-                    Sincronizar catálogo
+                    <span className="sm:hidden">Sincronizar</span>
+                    <span className="hidden sm:inline">Sincronizar catálogo</span>
                   </Button>
                 </div>
               )}
@@ -507,8 +518,8 @@ export default function StorefrontMarketplace() {
 
               {viewMode === "list" ? (
                 <div className="overflow-hidden rounded-lg border">
-                  <Table>
-                    <TableHeader className="bg-muted/30">
+                  <Table className="block md:table">
+                    <TableHeader className="hidden bg-muted/30 md:table-header-group">
                       <TableRow>
                         <TableHead>Produto</TableHead>
                         <TableHead>Preço / estoque</TableHead>
@@ -517,11 +528,11 @@ export default function StorefrontMarketplace() {
                         <TableHead className="text-right">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
-                    <TableBody>
+                    <TableBody className="block md:table-row-group">
                       {response.data.map((product) => (
-                        <TableRow key={product.produto_id}>
-                          <TableCell>
-                            <p className="max-w-[380px] truncate font-medium">
+                        <TableRow key={product.produto_id} className="grid min-w-0 grid-cols-2 gap-2 p-3 md:table-row md:p-0">
+                          <TableCell className="col-span-2 block min-w-0 whitespace-normal p-0 md:table-cell md:p-2">
+                            <p className="line-clamp-2 font-medium md:max-w-[380px] md:truncate">
                               {product.titulo}
                             </p>
                             <p className="text-xs text-muted-foreground">
@@ -532,19 +543,19 @@ export default function StorefrontMarketplace() {
                               <Badge variant="destructive" className="mt-1">Sem imagem</Badge>
                             ) : null}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="block whitespace-normal p-0 md:table-cell md:p-2">
                             <p>{formatMoney(product.preco)}</p>
                             <p className="text-xs text-muted-foreground">
                               {product.estoque} unidade(s) publicáveis
                             </p>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="block whitespace-normal p-0 md:table-cell md:p-2">
                             <PublicationBadge
                               status={product.status}
                               linked={product.product_link_id !== null}
                             />
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="col-span-2 block min-w-0 whitespace-normal p-0 md:table-cell md:p-2">
                             <SyncBadge status={product.sync_status} />
                             {product.last_sync_error ? (
                               <p
@@ -555,8 +566,11 @@ export default function StorefrontMarketplace() {
                               </p>
                             ) : null}
                           </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
+                          <TableCell className="col-span-2 block p-0 pt-2 text-right md:table-cell md:p-2">
+                            <div className="md:hidden">
+                              <ProductActionsMenu product={product} loading={changingProductId === product.produto_id} publicationDisabled={syncingCatalog || changingProductId !== null || (!product.has_image && product.status !== "PUBLICADO")} onEdit={() => setEditProductId(product.produto_id)} onPhoto={() => setPhotoProductId(product.produto_id)} onPublication={() => void changePublication(product)} />
+                            </div>
+                            <div className="hidden flex-wrap justify-end gap-2 md:flex">
                               <EditProductAction
                                 onClick={() => setEditProductId(product.produto_id)}
                               />
@@ -643,6 +657,10 @@ export default function StorefrontMarketplace() {
                           />
                           <SyncBadge status={product.sync_status} />
                         </div>
+                        <div className="flex justify-end md:hidden">
+                          <ProductActionsMenu product={product} loading={changingProductId === product.produto_id} publicationDisabled={syncingCatalog || changingProductId !== null || (!product.has_image && product.status !== "PUBLICADO")} onEdit={() => setEditProductId(product.produto_id)} onPhoto={() => setPhotoProductId(product.produto_id)} onPublication={() => void changePublication(product)} />
+                        </div>
+                        <div className="hidden space-y-2 md:block">
                         <PublicationAction
                           product={product}
                           loading={changingProductId === product.produto_id}
@@ -657,6 +675,7 @@ export default function StorefrontMarketplace() {
                         {!product.has_image ? (
                           <PhotoAction onClick={() => setPhotoProductId(product.produto_id)} fullWidth />
                         ) : null}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -792,6 +811,35 @@ function SyncBadge({ status }: { status: StorefrontProduct["sync_status"] }) {
     );
   if (status === "ERRO") return <Badge variant="destructive">Erro</Badge>;
   return <Badge variant="secondary">Dados não enviados</Badge>;
+}
+
+function ProductActionsMenu({ product, loading, publicationDisabled, onEdit, onPhoto, onPublication }: {
+  product: StorefrontProduct;
+  loading: boolean;
+  publicationDisabled: boolean;
+  onEdit: () => void;
+  onPhoto: () => void;
+  onPublication: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-10 gap-2" disabled={loading} aria-label={`Ações do produto ${product.produto_id}`}>
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MoreHorizontal className="h-4 w-4" />}
+          Ações
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuItem className="min-h-10" onSelect={onEdit}><Pencil className="h-4 w-4" />Editar produto</DropdownMenuItem>
+        <DropdownMenuItem className="min-h-10" onSelect={onPhoto}><Upload className="h-4 w-4" />{product.has_image ? "Alterar foto" : "Enviar foto"}</DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="min-h-10" disabled={publicationDisabled} onSelect={onPublication}>
+          {product.status === "PUBLICADO" ? <PauseCircle className="h-4 w-4" /> : <PackageCheck className="h-4 w-4" />}
+          {product.status === "PUBLICADO" ? "Pausar publicação" : "Publicar na loja"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 function PublicationAction({

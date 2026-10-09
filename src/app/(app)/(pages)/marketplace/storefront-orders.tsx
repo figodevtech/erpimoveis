@@ -392,7 +392,7 @@ export function StorefrontOrders({
           </CardHeader>
         ) : null}
         <CardContent className="space-y-5 p-4 lg:p-6">
-          <div className="grid grid-cols-1 overflow-hidden rounded-lg border sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 overflow-hidden rounded-lg border xl:grid-cols-4">
             <Summary label="Importados" value={imported} icon={PackageCheck} />
             <Summary
               label="Aguardando postagem"
@@ -419,8 +419,8 @@ export function StorefrontOrders({
           ) : null}
 
           <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader className="bg-muted/30">
+            <Table className="block md:table">
+              <TableHeader className="hidden bg-muted/30 md:table-header-group">
                 <TableRow>
                   <TableHead>Pedido</TableHead>
                   <TableHead>Cliente</TableHead>
@@ -430,19 +430,19 @@ export function StorefrontOrders({
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+              <TableBody className="block md:table-row-group">
                 {orders.map((order) => {
                   const actionsBlocked = Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || order.site_status === "CANCELADO" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "");
                   return (
-                  <TableRow key={order.id}>
-                    <TableCell>
+                  <TableRow key={order.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 p-3 md:table-row md:p-0">
+                    <TableCell className="block p-0 md:table-cell md:p-2">
                       <p className="font-medium">Site #{order.site_order_id}</p>
                       <p className="text-xs text-muted-foreground">
                         {formatDate(order.order_created_at)}
                       </p>
                       <ImportBadge status={order.import_status} />
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="col-span-2 row-start-2 block min-w-0 p-0 md:table-cell md:p-2">
                       <p className="max-w-56 truncate">
                         {order.venda?.cliente?.nomerazaosocial || "—"}
                       </p>
@@ -451,10 +451,10 @@ export function StorefrontOrders({
                         {order.venda?.id ? `#${order.venda.id}` : "pendente"}
                       </p>
                     </TableCell>
-                    <TableCell className="font-medium">
+                    <TableCell className="col-start-2 row-start-1 block p-0 text-right font-medium md:table-cell md:p-2 md:text-left">
                       {formatMoney(order.total_amount)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="col-span-2 block min-w-0 whitespace-normal p-0 md:table-cell md:p-2">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Badge variant="outline" className="gap-1">
                           {order.delivery?.method === "pickup" ? <Store className="h-3 w-3" /> : <Truck className="h-3 w-3" />}
@@ -469,7 +469,8 @@ export function StorefrontOrders({
                         {formatDeliveryAddress(order)}
                       </p>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="block p-0 md:table-cell md:p-2">
+                      <span className="mr-2 text-xs text-muted-foreground md:hidden">NF-e</span>
                       {order.invoice?.chave_acesso ? (
                         <>
                           <Badge
@@ -486,10 +487,11 @@ export function StorefrontOrders({
                         <Badge variant="secondary">Pendente</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="block p-0 text-right md:table-cell md:p-2">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" aria-label={`Ações do pedido ${order.site_order_id}`}>
+                          <Button variant="outline" size="sm" className="h-10 gap-2 md:h-9" aria-label={`Ações do pedido ${order.site_order_id}`}>
+                            <span className="md:hidden">Ações</span>
                             <MoreHorizontal className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -716,12 +718,12 @@ function Summary({
   icon: typeof Truck;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
-      <div>
+    <div className="flex min-w-0 items-center justify-between gap-2 border-b border-r px-3 py-3 xl:border-b-0 xl:last:border-r-0">
+      <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="text-xl font-bold">{value}</p>
       </div>
-      <Icon className="h-5 w-5 text-sky-600" />
+      <Icon className="h-4 w-4 shrink-0 text-sky-600 sm:h-5 sm:w-5" />
     </div>
   );
 }
