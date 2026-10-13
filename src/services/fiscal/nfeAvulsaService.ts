@@ -163,6 +163,12 @@ export type NFeAvulsaItemInput = {
   aliquotaFcpDestino?: string | number | null;
   percentualPartilhaDestino?: string | number | null;
   baseCalculoFcpDestino?: string | number | null;
+  /**
+   * Campos do DIFAL que a pessoa editou na tela. Sem isso o valor digitado
+   * chegava como "ITEM", sem rastro de edição — e a interestadual digitada era
+   * aceita como se viesse do cadastro.
+   */
+  overrideDifalManual?: Partial<Record<CampoDifalManual, unknown>> | null;
   percentualDevolucao?: string | number | null;
   valorIpiDevolvido?: string | number | null;
   dfeReferenciado?: {
@@ -375,6 +381,27 @@ function calculateValue(base: number, aliquota: number, informed: unknown) {
   return explicit ?? Number(((base * aliquota) / 100).toFixed(2));
 }
 
+const CAMPOS_DIFAL_MANUAIS = [
+  "aliquotaInterna",
+  "aliquotaFcp",
+  "aliquotaInterestadual",
+  "percentualPartilha",
+  "baseFcp",
+] as const;
+type CampoDifalManual = (typeof CAMPOS_DIFAL_MANUAIS)[number];
+
+/** Só as chaves conhecidas, e só `true` marca: o payload pode vir de qualquer cliente. */
+function overrideDifalDoPayload(
+  valor: NFeAvulsaItemInput["overrideDifalManual"],
+): NFeItem["overrideDifalManual"] {
+  if (!valor || typeof valor !== "object") return undefined;
+  const marcado: NonNullable<NFeItem["overrideDifalManual"]> = {};
+  for (const campo of CAMPOS_DIFAL_MANUAIS) {
+    if (valor[campo] === true) marcado[campo] = true;
+  }
+  return Object.keys(marcado).length ? marcado : undefined;
+}
+
 function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
   const quantidade = toDecimalNumber(item.quantidade);
   const valorUnitario = toDecimalNumber(item.valorUnitario);
@@ -423,6 +450,7 @@ function mapInputToTaxItem(item: NFeAvulsaItemInput, index: number): NFeItem {
     aliquotaFcpDestino: toOptionalDecimal(item.aliquotaFcpDestino) ?? undefined,
     percentualPartilhaDestino: toOptionalDecimal(item.percentualPartilhaDestino) ?? undefined,
     baseCalculoFcpDestino: toOptionalDecimal(item.baseCalculoFcpDestino) ?? undefined,
+    overrideDifalManual: overrideDifalDoPayload(item.overrideDifalManual),
     percentualDevolucao: toOptionalDecimal(item.percentualDevolucao) ?? undefined,
     valorIpiDevolvido: toOptionalDecimal(item.valorIpiDevolvido) ?? undefined,
     dfeReferenciado: item.dfeReferenciado

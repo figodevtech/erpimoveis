@@ -23,6 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  DATABASE_KEYS,
   connectDatabase,
   loadDatabaseConfigs,
   projectRoot,
@@ -31,7 +32,7 @@ import {
 } from "./lib";
 import { splitLikeSupabaseCli } from "./supabase-splitter";
 
-const BANCOS: DatabaseKey[] = ["demo", "demir", "garage"];
+const BANCOS: DatabaseKey[] = [...DATABASE_KEYS];
 
 const CHECK = "supabase/tests/sped_fiscal.sql";
 

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { exigirAcessoATransacao, type ContextoDeAutoria } from "@/app/api/transaction/_lib/autoria";
 
 /**
  * A ponte entre a decisão que veio da tela e a RPC atômica que a executa.
@@ -209,7 +210,9 @@ export async function aplicarDecisao(
   movimentoIds: number[],
   decisao: Decisao,
   usuarioId: string | null,
+  contexto?: ContextoDeAutoria,
 ): Promise<ResultadoDecisao> {
+  await validarAcessoDasDecisoes([decisao], contexto);
   const fingerprints = decisao.grupo?.length
     ? decisao.grupo
     : decisao.fingerprint
@@ -252,4 +255,14 @@ export async function aplicarDecisao(
     transacaoId: (data as any)?.transacao_id ?? null,
     erro: null,
   };
+}
+
+/** Confere o envio inteiro antes de importar ou conciliar qualquer linha. */
+export async function validarAcessoDasDecisoes(
+  decisoes: Decisao[],
+  contexto?: ContextoDeAutoria,
+): Promise<void> {
+  const ids = decisoes.flatMap((decisao) =>
+    ACOES_DE_EDICAO.has(decisao.acao) && decisao.transacaoId != null ? [decisao.transacaoId] : []);
+  if (ids.length) await exigirAcessoATransacao(ids, contexto);
 }

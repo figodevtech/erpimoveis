@@ -234,8 +234,8 @@ export async function GET(req: Request) {
     const page = Math.max(Number(searchParams.get("page") ?? 1), 1);
     const limit = Math.min(Math.max(Number(searchParams.get("limit") ?? 10), 1), 100);
     const onlyTransactions = searchParams.get("onlyTransactions") === "true";
-    // Mesmo recorte do Fluxo: sem `financeiro:ver_todas_transacoes`, só o que a
-    // pessoa lançou e o que não tem autor. Vale para a lista, os totais e os
+    // Mesmo recorte do Fluxo: compartilha lançamentos de criadores sem Caixa
+    // administrativo e registros sem autor. Vale para a lista, os totais e os
     // saldos — um cartão com o caixa inteiro revelaria o que a lista esconde.
     const recorte = await recorteDeAutoria(false);
 

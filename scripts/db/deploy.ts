@@ -12,6 +12,10 @@ import {
 
 const flags = new Set(process.argv.slice(2));
 
+function nomesDos(bancos: Array<{ label: string }>) {
+  return bancos.map((banco) => banco.label).join(", ");
+}
+
 async function confirm(expected: string, message: string, bypass: boolean) {
   if (bypass) return;
   if (!process.stdin.isTTY) {
@@ -38,7 +42,7 @@ async function main() {
   const clients = databases.filter((database) => database.key !== "demo");
   if (!demo) throw new Error("Banco de Demonstração não configurado.");
 
-  console.log(`Pré-validação dos ${databases.length} bancos cadastrados...`);
+  console.log(`Pré-validação dos ${databases.length} bancos...`);
   const initial = await inspectAllDatabases();
   printInspectionSummary(initial.inspections);
 
@@ -84,7 +88,7 @@ async function main() {
     );
     await confirm(
       "CLIENTES",
-      `Após validar a Demonstração, deseja atualizar ${clients.map((item) => item.label).join(", ")}?`,
+      `Após validar a Demonstração, deseja atualizar ${nomesDos(clients)}?`,
       flags.has("--approve-clients"),
     );
 
@@ -99,7 +103,7 @@ async function main() {
       await runDatabasePush(status.database, false);
     }
   } else {
-    console.log("Todos os clientes cadastrados já estão atualizados.");
+    console.log(`${nomesDos(clients)} já estão atualizados.`);
   }
 
   console.log("\nValidação final...");
@@ -120,7 +124,7 @@ async function main() {
     );
   }
 
-  console.log("\nDeploy concluído: todos os bancos cadastrados estão alinhados.");
+  console.log(`\nDeploy concluído: os ${databases.length} bancos estão alinhados.`);
 }
 
 main().catch((error) => {

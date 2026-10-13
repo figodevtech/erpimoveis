@@ -47,7 +47,7 @@ export function attachmentPrefix(transactionId: number) {
 
 /**
  * A transação existe e a sessão pode lê-la ou alterá-la. Ler abre também a
- * transação alheia de OS; anexar exige o dono.
+ * transação administrativa de OS; anexar exige acesso ao caixa da transação.
  */
 export async function ensureAttachmentTransaction(id: number, modo: "ler" | "alterar") {
   const { data, error } = await supabaseAdmin

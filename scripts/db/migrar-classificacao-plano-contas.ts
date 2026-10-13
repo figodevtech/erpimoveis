@@ -28,9 +28,9 @@ import {
   sugerirClassificacaoGrupo,
   type Certeza,
 } from "../../src/lib/financeiro/plano-contas/sugestao";
-import { connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "./lib";
+import { DATABASE_KEYS, connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "./lib";
 
-const BANCOS: DatabaseKey[] = ["demo", "demir", "garage"];
+const BANCOS: DatabaseKey[] = [...DATABASE_KEYS];
 
 type Proposta = {
   entidade: "GRUPO" | "CONTA";

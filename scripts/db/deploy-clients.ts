@@ -48,9 +48,10 @@ async function main() {
     throw new Error("Um banco de cliente possui migrations somente no remoto.");
   }
 
+  const nomesClientes = clients.map((inspection) => inspection.database.label).join(", ");
   const pendingClients = clients.filter((inspection) => inspection.pending.length);
   if (!pendingClients.length) {
-    console.log("Todos os clientes cadastrados já estão atualizados.");
+    console.log(`${nomesClientes} já estão atualizados.`);
     return;
   }
 
@@ -84,7 +85,9 @@ async function main() {
   if (historyDrift || differences.length) {
     throw new Error("A comparação final encontrou divergências.");
   }
-  console.log("\nDemir, Garage Premium e Jean Car atualizados; os três bancos estão alinhados.");
+  console.log(
+    `\n${nomesClientes} atualizados; os ${final.inspections.length} bancos estão alinhados.`,
+  );
 }
 
 main().catch((error) => {

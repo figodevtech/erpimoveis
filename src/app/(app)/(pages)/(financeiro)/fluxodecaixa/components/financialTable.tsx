@@ -403,8 +403,8 @@ export default function FinancialTable({
     PERMS.FINANCEIRO_EXCLUIR,
   );
   /*
-   * Sem esta permissão a lista mostra só o que a pessoa lançou — mais tudo que
-   * não tem dono, que é o histórico anterior à regra. A decisão é do servidor;
+   * Sem Caixa administrativo, a lista compartilha lançamentos de usuários
+   * comuns e registros sem autor. A decisão é do servidor;
    * aqui ela serve para dizer isso na tela e para esconder um controle que não
    * teria efeito nenhum.
    */
@@ -552,13 +552,13 @@ export default function FinancialTable({
                   <TooltipTrigger asChild>
                     <span className="inline-flex cursor-default items-center text-muted-foreground">
                       <User className="h-3.5 w-3.5" />
-                      <span className="sr-only">Mostrando somente as minhas transações</span>
+                      <span className="sr-only">{podeVerTodas ? "Mostrando minhas transações e registros sem autor" : "Mostrando lançamentos compartilhados"}</span>
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" align="start" className="max-w-[320px] text-pretty">
                     {podeVerTodas
                       ? "Filtro ligado por você. A lista, os cartões e a exportação mostram o que você lançou, mais os registros sem autor."
-                      : "Você vê o que lançou, mais os registros sem autor. Ver o que as outras pessoas lançaram depende da permissão “Ver transações de todos”."}
+                      : "Você vê os lançamentos compartilhados entre usuários comuns e os registros sem autor. Lançamentos de quem possui “Caixa administrativo” ficam ocultos."}
                   </TooltipContent>
                 </Tooltip>
               ) : null}

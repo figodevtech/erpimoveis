@@ -237,6 +237,15 @@ describe("validação de entradas", () => {
     assert.throws(() => calcularDifal({ ...base, aliquotaFcpDestino: 150 }), /deve estar entre 0 e 100/);
   });
 
+  it("recusa interestadual fora do leiaute (só 4, 7 ou 12)", () => {
+    for (const pInter of [0, 5, 18]) {
+      assert.throws(() => calcularDifal({ ...base, aliquotaInterestadual: pInter }), /4%, 7% ou 12%/);
+    }
+    for (const pInter of [4, 7, 12]) {
+      assert.doesNotThrow(() => calcularDifal({ ...base, aliquotaInterestadual: pInter }));
+    }
+  });
+
   it("recusa percentual não numérico", () => {
     assert.throws(
       () => calcularDifal({ ...base, aliquotaInternaDestino: Number.NaN }),

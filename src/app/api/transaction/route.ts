@@ -13,6 +13,8 @@ import { filtroDeBusca } from "./_lib/busca";
 import {
   aplicarRecorteDeAutoria,
   criterioDeAlteracao,
+  contextoDeAutoria,
+  type RecorteDeAutoria,
   leApenasMinhas,
   recorteDeAutoria,
 } from "./_lib/autoria";
@@ -313,8 +315,8 @@ export async function GET(req: Request) {
      */
     const incluirBaixas = parseBooleanParam(searchParams.get("incluirBaixas"));
     /*
-     * Quem nao tem `financeiro:ver_todas_transacoes` so ve o que criou — e o
-     * que nao tem dono, que e quase todo o historico. O parametro nao decide
+     * Sem Caixa administrativo, o caixa comum e compartilhado entre criadores
+     * sem a permissao, incluindo registros sem autor. O parametro nao decide
      * nada nesse caso: quem nao pode ver tudo nao ganha uma chave para desligar
      * o proprio limite. Para quem tem a permissao, ele e o recorte opcional.
      */
@@ -323,15 +325,16 @@ export async function GET(req: Request) {
      * A lista de UMA OS ou de UMA venda nao sofre o recorte: e o que as telas de
      * Pagamento de Ordens e de Vendas pedem, e ali todo pagamento do documento
      * aparece, de quem quer que seja — o mesmo que a aba Financeiro da OS
-     * mostra. Alterar continua preso ao dono (`pode_alterar` em cada linha).
+     * mostra. Alterar respeita o Caixa administrativo (`pode_alterar` em cada linha).
      */
     const listaDeUmDocumento =
       !apenasMinhas &&
       ((Boolean(ordemservicoid) && (await hasOSAccess())) ||
         (Boolean(vendaid) && (await hasVendasAccess())));
-    const recorte = listaDeUmDocumento
-      ? { restrito: false, usuarioId: null }
-      : await recorteDeAutoria(apenasMinhas);
+    const contexto = await contextoDeAutoria();
+    const recorte: RecorteDeAutoria = listaDeUmDocumento
+      ? { modo: "TODAS", restrito: false, usuarioId: null }
+      : await recorteDeAutoria(apenasMinhas, contexto);
 
     // Padrão: mais novo primeiro (extrato). "asc" serve às visões de contas a
     // pagar/receber, onde o que vence antes precisa aparecer antes.
@@ -440,9 +443,9 @@ export async function GET(req: Request) {
     if (error) throw error;
     diagnosticStage = undefined;
 
-    // A tela usa isto para abrir so para leitura a transacao de outra pessoa,
+    // A tela usa isto para abrir só para leitura uma transação administrativa,
     // em vez de oferecer botoes que a rota recusa com 403.
-    const podeAlterar = await criterioDeAlteracao();
+    const podeAlterar = await criterioDeAlteracao(contexto);
     const items = (data ?? []).map((linha: any) => ({
       ...linha,
       pode_alterar: podeAlterar(linha.created_by ?? null),
@@ -481,7 +484,7 @@ export async function GET(req: Request) {
         valorMax: valorMax ?? null,
         vinculo: vinculo || null,
         incluirBaixas,
-        apenasMinhas: recorte.restrito,
+        apenasMinhas: recorte.modo === "MINHAS",
         ordem: ascending ? "asc" : "desc",
         ordenarPor,
       },

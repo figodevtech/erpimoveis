@@ -430,6 +430,52 @@ describe("DIFAL (ICMSUFDest)", () => {
     );
   });
 
+  it("NF-e 230 da Demir (PB -> RN): zeros vindos do item não chegam ao pICMSInter e o XML passa no XSD", async () => {
+    // O rascunho rejeitado (225) tinha interna, interestadual e FCP iguais a 0,
+    // sem marca de edição manual. Com a regra do RN, a interna sai da regra, a
+    // interestadual sai da lei e o grupo fecha em 20 - 12 = 8% de R$ 4.800.
+    const regraRn = {
+      id: 1, uf: "RN", tipoRegra: "GERAL" as const, descricao: "Regra geral RN",
+      ncm: null, ncmPrefixo: null, cest: null,
+      aliquotaIcmsInterna: 20, aliquotaFcp: 0, reducaoBase: null,
+      vigenciaInicio: "2025-03-20", vigenciaFim: null, prioridade: 10,
+      fonte: "ALRN", fonteUrl: null, fundamentoLegal: "Lei 6.968/1996, art. 27, I, a",
+      dataFonte: "2024-12-20", ativo: true,
+    };
+    const resolvido = resolverDifalDoItem(
+      {
+        ...itemDifal,
+        cfop: "6403",
+        valorUnitario: 4800,
+        valorTotal: 4800,
+        aliquotaInternaDestino: 0,
+        aliquotaInterestadual: 0,
+        aliquotaFcpDestino: 0,
+        rtc: rtcTeste(4800),
+      },
+      { ...contextoDifal, ufEmitente: "PB", ufDestinatario: "RN", crt: 3, modelo: 55, dataEmissao: "2026-10-13" },
+      { regras: [regraRn] },
+    );
+    assert.deepEqual(resolvido.difalDecisao?.pendencias, []);
+    assert.equal(resolvido.difalDecisao?.origemAliquotaInterestadual, "LEI");
+
+    const { xml } = buildNFePreviewXml(
+      { ...empresaRegimeNormal, uf: "PB", codigomunicipio: "2507507" },
+      195,
+      3,
+      [resolvido],
+      { ...destinatario("RN"), endereco: { ...destinatario("RN").endereco, codigoMunicipio: "2414803", nomeMunicipio: "VERA CRUZ", cep: "59184000" } },
+      { nomeMunicipioEmitente: "JOAO PESSOA", indFinal: 1 },
+    );
+
+    assert.match(xml, /<pICMSInter>12\.00<\/pICMSInter>/);
+    assert.match(xml, /<pICMSUFDest>20\.00<\/pICMSUFDest>/);
+    assert.match(xml, /<pFCPUFDest>0\.00<\/pFCPUFDest>/);
+    assert.match(xml, /<vICMSUFDest>384\.00<\/vICMSUFDest>/);
+    const xsd = await validarNFeContraXsd(comAssinaturaXsdTeste(xml));
+    assert.equal(xsd.valido, true, xsd.erros.join("\n"));
+  });
+
   it("nota estruturalmente sujeita ao DIFAL com todos os itens dispensados mantém totais zero válidos", async () => {
     const itemDispensado = {
       ...itemDifal,

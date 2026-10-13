@@ -9,7 +9,7 @@ import {
 const APLICAR = process.argv.includes("--aplicar");
 
 async function main() {
-  const database = loadDatabaseConfigs().find((item) => item.key === "jean");
+  const database = loadDatabaseConfigs().find((item) => item.key === "jeancar");
   if (!database) throw new Error("Banco Jean Car nao configurado.");
 
   const migrations = readLocalMigrations();

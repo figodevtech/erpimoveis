@@ -19,7 +19,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "../db/lib";
+import { DATABASE_KEYS, connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "../db/lib";
 
 type NcmCurado = {
   codigo: string;
@@ -39,7 +39,7 @@ type Arquivo = {
   ncms: NcmCurado[];
 };
 
-const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "garage"];
+const CHAVES_VALIDAS: DatabaseKey[] = [...DATABASE_KEYS];
 const LOTE = 1000;
 
 /** O Siscomex publica datas em dd/mm/aaaa; 31/12/9999 quer dizer "sem fim". */

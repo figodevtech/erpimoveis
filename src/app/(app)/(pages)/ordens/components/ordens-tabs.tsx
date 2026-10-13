@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { JSX, useEffect, useMemo, useState } from "react";
+import { JSX, useEffect, useMemo, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -144,11 +144,13 @@ export function OrdensTabs({
   // Total deve bater com a aba ABERTAS (abertas == OPEN_STATUSES)
   const totalAbertas = useMemo(() => sumByStatuses(stats, OPEN_STATUSES), [stats]);
 
+  const statsRequestRef = useRef(0);
   const loadStats = async () => {
+    const requestId = ++statsRequestRef.current;
     try {
       const r = await fetch("/api/ordens/stats", { cache: "no-store" });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) return;
+      if (!r.ok || requestId !== statsRequestRef.current) return;
 
       const counters = (j?.counters ?? {}) as Partial<OrdemStats>;
 
@@ -161,7 +163,7 @@ export function OrdensTabs({
     void Promise.resolve().then(loadStats);
   }, []);
 
-  // Realtime contadores — mesmo canal que a tabela de ordens usa.
+  // Canal privado e evento local compartilhados com a listagem.
   useRealtimeTabelas(TABELAS_REALTIME, loadStats);
 
   return (

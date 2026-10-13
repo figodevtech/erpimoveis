@@ -9,7 +9,7 @@ import {
 } from "@/app/api/transaction/_lib/anexos";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { exigirAcessoATransacao } from "../../_lib/autoria";
+import { exigirAcessoAOperacao } from "../../_lib/autoria-afetadas";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -29,7 +29,7 @@ export async function POST(_: Request, ctx: Params) {
     await requireFinanceiroEdit();
     const sessao = await auth().catch(() => null);
     const { id } = await ctx.params;
-    await exigirAcessoATransacao(Number(id));
+    await exigirAcessoAOperacao([Number(id)], "ESTORNAR");
 
     if (!/^\d+$/.test(id) || id === "0") {
       return NextResponse.json({ error: "Transação inválida." }, { status: 400 });

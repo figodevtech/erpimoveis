@@ -22,13 +22,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  DATABASE_KEYS,
   connectDatabase,
   loadDatabaseConfigs,
   projectRoot,
   type DatabaseKey,
 } from "./lib";
 
-const BANCOS: DatabaseKey[] = ["demo", "demir", "garage"];
+const BANCOS: DatabaseKey[] = [...DATABASE_KEYS];
 
 const MIGRATIONS = [
   "supabase/migrations/20260908100000_classificacao_resultado_catalogo.sql",
