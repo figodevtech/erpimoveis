@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "key": "hg",
+    "label": "HG Comercio e Servicos",
+    "projectRef": "nxbociyfidsyepkyhcqw",
+    "envName": "ERP_DB_HG",
+    "poolerHosts": [
+      "aws-0-us-east-1.pooler.supabase.com"
+    ]
+  }
+]

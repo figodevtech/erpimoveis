@@ -3,6 +3,7 @@
 
 import * as React from "react";
 import axios from "axios";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
 import { TriangleAlert } from "lucide-react";
@@ -240,6 +241,12 @@ export default function ClientAppShell({
         >
           <TriangleAlert className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span>{billing.message || "Débitos pendentes. Acesse Seu Plano para regularização."}</span>
+          <Link
+            href="/plano"
+            className="shrink-0 rounded-md border border-amber-300/70 px-2 py-1 text-xs font-medium transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
+          >
+            Ver pagamento
+          </Link>
         </div>
       )}
 
