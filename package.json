@@ -102,6 +102,10 @@
     "test:chat": "tsx --test src/lib/chat/*.test.ts src/components/chat/*.test.ts src/components/chat/*.test.tsx",
     "test:central-operacional": "tsx --test src/lib/central-operacional/*.test.ts \"src/app/(app)/(full)/central-operacional/components/*.test.ts\"",
     "test:mercadolivre": "tsx --test src/lib/integrations/mercadolivre-*.test.ts",
+    "db:deploy:jean": "tsx scripts/db/deploy-jean.ts",
+    "db:novo-cliente": "tsx scripts/db/novo-cliente.ts",
+    "db:perfil:admin": "tsx scripts/db/criar-perfil-administrador.ts",
+    "db:test:provisionamento": "node --import tsx --test scripts/db/provisionamento.test.ts",
     "test:ordens:realtime": "tsx --test src/lib/ordens/realtime-client.test.ts src/hooks/use-realtime-tabelas.test.ts",
     "db:test:ordens-realtime": "node --use-system-ca --import tsx scripts/db/test-ordens-realtime.mjs"
   },

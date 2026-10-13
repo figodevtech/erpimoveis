@@ -1,0 +1,30 @@
+const assert=require('node:assert/strict');const Module=require('node:module');const path=require('node:path');require('tsx/cjs');
+process.env.STOREFRONT_API_URL='https://store.test';process.env.STOREFRONT_ORDER_SYNC_SECRET='test';
+let pickup=false,blocked=false,linked=true,invoice=null,allowed=true,writes=[],sent=[],remoteStatus=200;
+const db={from(table){const q={select(){return q},eq(){return q},order(){return q},limit(){return q},update(value){writes.push({table,value});return q},async maybeSingle(){return {data:table==='nfe'?invoice:{venda_id:linked?10:null,raw_order:{shippingAddress:{deliveryMethod:pickup?'pickup':'delivery'}},refund_requested_at:blocked?'2026-10-09':null,site_status:'PAGO'},error:null}},then(resolve,reject){return Promise.resolve({error:null}).then(resolve,reject)}};return q}};
+const original=Module._load;Module._load=function(name,...args){
+ if(name==='@/lib/supabaseAdmin')return{ supabaseAdmin:db};
+ if(name==='@/app/api/_authz/perms')return{requireVendasEdit:async()=>{if(!allowed)throw Object.assign(Error('Forbidden'),{status:403})},requireVendasAccess:async()=>{}};
+ if(name==='@/lib/empresa-context')return{requireEmpresaId:async()=>1,errorStatus:e=>e.status||500};
+ if(name==='@/lib/auth')return{auth:async()=>null};
+ if(name==='@/lib/integrations/site-refund-status')return{refreshSiteRefundStatus:async()=>{}};
+ if(name==='@/lib/integrations/storefront-http')return{storefrontFetch:async(url,options)=>{sent.push({url,body:JSON.parse(options.body)});return Response.json(remoteStatus===200?{ok:true}:{error:'Store unavailable'},{status:remoteStatus})}};
+ return original.call(this,name,...args);
+};
+const {PATCH}=require(path.resolve('src/app/api/integracoes/site/orders/[id]/route.ts'));
+const call=body=>PATCH(new Request('http://localhost/api',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),{params:Promise.resolve({id:'100'})});
+(async()=>{
+ allowed=false;assert.equal((await call({deliveryStatus:'ENVIADO'})).status,403);assert.equal(writes.length,0);allowed=true;
+ assert.equal((await call({deliveryStatus:'BAD'})).status,400);assert.equal(writes.length,0);
+ linked=false;assert.equal((await call({deliveryStatus:'SEPARACAO'})).status,409);linked=true;
+ blocked=true;assert.equal((await call({deliveryStatus:'SEPARACAO'})).status,409);blocked=false;
+ assert.equal((await call({deliveryStatus:'ENVIADO'})).status,400);assert.equal(writes.length,0,'tracking required before updates');
+ assert.equal((await call({deliveryStatus:'FATURADO'})).status,409);assert.equal(writes.length,0,'authorized invoice required');
+ assert.equal((await call({deliveryStatus:'ENVIADO',trackingCode:'TEST',carrier:'Test carrier',trackingUrl:'https://example.com/test'})).status,200);
+ assert.equal(writes.at(-1).value.status_entrega,'ENVIO');assert.equal(sent.at(-1).body.trackingCode,'TEST');
+ pickup=true;assert.equal((await call({deliveryStatus:'ENVIADO'})).status,200);assert.equal(sent.at(-1).body.carrier,null);
+ assert.equal((await call({deliveryStatus:'ENTREGUE'})).status,200);assert.equal(writes.at(-1).value.status_entrega,'ENTREGUE');
+ invoice={chave_acesso:'1'.repeat(44),numero:1,serie:1};assert.equal((await call({deliveryStatus:'FATURADO'})).status,200);assert.equal(sent.at(-1).body.invoice.accessKey,'1'.repeat(44));
+ remoteStatus=503;assert.equal((await call({deliveryStatus:'SEPARACAO'})).status,500);
+ console.log('PASS: ERP authorization, invalid status, unimported/refund blocks, tracking/invoice requirements, shipping/pickup/delivery mapping and store error propagation.');
+})().catch(e=>{console.error(e);process.exitCode=1});

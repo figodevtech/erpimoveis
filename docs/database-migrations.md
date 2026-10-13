@@ -1,10 +1,15 @@
 # Fluxo de migrations dos bancos
 
+Para criar uma instalação independente do zero, siga
+[o roteiro de novos clientes](../ROTEIRO_NOVOS_BANCOS.md).
+
 Os bancos ativos (Demonstração, Demir, Garage Premium, Jean Car e HG Comércio e
 Serviços) usam as mesmas migrations e o mesmo schema. Somente os dados de cada
-empresa são independentes. A lista fica em `DATABASES`/`DATABASE_KEYS`, em
-`scripts/db/lib.ts`: cliente novo entra ali e passa a valer para o deploy, o
-`db:status`, os testes de migration e o `fiscal:difal`.
+empresa são independentes. Esses bancos ficam em `DATABASES`, em
+`scripts/db/lib.ts`; os próximos clientes são cadastrados pelo
+`db:novo-cliente` em `scripts/db/clientes.json`, sem credenciais. As duas
+listas formam `DATABASE_KEYS`, que vale para o deploy, o `db:status`, os testes
+de migration e o `fiscal:difal`.
 
 ## Stone em stand-by — 07/09/2026
 
@@ -119,3 +124,46 @@ npm run db:deploy -- --approve-demo --approve-clients
 ```
 
 Não use `--include-all` e não mova migrations novas para `migrations/old`.
+
+## Jean Car — 08/10/2026
+
+Jean Car participa de `db:status`, `db:deploy` e `db:deploy:clients`. A variável
+`ERP_DB_JEAN_CAR` deve apontar somente para o projeto `jqpcttqzbdtsrlrsaatf`;
+o carregador rejeita URLs de outro projeto. As credenciais são lidas nesta ordem:
+ambiente do processo, `.env.migrations.local`, `.env.migrations` e o formato
+antigo de `.env.local`. Os arquivos com credenciais não devem ser versionados.
+
+O banco foi criado com a estrutura da Demonstração. As 331 versões já presentes
+nessa estrutura foram registradas no histórico, sem reexecutar SQL antigo ou
+copiar registros comerciais. O histórico registra versão e nome; não copia
+os comandos SQL armazenados no banco de origem.
+
+Para conferir apenas as migrations pendentes do Jean Car:
+
+```powershell
+npm run db:deploy:jean
+```
+
+Para aplicar somente nele:
+
+```powershell
+npm run db:deploy:jean -- --aplicar
+```
+
+O Auth é configurado separadamente no painel do novo projeto: habilite Email,
+defina Site URL para o domínio do ERP e adicione `<domínio>/recuperar-senha`
+em Redirect URLs. Configure SMTP para recuperação de senha em produção.
+Os usuários são criados pelo ERP com `email_confirm: true`; não é necessário
+desativar confirmação de e-mail.
+
+Os 14 buckets do Storage foram criados vazios no Jean Car pela API, preservando
+acesso público/privado, limites de tamanho e tipos MIME da Demonstração. Nenhum
+arquivo foi copiado. O script valida o projeto de destino e não altera buckets
+existentes com configuração diferente:
+
+```powershell
+npx tsx scripts/db/criar-buckets-jean.ts
+npx tsx scripts/db/criar-buckets-jean.ts --aplicar
+```
+
+A primeira execução apenas confere; `--aplicar` cria os buckets ausentes.

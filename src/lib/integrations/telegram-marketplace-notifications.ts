@@ -41,7 +41,7 @@ export async function processTelegramMarketplaceNotifications(params: {
       const result = await sendTelegramMessage({
         chatId: Number(notification.chat_id),
         text: [
-          "🛒 <b>Mercado Livre</b>",
+          notification.source_event_id.startsWith("SITE_ORDER:") ? "🛒 <b>Site</b>" : "🛒 <b>Mercado Livre</b>",
           `<b>${escapeTelegramHtml(notification.title)}</b>`,
           escapeTelegramHtml(notification.message),
         ].join("\n"),

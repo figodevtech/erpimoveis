@@ -19,15 +19,21 @@ exception when others then
   return null;
 end;
 $$;
+
 revoke all on function public.ordens_realtime_emit() from public, anon, authenticated;
 
 drop trigger if exists ordens_realtime_changed on public.ordemservico;
+
 create trigger ordens_realtime_changed after insert or update or delete on public.ordemservico
 for each statement execute function public.ordens_realtime_emit();
+
 drop trigger if exists ordens_realtime_changed on public.osservico;
+
 create trigger ordens_realtime_changed after insert or update or delete on public.osservico
 for each statement execute function public.ordens_realtime_emit();
+
 drop trigger if exists ordens_realtime_changed on public.osservico_realizador;
+
 create trigger ordens_realtime_changed after insert or update or delete on public.osservico_realizador
 for each statement execute function public.ordens_realtime_emit();
 
@@ -48,9 +54,13 @@ as $$
       ))
   );
 $$;
+
 revoke all on function public.ordens_realtime_topic_allowed(text) from public, anon;
+
 grant execute on function public.ordens_realtime_topic_allowed(text) to authenticated, service_role;
+
 drop policy if exists ordens_realtime_receive on realtime.messages;
+
 create policy ordens_realtime_receive on realtime.messages for select to authenticated
 using (extension = 'broadcast' and public.ordens_realtime_topic_allowed((select realtime.topic())));
 

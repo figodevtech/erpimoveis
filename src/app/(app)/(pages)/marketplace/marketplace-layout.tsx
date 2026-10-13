@@ -80,19 +80,19 @@ export function MarketplaceHeader({
   accountBadge?: React.ReactNode;
 }) {
   return (
-    <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <header className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
       <div className="flex min-w-0 items-center gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-card shadow-sm">
           <Icon className={`h-5 w-5 ${iconClassName}`} />
         </div>
         <div className="min-w-0">
           <h1 className="text-xl font-semibold">Marketplace</h1>
-          <p className="truncate text-sm text-muted-foreground">{description}</p>
+          <p className="text-xs text-muted-foreground sm:text-sm">{description}</p>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+      <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
         <MarketplaceChannelSwitcher />
-        <div className="flex min-w-0 items-center gap-3 rounded-md border bg-card px-3 py-2 shadow-sm">
+        <div className="flex min-w-0 items-center gap-3 rounded-md border bg-card px-3 py-2 shadow-sm sm:flex-1 xl:flex-none">
           <span className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-emerald-500" : "bg-orange-500"}`} />
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
@@ -110,13 +110,14 @@ export function MarketplaceHeader({
   );
 }
 
-export function MarketplaceSectionNav<T extends string>({ items, trailing }: {
+export function MarketplaceSectionNav<T extends string>({ items, trailing, inlineTrailing = false }: {
   items: Array<MarketplaceSectionItem<T>>;
   trailing?: React.ReactNode;
+  inlineTrailing?: boolean;
 }) {
   return (
-    <div className="grid min-h-10 min-w-0 gap-2 px-3 pt-3 sm:px-6 md:grid-cols-[1fr_auto_1fr] md:items-center">
-      <div className="min-w-0 max-w-full overflow-x-auto md:col-start-2">
+    <div className={`grid min-h-10 min-w-0 gap-2 px-3 pt-3 sm:px-6 md:grid-cols-[1fr_auto_1fr] md:items-center ${inlineTrailing ? "grid-cols-[minmax(0,1fr)_auto] items-center" : ""}`}>
+      <div className="flex min-w-0 max-w-full justify-center overflow-x-auto md:col-start-2">
         <TabsList className="mx-auto h-auto min-w-max justify-start gap-1 rounded-xl border bg-muted/40 p-1">
           {items.map((item) => {
             const Icon = item.icon;
@@ -165,13 +166,13 @@ export function MarketplaceListToolbar({
   if (compact) {
     return (
       <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 lg:flex-nowrap">
-        <div className="relative w-full min-w-[220px] sm:w-[320px]">
+        <div className="relative w-full min-w-0 sm:w-[320px]">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder={searchPlaceholder} className="h-9 bg-background pl-9" />
         </div>
         {filter !== undefined && onFilterChange && filterOptions?.length ? (
           <Select value={filter} onValueChange={onFilterChange}>
-            <SelectTrigger className="h-9 w-full bg-background sm:w-52" aria-label={filterLabel}><SelectValue placeholder={filterLabel} /></SelectTrigger>
+            <SelectTrigger className="h-9 w-auto max-w-full bg-background sm:w-52" aria-label={filterLabel}><SelectValue placeholder={filterLabel} /></SelectTrigger>
             <SelectContent>{filterOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
           </Select>
         ) : null}
@@ -182,14 +183,14 @@ export function MarketplaceListToolbar({
 
   return (
     <div className={`flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between ${embedded ? "" : "border-b bg-muted/10 p-4"}`}>
-      <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row">
+      <div className="flex min-w-0 flex-1 flex-wrap gap-2 sm:flex-nowrap">
         <div className="relative w-full sm:max-w-md">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder={searchPlaceholder} className="bg-background pl-9" />
         </div>
         {filter !== undefined && onFilterChange && filterOptions?.length ? (
           <Select value={filter} onValueChange={onFilterChange}>
-            <SelectTrigger className="w-full bg-background sm:w-52" aria-label={filterLabel}><SelectValue placeholder={filterLabel} /></SelectTrigger>
+            <SelectTrigger className="w-auto max-w-full bg-background sm:w-52" aria-label={filterLabel}><SelectValue placeholder={filterLabel} /></SelectTrigger>
             <SelectContent>{filterOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
           </Select>
         ) : null}
@@ -224,19 +225,19 @@ export function MarketplacePagination({ page, totalPages, pageSize, total, visib
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = total === 0 ? 0 : start + visible - 1;
   return (
-    <div className="grid min-h-14 grid-cols-1 items-center gap-3 border-t bg-muted/10 px-4 py-3 sm:grid-cols-[1fr_auto_1fr]">
-      <p className="justify-self-center text-xs text-muted-foreground sm:justify-self-start">{start} - {end}<span className="ml-1">de {total}</span></p>
-      <div className="flex items-center justify-center gap-1 sm:col-start-2 sm:row-start-1 sm:gap-2">
-        <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label="Primeira página" disabled={page <= 1} onClick={() => onPageChange(1)}><ChevronsLeft className="h-4 w-4" /></Button>
-        <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label="Página anterior" disabled={page <= 1} onClick={() => onPageChange(page - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+    <div className="grid min-h-14 grid-cols-2 items-center gap-3 border-t bg-muted/10 px-3 py-3 sm:grid-cols-[1fr_auto_1fr] sm:px-4">
+      <p className="text-xs text-muted-foreground sm:justify-self-start">{start} - {end}<span className="ml-1">de {total}</span></p>
+      <div className="col-span-2 row-start-2 flex items-center justify-center gap-1 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:gap-2">
+        <Button type="button" variant="outline" size="icon" className="h-10 w-10 sm:h-8 sm:w-8" aria-label="Primeira página" disabled={page <= 1} onClick={() => onPageChange(1)}><ChevronsLeft className="h-4 w-4" /></Button>
+        <Button type="button" variant="outline" size="icon" className="h-10 w-10 sm:h-8 sm:w-8" aria-label="Página anterior" disabled={page <= 1} onClick={() => onPageChange(page - 1)}><ChevronLeft className="h-4 w-4" /></Button>
         <span className="min-w-20 text-center text-xs font-medium">Pg. {page} de {totalPages}</span>
-        <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label="Próxima página" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}><ChevronRight className="h-4 w-4" /></Button>
-        <Button type="button" variant="outline" size="icon" className="h-8 w-8" aria-label="Última página" disabled={page >= totalPages} onClick={() => onPageChange(totalPages)}><ChevronsRight className="h-4 w-4" /></Button>
+        <Button type="button" variant="outline" size="icon" className="h-10 w-10 sm:h-8 sm:w-8" aria-label="Próxima página" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}><ChevronRight className="h-4 w-4" /></Button>
+        <Button type="button" variant="outline" size="icon" className="h-10 w-10 sm:h-8 sm:w-8" aria-label="Última página" disabled={page >= totalPages} onClick={() => onPageChange(totalPages)}><ChevronsRight className="h-4 w-4" /></Button>
       </div>
-      <div className="flex items-center justify-center gap-2 sm:col-start-3 sm:row-start-1 sm:justify-self-end">
+      <div className="col-start-2 row-start-1 flex items-center justify-end gap-2 sm:col-start-3 sm:justify-self-end">
         <span className="hidden text-xs text-muted-foreground sm:inline">Exibir:</span>
         <Select value={String(pageSize)} onValueChange={(value) => onPageSizeChange(Number(value))}>
-          <SelectTrigger className="h-8 w-20 bg-background text-xs" aria-label="Itens por página"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="h-10 w-20 bg-background text-xs sm:h-8" aria-label="Itens por página"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="20">20</SelectItem><SelectItem value="50">50</SelectItem><SelectItem value="100">100</SelectItem></SelectContent>
         </Select>
       </div>

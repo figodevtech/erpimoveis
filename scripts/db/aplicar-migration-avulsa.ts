@@ -1,5 +1,5 @@
 /**
- * Aplica UMA migration nos tres bancos, sem passar pelo `db:deploy`.
+ * Aplica UMA migration nos bancos cadastrados, sem passar pelo `db:deploy`.
  *
  * Uso:
  *   npm run db:aplicar:avulsa -- supabase/migrations/<arquivo>.sql
@@ -26,9 +26,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { DATABASE_KEYS, connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "./lib";
-
-const ORDEM: DatabaseKey[] = [...DATABASE_KEYS];
+import { connectDatabase, loadDatabaseConfigs, projectRoot } from "./lib";
 
 const args = process.argv.slice(2);
 const APLICAR = args.includes("--aplicar");
@@ -52,10 +50,7 @@ async function main() {
   const configs = loadDatabaseConfigs();
   console.log(`\n${path.basename(caminho)} — ${APLICAR ? "APLICANDO" : "simulacao"}\n`);
 
-  for (const chave of ORDEM) {
-    const config = configs.find((item) => item.key === chave);
-    if (!config) throw new Error(`Banco ${chave} nao configurado.`);
-
+  for (const config of configs) {
     const { client } = await connectDatabase(config);
     try {
       await client.query("BEGIN");
