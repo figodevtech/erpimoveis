@@ -94,6 +94,18 @@ const SUL_SUDESTE_EXCETO_ES = new Set(["SP", "RJ", "MG", "PR", "SC", "RS"]);
  */
 const ORIGENS_ALIQUOTA_4 = new Set(["1", "2", "3", "8"]);
 
+/**
+ * Os únicos valores que o leiaute aceita em pICMSInter: o XSD restringe o campo
+ * a uma enumeração (PL_010f, leiauteNFe_v4.00.xsd). Qualquer outro número —
+ * inclusive 0 — é rejeição 225 na SEFAZ, como na NF-e 230 da Demir (PB → RN).
+ */
+export const ALIQUOTAS_INTERESTADUAIS_VALIDAS: readonly number[] = [4, 7, 12];
+
+export function aliquotaInterestadualValida(valor: unknown): boolean {
+  const numero = Number(valor);
+  return valor != null && Number.isFinite(numero) && ALIQUOTAS_INTERESTADUAIS_VALIDAS.includes(numero);
+}
+
 export function normalizarUf(value: unknown) {
   return String(value ?? "").trim().toUpperCase();
 }
@@ -272,6 +284,11 @@ export function calcularDifal({
 
   const pInterna = validarPercentual("Alíquota interna da UF de destino", aliquotaInternaDestino);
   const pInterestadual = validarPercentual("Alíquota interestadual", pInter);
+  if (!aliquotaInterestadualValida(pInterestadual)) {
+    throw new Error(
+      `Alíquota interestadual deve ser 4%, 7% ou 12% (leiaute da NF-e, pICMSInter). Recebido: ${pInterestadual}.`,
+    );
+  }
   const pPartilha = validarPercentual("Percentual de partilha da UF de destino", percentualPartilhaDestino);
   const pFcp = validarPercentual("Alíquota do FCP da UF de destino", aliquotaFcpDestino);
 
@@ -528,6 +545,20 @@ export function resolverDifalDoItem(
     }
   }
 
+  // A interestadual é a lei que define (origem da mercadoria e geografia), não
+  // um cadastro: o valor que chega no item sem marca de edição é ignorado. Foi
+  // um 0 vindo assim que levou a NF-e 230 da Demir à rejeição 225. A edição
+  // manual só vale dentro do que o leiaute aceita; fora disso bloqueia, e o
+  // grupo é montado com o valor legal para a prévia não quebrar.
+  const interestadualLegal = aliquotaInterestadual(contexto.ufEmitente, ufDestino, item.orig);
+  const interestadualManual = override?.aliquotaInterestadual && item.aliquotaInterestadual != null;
+  const interestadualManualValida =
+    interestadualManual && aliquotaInterestadualValida(item.aliquotaInterestadual);
+  const interestadualValor = interestadualManualValida
+    ? Number(item.aliquotaInterestadual)
+    : interestadualLegal;
+  const interestadualOrigem: OrigemAliquotaInterestadual = interestadualManualValida ? 'MANUAL' : 'LEI';
+
   const ncmNormalizado = normalizarNcm(item.ncm);
   const pendencias: DifalPendencia[] = [];
   if (!ufDestino || !dataEmissao) {
@@ -543,8 +574,16 @@ export function resolverDifalDoItem(
   }
   if (internaValor == null) {
     pendencias.push('ALIQUOTA_INTERNA_NAO_DETERMINADA');
+  } else if (!(Number(internaValor) > 0)) {
+    // Nenhuma UF tem alíquota interna zero: operação isenta ou não tributada é
+    // CST 40/41, que já dispensa o grupo. O zero aqui é campo preenchido para
+    // passar do bloqueio, não decisão fiscal.
+    pendencias.push('ALIQUOTA_INTERNA_INVALIDA');
   } else if (internaOrigem === 'TABELA_REFERENCIA') {
     pendencias.push('ALIQUOTA_INTERNA_SEM_REGRA');
+  }
+  if (interestadualManual && !interestadualManualValida) {
+    pendencias.push('ALIQUOTA_INTERESTADUAL_INVALIDA');
   }
   if (fcp.valor == null) {
     pendencias.push('FCP_NAO_DETERMINADO');
@@ -558,6 +597,8 @@ export function resolverDifalDoItem(
       aliquotaInterna: internaValor,
       origemAliquotaInterna: internaOrigem,
       regraAliquotaInterna: interna.regra,
+      aliquotaInterestadual: interestadualValor,
+      origemAliquotaInterestadual: interestadualOrigem,
       aliquotaFcp: fcp.valor,
       origemFcp: fcp.origem,
       regraFcp: fcp.regra,
@@ -574,7 +615,7 @@ export function resolverDifalDoItem(
       ufDestinatario: contexto.ufDestinatario,
       origemMercadoria: item.orig,
       aliquotaInternaDestino: internaValor,
-      aliquotaInterestadual: item.aliquotaInterestadual,
+      aliquotaInterestadual: interestadualValor,
       aliquotaFcpDestino: fcp.valor,
       percentualPartilhaDestino: item.percentualPartilhaDestino,
     }),
@@ -589,7 +630,12 @@ export type DifalPendencia =
   | 'REGRA_CONFLITANTE'
   | 'ALIQUOTA_INTERNA_NAO_DETERMINADA'
   | 'ALIQUOTA_INTERNA_SEM_REGRA'
+  | 'ALIQUOTA_INTERNA_INVALIDA'
+  | 'ALIQUOTA_INTERESTADUAL_INVALIDA'
   | 'FCP_NAO_DETERMINADO';
+
+/** LEI = Resolução do Senado 22/89 e 13/2012; MANUAL = editada na tela, dentro de 4/7/12. */
+export type OrigemAliquotaInterestadual = 'LEI' | 'MANUAL';
 
 const MENSAGEM_PENDENCIA: Record<DifalPendencia, { code: string; field: string; message: string }> = {
   CONTEXTO_INCOMPLETO: {
@@ -626,6 +672,18 @@ const MENSAGEM_PENDENCIA: Record<DifalPendencia, { code: string; field: string; 
     field: 'aliquotaInternaDestino',
     message:
       'A alíquota interna veio da tabela genérica por UF, que não conhece NCM, benefício nem vigência. Cadastre a regra fiscal da UF de destino ou informe a alíquota no item.',
+  },
+  ALIQUOTA_INTERNA_INVALIDA: {
+    code: 'NFE_DIFAL_ALIQUOTA_INTERNA_INVALIDA',
+    field: 'aliquotaInternaDestino',
+    message:
+      'Alíquota interna do destino igual a zero. Nenhuma UF tem alíquota interna zero: informe a alíquota vigente. Se a operação é isenta ou não tributada, o CST é 40 ou 41, e aí o DIFAL não se aplica.',
+  },
+  ALIQUOTA_INTERESTADUAL_INVALIDA: {
+    code: 'NFE_DIFAL_ALIQUOTA_INTERESTADUAL_INVALIDA',
+    field: 'aliquotaInterestadual',
+    message:
+      'Alíquota interestadual inválida: o leiaute da NF-e só aceita 4%, 7% ou 12% (pICMSInter). Qualquer outro valor é rejeição 225 na SEFAZ.',
   },
   FCP_NAO_DETERMINADO: {
     code: 'NFE_DIFAL_FCP_NAO_DETERMINADO',

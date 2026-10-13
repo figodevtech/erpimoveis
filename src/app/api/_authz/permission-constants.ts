@@ -57,7 +57,8 @@ export const PERMS = {
   FINANCEIRO_EXCLUIR: "financeiro:excluir",
   FINANCEIRO_NOTAS_FISCAIS: "financeiro:notas_fiscais",
   // Modificador da listagem do fluxo de caixa, nao um segundo "visualizar":
-  // sem ela a pessoa ve o que criou (e o que nao tem dono), com ela ve tudo.
+  // Caixa administrativo: permite ver tudo e restringe os lançamentos do
+   // titular para quem não tem a permissão. Sem autor continua compartilhado.
   // Fica fora de IMPLIED_PERMISSIONS de proposito — conceder esta nao pode
   // valer como conceder o acesso ao financeiro.
   FINANCEIRO_VER_TODAS_TRANSACOES: "financeiro:ver_todas_transacoes",

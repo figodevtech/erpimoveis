@@ -67,13 +67,49 @@ const DATABASES: Omit<DatabaseConfig, "url">[] = [
     ],
   },
   {
-    key: "jean",
+    key: "jeancar",
     label: "Jean Car",
     projectRef: "jqpcttqzbdtsrlrsaatf",
     envName: "ERP_DB_JEAN_CAR",
-    poolerHosts: ["aws-0-us-east-1.pooler.supabase.com"],
+    poolerHosts: [
+      "aws-0-us-east-1.pooler.supabase.com",
+      "aws-1-us-east-1.pooler.supabase.com",
+    ],
+  },
+  {
+    key: "hg",
+    label: "HG Comércio e Serviços",
+    projectRef: "nxbociyfidsyepkyhcqw",
+    envName: "ERP_DB_HG",
+    poolerHosts: [
+      "aws-0-us-east-1.pooler.supabase.com",
+      "aws-1-us-east-1.pooler.supabase.com",
+    ],
   },
 ];
+
+// Os bancos fixos acima mais os clientes que o db:novo-cliente grava em
+// clientes.json. Relido a cada chamada: o provisionamento cadastra e conecta
+// no mesmo processo.
+function databaseDefinitions(): Omit<DatabaseConfig, "url">[] {
+  const registryFile = path.join(projectRoot, "scripts/db/clientes.json");
+  const clients: Omit<DatabaseConfig, "url">[] = fs.existsSync(registryFile)
+    ? JSON.parse(fs.readFileSync(registryFile, "utf8")) : [];
+  const definitions = [...DATABASES, ...clients];
+  for (const field of ["key", "projectRef", "envName"] as const) {
+    if (new Set(definitions.map((item) => item[field])).size !== definitions.length) {
+      throw new Error(`Cadastro de bancos duplicado: ${field}.`);
+    }
+  }
+  return definitions;
+}
+
+/**
+ * Todos os bancos que recebem as migrations, Demonstração primeiro: o deploy
+ * valida nela antes de tocar nos clientes. Os scripts que aceitam um banco por
+ * argumento leem esta lista.
+ */
+export const DATABASE_KEYS: readonly DatabaseKey[] = databaseDefinitions().map((item) => item.key);
 
 export function parseSimpleEnv(file: string) {
   if (!fs.existsSync(file)) return new Map<string, string>();
@@ -96,13 +132,16 @@ export function parseSimpleEnv(file: string) {
   return values;
 }
 
+// Os blocos por cliente (ativos ou comentados) ficam no .env e no .env.local;
+// cada DATABASE_URL é casada com o banco pelo projectRef que ela contém.
 function legacyDatabaseUrls() {
-  const envFile = path.join(projectRoot, ".env.local");
-  if (!fs.existsSync(envFile)) return [];
-
-  return [...fs.readFileSync(envFile, "utf8").matchAll(
-    /^\s*(?:#\s*)?DATABASE_URL\s*=\s*["']?([^"'\r\n]+)/gm,
-  )].map((match) => match[1].trim());
+  return [".env.local", ".env"].flatMap((name) => {
+    const envFile = path.join(projectRoot, name);
+    if (!fs.existsSync(envFile)) return [];
+    return [...fs.readFileSync(envFile, "utf8").matchAll(
+      /^\s*(?:#\s*)?DATABASE_URL\s*=\s*["']?([^"'\r\n]+)/gm,
+    )].map((match) => match[1].trim());
+  });
 }
 
 function validateDatabaseUrl(value: string, label: string) {
@@ -127,17 +166,8 @@ export function loadDatabaseConfigs(): DatabaseConfig[] {
     path.join(projectRoot, ".env.migrations.local"),
   );
   const legacyUrls = legacyDatabaseUrls();
-  const registryFile = path.join(projectRoot, "scripts/db/clientes.json");
-  const clients: Omit<DatabaseConfig, "url">[] = fs.existsSync(registryFile)
-    ? JSON.parse(fs.readFileSync(registryFile, "utf8")) : [];
-  const definitions = [...DATABASES, ...clients];
-  for (const field of ["key", "projectRef", "envName"] as const) {
-    if (new Set(definitions.map((item) => item[field])).size !== definitions.length) {
-      throw new Error(`Cadastro de bancos duplicado: ${field}.`);
-    }
-  }
 
-  return definitions.map((database) => {
+  return databaseDefinitions().map((database) => {
     const explicit = process.env[database.envName] || migrationEnv.get(database.envName) || sharedMigrationEnv.get(database.envName);
     const fallback = legacyUrls.find((url) => url.includes(database.projectRef));
     const url = explicit || fallback;
@@ -356,8 +386,12 @@ export const SCHEMA_QUERIES: Record<string, string> = {
       from pg_policies
      where schemaname in ('public', 'storage')
      order by 1, 2, 3`,
+  // A posição, não o enumsortorder: um ADD VALUE BEFORE grava 3.5, e o mesmo
+  // enum restaurado por dump grava 4 — mesma ordem, número diferente.
   enums: `
-    select t.typname, row_number() over (partition by t.oid order by e.enumsortorder) enumsortorder, e.enumlabel,
+    select t.typname,
+           row_number() over (partition by t.oid order by e.enumsortorder) posicao,
+           e.enumlabel,
            pg_get_userbyid(t.typowner) owner,
            coalesce((select array_agg(x::text order by x::text)::text
                        from unnest(coalesce(t.typacl, acldefault('T',t.typowner))) x), '') acl

@@ -20,6 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  DATABASE_KEYS,
   connectDatabase,
   loadDatabaseConfigs,
   projectRoot,
@@ -27,7 +28,7 @@ import {
   type DatabaseKey,
 } from "./lib";
 
-const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "garage"];
+const CHAVES_VALIDAS: DatabaseKey[] = [...DATABASE_KEYS];
 
 type Consulta = { nome: string; sql: string; params?: unknown[] };
 

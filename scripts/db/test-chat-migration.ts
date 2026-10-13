@@ -13,13 +13,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  DATABASE_KEYS,
   connectDatabase,
   loadDatabaseConfigs,
   projectRoot,
   type DatabaseKey,
 } from "./lib";
 
-const VALID_DATABASES: DatabaseKey[] = ["demo", "demir", "garage"];
+const VALID_DATABASES: DatabaseKey[] = [...DATABASE_KEYS];
 
 function unwrapTransaction(sql: string, closingStatement: "commit" | "rollback") {
   const normalized = sql.replace(/^\uFEFF/, "");

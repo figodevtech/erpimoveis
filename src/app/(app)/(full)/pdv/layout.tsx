@@ -6,6 +6,7 @@ import { Config } from "../../(pages)/type";
 import { Settings } from "@/components/animate-ui/icons/settings";
 import { Progress } from "@/components/ui/progress";
 import { Pizza } from "lucide-react";
+import { PinchLock } from "@/components/pinch-lock";
 
 export const dynamic = "force-dynamic";
 
@@ -104,7 +105,10 @@ export default function PdvLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <ConfigProvider config={config}>
-      <div className="min-h-screen bg-background text-foreground">{children}</div>
+      <div data-pinch="off" className="min-h-screen bg-background text-foreground">
+        <PinchLock />
+        {children}
+      </div>
     </ConfigProvider>
   );
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireFinanceiroDelete } from "@/app/api/_authz/perms";
 import { analisarImpacto } from "@/app/api/transaction/_lib/impacto-exclusao";
-import { exigirAcessoATransacao } from "../../_lib/autoria";
+import { exigirAcessoAOperacao } from "../../_lib/autoria-afetadas";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -25,7 +25,7 @@ export async function GET(_: Request, { params }: Params) {
     if (!Number.isInteger(id) || id <= 0) {
       return NextResponse.json({ error: "ID inválido." }, { status: 400 });
     }
-    await exigirAcessoATransacao(id);
+    await exigirAcessoAOperacao([id], "EXCLUIR");
 
     const mapa = await analisarImpacto([id]);
     const impacto = mapa.get(id);

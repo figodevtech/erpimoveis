@@ -18,6 +18,7 @@ import path from "node:path";
 import fs from "node:fs";
 
 import {
+  DATABASE_KEYS,
   connectDatabase,
   loadDatabaseConfigs,
   projectRoot,
@@ -26,7 +27,7 @@ import {
 } from "./lib";
 import { splitLikeSupabaseCli } from "./supabase-splitter";
 
-const BANCOS: DatabaseKey[] = ["demo", "demir", "garage"];
+const BANCOS: DatabaseKey[] = [...DATABASE_KEYS];
 const CONTROLE_DE_TRANSACAO = /^(begin|start\s+transaction|commit|end|rollback|abort)\b/i;
 const TESTE = path.join(projectRoot, "supabase", "tests", "credito_cliente_editar_excluir.sql");
 

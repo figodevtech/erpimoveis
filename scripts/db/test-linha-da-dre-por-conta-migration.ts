@@ -22,9 +22,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "./lib";
+import { DATABASE_KEYS, connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "./lib";
 
-const BANCOS: DatabaseKey[] = ["demo", "demir", "garage"];
+const BANCOS: DatabaseKey[] = [...DATABASE_KEYS];
 
 const MIGRATION = "supabase/migrations/20260915140000_linha_da_dre_por_plano_de_conta.sql";
 

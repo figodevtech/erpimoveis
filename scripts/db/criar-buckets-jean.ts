@@ -7,7 +7,7 @@ const apply = process.argv.includes("--aplicar");
 
 async function main() {
   const configs = loadDatabaseConfigs();
-  const target = configs.find((item) => item.key === "jean")!;
+  const target = configs.find((item) => item.key === "jeancar")!;
   const source = configs.find((item) => item.key === "demo")!;
   const lines = fs.readFileSync(path.join(projectRoot, ".env.local"), "utf8").split(/\r?\n/);
   const start = lines.findIndex((line) => /Jean\s*Car/i.test(line));

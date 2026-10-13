@@ -44,7 +44,7 @@ const ACTION_LABELS: Record<string, string> = {
   saida: "Saída",
   cancelar_movimento: "Cancelar movimento",
   notas_fiscais: "Notas fiscais",
-  ver_todas_transacoes: "Ver transações de todos",
+  ver_todas_transacoes: "Caixa administrativo",
   finalizar_sem_cobranca: "Finalizar sem cobrança",
   alterar_criador: "Alterar criador da OS",
   alterar_vendedor: "Alterar vendedor da venda",

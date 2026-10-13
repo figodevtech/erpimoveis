@@ -2,6 +2,8 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
+import { aplicarRecorteDeAutoria, recorteDeAutoria } from "../_lib/autoria";
 import { valorLiquidoEfetivo } from "@/lib/financeiro/transacao";
 
 const TIPO_RECEITA = "RECEITA";
@@ -59,6 +61,8 @@ function resolveYearMonth({ tz, yearParam, monthParam, offsetParam }: { tz: stri
 
 export async function GET(req: Request) {
   try {
+    await requireFinanceirosAccess();
+    const recorte = await recorteDeAutoria(false);
     const { searchParams } = new URL(req.url);
     // Na aba Fluxo, os cards precisam obedecer ao mesmo recorte da tabela:
     // somente liquidações que efetivamente passaram por uma conta bancária.
@@ -89,7 +93,7 @@ export async function GET(req: Request) {
     if (comBanco) receitasQuery = receitasQuery.not("banco_id", "is", null);
     else receitasQuery = receitasQuery.is("baixa_de_transacao_id", null);
 
-    const { data: receitas, error: recErr } = await receitasQuery;
+    const { data: receitas, error: recErr } = await aplicarRecorteDeAutoria(receitasQuery, recorte);
     if (recErr) throw recErr;
 
     // DESPESAS
@@ -102,7 +106,7 @@ export async function GET(req: Request) {
     if (comBanco) despesasQuery = despesasQuery.not("banco_id", "is", null);
     else despesasQuery = despesasQuery.is("baixa_de_transacao_id", null);
 
-    const { data: despesas, error: despErr } = await despesasQuery;
+    const { data: despesas, error: despErr } = await aplicarRecorteDeAutoria(despesasQuery, recorte);
     if (despErr) throw despErr;
 
     // Mesma regra exibida na coluna da tabela: líquido quando ele é aplicável e
@@ -121,7 +125,7 @@ export async function GET(req: Request) {
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Erro ao calcular status-counter" },
-      { status: 500 }
+      { status: Number(e?.statusCode) === 401 || Number(e?.statusCode) === 403 ? Number(e.statusCode) : 500 }
     );
   }
 }

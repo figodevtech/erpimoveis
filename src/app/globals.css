@@ -670,3 +670,25 @@
     }
   }
 }
+
+/* iOS (Safari e PWA) amplia a tela ao focar campo com fonte menor que 16px.
+   Nas telas do app ([data-pinch="off"]) o PinchLock poe maximum-scale=1 no
+   viewport e os campos mantem o tamanho normal. Fora delas (login, assinatura,
+   links publicos) os campos usam 16px fixos (px, nao rem, para escapar da
+   escala). Fica fora de @layer para vencer text-sm/text-xs das utilities. */
+@media (hover: none) and (pointer: coarse) {
+  html:not(:has([data-pinch="off"])) :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"]),
+  textarea,
+  select,
+  [contenteditable]:not([contenteditable="false"])) {
+    font-size: 16px;
+  }
+}
+
+/* Pinca travada nas telas do app (shell, PDV, Central Operacional), que levam
+   [data-pinch="off"]. Vai no html para cobrir dialogs e drawers, que o Radix
+   desenha fora do shell. Impressao, DANFE e paginas publicas nao tem a marca e
+   seguem ampliaveis. Rolagem continua; zoom por toque duplo tambem sai. */
+html:has([data-pinch="off"]) {
+  touch-action: pan-x pan-y;
+}

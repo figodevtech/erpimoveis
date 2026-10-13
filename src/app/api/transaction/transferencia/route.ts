@@ -6,6 +6,7 @@ import { requireFinanceiroEdit } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { tipoEhEntradaDeCaixa } from "@/lib/financeiro/transacao";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { contextoDeAutoria, exigirLeituraDeTransacao } from "../_lib/autoria";
 
 /**
  * Transferência entre contas próprias.
@@ -125,6 +126,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Transação inválida." }, { status: 400 });
     }
 
+    const contexto = await contextoDeAutoria();
+    await exigirLeituraDeTransacao(id, contexto);
     const { data: atual, error: atualError } = await supabaseAdmin
       .from("transacao")
       .select("id, transferencia_id")
@@ -137,7 +140,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ data: null });
     }
 
-    const [{ data: transferencia }, { data: pernas }] = await Promise.all([
+    const [{ data: transferencia, error: transferenciaError }, { data: pernas, error: pernasError }] = await Promise.all([
       supabaseAdmin
         .from("transacao_transferencia")
         .select(
@@ -155,7 +158,10 @@ export async function GET(req: NextRequest) {
         .order("id", { ascending: true }),
     ]);
 
+    if (transferenciaError) throw transferenciaError;
+    if (pernasError) throw pernasError;
     const lista = pernas ?? [];
+    await exigirLeituraDeTransacao(lista.map((perna) => Number(perna.id)), contexto);
     const contraparte = lista.find((p: { id: number }) => Number(p.id) !== id) ?? null;
 
     return NextResponse.json({

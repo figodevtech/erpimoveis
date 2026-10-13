@@ -5,12 +5,14 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate, requireFinanceiroEdit } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { contextoDeAutoria } from "@/app/api/transaction/_lib/autoria";
 import { centavosParaReais } from "@/lib/financeiro/ofx/normalize";
 import { ErroDeOfx } from "@/lib/financeiro/ofx/types";
 import { analisarExtrato, lerArquivoEnviado } from "../_lib/analise";
 import {
   ACOES_DE_EDICAO,
   aplicarDecisao,
+  validarAcessoDasDecisoes,
   chavesDaDecisao,
   normalizarDecisao,
   type Decisao,
@@ -54,8 +56,10 @@ export async function POST(req: Request) {
       await requireFinanceiroEdit();
     }
 
+    const contexto = await contextoDeAutoria();
+    await validarAcessoDasDecisoes(decisoes, contexto);
     const arquivo = await lerArquivoEnviado(formData);
-    const movimentos = await analisarExtrato(arquivo, bancoId);
+    const movimentos = await analisarExtrato(arquivo, bancoId, contexto);
 
     const { data: registro, error } = await supabaseAdmin.rpc("registrar_importacao_ofx", {
       p_banco_id: bancoId,
@@ -150,7 +154,7 @@ export async function POST(req: Request) {
         continue;
       }
 
-      resultados.push(await aplicarDecisao(movimentoIds, decisao, usuarioId));
+      resultados.push(await aplicarDecisao(movimentoIds, decisao, usuarioId, contexto));
     }
 
     return NextResponse.json({

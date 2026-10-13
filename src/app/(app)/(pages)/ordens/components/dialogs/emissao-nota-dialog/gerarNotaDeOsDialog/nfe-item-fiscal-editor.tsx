@@ -32,6 +32,7 @@ import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { alternarCienciaFiscal, classificarIssuesFiscais } from "@/lib/nfe/issuesFiscais";
 import { FontesDoAvisoFiscal } from "@/components/fiscal/fontes-do-aviso-fiscal";
 import { LIMITE_XPROD } from "@/lib/nfe/limites";
+import { ALIQUOTAS_INTERESTADUAIS_VALIDAS } from "@/lib/nfe/difal";
 import {
   getRequiredPisCofinsMode,
   PIS_COFINS_CST_OPTIONS,
@@ -702,23 +703,26 @@ export function NfeItemFiscalEditor({
                 />
               </Field>
               <Field label="Alíquota interestadual (%)" required>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  min="0"
-                  max="100"
+                {/* Seleção, não número livre: o leiaute só aceita 4, 7 ou 12 em pICMSInter. */}
+                <Select
                   value={item.difalAliquotaInterestadual}
-                  onChange={(event) =>
+                  onValueChange={(valor) =>
                     onChange({
-                      difalAliquotaInterestadual: event.target.value,
+                      difalAliquotaInterestadual: valor,
                       difalCamposManuais: marcarDifalManual(
                         item.difalCamposManuais,
                         "aliquotaInterestadual",
                       ),
                     })
                   }
-                />
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent>
+                    {ALIQUOTAS_INTERESTADUAIS_VALIDAS.map((aliquota) => (
+                      <SelectItem key={aliquota} value={String(aliquota)}>{aliquota}%</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
                   Origem da mercadoria e UFs envolvidas (Resolução do Senado 13/2012).
                 </p>

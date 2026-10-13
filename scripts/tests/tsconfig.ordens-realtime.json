@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": [
+    "../../next-env.d.ts",
+    "../../src/hooks/use-realtime-tabelas.ts",
+    "../../src/lib/ordens/realtime-*.ts",
+    "../../src/app/api/ordens/realtime-token/route.ts",
+    "../../src/app/(app)/(pages)/ordens/components/ordens-tabela.tsx",
+    "../../src/app/(app)/(pages)/ordens/components/ordens-tabs.tsx",
+    "../../src/app/(app)/(pages)/ordens/components/dialogs/detalhes-os-dialog.tsx",
+    "../../src/types/**/*.d.ts",
+    "../../src/hooks/use-realtime-tabelas.test.ts"
+  ],
+  "compilerOptions": {
+    "incremental": false
+  }
+}

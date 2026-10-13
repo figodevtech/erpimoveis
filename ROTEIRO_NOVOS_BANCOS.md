@@ -155,8 +155,8 @@ os perfis; confira o Administrador depois de migrations de permissões.
 Para um cliente já cadastrado, o mesmo perfil pode ser conferido/criado assim:
 
 ```powershell
-npx tsx scripts/db/criar-perfil-administrador.ts --banco jean
-npx tsx scripts/db/criar-perfil-administrador.ts --banco jean --aplicar
+npx tsx scripts/db/criar-perfil-administrador.ts --banco jeancar
+npx tsx scripts/db/criar-perfil-administrador.ts --banco jeancar --aplicar
 ```
 
 ## 5. Configuração específica do cliente

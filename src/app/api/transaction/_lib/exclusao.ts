@@ -4,6 +4,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 import { attachmentPathsForTransactions, removeAttachmentObjects } from "./anexos";
 import { traduzirErroExclusao } from "./erros-exclusao";
+import { type ContextoDeAutoria } from "./autoria";
+import { exigirAcessoAOperacao, exigirAcessoAPagamentoMultiplo } from "./autoria-afetadas";
 
 /**
  * Excluir uma transação, sem HTTP no meio.
@@ -28,6 +30,7 @@ export type ResultadoExclusao =
 export interface OpcoesDeExclusao {
   /** Quem está excluindo. As RPCs registram na trilha. */
   deletedBy: string | null;
+  contexto?: ContextoDeAutoria;
   /**
    * Recalcular o status da OS ou da venda ao final?
    *
@@ -92,8 +95,9 @@ export async function revalidarStatusVenda(vendaId: number) {
 
 export async function excluirTransacao(
   id: number,
-  { deletedBy, revalidarDocumento = true }: OpcoesDeExclusao,
+  { deletedBy, revalidarDocumento = true, contexto }: OpcoesDeExclusao,
 ): Promise<ResultadoExclusao> {
+  await exigirAcessoAOperacao([id], "EXCLUIR", contexto);
   /*
    * O select NÃO filtra `is_deleted`, e isso é como sempre foi.
    *
@@ -322,8 +326,9 @@ export async function excluirTransacao(
  */
 export async function excluirPagamentoMultiplo(
   id: number,
-  { deletedBy }: { deletedBy: string | null },
+  { deletedBy, contexto }: { deletedBy: string | null; contexto?: ContextoDeAutoria },
 ): Promise<ResultadoExclusao> {
+  await exigirAcessoAPagamentoMultiplo(id, contexto);
   const { error } = await supabaseAdmin.rpc("excluir_pagamento_multiplo", {
     p_id: id,
     p_deleted_by: deletedBy,

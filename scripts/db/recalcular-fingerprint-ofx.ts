@@ -35,12 +35,12 @@
 import { createHash } from "node:crypto";
 
 import { chaveBaseDoMovimento } from "../../src/lib/financeiro/ofx/fingerprint";
-import { connectDatabase, loadDatabaseConfigs, type DatabaseKey } from "./lib";
+import { DATABASE_KEYS, connectDatabase, loadDatabaseConfigs, type DatabaseKey } from "./lib";
 
 const argumentos = process.argv.slice(2);
 const APLICAR = argumentos.includes("--aplicar");
 const CHAVE = argumentos.find((arg) => !arg.startsWith("--")) as DatabaseKey | undefined;
-const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "garage"];
+const CHAVES_VALIDAS: DatabaseKey[] = [...DATABASE_KEYS];
 
 const GARAGE_IMPORTACAO_DUPLICADA = {
   id: 4,

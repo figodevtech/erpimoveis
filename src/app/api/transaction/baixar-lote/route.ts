@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
           .filter((id) => Number.isSafeInteger(id) && id > 0),
       ),
     ];
-    // O lote e tudo ou nada na checagem: uma unica linha de outra pessoa
+    // O lote é tudo ou nada na checagem: uma linha do Caixa administrativo
     // recusa a operacao inteira, em vez de baixar parte do que foi marcado.
     await exigirAcessoATransacao(limpos);
 

@@ -20,6 +20,7 @@ import { useConfig } from "./config-context";
 import { ChatCenter } from "@/components/chat/chat-center";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { onAppResume } from "@/lib/app-resume";
+import { PinchLock } from "@/components/pinch-lock";
 
 const PLANO_REVALIDACAO_NO_RETORNO_MS = 5 * 60 * 1000;
 
@@ -233,7 +234,8 @@ export default function ClientAppShell({
   }, [router]);
 
   return (
-    <div className={`flex min-h-svh w-full flex-col ${config?.aviso_pagamento || billing.showBanner || billing.blocked ? "pt-10" : ""}`}>
+    <div data-pinch="off" className={`flex min-h-svh w-full flex-col ${config?.aviso_pagamento || billing.showBanner || billing.blocked ? "pt-10" : ""}`}>
+      <PinchLock />
       {(config?.aviso_pagamento || billing.showBanner || billing.blocked) && (
         <div
           role="alert"

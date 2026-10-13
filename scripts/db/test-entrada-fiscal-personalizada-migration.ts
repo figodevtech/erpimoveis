@@ -9,13 +9,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  DATABASE_KEYS,
   connectDatabase,
   loadDatabaseConfigs,
   projectRoot,
   type DatabaseKey,
 } from "./lib";
 
-const VALID_DATABASES: DatabaseKey[] = ["demo", "demir", "garage"];
+const VALID_DATABASES: DatabaseKey[] = [...DATABASE_KEYS];
 const MIGRATION = "supabase/migrations/20260830120000_entrada_fiscal_personalizada.sql";
 const CHECKS = "supabase/tests/entrada_fiscal_personalizada.sql";
 

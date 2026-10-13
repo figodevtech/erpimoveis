@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { aplicarRecorteDeAutoria, recorteDeAutoria, type ContextoDeAutoria } from "@/app/api/transaction/_lib/autoria";
 import { getPaymentMethodValues } from "@/lib/payment-methods-server";
 import { normalizarTexto } from "@/lib/financeiro/ofx/normalize";
 import { calcularFingerprints, hashDoArquivo } from "@/lib/financeiro/ofx/fingerprint";
@@ -164,17 +165,20 @@ export function sugerirConta(
  */
 export async function carregarCandidatos(
   bancoId: number,
+  contexto?: ContextoDeAutoria,
 ): Promise<CandidatoTransacao[]> {
+  const recorte = await recorteDeAutoria(false, contexto);
   const candidatos: CandidatoTransacao[] = [];
   const tamanhoPagina = 500;
   for (let inicio = 0; ; inicio += tamanhoPagina) {
-    const { data, error } = await supabaseAdmin
+    const query = supabaseAdmin
       .from("transacao")
       .select(CAMPOS_CANDIDATO)
       .eq("is_deleted", false)
       .or(`pendente.eq.true,banco_id.eq.${bancoId}`)
       .order("id", { ascending: true })
       .range(inicio, inicio + tamanhoPagina - 1);
+    const { data, error } = await aplicarRecorteDeAutoria(query, recorte);
 
     if (error) throw error;
     const pagina = (data ?? []) as unknown as CandidatoTransacao[];
@@ -238,10 +242,11 @@ export async function buscarImportacaoPorHash(bancoId: number, hash: string) {
 export async function analisarExtrato(
   arquivo: ArquivoLido,
   bancoId: number,
+  contexto?: ContextoDeAutoria,
 ): Promise<MovimentoAnalisado[]> {
   const { extrato, fingerprints } = arquivo;
   const [candidatos, jaImportados, metodos] = await Promise.all([
-    carregarCandidatos(bancoId),
+    carregarCandidatos(bancoId, contexto),
     carregarJaImportados(bancoId, fingerprints),
     getPaymentMethodValues(),
   ]);

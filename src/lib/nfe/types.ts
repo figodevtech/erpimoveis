@@ -1,6 +1,11 @@
 // src/lib/nfe/types.ts
 
-import type { ContextoDifalCanonico, DifalPendencia, ICMSUFDest } from './difal';
+import type {
+  ContextoDifalCanonico,
+  DifalPendencia,
+  ICMSUFDest,
+  OrigemAliquotaInterestadual,
+} from './difal';
 import type { CampoResolvido, ConflitoRegraDifal, OrigemValorDifal } from './difalRegras';
 import type { IndIEDest } from './indIEDest';
 import type { DecisaoIcms, IcmsCanonico } from './icms/tipos';
@@ -426,6 +431,9 @@ export interface NFeItem {
     aliquotaInterna: number | null;
     origemAliquotaInterna: OrigemValorDifal;
     regraAliquotaInterna: CampoResolvido | null;
+    /** pICMSInter usado no grupo. Ausente nos snapshots anteriores a out/2026. */
+    aliquotaInterestadual?: number;
+    origemAliquotaInterestadual?: OrigemAliquotaInterestadual;
     /** NULL = não determinado. 0 = regra determinou que não há FCP. */
     aliquotaFcp: number | null;
     origemFcp: OrigemValorDifal;
