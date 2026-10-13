@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUsoConsumoAccess, requireUsoConsumoSaida } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { MOTIVO_SAIDA_ALUGUEL } from "@/lib/alugueis/status";
 import { escopoDaBusca, usoConsumoError } from "@/lib/usoconsumo/api";
 import { saidaUsoConsumoSchema, zodMessage } from "@/lib/usoconsumo/schemas";
 
@@ -34,6 +35,9 @@ export async function POST(req: NextRequest) {
     await requireUsoConsumoSaida();
     const parsed=saidaUsoConsumoSchema.safeParse(await req.json());
     if(!parsed.success) return NextResponse.json({error:zodMessage(parsed.error)},{status:400});
+    if (String(parsed.data.motivo).toUpperCase() === MOTIVO_SAIDA_ALUGUEL) {
+      return NextResponse.json({ error: "A saída por aluguel é registrada pelo módulo Aluguéis." }, { status: 400 });
+    }
     if (!(await motivoValidoParaUsoConsumo(parsed.data.motivo))) {
       return NextResponse.json({ error: "Selecione um motivo válido." }, { status: 400 });
     }

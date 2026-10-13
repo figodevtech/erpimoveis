@@ -23,6 +23,15 @@ test("criação, leitura e exclusão continuam com permissões distintas", () =>
   assert.equal(permissionForAction("/api/ordens/123/status", "PUT", rule), PERMS.ORDENS_EDITAR);
 });
 
+test("fotos do checklist do aluguel são edição; criar e excluir aluguel seguem distintos", () => {
+  const aluguel = { read: PERMS.ALUGUEIS, create: PERMS.ALUGUEIS_CRIAR, edit: PERMS.ALUGUEIS_EDITAR, delete: PERMS.ALUGUEIS_EXCLUIR };
+  assert.equal(permissionForAction("/api/alugueis/checklist-itens/9/imagens", "POST", aluguel), PERMS.ALUGUEIS_EDITAR);
+  assert.equal(permissionForAction("/api/alugueis/checklist-itens/9/imagens", "DELETE", aluguel), PERMS.ALUGUEIS_EDITAR);
+  assert.equal(permissionForAction("/api/alugueis", "POST", aluguel), PERMS.ALUGUEIS_CRIAR);
+  assert.equal(permissionForAction("/api/alugueis/5", "DELETE", aluguel), PERMS.ALUGUEIS_EXCLUIR);
+  assert.equal(permissionForAction("/api/alugueis/5/encerrar", "PUT", aluguel), PERMS.ALUGUEIS_EDITAR);
+});
+
 test("ver perfis de outros usuários e o cadastro de usuários não se implicam", () => {
   assert.equal(permissionSetHas([PERMS.USUARIOS_VER_PERFIS], PERMS.USUARIOS_VER_PERFIS), true);
   assert.equal(permissionSetHas([PERMS.USUARIOS], PERMS.USUARIOS_VER_PERFIS), false);

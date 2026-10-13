@@ -11,7 +11,8 @@ function isTrue(v: string | null) {
 
 export async function GET(req: NextRequest) {
   try {
-    await requireAny([PERMS.CONFIG, PERMS.ORDENS]);
+    // Os modelos servem à OS e aos checklists de saída e retorno do aluguel.
+    await requireAny([PERMS.CONFIG, PERMS.ORDENS, PERMS.ALUGUEIS]);
     const { searchParams } = new URL(req.url);
     const onlyActive = isTrue(searchParams.get("ativos"));
 

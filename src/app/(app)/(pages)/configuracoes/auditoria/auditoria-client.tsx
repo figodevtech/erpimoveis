@@ -96,6 +96,7 @@ const ACAO = {
 
 const MODULOS = [
   "agendamentos",
+  "alugueis",
   "clientes",
   "configuracoes",
   "desmanche",
@@ -147,6 +148,7 @@ function tituloTabela(nome: string) {
 function tituloModulo(nome: string) {
   const titulos: Record<string, string> = {
     agendamentos: "Agendamentos",
+    alugueis: "Aluguéis",
     clientes: "Clientes",
     configuracoes: "Configurações",
     desmanche: "Desmanche",

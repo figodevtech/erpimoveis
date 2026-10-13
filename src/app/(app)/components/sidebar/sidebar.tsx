@@ -43,6 +43,7 @@ import {
   FileText,
   Building2,
   RadioTower,
+  KeyRound,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -109,6 +110,12 @@ const data = {
       url: "/agendamentos",
       icon: CalendarDays,
       perm: PERMS.AGENDAMENTOS,
+    },
+    {
+      title: "Aluguéis",
+      url: "/alugueis",
+      icon: KeyRound,
+      perm: PERMS.ALUGUEIS,
     },
     {
       title: "Veículos",

@@ -105,6 +105,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/api/checklist-documentos", perm: PERMS.ORDENS },
   { prefix: "/api/orcamentos", perm: PERMS.ORCAMENTOS },
   { prefix: "/api/agendamentos", perm: PERMS.AGENDAMENTOS },
+  { prefix: "/api/alugueis", perm: PERMS.ALUGUEIS },
   { prefix: "/api/products", perm: PERMS.ESTOQUE },
   { prefix: "/api/entradas", perm: PERMS.ESTOQUE },
   { prefix: "/api/usoconsumo", perm: PERMS.USOCONSUMO },
@@ -139,6 +140,7 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/print/orcamento", perm: PERMS.ORCAMENTOS },
   { prefix: "/print/produto", perm: PERMS.ESTOQUE },
   { prefix: "/agendamentos", perm: PERMS.AGENDAMENTOS },
+  { prefix: "/alugueis", perm: PERMS.ALUGUEIS },
   { prefix: "/estoque/uso-consumo", perm: PERMS.USOCONSUMO },
   // Os dois estoques simples usam as mesmas permissoes usoconsumo:*.
   { prefix: "/estoque/geral", perm: PERMS.USOCONSUMO },
@@ -198,6 +200,7 @@ const API_ACTION_PERMS: Array<{
   { prefix: "/api/ordens", read: PERMS.ORDENS, create: PERMS.ORDENS_CRIAR, edit: PERMS.ORDENS_EDITAR, delete: PERMS.ORDENS_EXCLUIR },
   { prefix: "/api/orcamentos", read: PERMS.ORCAMENTOS, create: PERMS.ORCAMENTOS_CRIAR, edit: PERMS.ORCAMENTOS_EDITAR, delete: PERMS.ORCAMENTOS_EXCLUIR },
   { prefix: "/api/agendamentos", read: PERMS.AGENDAMENTOS, create: PERMS.AGENDAMENTOS_CRIAR, edit: PERMS.AGENDAMENTOS_EDITAR, delete: PERMS.AGENDAMENTOS_EXCLUIR },
+  { prefix: "/api/alugueis", read: PERMS.ALUGUEIS, create: PERMS.ALUGUEIS_CRIAR, edit: PERMS.ALUGUEIS_EDITAR, delete: PERMS.ALUGUEIS_EXCLUIR },
   { prefix: "/api/products", read: PERMS.ESTOQUE, create: PERMS.ESTOQUE_CRIAR, edit: PERMS.ESTOQUE_EDITAR, delete: PERMS.ESTOQUE_EXCLUIR },
   { prefix: "/api/entradas", read: PERMS.ESTOQUE, create: PERMS.ESTOQUE_CRIAR, edit: PERMS.ESTOQUE_EDITAR, delete: PERMS.ESTOQUE_EXCLUIR },
   { prefix: "/api/usoconsumo", read: PERMS.USOCONSUMO },

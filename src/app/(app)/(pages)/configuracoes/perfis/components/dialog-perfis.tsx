@@ -67,6 +67,7 @@ const PERMISSION_LABELS: Record<string, string> = {
 };
 
 const MODULE_LABELS: Record<string, string> = {
+  alugueis: "Aluguéis",
   usoconsumo: "Uso/Consumo",
   radios: "Rádio",
   configuracoes: "Configurações gerais",

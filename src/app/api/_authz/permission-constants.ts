@@ -80,6 +80,11 @@ export const PERMS = {
   AGENDAMENTOS_EDITAR: "agendamentos:editar",
   AGENDAMENTOS_EXCLUIR: "agendamentos:excluir",
 
+  ALUGUEIS: "alugueis:visualizar",
+  ALUGUEIS_CRIAR: "alugueis:criar",
+  ALUGUEIS_EDITAR: "alugueis:editar",
+  ALUGUEIS_EXCLUIR: "alugueis:excluir",
+
   CONFIG: "configuracoes:visualizar",
   CONFIG_CRIAR: "configuracoes:criar",
   CONFIG_EDITAR: "configuracoes:editar",

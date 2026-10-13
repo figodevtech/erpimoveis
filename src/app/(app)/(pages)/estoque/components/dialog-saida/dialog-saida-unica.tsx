@@ -71,7 +71,7 @@ export default function DialogSaida({
     // consultado aqui e o da TABELA, nao o do estoque.
     const escopoDosMotivos = inventory === "usoconsumo" ? "USOCONSUMO" : "PRODUTO";
     axios
-      .get(`/api/tipos/motivos-saida?ativo=true&escopo=${escopoDosMotivos}`)
+      .get(`/api/tipos/motivos-saida?ativo=true&escopo=${escopoDosMotivos}&saidaManual=1`)
       .then(({ data }) => {
         if (!ativo) return;
         setMotivos((data?.items ?? []).map((item: any) => ({ codigo: String(item.codigo), nome: String(item.nome) })));

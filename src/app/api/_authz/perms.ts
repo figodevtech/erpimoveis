@@ -240,6 +240,19 @@ export async function requireAgendamentosDelete() {
   return requirePerm(PERMS.AGENDAMENTOS_EXCLUIR);
 }
 
+export async function requireAlugueisAccess() {
+  return requirePerm(PERMS.ALUGUEIS);
+}
+export async function requireAlugueisCreate() {
+  return requirePerm(PERMS.ALUGUEIS_CRIAR);
+}
+export async function requireAlugueisEdit() {
+  return requirePerm(PERMS.ALUGUEIS_EDITAR);
+}
+export async function requireAlugueisDelete() {
+  return requirePerm(PERMS.ALUGUEIS_EXCLUIR);
+}
+
 export async function hasFinanceiroAccess() {
   return hasPerm(PERMS.FINANCEIRO);
 }
