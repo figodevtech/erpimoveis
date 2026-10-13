@@ -22,6 +22,7 @@
     "localidades:gerar": "node scripts/localidades/gerar-municipios.mjs",
     "db:status": "tsx scripts/db/status.ts",
     "db:aplicar:avulsa": "tsx scripts/db/aplicar-migration-avulsa.ts",
+    "db:carregar:catalogos": "tsx scripts/db/carregar-catalogos.ts",
     "db:test:chat-migration": "tsx scripts/db/test-chat-migration.ts",
     "db:test:chat-fase2": "tsx scripts/db/test-chat-fase2-migration.ts",
     "db:test:chat-realtime": "tsx scripts/db/test-chat-realtime.ts",

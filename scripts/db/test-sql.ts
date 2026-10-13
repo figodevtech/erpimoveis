@@ -13,13 +13,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  DATABASE_KEYS,
   connectDatabase,
   loadDatabaseConfigs,
   projectRoot,
   type DatabaseKey,
 } from "./lib";
 
-const CHAVES_VALIDAS: DatabaseKey[] = ["demo", "demir", "garage"];
+const CHAVES_VALIDAS: DatabaseKey[] = [...DATABASE_KEYS];
 
 async function main() {
   const [arquivoArg, bancoArg] = process.argv.slice(2);

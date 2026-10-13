@@ -206,7 +206,8 @@ Pelo arquivo curado (caminho recomendado, porque fica versionado no git):
    por exemplo `npm run fiscal:difal -- demir`.
 
 Os alvos vêm exclusivamente de `loadDatabaseConfigs()` em
-`scripts/db/lib.ts`: Demonstração, Demir e Garage Premium. AlphaGarage foi
+`scripts/db/lib.ts`: Demonstração, Demir, Garage Premium, Jean Car e HG
+Comércio e Serviços (os dois últimos desde 13/10/2026). AlphaGarage foi
 desativado e removido dos alvos em 09/09/2026, conforme
 [`docs/database-migrations.md`](../database-migrations.md). Um novo cliente
 precisa ser registrado nessa lista central e participar do mesmo rollout; a
@@ -227,6 +228,8 @@ Cada pendência tem código próprio. O que cada um quer dizer:
 | `NFE_DIFAL_FCP_NAO_DETERMINADO` | Nenhuma regra vigente determina o FCP | Cadastrar a regra com `aliquota_fcp` (inclusive `0`), ou informar no item |
 | `NFE_DIFAL_ALIQUOTA_INTERNA_NAO_DETERMINADA` | Nem regra nem tabela de referência têm a UF | Cadastrar a regra geral da UF |
 | `NFE_DIFAL_ALIQUOTA_INTERNA_SEM_REGRA` | Valor veio da tabela genérica `ALIQUOTA_INTERNA_POR_UF` | Cadastrar a regra da UF; o fallback não autoriza emissão |
+| `NFE_DIFAL_ALIQUOTA_INTERNA_INVALIDA` | Interna do destino igual a zero (nenhuma UF tem) | Informar a alíquota vigente; operação isenta é CST 40/41, que dispensa o grupo |
+| `NFE_DIFAL_ALIQUOTA_INTERESTADUAL_INVALIDA` | Interestadual editada à mão fora de 4, 7 ou 12 | Escolher 4, 7 ou 12 — o leiaute não aceita outro `pICMSInter` |
 | `NFE_DIFAL_REGRA_CONFLITANTE` | Duas regras de mesma especificidade discordam | Ajustar vigência ou `prioridade` de uma delas |
 | `NFE_DIFAL_NCM_INVALIDO` | NCM do item não tem 8 dígitos | Corrigir o cadastro do produto |
 | `NFE_DIFAL_NCM_INEXISTENTE` | NCM tem 8 dígitos mas não existe na NCM oficial | Corrigir o cadastro do produto |
@@ -260,6 +263,29 @@ usou 22,5%?". Pior: o navegador passaria a ditar alíquota sem deixar rastro.
 
 Por isso toda tela que deixa digitar num campo de DIFAL marca o campo em
 `difalCamposManuais` — vale para a emissão assistida e para a NF-e avulsa.
+
+## A interestadual não vem do cliente
+
+`pICMSInter` não é cadastro: sai da origem da mercadoria e das UFs
+(`aliquotaInterestadual`, Resoluções do Senado 22/89 e 13/2012), e o XSD só
+aceita `4.00`, `7.00` ou `12.00`. Por isso `resolverDifalDoItem`:
+
+- ignora o valor que chega no item **sem** marca de edição e usa o cálculo
+  legal (`origemAliquotaInterestadual: 'LEI'` no snapshot);
+- aceita a edição manual só dentro de `ALIQUOTAS_INTERESTADUAIS_VALIDAS`
+  (`'MANUAL'`); fora disso, pendência `ALIQUOTA_INTERESTADUAL_INVALIDA`, e o
+  grupo da prévia é montado com o valor legal;
+- `calcularDifal` recusa qualquer outro valor, como última barreira.
+
+As telas mostram o campo como seleção de 4, 7 e 12.
+
+Caso que motivou: a NF-e 230 da Demir (PB → RN, out/2026) foi rejeitada com
+225 em `ICMSUFDest/pICMSInter`. O RN estava sem regra ativa, a interna e o FCP
+bloquearam, e os três campos foram preenchidos com `0` para passar. O servidor
+descartava `overrideDifalManual` (`mapInputToTaxItem`), então os zeros foram
+gravados como `ITEM` — sem rastro de edição e sem pendência — e o `0` foi para
+o XML. Hoje o servidor preserva a marca, interna zero bloqueia e a
+interestadual segue a lei.
 
 ## Override manual
 
@@ -393,20 +419,35 @@ referencia o NCM que valia na época.
 
 ## Estado do catálogo após sincronização
 
-29 regras carregadas, **18 ativas** após a sincronização global. Uma regra inativa fica no banco para
+30 regras carregadas, **19 ativas** após a sincronização global. Uma regra inativa fica no banco para
 histórico e auditoria, mas não resolve nada — a emissão para e pede confirmação.
 
-**Resolvem tudo automaticamente pela regra geral (interna + FCP):** PI, RJ, GO, RR e AL.
-Para AL, mercadorias especiais ainda exigem curadoria própria; veja acima.
+**Resolvem tudo automaticamente pela regra geral (interna + FCP):** PI, RJ, GO, RR, AL e RN.
+Para AL e RN, mercadorias especiais ainda exigem curadoria própria.
+
+### Rio Grande do Norte
+
+| Data fiscal | ICMS interno | FCP geral | Situação |
+| --- | ---: | ---: | --- |
+| 30/12/2021 a 19/03/2025 | 18% | — | Inativa: 2023 teve 20% (Lei 11.314/2022), não conferido |
+| Desde 20/03/2025 | 20% | 0 | Lei 6.968/1996, art. 27, I, "a", redação da Lei 11.999/2024; efeitos 90 dias após 20/12/2024 (art. 4º) |
+
+O FECOP (art. 27-A) soma 2 p.p. só para armas e munições, asas delta e
+ultraleves, bebidas alcoólicas (exceto aguardente), fumo e tabacaria,
+embarcações de recreio, fogos, joias, perfumes e cosméticos, refrigerantes,
+isotônicos e energéticos. As demais mercadorias — autopeças inclusive — não têm
+FCP, daí o 0 da regra geral. As da lista exigem regra por NCM. Texto conferido
+no [PDF oficial da ALRN](https://www.al.rn.leg.br/storage/legislacao/2025/stqpzaxnkhj8e1efdy6wnsk815m85v.pdf)
+em 13/10/2026.
 
 **Resolvem a interna, mas o FCP continua bloqueando:** AC, AP, BA, DF, ES, MG,
 MS, MT, RS, SC, SP — o portal simplesmente não publica o FCP da regra geral
 dessas UFs, e "célula vazia" não é o mesmo que "não há FCP".
 
-**Inativas, exigindo decisão humana:** AM, CE, MA, PA, PB, PE, PR, RN, RO,
+**Inativas, exigindo decisão humana:** AM, CE, MA, PA, PB, PE, PR, RO,
 SE, TO. Os motivos estão em `nota_curadoria`, linha a linha, e são de três
 tipos: o portal está desatualizado em relação à referência histórica do ERP
-(CE, MA, PA, PE, PR, RN, TO); a própria linha do portal se contradiz (RO,
+(CE, MA, PA, PE, PR, TO); a própria linha do portal se contradiz (RO,
 PB); ou o portal não publica regra geral para mercadorias (AM).
 
 Não copiamos os valores antigos do `ALIQUOTA_INTERNA_POR_UF` por cima: onde as
@@ -437,6 +478,7 @@ emissão escolher sozinha.
 ```bash
 npx tsx --test src/lib/nfe/difalRegras.test.ts   # 62 casos do motor
 npx tsx --test src/lib/nfe/difalAlagoas.test.ts  # vigências e NF-e 203
+npx tsx --test src/lib/nfe/difalRioGrandeDoNorte.test.ts  # vigências e NF-e 230
 npx tsx --test src/lib/fiscal-date/index.test.ts # data civil do emitente
 npx tsx --test src/lib/fiscal/ncm.test.ts        # normalização e busca de NCM
 npx tsx --test src/components/fiscal/ncm-combobox.test.tsx

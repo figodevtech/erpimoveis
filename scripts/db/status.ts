@@ -1,11 +1,12 @@
 import {
   inspectAllDatabases,
+  loadDatabaseConfigs,
   printInspectionSummary,
   schemaDifferences,
 } from "./lib";
 
 async function main() {
-  console.log("Verificando Demonstração, Demir e Garage Premium...");
+  console.log(`Verificando ${loadDatabaseConfigs().map((banco) => banco.label).join(", ")}...`);
   const { inspections } = await inspectAllDatabases();
   printInspectionSummary(inspections);
 

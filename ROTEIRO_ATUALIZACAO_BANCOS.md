@@ -28,7 +28,7 @@ npm run db:deploy:demo
 Esse comando faz o dry-run e aplica migrations somente na Demonstração. Teste
 no ERP todos os fluxos afetados antes de continuar.
 
-## 3. Atualizar Demir e Garage Premium
+## 3. Atualizar os clientes (Demir, Garage Premium, Jean Car e HG)
 
 Se a Demonstração estiver funcionando:
 
@@ -37,7 +37,7 @@ npm run db:deploy:clients
 ```
 
 Digite `CLIENTES` quando solicitado. O comando confirma que a Demonstração está
-atualizada, aplica no Demir e no Garage Premium e compara os três bancos.
+atualizada, aplica em cada cliente e compara todos os bancos.
 
 ### Ordem especial para `20260820170000_public_schema_lockdown`
 

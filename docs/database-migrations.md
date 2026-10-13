@@ -1,7 +1,10 @@
 # Fluxo de migrations dos bancos
 
-Os três bancos ativos (Demonstração, Demir e Garage Premium) usam as mesmas
-migrations e o mesmo schema. Somente os dados de cada empresa são independentes.
+Os bancos ativos (Demonstração, Demir, Garage Premium, Jean Car e HG Comércio e
+Serviços) usam as mesmas migrations e o mesmo schema. Somente os dados de cada
+empresa são independentes. A lista fica em `DATABASES`/`DATABASE_KEYS`, em
+`scripts/db/lib.ts`: cliente novo entra ali e passa a valer para o deploy, o
+`db:status`, os testes de migration e o `fiscal:difal`.
 
 ## Stone em stand-by — 07/09/2026
 
@@ -28,12 +31,46 @@ AlphaGarage foi removido dos alvos dos scripts de banco. A variável
 `ERP_DB_ALPHA` não é mais necessária nem utilizada. As referências anteriores
 a esse cliente neste documento são registros históricos.
 
+## Clientes adicionados — 13/10/2026
+
+Jean Car (`jqpcttqzbdtsrlrsaatf`, variável `ERP_DB_JEAN_CAR`) e HG Comércio e
+Serviços (`nxbociyfidsyepkyhcqw`, variável `ERP_DB_HG`) entraram nos alvos dos
+scripts de banco. Os dois projetos ficam em `us-east-1`.
+
+Os dois foram criados por um dump **só de estrutura** com o histórico de
+migrations junto: o deploy os vê em dia, mas as cargas de dados das migrations
+nunca rodaram neles. Para um banco nesse estado:
+
+```powershell
+npm run db:carregar:catalogos -- jeancar            # simula, nada gravado
+npm run db:carregar:catalogos -- jeancar --aplicar  # grava
+npm run fiscal:difal -- --todos --aplicar
+npm run fiscal:ncm -- jeancar --aplicar
+npm run radios:sincronizar:todos-bancos
+```
+
+O `db:carregar:catalogos` grava só em tabela vazia, em duas etapas:
+
+- **Catálogo:** a linha igual, id inclusive, em pelo menos dois de
+  Demonstração, Demir e Garage Premium (DRE padrão, classificações, tabelas da
+  reforma tributária, tipos de entrada/saída/documento/ajuste, grupos de uso e
+  consumo, termos de impressão). Linha com o mesmo conteúdo e id diferente em
+  cada banco (`CONSUMO_EM_OS`) entra com o id do Demir.
+- **Plano de contas:** grupos, contas e categorias ativos do Demir, com o
+  mapeamento da DRE e as regras de reclassificação — decisão de 13/10/2026 para
+  Jean Car e HG. O mapeamento aponta para `dre_linha` por id, que não é igual
+  em todo banco (11.1 e 11.2 são 45/46 na Demonstração e 55/56 nos clientes),
+  então é traduzido pelo código da linha.
+
+Unidades de medida ficam de fora (cada oficina cadastra as suas), assim como o
+que depende da empresa cadastrada: `nfe_config`, NFS-e e SPED.
+
 ## Configuração local
 
 Copie `.env.migrations.example` para `.env.migrations.local` e configure as URLs
-PostgreSQL de Demonstração, Demir e Garage Premium. O arquivo local é ignorado pelo
-Git. Por compatibilidade, os comandos também reconhecem as URLs antigas do
-`.env.local`, identificando cada projeto pelo project ref.
+PostgreSQL de cada banco. O arquivo local é ignorado pelo Git. Na falta da
+variável, os comandos procuram a `DATABASE_URL` do projeto — ativa ou comentada —
+no `.env.local` e no `.env`, identificando cada projeto pelo project ref.
 
 ## Conferência
 
@@ -61,7 +98,7 @@ npm run db:deploy
 
 O fluxo faz dry-run e aplica primeiro na Demonstração. Em seguida, fica parado
 para permitir o teste do ERP. Somente depois da confirmação `CLIENTES` ele faz
-dry-run e aplica, em sequência, no Demir e no Garage Premium. Qualquer erro
+dry-run e aplica, em sequência, em cada banco de cliente. Qualquer erro
 interrompe o processo.
 
 O fluxo também pode ser executado em duas etapas independentes:

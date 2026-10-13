@@ -52,6 +52,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ALIQUOTAS_INTERESTADUAIS_VALIDAS } from "@/lib/nfe/difal";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
@@ -3313,15 +3314,23 @@ export default function NFeAvulsaPage() {
                                 />
                               </Field>
                               <Field label="% interestadual" required>
-                                <Input
+                                {/* O leiaute só aceita 4, 7 ou 12 em pICMSInter. */}
+                                <Select
                                   value={item.difalAliquotaInterestadual}
-                                  onChange={(event) =>
+                                  onValueChange={(valor) =>
                                     updateItem(index, {
-                                      difalAliquotaInterestadual: event.target.value,
+                                      difalAliquotaInterestadual: valor,
                                       difalCamposManuais: marcarDifalManual(item.difalCamposManuais, "aliquotaInterestadual"),
                                     })
                                   }
-                                />
+                                >
+                                  <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
+                                  <SelectContent>
+                                    {ALIQUOTAS_INTERESTADUAIS_VALIDAS.map((aliquota) => (
+                                      <SelectItem key={aliquota} value={String(aliquota)}>{aliquota}%</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               </Field>
                               <Field label="% partilha destino">
                                 <Input

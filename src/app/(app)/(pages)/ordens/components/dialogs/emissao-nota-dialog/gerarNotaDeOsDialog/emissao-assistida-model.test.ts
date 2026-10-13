@@ -594,7 +594,6 @@ describe("DIFAL digitado fora do intervalo não derruba a tela", () => {
     ["alíquota interna acima de 100", { difalAliquotaInterna: "205", difalCamposManuais: ["aliquotaInterna"] }],
     ["alíquota interna negativa", { difalAliquotaInterna: "-1", difalCamposManuais: ["aliquotaInterna"] }],
     ["FCP acima de 100", { difalAliquotaFcp: "150", difalCamposManuais: ["aliquotaFcp"] }],
-    ["interestadual acima de 100", { difalAliquotaInterestadual: "120" }],
     ["partilha acima de 100", { difalPercentualPartilha: "1000" }],
     ["base do FCP negativa", { difalBaseFcp: "-5" }],
   ] as Array<[string, Partial<AssistedFiscalItem>]>) {
@@ -613,5 +612,25 @@ describe("DIFAL digitado fora do intervalo não derruba a tela", () => {
   it("valores válidos não geram o bloqueio", () => {
     const issues = validateAssistedItem(itemPI({}), setup, contexto);
     assert.ok(!issues.some((issue) => issue.code === "NFE_DIFAL_VALOR_INVALIDO"));
+  });
+
+  // A interestadual é da lei (origem e UFs): sem marca de edição, o valor do
+  // campo não entra no XML. Editada à mão, só vale 4, 7 ou 12 — o leiaute
+  // recusa qualquer outro número com rejeição 225 (NF-e 230 da Demir).
+  for (const valor of ["0", "5", "120"]) {
+    it(`interestadual ${valor} editada à mão: bloqueia pelo leiaute, sem exceção`, () => {
+      const item = itemPI({ difalAliquotaInterestadual: valor, difalCamposManuais: ["aliquotaInterestadual"] });
+      const issues = validateAssistedItem(item, setup, contexto);
+      assert.ok(issues.some((issue) => issue.code === "NFE_DIFAL_ALIQUOTA_INTERESTADUAL_INVALIDA"));
+      assert.equal(classificarIssuesFiscais(issues).pronto, false);
+      assert.doesNotThrow(() => toNFeItem(item, 0, setup, contexto));
+    });
+  }
+
+  it("interestadual sem marca manual é ignorada: vale a lei", () => {
+    const item = itemPI({ difalAliquotaInterestadual: "0" });
+    const issues = validateAssistedItem(item, setup, contexto);
+    assert.ok(!issues.some((issue) => issue.code.startsWith("NFE_DIFAL_ALIQUOTA_INTERESTADUAL")));
+    assert.equal(toNFeItem(item, 0, setup, contexto).icmsUfDest?.pICMSInter, 12);
   });
 });

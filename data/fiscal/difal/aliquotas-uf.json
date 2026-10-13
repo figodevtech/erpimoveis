@@ -335,11 +335,26 @@
       "aliquotaIcmsInterna": 18,
       "aliquotaFcp": null,
       "vigenciaInicio": "2021-12-30",
-      "vigenciaFim": null,
+      "vigenciaFim": "2025-03-19",
       "fundamentoLegal": "Art. 104, I, \"a\" do RICMS/RN",
       "dataFonte": "2021-12-30",
       "ativo": false,
-      "notaCuradoria": "DESATIVADA: portal publica 18% com atualização de 30/12/2021; a referência histórica do ERP usa 20%. Divergência não resolvida pela fonte oficial consultada."
+      "notaCuradoria": "DESATIVADA: portal publica 18% com atualização de 30/12/2021. Vigência fechada em 19/03/2025, véspera dos efeitos da Lei nº 11.999/2024 (20%). Continua inativa porque o período de 01/04/2023 a 31/12/2023 teve 20% pela Lei nº 11.314/2022, não conferido na fonte oficial."
+    },
+    {
+      "uf": "RN",
+      "tipoRegra": "GERAL",
+      "descricao": "Regra geral do Rio Grande do Norte — mercadorias não abrangidas nas demais alíneas (20%)",
+      "aliquotaIcmsInterna": 20,
+      "aliquotaFcp": 0,
+      "vigenciaInicio": "2025-03-20",
+      "vigenciaFim": null,
+      "fonte": "Legislação oficial do Estado do Rio Grande do Norte (Assembleia Legislativa)",
+      "fonteUrl": "https://www.al.rn.leg.br/storage/legislacao/2025/stqpzaxnkhj8e1efdy6wnsk815m85v.pdf",
+      "fundamentoLegal": "Lei nº 6.968/1996, art. 27, I, a, e art. 27-A, na redação da Lei nº 11.999/2024 (DOE/RN 20/12/2024), com efeitos 90 dias após a publicação (art. 4º)",
+      "dataFonte": "2024-12-20",
+      "ativo": true,
+      "notaCuradoria": "Texto conferido no PDF oficial da ALRN em 13/10/2026. Art. 27, I, a: 20% para mercadorias não abrangidas nas demais alíneas. FECOP (art. 27-A): adicional de 2 p.p. somente para armas e munições, asas delta e ultraleves, bebidas alcoólicas (exceto aguardente), fumo e tabacaria, embarcações de recreio, fogos, joias, perfumes e cosméticos, refrigerantes, isotônicos e energéticos — demais mercadorias sem FCP, por isso 0 na regra geral. Essas mercadorias exigem regra própria por NCM (o art. 9º, § 7º soma o FECOP no DIFAL). Motivou a curadoria: NF-e 230 da Demir (PB → RN), rejeitada com pICMSInter 0."
     },
     {
       "uf": "SE",

@@ -26,9 +26,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "./lib";
+import { DATABASE_KEYS, connectDatabase, loadDatabaseConfigs, projectRoot, type DatabaseKey } from "./lib";
 
-const ORDEM: DatabaseKey[] = ["demo", "demir", "garage"];
+const ORDEM: DatabaseKey[] = [...DATABASE_KEYS];
 
 const args = process.argv.slice(2);
 const APLICAR = args.includes("--aplicar");

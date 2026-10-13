@@ -804,3 +804,58 @@ describe("casamento de regras: detalhes do núcleo", () => {
     assert.deepEqual(resultado.candidatas, []);
   });
 });
+
+describe("20. pICMSInter só aceita 4, 7 ou 12 (rejeição 225 da NF-e 230)", () => {
+  it("interestadual vinda do item sem marca manual é ignorada: vale a lei", () => {
+    const item = resolverDifalDoItem(itemDifal({ aliquotaInterestadual: 0 }), CONTEXTO_ITEM, {
+      regras: [PI_GERAL_ATUAL],
+    });
+    assert.equal(item.icmsUfDest?.pICMSInter, 12);
+    assert.equal(item.difalDecisao?.aliquotaInterestadual, 12);
+    assert.equal(item.difalDecisao?.origemAliquotaInterestadual, "LEI");
+    assert.deepEqual(issuesDifalDoItem(item), []);
+  });
+
+  it("edição manual dentro do leiaute vale e fica registrada como MANUAL", () => {
+    const item = resolverDifalDoItem(
+      itemDifal({ aliquotaInterestadual: 4, overrideDifalManual: { aliquotaInterestadual: true } }),
+      CONTEXTO_ITEM,
+      { regras: [PI_GERAL_ATUAL] },
+    );
+    assert.equal(item.icmsUfDest?.pICMSInter, 4);
+    assert.equal(item.difalDecisao?.origemAliquotaInterestadual, "MANUAL");
+    assert.deepEqual(issuesDifalDoItem(item), []);
+  });
+
+  it("edição manual fora de 4/7/12 bloqueia sem quebrar a prévia", () => {
+    for (const valor of [0, 5, 18]) {
+      const item = resolverDifalDoItem(
+        itemDifal({ aliquotaInterestadual: valor, overrideDifalManual: { aliquotaInterestadual: true } }),
+        CONTEXTO_ITEM,
+        { regras: [PI_GERAL_ATUAL] },
+      );
+      assert.ok(item.difalDecisao?.pendencias.includes("ALIQUOTA_INTERESTADUAL_INVALIDA"), `valor ${valor}`);
+      assert.ok(
+        issuesDifalDoItem(item).some((issue) => issue.code === "NFE_DIFAL_ALIQUOTA_INTERESTADUAL_INVALIDA"),
+        `valor ${valor}`,
+      );
+      // O grupo da prévia sai com o valor legal, nunca com o inválido.
+      assert.equal(item.icmsUfDest?.pICMSInter, 12, `valor ${valor}`);
+    }
+  });
+
+  it("alíquota interna zero bloqueia; FCP zero continua valendo", () => {
+    // UF sem regra (o RN antes da curadoria): o zero do item chegava ao XML.
+    const item = resolverDifalDoItem(
+      itemDifal({ aliquotaInternaDestino: 0, aliquotaInterestadual: 0, aliquotaFcpDestino: 0 }),
+      { ...CONTEXTO_ITEM, ufDestinatario: "RN" },
+      { regras: [] },
+    );
+    assert.ok(item.difalDecisao?.pendencias.includes("ALIQUOTA_INTERNA_INVALIDA"));
+    assert.ok(!item.difalDecisao?.pendencias.includes("FCP_NAO_DETERMINADO"));
+    assert.ok(
+      issuesDifalDoItem(item).some((issue) => issue.code === "NFE_DIFAL_ALIQUOTA_INTERNA_INVALIDA"),
+    );
+    assert.equal(item.icmsUfDest?.pICMSInter, 12);
+  });
+});

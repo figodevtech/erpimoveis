@@ -1117,6 +1117,42 @@ describe("AVULSA — DIFAL antes do IBS/CBS", () => {
     assert.deepEqual(baseIbsCbsNoXml(nota.xml), { item: esperado, total: esperado });
     assert.equal(nota.itens[0].tributacao_snapshot.difalDecisao.origemAliquotaInterna, "ITEM");
   });
+
+  it("o servidor preserva a marca de edição manual que a tela envia", async () => {
+    // Antes o overrideDifalManual era descartado em mapInputToTaxItem: o que a
+    // pessoa digitava virava "ITEM", e a interestadual digitada entrava no XML
+    // sem conferência — foi assim que a NF-e 230 saiu com pICMSInter 0.
+    const resultado = await salvarNFeAvulsaDraft(draft({
+      aliquotaInternaDestino: "18",
+      aliquotaFcpDestino: "2",
+      aliquotaInterestadual: "7",
+      // Chave desconhecida vinda do cliente não entra no snapshot.
+      overrideDifalManual: { aliquotaInterna: true, aliquotaFcp: true, aliquotaInterestadual: true, injetado: true } as Record<string, unknown>,
+    }));
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    const nota = notaGravada(resultado.nfeId);
+    const decisao = nota.itens[0].tributacao_snapshot.difalDecisao;
+    assert.equal(decisao.origemAliquotaInterna, "MANUAL");
+    assert.equal(decisao.origemFcp, "MANUAL");
+    assert.equal(decisao.origemAliquotaInterestadual, "MANUAL");
+    assert.match(nota.xml, /<pICMSInter>7\.00<\/pICMSInter>/);
+    assert.deepEqual(
+      Object.keys(nota.itens[0].tributacao_snapshot.overrideDifalManual).sort(),
+      ["aliquotaFcp", "aliquotaInterestadual", "aliquotaInterna"],
+    );
+  });
+
+  it("interestadual digitada fora de 4/7/12 não gera a nota", async () => {
+    const resultado = await salvarNFeAvulsaDraft(draft({
+      aliquotaInternaDestino: "18",
+      aliquotaFcpDestino: "2",
+      aliquotaInterestadual: "0",
+      overrideDifalManual: { aliquotaInterestadual: true },
+    }));
+    assert.equal(resultado.ok, false);
+    const codigos = resultado.errors.map((erro) => (erro as { code?: string }).code);
+    assert.ok(codigos.includes("NFE_DIFAL_ALIQUOTA_INTERESTADUAL_INVALIDA"), JSON.stringify(codigos));
+  });
 });
 
 describe("descrição do item é o xProd da nota", () => {

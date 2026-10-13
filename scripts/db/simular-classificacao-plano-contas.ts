@@ -27,9 +27,9 @@ import {
   sugerirClassificacaoGrupo,
   type Certeza,
 } from "../../src/lib/financeiro/plano-contas/sugestao";
-import { projectRoot } from "./lib";
+import { DATABASE_KEYS, projectRoot } from "./lib";
 
-const BANCOS = ["demo", "demir", "garage"] as const;
+const BANCOS = DATABASE_KEYS;
 
 type Grupo = {
   id: number;
