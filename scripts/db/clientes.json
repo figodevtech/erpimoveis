@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "key": "brpecas",
+    "label": "BR Peças",
+    "projectRef": "ufomohkhyyekflykqejc",
+    "envName": "ERP_DB_BRPECAS",
+    "poolerHosts": [
+      "aws-1-us-west-2.pooler.supabase.com",
+      "aws-0-us-west-2.pooler.supabase.com"
+    ]
+  }
+]

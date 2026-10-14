@@ -82,6 +82,8 @@ const VENDA: GrupoVariaveis = {
   variaveis: [
     v("venda.numero", "Número da venda"),
     v("venda.data", "Data da venda"),
+    v("venda.ano", "Ano da venda (2026)"),
+    v("venda.ano_curto", "Ano da venda com dois dígitos (26)"),
     v("venda.status", "Status"),
     v("venda.canal", "Canal"),
     v("venda.categoria", "Categoria"),

@@ -83,6 +83,8 @@ test("venda: totais iguais aos do diálogo (descontos de item e geral, frete)", 
   assert.equal(ctx.cliente.tipo_pessoa, "Pessoa física");
   assert.equal(ctx.venda.pagamentos, "");
   assert.equal(ctx.documento.data_emissao_extenso, "14 de outubro de 2026");
+  assert.equal(ctx.venda.ano, "2026");
+  assert.equal(ctx.venda.ano_curto, "26");
 });
 
 test("venda: acréscimo financeiro entra no total", () => {

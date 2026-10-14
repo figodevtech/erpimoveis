@@ -19,6 +19,7 @@ import {
 } from "@/lib/alugueis/status";
 
 import {
+  ano,
   arredondar,
   cep,
   data,
@@ -55,7 +56,7 @@ export type EmissaoDocumento = {
   nomeDocumento: string;
   emitidoPor: string | null;
   agora: Date;
-  /** Data URL (ou URL pública) da logo da empresa. */
+  /** URL pública da logo da empresa; a prévia do editor usa um data URL de exemplo. */
   logoUrl: string | null;
 };
 
@@ -283,6 +284,8 @@ export function contextoDaVenda({ venda, empresa, pagamentos: resumo, emissao }:
     venda: {
       numero: texto(venda.id),
       data: data(venda.datavenda ?? venda.createdat),
+      ano: ano(venda.datavenda ?? venda.createdat),
+      ano_curto: ano(venda.datavenda ?? venda.createdat).slice(-2),
       status: rotuloDeEnum(venda.status),
       canal: rotuloDeEnum(venda.canal),
       categoria: texto(um(venda.categoria_venda)?.nome),
