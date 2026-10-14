@@ -18,6 +18,7 @@ const EMPRESA: GrupoVariaveis = {
     v("empresa.telefone", "Telefone"),
     v("empresa.endereco", "Endereço completo"),
     v("empresa.bairro", "Bairro"),
+    v("empresa.cidade", "Cidade"),
     v("empresa.uf", "UF"),
     v("empresa.cep", "CEP"),
     v("empresa.logo", "Logo (imagem pronta)", "html"),

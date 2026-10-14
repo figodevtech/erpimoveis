@@ -1,6 +1,7 @@
 import "server-only";
 
 import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
+import { nomeOficialMunicipioIbge } from "@/lib/ibge/municipio";
 import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -52,13 +53,28 @@ const SELECT_ALUGUEL = `
 async function lerEmpresa() {
   const { data, error } = await supabaseAdmin
     .from("empresa")
-    .select("razaosocial, nomefantasia, cnpj, inscricaoestadual, inscricaomunicipal, telefone, endereco, numero, complemento, bairro, uf, cep")
+    .select("razaosocial, nomefantasia, cnpj, inscricaoestadual, inscricaomunicipal, telefone, endereco, numero, complemento, bairro, uf, cep, codigomunicipio")
     .order("id", { ascending: true })
     .limit(1)
     .maybeSingle();
   // Sem empresa o documento ainda sai; o erro fica no log.
   if (error) console.error("Erro ao buscar a empresa para o documento:", error);
-  return data ?? null;
+  if (!data) return null;
+  return { ...data, cidade: await cidadeDaEmpresa(data.codigomunicipio) };
+}
+
+/**
+ * O cadastro da empresa guarda só o código IBGE do município; o nome vem do
+ * IBGE. Fora do ar, o documento sai sem a cidade, e o erro fica no log.
+ */
+async function cidadeDaEmpresa(codigo: unknown): Promise<string | null> {
+  if (!String(codigo ?? "").trim()) return null;
+  try {
+    return await nomeOficialMunicipioIbge(String(codigo));
+  } catch (erro) {
+    console.error("Erro ao buscar a cidade da empresa para o documento:", erro);
+    return null;
+  }
 }
 
 function lista<T>(valor: unknown): T[] | null {

@@ -23,6 +23,7 @@ export const EMPRESA_EXEMPLO = {
   numero: "1000",
   complemento: "Loja 2",
   bairro: "Tambaú",
+  cidade: "João Pessoa",
   uf: "PB",
   cep: "58039000",
 };

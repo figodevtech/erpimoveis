@@ -38,6 +38,20 @@ test("toda variável do catálogo sai do contexto de cada módulo", () => {
   }
 });
 
+test("empresa: endereço completo com a cidade; sem ela, só a UF", () => {
+  const ctx = contextoDaVenda({ venda: VENDA_EXEMPLO, empresa: EMPRESA_EXEMPLO, pagamentos: null, emissao: EMISSAO }) as any;
+  assert.equal(ctx.empresa.endereco, "Av. Epitácio Pessoa, nº 1000, Loja 2 · Tambaú · João Pessoa/PB · CEP 58039-000");
+  assert.equal(ctx.empresa.cidade, "João Pessoa");
+
+  const semCidade = contextoDaVenda({
+    venda: VENDA_EXEMPLO,
+    empresa: { ...EMPRESA_EXEMPLO, cidade: null },
+    pagamentos: null,
+    emissao: EMISSAO,
+  }) as any;
+  assert.equal(semCidade.empresa.endereco, "Av. Epitácio Pessoa, nº 1000, Loja 2 · Tambaú · PB · CEP 58039-000");
+});
+
 test("venda: totais iguais aos do diálogo (descontos de item e geral, frete)", () => {
   const ctx = contextoDaVenda({ venda: VENDA_EXEMPLO, empresa: EMPRESA_EXEMPLO, pagamentos: null, emissao: EMISSAO }) as any;
   // 180 + 140 = 320; 10% no segundo item = 14; geral fixo 20; frete 30.

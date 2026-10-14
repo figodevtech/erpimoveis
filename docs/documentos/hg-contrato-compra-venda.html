@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Contrato de compra e venda nº {{venda.numero}}</title>
+<style>
+  @page { size: A4; margin: 14mm 16mm 8mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font-family: "Times New Roman", Times, serif; font-size: 12.5px; line-height: 1.55; color: #111827; background: #fff; }
+
+  .topo { display: flex; justify-content: center; margin-bottom: 14px; }
+  .topo .logo img { max-height: 76px; }
+  h1 { margin: 6px 0 22px; font-size: 15px; text-align: center; letter-spacing: .03em; }
+  h2 { margin: 18px 0 6px; font-size: 12.5px; text-transform: uppercase; }
+  p { margin: 0 0 8px; text-align: justify; }
+  ul { margin: 0 0 8px; padding-left: 22px; }
+  li { margin-bottom: 4px; text-align: justify; }
+  .especificacoes { margin: 4px 0 8px; white-space: pre-line; }
+  .doc-tabela { margin: 4px 0 10px; }
+  .destaque { font-weight: bold; }
+  .dados-bancarios { padding: 6px 10px; margin: 6px 0 10px; border: 1px solid #cbd5e1; }
+  .dados-bancarios p { margin: 0; text-align: left; }
+
+  .local-data { margin-top: 28px; text-align: right; }
+  .assinatura { margin-top: 44px; }
+  .assinatura .linha { display: flex; align-items: flex-end; gap: 10px; }
+  .assinatura .linha span:first-child { width: 120px; }
+  .assinatura .traco { flex: 1; max-width: 340px; border-bottom: 1px solid #111827; height: 18px; }
+  .assinatura .nome { margin: 4px 0 0 130px; text-align: left; }
+  .assinatura .nome strong { display: block; }
+  .testemunhas { display: flex; gap: 48px; margin-top: 40px; }
+  .testemunha { flex: 1; }
+  .testemunha .traco { border-bottom: 1px solid #111827; height: 34px; }
+  .testemunha p { margin: 4px 0 0; text-align: left; }
+
+  h2 { break-after: avoid; }
+  /* Data, assinaturas e testemunhas mudam de folha juntas. */
+  .fechamento { break-inside: avoid; }
+
+  /* Repetido no pé de cada folha (data-documento="rodape"). */
+  .rodape { margin-top: 6mm; padding: 7px 12px; background: #1f2d4a; color: #fff; text-align: center; font-family: Arial, Helvetica, sans-serif; line-height: 1.35; }
+  .rodape strong { display: block; font-size: 12px; letter-spacing: .03em; }
+  .rodape > span { display: block; font-size: 10px; }
+  .rodape .folha { margin-top: 2px; font-size: 9px; opacity: .8; }
+</style>
+</head>
+<body>
+
+<div class="topo">
+  <div class="logo">{{empresa.logo}}</div>
+</div>
+
+<h1>CONTRATO DE COMPRA E VENDA Nº {{venda.numero}}</h1>
+
+<p>Pelo presente instrumento particular, de um lado, <strong>{{cliente.nome}}</strong>, inscrito(a) no CPF/CNPJ sob o nº {{cliente.documento}}, com sede ou domicílio em {{cliente.endereco_completo}}, e, quando pessoa jurídica, neste ato representado(a) por ______________________________________, inscrito(a) no CPF sob o nº ____________________, doravante denominado(a) <strong>COMPRADORA</strong>; e, de outro lado, <strong>{{empresa.razao_social}}</strong>, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {{empresa.cnpj}}, com sede em {{empresa.endereco}}, representada por <strong>LÚCIO MAURO E SILVA</strong>, brasileiro, divorciado, residente e domiciliado na cidade de João Pessoa/PB, inscrito no CPF sob o nº 567.677.304-91, doravante denominada <strong>VENDEDORA</strong>.</p>
+
+<p>As partes acima identificadas têm, entre si, justo e acertado o presente Contrato de Compra e Venda de Bem Móvel, que se regerá pelas cláusulas seguintes e pelas condições descritas no presente.</p>
+
+<h2>Do objeto do contrato</h2>
+<p><strong>Cláusula 1ª.</strong> O presente contrato tem como OBJETO a aquisição do(s) bem(ns) relacionado(s) abaixo, conforme <strong>romaneio</strong> em anexo, o qual segue rubricado pelas partes, fazendo parte integrante e indissociável deste instrumento, fornecido(s) pela <strong>VENDEDORA</strong>:</p>
+{{venda.itens_tabela}}
+<p class="especificacoes">{{venda.descricao}}</p>
+
+<p><strong>Cláusula 2ª.</strong> O bem móvel objeto deste contrato, no estado de conservação descrito na Cláusula 1ª, encontra-se em perfeito estado de uso e funcionamento, conforme assegura a <strong>VENDEDORA</strong>, que garante o bom e seguro funcionamento do equipamento, o qual deverá conter toda a documentação e todos os itens de segurança, como travas de segurança, fins de curso, cabos elétricos de cancelas e de alimentação e quadros de chamadas exigidos pela NR-18, obedecendo às normas exigidas pela ABNT e pelo Ministério do Trabalho, devendo o mesmo ser instalado na obra situada em ____________________________________________.</p>
+
+<p><strong>Parágrafo primeiro.</strong> O presente negócio inclui a revisão e a pintura de todo o equipamento, de responsabilidade da <strong>VENDEDORA</strong>, de modo a deixá-lo apto ao transporte e à consequente montagem na obra administrada pela <strong>COMPRADORA</strong>.</p>
+
+<p><strong>Parágrafo segundo.</strong> Este contrato inclui o transporte, a montagem, a instalação e a manutenção mensal por 01 (um) ano por conta da <strong>VENDEDORA</strong>.</p>
+<p>Valor da manutenção mensal: <span class="destaque">R$ 1.600,00</span> (mil e seiscentos reais).</p>
+
+<h2>Dos prazos</h2>
+<p><strong>Cláusula 3ª.</strong> A <strong>VENDEDORA</strong> terá o prazo de 45 (quarenta e cinco) dias para a entrega do equipamento à <strong>COMPRADORA</strong>, a partir da assinatura do contrato.</p>
+
+<p><strong>Cláusula 4ª.</strong> O prazo de garantia do bem e da instalação será de <strong>01 (um) ano</strong>, desde que a manutenção mensal seja feita com a <strong>VENDEDORA</strong>, ou de <strong>06 (seis) meses</strong>, com a manutenção por conta da <strong>COMPRADORA</strong>.</p>
+
+<h2>Do preço</h2>
+<p><strong>Cláusula 5ª.</strong> A <strong>COMPRADORA</strong> pagará à <strong>VENDEDORA</strong>, pela compra do objeto descrito na Cláusula 1ª deste contrato, o valor de <span class="destaque">{{venda.total}}</span> ({{venda.total_extenso}}), da seguinte forma:</p>
+{{venda.pagamentos}}
+<p class="especificacoes">{{venda.observacoes}}</p>
+
+<div class="dados-bancarios">
+  <p><strong>DADOS PARA PAGAMENTO:</strong></p>
+  <p>Banco Santander · Agência 1592 · Conta corrente 13003128-7 · PIX (CNPJ): {{empresa.cnpj}}</p>
+</div>
+
+<p><strong>Parágrafo único.</strong> Caso ocorra atraso nos prazos firmados para o cumprimento deste contrato, será cobrada multa de 2% (dois por cento), além de juros de 1% (um por cento) ao mês, <em>pro rata die</em>.</p>
+
+<h2>Das responsabilidades</h2>
+<p><strong>Cláusula 6ª.</strong> A <strong>VENDEDORA</strong> se responsabiliza pela mobilização e entrega do equipamento no local onde se encontra, sendo de sua responsabilidade o transporte até a obra onde será instalado.</p>
+
+<h2>Das condições gerais</h2>
+<p><strong>Cláusula 7ª.</strong> A <strong>VENDEDORA</strong> não se responsabilizará pelos danos causados ao bem móvel por negligência da <strong>COMPRADORA</strong>, nem por problemas decorrentes da não realização das revisões necessárias.</p>
+
+<p><strong>Cláusula 8ª.</strong> O presente contrato passa a valer a partir da assinatura pelas partes, obrigando-se a ele os herdeiros ou sucessores das mesmas.</p>
+
+<p><strong>Parágrafo único.</strong> Na hipótese de ocorrência de caso fortuito ou de força maior que tenha o condão de motivar o atraso na execução do objeto no prazo previsto, deve a <strong>VENDEDORA</strong> submeter os fatos, por escrito, à <strong>COMPRADORA</strong>, com as justificativas correspondentes, acompanhadas da comprovação devida, para análise e decisão, desde que dentro do prazo estabelecido para a execução do objeto.</p>
+
+<h2>Do foro</h2>
+<p><strong>Cláusula 9ª.</strong> Para dirimir quaisquer controvérsias oriundas deste contrato, as partes elegem o foro da comarca de João Pessoa/PB.</p>
+
+<p>Por estarem assim justos e contratados, firmam o presente instrumento, em duas vias de igual teor, juntamente com 2 (duas) testemunhas.</p>
+
+<div class="fechamento">
+<p class="local-data">João Pessoa, {{documento.data_emissao_extenso}}.</p>
+
+<div class="assinatura">
+  <div class="linha"><span>VENDEDORA:</span><span class="traco"></span></div>
+  <p class="nome"><strong>{{empresa.razao_social}}</strong>CNPJ {{empresa.cnpj}} · representada por Lúcio Mauro e Silva</p>
+</div>
+
+<div class="assinatura">
+  <div class="linha"><span>COMPRADORA:</span><span class="traco"></span></div>
+  <p class="nome"><strong>{{cliente.nome}}</strong>CPF/CNPJ {{cliente.documento}}</p>
+</div>
+
+<p style="margin-top:40px"><strong>TESTEMUNHAS:</strong></p>
+<div class="testemunhas">
+  <div class="testemunha"><div class="traco"></div><p>Nome:</p><p>RG:</p><p>CPF:</p></div>
+  <div class="testemunha"><div class="traco"></div><p>Nome:</p><p>RG:</p><p>CPF:</p></div>
+</div>
+</div>
+
+<div class="rodape" data-documento="rodape">
+  <strong>{{empresa.razao_social}}</strong>
+  <span>CNPJ {{empresa.cnpj}} · Sede: {{empresa.endereco}}</span>
+  <span>Endereço comercial: Rua Praia Canoa Quebrada, nº 11 · Costa do Sol · João Pessoa/PB · CEP 58059-826</span>
+  <span>Tel./WhatsApp {{empresa.telefone}} · E-mail: hgelevadores.comercial@gmail.com</span>
+  <span class="folha">Página {{pagina.atual}} de {{pagina.total}}</span>
+</div>
+</body>
+</html>

@@ -50,6 +50,7 @@
     "db:test:credito-editar": "tsx scripts/db/test-credito-editar-excluir-migration.ts",
     "db:test:alugueis": "tsx scripts/db/test-alugueis-migration.ts",
     "db:test:documentos": "tsx scripts/db/test-documentos-migration.ts",
+    "db:documento:gravar": "tsx scripts/db/gravar-documento-modelo.ts",
     "db:test:comissao-ajustada": "tsx scripts/db/test-comissao-ajustada-migration.ts",
     "nfe:auditar-icms": "tsx scripts/nfe/auditar-icms-emitidas.ts",
     "db:migrar:plano-contas": "tsx scripts/db/migrar-classificacao-plano-contas.ts",
