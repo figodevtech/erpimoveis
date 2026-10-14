@@ -12,14 +12,16 @@
 // Sem marcador de número no modelo, cada folha ganha "Página X de Y" no pé.
 
 const NAO_DIVIDE = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "IMG", "SVG", "THEAD", "TFOOT", "PRE", "BLOCKQUOTE", "FIGURE", "CANVAS"]);
+/** O que não se parte como texto: linha de tabela, imagem, figura. */
+const SEM_TEXTO_PARTIVEL = new Set(["TR", "TABLE", "THEAD", "TBODY", "TFOOT", "IMG", "SVG", "CANVAS", "FIGURE", "VIDEO"]);
 const QUEBRA = new Set(["page", "always", "left", "right", "recto", "verso"]);
 const EVITA = new Set(["avoid", "avoid-page"]);
 const MARGEM_PADRAO = "15mm";
 
-type Margens = { top: string; right: string; bottom: string; left: string };
+export type Margens = { top: string; right: string; bottom: string; left: string };
 
 /** As margens do `@page` do modelo; sem elas, 15 mm. */
-function margensDoModelo(doc: Document): Margens {
+export function margensDoModelo(doc: Document): Margens {
   const margens: Margens = { top: MARGEM_PADRAO, right: MARGEM_PADRAO, bottom: MARGEM_PADRAO, left: MARGEM_PADRAO };
   for (const folha of Array.from(doc.styleSheets)) {
     let regras: CSSRuleList;
@@ -225,6 +227,76 @@ export function paginarDocumento(doc: Document): ResultadoPaginacao {
     atual.appendChild(no);
   }
 
+  function maiorQueUmaFolha(el: HTMLElement) {
+    return el.getBoundingClientRect().height > folha.corpo.clientHeight;
+  }
+
+  /**
+   * Texto que não cabe nem numa folha inteira (parágrafo longo escrito na
+   * edição, observação extensa) é partido entre duas palavras: a folha
+   * corrente vai até onde der e o resto segue na próxima. Sem isso o excesso
+   * ficaria escondido no pé da folha. `false` quando nada do texto cabe aqui.
+   */
+  function partirTexto(el: HTMLElement, cadeia: Element[]) {
+    if (SEM_TEXTO_PARTIVEL.has(el.tagName)) return false;
+    const textos: Text[] = [];
+    const caminhante = doc.createTreeWalker(el, 4 /* NodeFilter.SHOW_TEXT */);
+    for (let n = caminhante.nextNode(); n; n = caminhante.nextNode()) textos.push(n as Text);
+    const corrido = textos.map((t) => t.data).join("");
+    if (!corrido.trim()) return false;
+
+    const ponto = (deslocamento: number): [Node, number] => {
+      let resto = deslocamento;
+      for (const t of textos) {
+        if (resto <= t.data.length) return [t, resto];
+        resto -= t.data.length;
+      }
+      const ultimo = textos[textos.length - 1];
+      return [ultimo, ultimo.data.length];
+    };
+    const trecho = (de: number | null, ate: number | null) => {
+      const faixa = doc.createRange();
+      faixa.selectNodeContents(el);
+      if (de !== null) faixa.setStart(...ponto(de));
+      if (ate !== null) faixa.setEnd(...ponto(ate));
+      return faixa.cloneContents();
+    };
+
+    // A primeira parte é medida no lugar do próprio elemento.
+    const primeira = el.cloneNode(false) as HTMLElement;
+    atual.replaceChild(primeira, el);
+    const cabeAte = (k: number) => {
+      primeira.replaceChildren(trecho(null, k));
+      return cabe();
+    };
+    let cabeMais = 0;
+    let naoCabe = corrido.length;
+    while (naoCabe - cabeMais > 1) {
+      const meio = Math.floor((cabeMais + naoCabe) / 2);
+      if (cabeAte(meio)) cabeMais = meio;
+      else naoCabe = meio;
+    }
+    // Corta no último espaço; palavra maior que a linha é cortada onde der.
+    const espaco = corrido.lastIndexOf(" ", cabeMais);
+    const corte = espaco > 0 ? espaco : cabeMais;
+    if (!corrido.slice(0, corte).trim()) {
+      atual.replaceChild(el, primeira);
+      return false;
+    }
+    primeira.replaceChildren(trecho(null, corte));
+    // A última linha da parte de cima é linha do meio do parágrafo.
+    if (estilo(primeira).textAlign === "justify") primeira.style.textAlignLast = "justify";
+
+    const continuacao = el.cloneNode(false) as HTMLElement;
+    continuacao.removeAttribute("id");
+    continuacao.style.textIndent = "0";
+    if (el.tagName === "LI") continuacao.style.listStyleType = "none";
+    continuacao.appendChild(trecho(corte, null));
+    atual = novaFolha(cadeia);
+    inserir(continuacao, cadeia);
+    return true;
+  }
+
   function dividir(el: HTMLElement, cadeia: Element[]) {
     const filhos = Array.from(el.childNodes);
     const copia = casca(el, false);
@@ -258,7 +330,7 @@ export function paginarDocumento(doc: Document): ResultadoPaginacao {
 
     if (!cabe()) {
       if (el && podeDividir(el)) dividir(el, cadeia);
-      else moverParaProxima(no, cadeia);
+      else if (!(el && maiorQueUmaFolha(el) && partirTexto(el, cadeia))) moverParaProxima(no, cadeia);
     }
 
     if (el && QUEBRA.has(estiloQuebra(el, "depois"))) quebraPendente = true;

@@ -52,7 +52,7 @@
 
 <h1>CONTRATO DE COMPRA E VENDA Nº {{venda.numero}}</h1>
 
-<p>Pelo presente instrumento particular, de um lado, <strong>{{cliente.nome}}</strong>, inscrito(a) no CPF/CNPJ sob o nº {{cliente.documento}}, com sede ou domicílio em {{cliente.endereco_completo}}, e, quando pessoa jurídica, neste ato representado(a) por ______________________________________, inscrito(a) no CPF sob o nº ____________________, doravante denominado(a) <strong>COMPRADORA</strong>; e, de outro lado, <strong>{{empresa.razao_social}}</strong>, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {{empresa.cnpj}}, com sede em {{empresa.endereco}}, representada por <strong>LÚCIO MAURO E SILVA</strong>, brasileiro, divorciado, residente e domiciliado na cidade de João Pessoa/PB, inscrito no CPF sob o nº 567.677.304-91, doravante denominada <strong>VENDEDORA</strong>.</p>
+<p>Pelo presente instrumento particular, de um lado, <strong>{{cliente.nome}}</strong>, {{#se_pessoa_juridica}}pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {{cliente.documento}}, com sede em {{cliente.endereco_completo}}, neste ato representada por ______________________________________, inscrito(a) no CPF sob o nº ____________________, doravante denominada{{/se_pessoa_juridica}}{{#se_pessoa_fisica}}inscrito(a) no CPF sob o nº {{cliente.documento}}, residente e domiciliado(a) em {{cliente.endereco_completo}}, doravante denominado(a){{/se_pessoa_fisica}} <strong>COMPRADORA</strong>; e, de outro lado, <strong>{{empresa.razao_social}}</strong>, pessoa jurídica de direito privado, inscrita no CNPJ sob o nº {{empresa.cnpj}}, com sede em {{empresa.endereco}}, representada por <strong>LÚCIO MAURO E SILVA</strong>, brasileiro, divorciado, residente e domiciliado na cidade de João Pessoa/PB, inscrito no CPF sob o nº 567.677.304-91, doravante denominada <strong>VENDEDORA</strong>.</p>
 
 <p>As partes acima identificadas têm, entre si, justo e acertado o presente Contrato de Compra e Venda de Bem Móvel, que se regerá pelas cláusulas seguintes e pelas condições descritas no presente.</p>
 
@@ -110,7 +110,7 @@
 
 <div class="assinatura">
   <div class="linha"><span>COMPRADORA:</span><span class="traco"></span></div>
-  <p class="nome"><strong>{{cliente.nome}}</strong>CPF/CNPJ {{cliente.documento}}</p>
+  <p class="nome"><strong>{{cliente.nome}}</strong>{{#se_pessoa_juridica}}CNPJ{{/se_pessoa_juridica}}{{#se_pessoa_fisica}}CPF{{/se_pessoa_fisica}} {{cliente.documento}}</p>
 </div>
 
 <p style="margin-top:40px"><strong>TESTEMUNHAS:</strong></p>

@@ -125,10 +125,23 @@ export type ClienteDocumento = {
   cep?: unknown;
 };
 
+/** Sem tipo no cadastro, conta o documento: 14 dígitos é CNPJ. */
+function ehPessoaJuridica(cliente: ClienteDocumento | null) {
+  const tipo = texto(cliente?.tipopessoa).toUpperCase();
+  const digitos = texto(cliente?.documento).replace(/\D/g, "");
+  return tipo ? tipo === "JURIDICA" || tipo === "PJ" : digitos.length === 14;
+}
+
+/** Os trechos `{{#se_pessoa_juridica}}` / `{{#se_pessoa_fisica}}`; sem cliente, nenhum. */
+function condicoesDoCliente(cliente: ClienteDocumento | null) {
+  const juridica = Boolean(cliente) && ehPessoaJuridica(cliente);
+  return { se_pessoa_juridica: juridica, se_pessoa_fisica: Boolean(cliente) && !juridica };
+}
+
 function contextoCliente(cliente: ClienteDocumento | null) {
   const tipo = texto(cliente?.tipopessoa).toUpperCase();
   const digitos = texto(cliente?.documento).replace(/\D/g, "");
-  const juridica = tipo ? tipo === "JURIDICA" || tipo === "PJ" : digitos.length === 14;
+  const juridica = ehPessoaJuridica(cliente);
   const numeroEndereco = texto(cliente?.endereconumero);
   const codigoPostal = cep(cliente?.cep);
   return {
@@ -259,12 +272,14 @@ export function contextoDaVenda({ venda, empresa, pagamentos: resumo, emissao }:
       cep(entrega.cep) ? `CEP ${cep(entrega.cep)}` : null,
     ], " · ") || texto(entrega.pickupAddress);
   const formas = pagamentos(resumo);
+  const cliente = clienteDoCadastro(um(venda.cliente));
 
   return {
     empresa: contextoEmpresa(empresa, emissao.logoUrl),
     documento: contextoEmissao(emissao),
     pagina: contextoPagina(),
-    cliente: contextoCliente(clienteDoCadastro(um(venda.cliente))),
+    cliente: contextoCliente(cliente),
+    ...condicoesDoCliente(cliente),
     venda: {
       numero: texto(venda.id),
       data: data(venda.datavenda ?? venda.createdat),
@@ -430,11 +445,14 @@ export function contextoDaOS({ os, realizadores, empresa, pagamentos: resumo, em
     { titulo: "Total", direita: true },
   ];
 
+  const cliente = clienteDoCadastro(resolveOrdemCustomer(um(os.cliente) as any, os.cliente_snapshot));
+
   return {
     empresa: contextoEmpresa(empresa, emissao.logoUrl),
     documento: contextoEmissao(emissao),
     pagina: contextoPagina(),
-    cliente: contextoCliente(clienteDoCadastro(resolveOrdemCustomer(um(os.cliente) as any, os.cliente_snapshot))),
+    cliente: contextoCliente(cliente),
+    ...condicoesDoCliente(cliente),
     os: {
       numero: texto(os.id),
       status: rotuloDeEnum(os.status),
@@ -528,6 +546,7 @@ export function contextoDoAluguel({ aluguel, empresa, emissao }: EntradaAluguel)
     documento: contextoEmissao(emissao),
     pagina: contextoPagina(),
     cliente: contextoCliente(cliente),
+    ...condicoesDoCliente(cliente),
     aluguel: {
       numero: texto(aluguel.id),
       status: datas.data_inicio ? ROTULO_STATUS_ALUGUEL[statusExibicao(datas, isoDoDia(emissao.agora))] : rotuloDeEnum(aluguel.status),

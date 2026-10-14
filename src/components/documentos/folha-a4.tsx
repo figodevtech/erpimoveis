@@ -2,7 +2,13 @@
 
 import { forwardRef, useEffect, useRef, useState } from "react";
 
-import { ALTURA_MINIMA_FRAME_PX, FolhaDocumento, LARGURA_FRAME_PX, type FolhaDocumentoHandle } from "./folha-documento";
+import {
+  ALTURA_MINIMA_FRAME_PX,
+  FolhaDocumento,
+  LARGURA_FRAME_PX,
+  type FolhaDocumentoHandle,
+  type FolhaDocumentoProps,
+} from "./folha-documento";
 
 export type ZoomFolha = "ajustar" | "real";
 
@@ -11,7 +17,7 @@ type Props = {
   titulo: string;
   /** "ajustar" reduz a folha para caber na largura; "real" mantém 100%. */
   zoom?: ZoomFolha;
-};
+} & Pick<FolhaDocumentoProps, "editavel" | "onAlterado" | "onPedirImpressao" | "onCarregado">;
 
 /**
  * As folhas sempre com a largura de um A4 (794px), reduzidas na tela quando
@@ -19,7 +25,10 @@ type Props = {
  * linha e de tabela são as mesmas da impressão — que sai do próprio frame, em
  * tamanho real.
  */
-export const FolhaA4 = forwardRef<FolhaDocumentoHandle, Props>(function FolhaA4({ html, titulo, zoom = "ajustar" }, ref) {
+export const FolhaA4 = forwardRef<FolhaDocumentoHandle, Props>(function FolhaA4(
+  { html, titulo, zoom = "ajustar", editavel = false, ...eventos },
+  ref,
+) {
   const caixa = useRef<HTMLDivElement>(null);
   const [largura, setLargura] = useState(0);
   const [altura, setAltura] = useState(ALTURA_MINIMA_FRAME_PX);
@@ -39,7 +48,16 @@ export const FolhaA4 = forwardRef<FolhaDocumentoHandle, Props>(function FolhaA4(
       <div className="mx-auto" style={{ width: LARGURA_FRAME_PX * escala, height: altura * escala }}>
         {/* As folhas (papel, sombra e espaço entre elas) são desenhadas dentro do frame. */}
         <div className="origin-top-left" style={{ width: LARGURA_FRAME_PX, transform: `scale(${escala})` }}>
-          <FolhaDocumento ref={ref} html={html} titulo={titulo} onAltura={setAltura} />
+          {/* Frame novo ao entrar e ao sair da edição: cada modo prepara o documento do zero. */}
+          <FolhaDocumento
+            key={editavel ? "edicao" : "folhas"}
+            ref={ref}
+            html={html}
+            titulo={titulo}
+            onAltura={setAltura}
+            editavel={editavel}
+            {...eventos}
+          />
         </div>
       </div>
     </div>

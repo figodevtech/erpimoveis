@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Copy, FileStack, Plus, Repeat, Search, X } from "lucide-react";
+import { Copy, FileStack, GitBranch, Plus, Repeat, Search, X } from "lucide-react";
 
-import { CATALOGOS, TRECHOS_DA_FOLHA, trechoDaLista } from "@/lib/documentos/catalogo";
+import { CATALOGOS, TRECHOS_DA_FOLHA, trechoDaCondicao, trechoDaLista } from "@/lib/documentos/catalogo";
 import type { ListaDocumento, ModuloDocumento, VariavelDocumento } from "@/lib/documentos/tipos";
 import { toast } from "@/lib/toast";
 
@@ -93,6 +93,10 @@ export function PainelVariaveis({ modulo, onInserir, desabilitado }: Props) {
         .filter((l) => l.campos.length > 0),
     [catalogo, busca],
   );
+  const condicoes = useMemo(
+    () => catalogo.condicoes.filter((c) => casa(busca, c.chave, c.rotulo, "condicional")),
+    [catalogo, busca],
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -150,6 +154,36 @@ export function PainelVariaveis({ modulo, onInserir, desabilitado }: Props) {
           </section>
         ) : null}
 
+        {condicoes.length > 0 ? (
+          <section aria-label="Trechos condicionais">
+            <h4 className="sticky top-0 z-10 border-b bg-card/95 px-3 py-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur-sm">
+              Trechos condicionais
+            </h4>
+            <p className="px-3 pt-2 text-[11px] leading-snug text-muted-foreground">
+              O que fica entre a abertura e o fechamento só sai no documento quando a condição vale.
+            </p>
+            <ul className="px-1.5 py-1">
+              {condicoes.map((condicao) => (
+                <li key={condicao.chave}>
+                  <button
+                    type="button"
+                    disabled={desabilitado}
+                    onClick={() => onInserir(trechoDaCondicao(condicao))}
+                    className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none enabled:hover:cursor-pointer disabled:cursor-default"
+                    title={desabilitado ? undefined : "Inserir no cursor"}
+                  >
+                    <GitBranch className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <code className="block truncate font-mono text-[11.5px] font-medium text-foreground">{`{{#${condicao.chave}}}…{{/${condicao.chave}}}`}</code>
+                      <span className="block text-[11.5px] leading-snug text-muted-foreground">{condicao.rotulo}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         {listas.map(({ lista, campos }) => (
           <BlocoLista key={lista.chave} lista={lista} campos={campos} onInserir={onInserir} desabilitado={desabilitado} />
         ))}
@@ -173,7 +207,7 @@ export function PainelVariaveis({ modulo, onInserir, desabilitado }: Props) {
           </section>
         ))}
 
-        {grupos.length === 0 && listas.length === 0 ? (
+        {grupos.length === 0 && listas.length === 0 && condicoes.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nenhuma variável com “{busca}”.</p>
         ) : null}
       </div>

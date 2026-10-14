@@ -24,7 +24,28 @@ const CATALOGO: CatalogoModulo = {
       campos: [{ chave: "descricao", rotulo: "Descrição" }, { chave: "total", rotulo: "Total" }],
     },
   ],
+  condicoes: [{ chave: "se_pessoa_juridica", rotulo: "Só PJ" }],
 };
+
+test("trecho condicional sai uma vez quando vale e some quando não vale", () => {
+  const modelo = "<p>{{cliente.nome}}{{#se_pessoa_juridica}}, representada por {{cliente.complemento}}{{/se_pessoa_juridica}}.</p>";
+  const contexto = { cliente: { nome: "ACME LTDA", complemento: "<João>" } };
+  assert.equal(
+    renderizarModelo(modelo, { ...contexto, se_pessoa_juridica: true }, CATALOGO),
+    "<p>ACME LTDA, representada por &lt;João&gt;.</p>",
+  );
+  assert.equal(renderizarModelo(modelo, { ...contexto, se_pessoa_juridica: false }, CATALOGO), "<p>ACME LTDA.</p>");
+  // Só `true` abre o trecho: valor ausente ou texto não conta como verdadeiro.
+  assert.equal(renderizarModelo(modelo, { ...contexto, se_pessoa_juridica: "sim" }, CATALOGO), "<p>ACME LTDA.</p>");
+});
+
+test("condição funciona dentro da lista e aponta variável desconhecida no seu miolo", () => {
+  const modelo = "{{#itens}}{{item.descricao}}{{#se_pessoa_juridica}} (PJ){{/se_pessoa_juridica}};{{/itens}}";
+  const html = renderizarModelo(modelo, { itens: [{ descricao: "A" }, { descricao: "B" }], se_pessoa_juridica: true }, CATALOGO);
+  assert.equal(html, "A (PJ);B (PJ);");
+  assert.deepEqual(variaveisDesconhecidas("{{#se_pessoa_juridica}}{{cliente.nme}}{{/se_pessoa_juridica}}", CATALOGO), ["cliente.nme"]);
+  assert.deepEqual(variaveisDesconhecidas("{{#se_pessoa_juridica}}x{{/se_pessoa_juridica}}", CATALOGO), []);
+});
 
 test("troca a variável pelo valor, aceitando espaços dentro das chaves", () => {
   const html = renderizarModelo("<p>Olá, {{ cliente.nome }}!</p>", { cliente: { nome: "Maria" } }, CATALOGO);

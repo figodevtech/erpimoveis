@@ -1,5 +1,7 @@
 // Motor dos documentos dinâmicos: troca `{{cliente.nome}}` pelo valor do
-// registro e repete `{{#itens}} … {{/itens}}` para cada linha da lista.
+// registro, repete `{{#itens}} … {{/itens}}` para cada linha da lista e
+// mostra `{{#se_pessoa_juridica}} … {{/se_pessoa_juridica}}` só quando a
+// condição vale.
 //
 // Uma passada só sobre o modelo: o valor que entra nunca é relido como
 // variável, então uma descrição de produto com `{{…}}` sai como texto.
@@ -11,7 +13,7 @@ type TipoVariavel = NonNullable<VariavelDocumento["tipo"]>;
 const NOME = "[a-z_][a-z0-9_]*";
 const CAMINHO = `${NOME}(?:\\.${NOME})*`;
 
-/** Uma lista inteira (grupo 1 e 2) ou uma variável solta (grupo 3). */
+/** Uma lista ou condição inteira (grupo 1 e 2) ou uma variável solta (grupo 3). */
 const TOKEN = new RegExp(
   `\\{\\{#\\s*(${NOME})\\s*\\}\\}([\\s\\S]*?)\\{\\{\\/\\s*\\1\\s*\\}\\}|\\{\\{\\s*(${CAMINHO})\\s*\\}\\}`,
   "gi",
@@ -70,7 +72,11 @@ function substituir(
 ): string {
   return modelo.replace(TOKEN, (original, chaveLista?: string, miolo?: string, caminho?: string) => {
     if (chaveLista !== undefined) {
-      const lista = catalogo.listas.find((l) => l.chave === chaveLista.toLowerCase());
+      const chaveBloco = chaveLista.toLowerCase();
+      if (catalogo.condicoes.some((c) => c.chave === chaveBloco)) {
+        return valorNoCaminho(contexto, chaveBloco) === true ? substituir(miolo ?? "", contexto, conhecidas, catalogo) : "";
+      }
+      const lista = catalogo.listas.find((l) => l.chave === chaveBloco);
       if (!lista) return original;
       const linhas = valorNoCaminho(contexto, lista.chave);
       const internas = variaveisDentroDaLista(conhecidas, lista);
@@ -106,7 +112,12 @@ function coletarDesconhecidas(
 ) {
   const sobra = modelo.replace(TOKEN, (original, chaveLista?: string, miolo?: string, caminho?: string) => {
     if (chaveLista !== undefined) {
-      const lista = catalogo.listas.find((l) => l.chave === chaveLista.toLowerCase());
+      const chaveBloco = chaveLista.toLowerCase();
+      if (catalogo.condicoes.some((c) => c.chave === chaveBloco)) {
+        coletarDesconhecidas(miolo ?? "", conhecidas, catalogo, achadas);
+        return "";
+      }
+      const lista = catalogo.listas.find((l) => l.chave === chaveBloco);
       if (!lista) {
         achadas.add(`#${chaveLista}`);
         return "";

@@ -28,6 +28,9 @@ test("toda variável do catálogo sai do contexto de cada módulo", () => {
         assert.equal(typeof valor(contexto, variavel.chave), "string", `${modulo}: ${variavel.chave} não está no contexto`);
       }
     }
+    for (const condicao of catalogo.condicoes) {
+      assert.equal(typeof contexto[condicao.chave], "boolean", `${modulo}: a condição ${condicao.chave} não está no contexto`);
+    }
     for (const lista of catalogo.listas) {
       const linhas = contexto[lista.chave];
       assert.ok(Array.isArray(linhas) && linhas.length > 0, `${modulo}: a lista ${lista.chave} veio vazia no exemplo`);
@@ -50,6 +53,20 @@ test("empresa: endereço completo com a cidade; sem ela, só a UF", () => {
     emissao: EMISSAO,
   }) as any;
   assert.equal(semCidade.empresa.endereco, "Av. Epitácio Pessoa, nº 1000, Loja 2 · Tambaú · PB · CEP 58039-000");
+});
+
+test("condições do cliente: exatamente uma vale quando há cliente; sem cliente, nenhuma", () => {
+  const venda = (cliente: unknown) =>
+    contextoDaVenda({ venda: { ...VENDA_EXEMPLO, cliente }, empresa: null, pagamentos: null, emissao: EMISSAO }) as any;
+  const pj = venda({ nomerazaosocial: "ACME LTDA", tipopessoa: "JURIDICA", cpfcnpj: "30430969000163" });
+  assert.deepEqual([pj.se_pessoa_juridica, pj.se_pessoa_fisica], [true, false]);
+  const pf = venda({ nomerazaosocial: "Maria", tipopessoa: "FISICA", cpfcnpj: "12345678909" });
+  assert.deepEqual([pf.se_pessoa_juridica, pf.se_pessoa_fisica], [false, true]);
+  // Sem tipo no cadastro, o documento decide.
+  const semTipo = venda({ nomerazaosocial: "ACME", cpfcnpj: "30.430.969/0001-63" });
+  assert.deepEqual([semTipo.se_pessoa_juridica, semTipo.se_pessoa_fisica], [true, false]);
+  const semCliente = venda(null);
+  assert.deepEqual([semCliente.se_pessoa_juridica, semCliente.se_pessoa_fisica], [false, false]);
 });
 
 test("venda: totais iguais aos do diálogo (descontos de item e geral, frete)", () => {

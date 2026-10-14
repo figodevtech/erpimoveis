@@ -60,10 +60,21 @@ export type ListaDocumento = {
   campos: VariavelDocumento[];
 };
 
+/**
+ * Trecho condicional: `{{#chave}} … {{/chave}}` sai uma vez quando a condição
+ * do registro vale e some quando não vale. A chave não tem ponto, como a das
+ * listas (ex.: `se_pessoa_juridica`).
+ */
+export type CondicaoDocumento = {
+  chave: string;
+  rotulo: string;
+};
+
 export type CatalogoModulo = {
   modulo: ModuloDocumento;
   grupos: GrupoVariaveis[];
   listas: ListaDocumento[];
+  condicoes: CondicaoDocumento[];
 };
 
 /** Valores de um registro, aninhados pelo caminho da chave (`cliente.nome`). */

@@ -16,6 +16,7 @@
 /artifacts/captures/
 /artifacts/playwright/
 /artifacts/ofx-ui/
+/artifacts/documento-edicao-ui/
 
 # next.js
 /.next/

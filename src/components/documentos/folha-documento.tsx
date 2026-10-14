@@ -5,6 +5,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 
 import { cn } from "@/lib/utils";
 
+import { htmlEditado, prepararEdicao } from "./editar";
 import { paginarDocumento } from "./paginar";
 
 /**
@@ -32,7 +33,11 @@ function higienizar(html: string) {
   return `<!doctype html>${limpo}`;
 }
 
-export type FolhaDocumentoHandle = { imprimir: () => void };
+export type FolhaDocumentoHandle = {
+  imprimir: () => void;
+  /** No modo de edição, o HTML com o que foi alterado; fora dele, `null`. */
+  htmlAtual: () => string | null;
+};
 
 /** Folha A4 a 96 dpi. */
 export const ALTURA_A4_PX = 1123;
@@ -43,7 +48,7 @@ const RESPIRO_PX = 12;
 export const LARGURA_FRAME_PX = LARGURA_A4_PX + 2 * RESPIRO_PX;
 export const ALTURA_MINIMA_FRAME_PX = ALTURA_A4_PX + 2 * RESPIRO_PX;
 
-type Props = {
+export type FolhaDocumentoProps = {
   html: string;
   className?: string;
   titulo?: string;
@@ -51,14 +56,27 @@ type Props = {
   onAltura?: (altura: number) => void;
   /** Reparte em folhas A4 (padrão). Desligado, o documento corre contínuo. */
   paginar?: boolean;
+  /** Documento contínuo e editável (ver `editar.ts`); não pagina. */
+  editavel?: boolean;
+  onAlterado?: () => void;
+  /** Ctrl+P pedido de dentro do frame em edição. */
+  onPedirImpressao?: () => void;
+  /** Depois de cada carga do frame, já paginado ou pronto para editar. */
+  onCarregado?: () => void;
 };
 
-export const FolhaDocumento = forwardRef<FolhaDocumentoHandle, Props>(function FolhaDocumento(
-  { html, className, titulo = "Documento", onAltura, paginar = true },
+export const FolhaDocumento = forwardRef<FolhaDocumentoHandle, FolhaDocumentoProps>(function FolhaDocumento(
+  { html, className, titulo = "Documento", onAltura, paginar = true, editavel = false, onAlterado, onPedirImpressao, onCarregado },
   ref,
 ) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [altura, setAltura] = useState(ALTURA_MINIMA_FRAME_PX);
+  // Os ouvintes de dentro do frame são postos uma vez por carga; leem sempre
+  // a versão mais recente dos callbacks.
+  const eventos = useRef({ onAltura, onAlterado, onPedirImpressao, onCarregado });
+  useEffect(() => {
+    eventos.current = { onAltura, onAlterado, onPedirImpressao, onCarregado };
+  });
   // Só no navegador: o DOMPurify precisa do DOM, e no servidor o frame nasce
   // vazio. O conteúdo vai direto no elemento, sem passar por estado.
   useEffect(() => {
@@ -72,6 +90,10 @@ export const FolhaDocumento = forwardRef<FolhaDocumentoHandle, Props>(function F
       janela.focus();
       janela.print();
     },
+    htmlAtual() {
+      const doc = frame.current?.contentDocument;
+      return editavel && doc?.documentElement ? htmlEditado(doc) : null;
+    },
   }));
 
   // A caixa do <html>, e não o scrollHeight: este nunca fica menor que o
@@ -79,13 +101,28 @@ export const FolhaDocumento = forwardRef<FolhaDocumentoHandle, Props>(function F
   const aoCarregar = useCallback(() => {
     const doc = frame.current?.contentDocument;
     if (!doc?.documentElement) return;
+    const medir = () => {
+      const medida = Math.max(ALTURA_MINIMA_FRAME_PX, Math.ceil(doc.documentElement.getBoundingClientRect().height));
+      setAltura(medida);
+      eventos.current.onAltura?.(medida);
+    };
     // A página tem acesso ao frame (mesma origem, sem scripts dentro dele):
-    // é daqui que o documento é repartido em folhas.
-    if (paginar) paginarDocumento(doc);
-    const medida = Math.max(ALTURA_MINIMA_FRAME_PX, Math.ceil(doc.documentElement.getBoundingClientRect().height));
-    setAltura(medida);
-    onAltura?.(medida);
-  }, [onAltura, paginar]);
+    // é daqui que o documento é repartido em folhas ou aberto para edição.
+    if (editavel) {
+      prepararEdicao(doc, {
+        aoAlterar: () => {
+          // O texto cresce ou encolhe enquanto se digita.
+          medir();
+          eventos.current.onAlterado?.();
+        },
+        aoPedirImpressao: () => eventos.current.onPedirImpressao?.(),
+      });
+    } else if (paginar) {
+      paginarDocumento(doc);
+    }
+    medir();
+    eventos.current.onCarregado?.();
+  }, [editavel, paginar]);
 
   return (
     <iframe

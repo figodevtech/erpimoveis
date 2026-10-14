@@ -2,7 +2,14 @@
 // e a régua do motor: variável fora daqui fica escrita no documento.
 // `contexto.ts` monta exatamente estas chaves; o teste confere as duas pontas.
 
-import type { CatalogoModulo, GrupoVariaveis, ListaDocumento, ModuloDocumento, VariavelDocumento } from "./tipos";
+import type {
+  CatalogoModulo,
+  CondicaoDocumento,
+  GrupoVariaveis,
+  ListaDocumento,
+  ModuloDocumento,
+  VariavelDocumento,
+} from "./tipos";
 
 const v = (chave: string, rotulo: string, tipo?: VariavelDocumento["tipo"]): VariavelDocumento =>
   tipo ? { chave, rotulo, tipo } : { chave, rotulo };
@@ -240,21 +247,33 @@ const ITENS_ALUGUEL: ListaDocumento = {
   ],
 };
 
+/**
+ * Exatamente uma das duas vale quando há cliente: sem tipo no cadastro, conta
+ * o documento (14 dígitos é CNPJ). Sem cliente nenhuma vale.
+ */
+const CONDICOES_CLIENTE: CondicaoDocumento[] = [
+  { chave: "se_pessoa_juridica", rotulo: "Só quando o cliente é pessoa jurídica (CNPJ)" },
+  { chave: "se_pessoa_fisica", rotulo: "Só quando o cliente é pessoa física (CPF)" },
+];
+
 export const CATALOGOS: Record<ModuloDocumento, CatalogoModulo> = {
   venda: {
     modulo: "venda",
     grupos: [VENDA, CLIENTE, ENTREGA, EMPRESA, DOCUMENTO, PAGINA],
     listas: [ITENS_VENDA],
+    condicoes: CONDICOES_CLIENTE,
   },
   os: {
     modulo: "os",
     grupos: [OS, CLIENTE, VEICULO, PECA_E_EQUIPAMENTO, EMPRESA, DOCUMENTO, PAGINA],
     listas: [PECAS_OS, SERVICOS_OS],
+    condicoes: CONDICOES_CLIENTE,
   },
   aluguel: {
     modulo: "aluguel",
     grupos: [ALUGUEL, CLIENTE, EMPRESA, DOCUMENTO, PAGINA],
     listas: [ITENS_ALUGUEL],
+    condicoes: CONDICOES_CLIENTE,
   },
 };
 
@@ -286,6 +305,11 @@ export const TRECHOS_DA_FOLHA = [
     trecho: '<div data-documento="quebra"></div>',
   },
 ] as const;
+
+/** Bloco pronto para colar no editor ao clicar numa condição. */
+export function trechoDaCondicao(condicao: CondicaoDocumento) {
+  return `{{#${condicao.chave}}}texto{{/${condicao.chave}}}`;
+}
 
 /** Bloco pronto para colar no editor ao clicar numa lista. */
 export function trechoDaLista(lista: ListaDocumento) {
