@@ -11963,27 +11963,27 @@ $$;
 CREATE FUNCTION public.fn_proteger_cancelamento_site_enviado() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
-    AS $$
-begin
-  if exists(select 1 from public.site_order_link where venda_id = old.id) then
-    if old.status_entrega::text in ('ENVIO', 'ENVIADO', 'ENTREGUE') then
-      if new.status_entrega is distinct from old.status_entrega
-         and coalesce(new.status_entrega::text, '') not in ('ENVIO', 'ENVIADO', 'ENTREGUE') then
-        raise exception 'Pedido do site enviado nao pode retornar para uma etapa anterior.';
-      end if;
-      if new.status is distinct from old.status and new.status::text in ('CANCELADA', 'CANCELADO') then
-        raise exception 'Pedido enviado exige devolucao fisica conferida antes de devolver estoque.';
-      end if;
-    end if;
-    if new.status_entrega is distinct from old.status_entrega
-       and new.status_entrega::text in ('ENVIO', 'ENVIADO', 'ENTREGUE')
-       and exists(select 1 from public.site_order_link where venda_id = old.id
-         and (refund_requested_at is not null or refund_status = 'REFUNDED')) then
-      raise exception 'Pedido com estorno solicitado nao pode ser enviado ou entregue.';
-    end if;
-  end if;
-  return new;
-end;
+    AS $$
+begin
+  if exists(select 1 from public.site_order_link where venda_id = old.id) then
+    if old.status_entrega::text in ('ENVIO', 'ENVIADO', 'ENTREGUE') then
+      if new.status_entrega is distinct from old.status_entrega
+         and coalesce(new.status_entrega::text, '') not in ('ENVIO', 'ENVIADO', 'ENTREGUE') then
+        raise exception 'Pedido do site enviado nao pode retornar para uma etapa anterior.';
+      end if;
+      if new.status is distinct from old.status and new.status::text in ('CANCELADA', 'CANCELADO') and not exists(select 1 from public.site_order_link where venda_id=old.id and return_received_at is not null and refund_status='REFUNDED') then
+        raise exception 'Pedido enviado exige devolucao fisica conferida antes de devolver estoque.';
+      end if;
+    end if;
+    if new.status_entrega is distinct from old.status_entrega
+       and new.status_entrega::text in ('ENVIO', 'ENVIADO', 'ENTREGUE')
+       and exists(select 1 from public.site_order_link where venda_id = old.id
+         and (refund_requested_at is not null or refund_status = 'REFUNDED')) then
+      raise exception 'Pedido com estorno solicitado nao pode ser enviado ou entregue.';
+    end if;
+  end if;
+  return new;
+end;
 $$;
 
 
@@ -14285,6 +14285,52 @@ CREATE FUNCTION public.ordens_contagem_por_status() RETURNS TABLE(status_os text
   SELECT o.status::text, count(*)::bigint
     FROM public.ordemservico o
    GROUP BY o.status;
+$$;
+
+
+--
+-- Name: ordens_realtime_emit(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ordens_realtime_emit() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+declare v_tenant integer;
+begin
+  select id into v_tenant from public.empresa order by id limit 1;
+  if v_tenant is not null then
+    perform realtime.send(jsonb_build_object('table', tg_table_name),
+      'ordens_changed', 'ordens:tenant:' || v_tenant::text, true);
+  end if;
+  return null;
+exception when others then
+  -- Uma indisponibilidade do socket não pode impedir o trabalho na oficina.
+  raise warning '[ordens] realtime indisponivel: %', sqlerrm;
+  return null;
+end;
+$$;
+
+
+--
+-- Name: ordens_realtime_topic_allowed(text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.ordens_realtime_topic_allowed(p_topic text) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+  select exists (
+    select 1 from public.usuario u
+    where u.id = auth.uid() and u.ativo
+      and p_topic = 'ordens:tenant:' || (select id from public.empresa order by id limit 1)::text
+      and (coalesce(u.is_root, false) or exists (
+        select 1 from public.perfilpermissao pp
+        join public.permissao p on p.id = pp.permissaoid
+        where pp.perfilid = u.perfilid and lower(trim(p.nome)) in
+          ('ordens:visualizar', 'execucao_os:visualizar', 'acompanhamento:visualizar', 'financeiro:acompanhamento')
+      ))
+  );
 $$;
 
 
@@ -32386,6 +32432,13 @@ CREATE TABLE public.site_order_link (
     refund_reason text,
     refund_checked_at timestamp with time zone,
     refund_denial_reason text,
+    return_requested_at timestamp with time zone,
+    return_received_at timestamp with time zone,
+    return_received_by uuid,
+    return_reason text,
+    return_inspection_note text,
+    reverse_tracking text,
+    refund_request_url text,
     CONSTRAINT site_order_link_import_status_check CHECK ((import_status = ANY (ARRAY['PENDENTE'::text, 'PROCESSANDO'::text, 'IMPORTADA'::text, 'ERRO'::text])))
 );
 
@@ -40658,6 +40711,27 @@ CREATE TRIGGER ordemservico_status_estorno AFTER UPDATE OF status ON public.orde
 
 
 --
+-- Name: ordemservico ordens_realtime_changed; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER ordens_realtime_changed AFTER INSERT OR DELETE OR UPDATE ON public.ordemservico FOR EACH STATEMENT EXECUTE FUNCTION public.ordens_realtime_emit();
+
+
+--
+-- Name: osservico ordens_realtime_changed; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER ordens_realtime_changed AFTER INSERT OR DELETE OR UPDATE ON public.osservico FOR EACH STATEMENT EXECUTE FUNCTION public.ordens_realtime_emit();
+
+
+--
+-- Name: osservico_realizador ordens_realtime_changed; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER ordens_realtime_changed AFTER INSERT OR DELETE OR UPDATE ON public.osservico_realizador FOR EACH STATEMENT EXECUTE FUNCTION public.ordens_realtime_emit();
+
+
+--
 -- Name: site_order_link preservar_vinculo_pedido_site; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -47592,6 +47666,8 @@ REVOKE ALL ON FUNCTION public.fn_proteger_cancelamento_site_enviado() FROM PUBLI
 REVOKE ALL ON FUNCTION public.plano_contas_registrar_regra(p_grupo_id integer, p_conta_id integer, p_classificacao_id integer, p_vigencia_inicio date, p_origem text, p_usuario uuid, p_justificativa text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.plano_contas_salvar_conta(p_id integer, p_codigo text, p_nome text, p_descricao text, p_ativo boolean, p_grupo_id integer, p_classificacao_id integer, p_versao_esperada integer, p_vigencia_inicio date, p_usuario uuid, p_justificativa text, p_origem_regra text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.plano_contas_visao(p_competencia date) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.ordens_realtime_emit() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.ordens_realtime_topic_allowed(p_topic text) FROM PUBLIC, anon, authenticated, service_role;
 GRANT INSERT ON TABLE public.entradaitens TO postgres;
 GRANT SELECT ON TABLE public.entradaitens TO postgres;
 GRANT UPDATE ON TABLE public.entradaitens TO postgres;
@@ -53283,6 +53359,11 @@ GRANT EXECUTE ON FUNCTION public.plano_contas_salvar_conta(p_id integer, p_codig
 GRANT EXECUTE ON FUNCTION public.plano_contas_salvar_conta(p_id integer, p_codigo text, p_nome text, p_descricao text, p_ativo boolean, p_grupo_id integer, p_classificacao_id integer, p_versao_esperada integer, p_vigencia_inicio date, p_usuario uuid, p_justificativa text, p_origem_regra text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.plano_contas_visao(p_competencia date) TO postgres;
 GRANT EXECUTE ON FUNCTION public.plano_contas_visao(p_competencia date) TO service_role;
+GRANT EXECUTE ON FUNCTION public.ordens_realtime_emit() TO postgres;
+GRANT EXECUTE ON FUNCTION public.ordens_realtime_emit() TO service_role;
+GRANT EXECUTE ON FUNCTION public.ordens_realtime_topic_allowed(p_topic text) TO postgres;
+GRANT EXECUTE ON FUNCTION public.ordens_realtime_topic_allowed(p_topic text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.ordens_realtime_topic_allowed(p_topic text) TO authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON SEQUENCES TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT UPDATE ON SEQUENCES TO postgres;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE ON SEQUENCES TO postgres;

@@ -1,9 +1,9 @@
 {
   "format": 1,
-  "generatedAt": "2026-10-08T22:30:40.757Z",
+  "generatedAt": "2026-10-12T20:12:45.249Z",
   "sourceRef": "ozluphhwktyvqfrypjin",
-  "sqlHash": "d1653d01cc29c6292da156ca16b48193064e972bf297ab6680ac4294cdd506f9",
-  "packageHash": "6b718e0709e615a9cd0867c84b968ef366201b14b0a2c6225a0e40b5f05e2c71",
+  "sqlHash": "3e1a4c110c94958ea37653402665fb4561679384c7c729de9cc6bca43aac45ab",
+  "packageHash": "b2f9b3c3725976b1664e92eae5dc9f03ab9bdb61ec0d5d5596910dbc4cbf99ed",
   "baseData": {
     "permissao": [
       {
@@ -122974,21 +122974,29 @@
     {
       "version": "20261007140000",
       "name": "site_refund_denial_reason"
+    },
+    {
+      "version": "20261009020312",
+      "name": "enable_ordens_realtime"
+    },
+    {
+      "version": "20261009130000",
+      "name": "site_return_receipt"
     }
   ],
   "schema": {
     "relations": "310c12d1a8e073890c394a36587a76b09af5bfbfe5419e9648aa72cca9ab9827",
-    "columns": "723694c104f0b5786560f2b3056fea8f599a6926ccd19404829574283a65cd2e",
+    "columns": "553d6f7519ba53cf24d752e89803608f12f96fddf2b5c2b46430055337dcfb05",
     "constraints": "d8bb8269d72b5873433b854c4db6892740a56035e5115237a73b6e3e11e3b66f",
     "indexes": "4cd5b03f0d68f872f76de275b0c811bca42d0b9685782d62cb204b01d269f4c8",
-    "triggers": "937a24f02dace39544796f2b273b2fd6771673045a81c38ef0f9f99d464337fe",
+    "triggers": "c216feb16224eec78fb11c1389959d6ceb905fb5f15d51b45e6c7d664b0e7ded",
     "policies": "fdfc459a07d7ccdec730a72493bfad6e3288c902b47f0cc7ab915d00df335518",
     "enums": "f13e643d65646fe74966a823e5d5bce21f1ea6c8a94c67ad9fefdfc95f9bff09",
     "sequences": "6bd3b363ddeca10f57a3ddbe48d47a19810953d0809dfdf7f7d602ddb7a7a13f",
     "realtime": "b8051dd7b6cd3564fdc1c49ed432d16dfa3954153e444b304b6d90dbb2b446eb",
     "authTriggers": "1917bb337f8d338961e1d97d53679ac2e22f9a6f9b454e4728e8f62473642f9b",
     "extensions": "4409c5ce46ab2a926cc7e858e5a011ac8ac938ae3dc1f0eb4ccdbb48e3008f5c",
-    "functions": "36ee317e5f10426895008cb1f0a39ce5be6fd05a3bb4d48dc241aa2e2076e34c"
+    "functions": "108e125792ac042c17601bb9179e005bd2d3bebd35a18775adec3bc56f93d2fc"
   },
   "buckets": [
     {
