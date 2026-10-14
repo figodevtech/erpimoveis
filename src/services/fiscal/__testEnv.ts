@@ -8,6 +8,14 @@
 process.env.NEXT_PUBLIC_SUPABASE_URL ||= "http://localhost:54321";
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= "chave-de-teste-sem-acesso";
 
+// O build da Vercel roda os testes com o env do projeto, onde o token da Focus
+// existe e passa na frente do token da empresa (`configurarAmbiente`). Local,
+// o runner não lê o .env e o teste passa; lá, a asserção pega o token real.
+// Os testes descrevem o token pelo banco falso, então o env não pode vazar.
+delete process.env.FOCUS_NFE_API_TOKEN;
+delete process.env.FOCUS_NFE_API_TOKEN_HOMOLOGACAO;
+delete process.env.FOCUS_NFE_API_URL;
+
 // `server-only` só existe dentro do bundler do Next: fora dele o pacote nem é
 // resolvido. Os serviços que o importam (nfeConfigService) rodam aqui como
 // código de servidor mesmo, então basta o import não quebrar.
