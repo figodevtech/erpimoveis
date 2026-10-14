@@ -7,6 +7,7 @@ import {
   registrarInteracaoNFSe,
 } from "@/lib/services/fiscais/nfse-registro";
 import { transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
+import { carregarEmpresaDaNota } from "@/lib/services/fiscais/nfse-empresa";
 
 export const runtime = "nodejs";
 
@@ -51,16 +52,21 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
     // 2. Cancel on Focus NFe
     // A empresa que emitiu a nota, com o token dela. Nota antiga sem
-    // `empresaid` cai na única empresa do banco, como antes.
-    const consultaEmpresa = supabaseAdmin.from("empresa").select("id, ambiente");
-    const { data: empresa } = nfsDb.empresaid
-      ? await consultaEmpresa.eq("id", nfsDb.empresaid).maybeSingle()
-      : await consultaEmpresa.order("id", { ascending: true }).limit(1).maybeSingle();
-    const { data: nfseConfig } = empresa
-      ? await supabaseAdmin.from("nfse_config").select("token").eq("empresa_id", empresa.id).maybeSingle()
-      : { data: null };
+    // `empresaid` só usa a empresa do banco quando há uma só.
+    const { data: empresa, error: empresaError } = await carregarEmpresaDaNota(nfsDb.empresaid, "id, ambiente");
+    if (empresaError || !empresa) {
+      return NextResponse.json(
+        { ok: false, message: empresaError?.message ?? "A empresa emitente desta NFS-e não foi encontrada." },
+        { status: 409 },
+      );
+    }
+    const { data: nfseConfig } = await supabaseAdmin
+      .from("nfse_config")
+      .select("token")
+      .eq("empresa_id", empresa.id)
+      .maybeSingle();
     const nfseService = new NFSeService();
-    if (empresa) nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
+    nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
 
     // Transporte da nota gravada: municipal antiga cancela em `/v2/nfse`.
     const transport = transportDoRegistro(nfsDb.modelo_emissao, nfseService);

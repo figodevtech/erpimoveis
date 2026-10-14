@@ -46,6 +46,7 @@ export function NfseFiscalForm({
   exigeRtc = false,
   padraoAusente = false,
   bloqueioEmissao = null,
+  avisoEmissao = null,
   rotuloModelo = null,
   motivoModelo,
   codigos,
@@ -70,6 +71,8 @@ export function NfseFiscalForm({
   padraoAusente?: boolean;
   /** Motivo de eventual bloqueio devolvido pelo contexto da emissão. */
   bloqueioEmissao?: string | null;
+  /** Informativo; o botão de emitir continua disponível. */
+  avisoEmissao?: string | null;
   /** Destino da nota, quando difere do nome do modelo. */
   rotuloModelo?: string | null;
   /** Por que a nota vai por este emissor. */
@@ -152,7 +155,7 @@ export function NfseFiscalForm({
             <Alert variant="destructive" className="rounded-sm border-l-4" role="alert">
               <AlertCircle aria-hidden="true" className="size-4" />
               <AlertTitle>Revise os dados da nota</AlertTitle>
-              <AlertDescription>{validationError}</AlertDescription>
+              <AlertDescription className="whitespace-pre-line break-words">{validationError}</AlertDescription>
             </Alert>
           )}
 
@@ -246,6 +249,14 @@ export function NfseFiscalForm({
           {/* Sem padrão do modelo, os campos abrem vazios de propósito: os
               códigos do municipal não servem para a DPS Nacional e não são
               emprestados. O aviso diz por quê, e onde cadastrar. */}
+          {avisoEmissao && !bloqueioEmissao ? (
+            <Alert className="rounded-sm border-l-4 border-l-sky-500" role="status">
+              <AlertCircle aria-hidden="true" className="size-4" />
+              <AlertTitle>Emissão antecipada</AlertTitle>
+              <AlertDescription>{avisoEmissao}</AlertDescription>
+            </Alert>
+          ) : null}
+
           {bloqueioEmissao ? (
             <Alert variant="destructive" className="rounded-sm border-l-4" role="alert">
               <ShieldAlert aria-hidden="true" className="size-4" />

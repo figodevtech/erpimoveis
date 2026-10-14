@@ -104,7 +104,7 @@ export function PadraoNFSeFields({
           rotulo={modelo === politicaComum?.modelo ? rotuloPoliticaNFSe(politicaComum) : rotuloModeloNFSe(modelo)}
           formatoNacionalMunicipal={modelo === politicaComum?.modelo && politicaComum?.autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL"}
           lucena={modelo === politicaComum?.modelo && politicaDeLucena(politicaComum)}
-          bloqueio={modelo === politicaComum?.modelo ? politicaComum?.bloqueio ?? null : null}
+          aviso={modelo === politicaComum?.modelo ? politicaComum?.aviso ?? null : null}
           regimeTributario={String(empresa.regimetributario ?? "")}
           register={register}
           setValue={setValue}
@@ -122,7 +122,7 @@ function PadraoDoModelo({
   rotulo,
   formatoNacionalMunicipal,
   lucena,
-  bloqueio,
+  aviso,
   regimeTributario,
   register,
   setValue,
@@ -136,8 +136,8 @@ function PadraoDoModelo({
   formatoNacionalMunicipal: boolean;
   /** Lucena/PB: Simples pelo Emissor Nacional via Focus. */
   lucena: boolean;
-  /** Rota decidida e ainda fechada: o motivo que a emissão vai devolver. */
-  bloqueio: string | null;
+  /** Informativo; nunca impede a emissão. */
+  aviso: string | null;
   regimeTributario: string;
   register: UseFormRegister<FormValues>;
   setValue: UseFormSetValue<FormValues>;
@@ -195,12 +195,15 @@ function PadraoDoModelo({
 
       {lucena ? (
         <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-[11px] leading-snug text-muted-foreground">
-          {bloqueio ? <p className="font-medium text-foreground">{bloqueio}</p> : null}
+          <p className="font-medium text-foreground">
+            Lucena/PB emite pelo Ambiente Nacional via Focus NFe. Obrigatório para o Simples a partir de
+            01/11/2026 (Resolução CGSN nº 191/2026).
+          </p>
+          {aviso ? <p>{aviso}</p> : null}
           <p>
             No painel da Focus, em Minhas empresas › Documentos Fiscais, habilite o Ambiente da NFSe
-            Nacional do ambiente em uso (Homologação ou Produção) para este CNPJ. A Focus ainda não lista
-            Lucena entre os municípios integrados: confirme a habilitação com o suporte antes da primeira
-            nota real.
+            Nacional do ambiente em uso (Homologação ou Produção) para este CNPJ. Se a emissão for
+            recusada, a tela mostra o retorno da Focus como veio.
           </p>
         </div>
       ) : null}

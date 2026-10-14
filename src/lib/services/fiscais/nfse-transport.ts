@@ -82,36 +82,11 @@ class FocusFormatoNacionalMunicipalTransport extends FocusNacionalTransport {
   readonly autorizador = "FOCUS_FORMATO_NACIONAL_MUNICIPAL" as const;
 }
 
-/**
- * Rota decidida e ainda fechada (Lucena antes de 01/11/2026). Não chama nada:
- * quem pede emissão recebe o motivo antes de qualquer gravação.
- */
-class TransporteBloqueado implements NFSeTransport {
-  readonly disponivel = false;
-  readonly modeloEmissao: string;
-  constructor(readonly autorizador: AutorizadorNFSe, modeloEmissao: string, readonly motivoIndisponivel: string) {
-    this.modeloEmissao = modeloEmissao;
-  }
-  private recusar(): never {
-    throw new Error(this.motivoIndisponivel);
-  }
-  async emitir(): Promise<ResultadoEnvio> {
-    return this.recusar();
-  }
-  async consultar(): ReturnType<NFSeService["consultar"]> {
-    return this.recusar();
-  }
-  async cancelar(): ReturnType<NFSeService["cancelar"]> {
-    return this.recusar();
-  }
-}
-
 /** Transporte de uma emissão NOVA, pelo autorizador que a política escolheu. */
 export function transportDaPolitica(
-  politica: Pick<PoliticaNFSe, "modelo" | "autorizador"> & Partial<Pick<PoliticaNFSe, "bloqueio">>,
+  politica: Pick<PoliticaNFSe, "modelo" | "autorizador">,
   service: NFSeService,
 ): NFSeTransport {
-  if (politica.bloqueio) return new TransporteBloqueado(politica.autorizador, politica.modelo, politica.bloqueio);
   if (politica.autorizador === "FOCUS_NACIONAL") return new FocusNacionalTransport(service);
   if (politica.autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL") {
     return new FocusFormatoNacionalMunicipalTransport(service);

@@ -6,6 +6,7 @@ import {
   temResultadoIncerto,
 } from "@/lib/services/fiscais/nfse-registro";
 import { transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
+import { carregarEmpresaDaNota } from "@/lib/services/fiscais/nfse-empresa";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type NfseSyncRecord = {
@@ -23,12 +24,9 @@ export type NfseSyncRecord = {
 };
 
 async function loadCompany(nfse: NfseSyncRecord) {
-  const query = supabaseAdmin.from("empresa").select("id, ambiente");
-  const result = nfse.empresaid
-    ? await query.eq("id", nfse.empresaid).maybeSingle()
-    : await query.limit(1).maybeSingle();
+  const result = await carregarEmpresaDaNota(nfse.empresaid, "id, ambiente");
 
-  if (result.error) throw result.error;
+  if (result.error) throw new Error(result.error.message);
   if (!result.data) throw new Error("Empresa da NFS-e não encontrada.");
   return result.data;
 }
@@ -67,20 +65,21 @@ export async function syncNfseWithFocus(nfse: NfseSyncRecord) {
   await registrarInteracaoNFSe(nfse.id, interacaoNFSe("CONSULTA", nfse.referencia, result.retornoBruto));
 
   if (!result.ok) {
-    // Envio que ficou sem resposta e a Focus não conhece a referência: nada
-    // chegou lá. Só agora é seguro liberar o reenvio.
-    if (temResultadoIncerto(nfse.erros) && result.retornoBruto?.http_status === 404) {
-      const erros = [{
-        codigo: "NAO_RECEBIDA",
-        mensagem: "A Focus não recebeu esta emissão: a referência não existe lá. A nota pode ser reenviada.",
-      }];
-      const updateError = await atualizarRegistroNFSe(
-        nfse.id,
-        { status: "REJEITADA", erros },
-        { retorno_bruto: result.retornoBruto },
-      );
+    // Envio que ficou sem resposta: a consulta que falha (404 inclusive) não
+    // diz se o envio chegou. A nota segue PROCESSANDO com a marca intacta —
+    // sobrescrever `erros` apagaria a única pista de que ela está incerta.
+    if (temResultadoIncerto(nfse.erros)) {
+      const updateError = await atualizarRegistroNFSe(nfse.id, {}, { retorno_bruto: result.retornoBruto });
       if (updateError) throw updateError;
-      return { ok: false as const, message: erros[0].mensagem, errors: erros };
+      const http = result.retornoBruto?.http_status;
+      return {
+        ok: false as const,
+        message: http === 404
+          ? "A Focus ainda não encontrou esta referência. Isso não prova que o envio não chegou: "
+            + "use “Reenviar com a mesma referência”, que não cria uma segunda nota."
+          : `A consulta não trouxe o desfecho (HTTP ${http ?? "sem resposta"}). A nota segue em processamento.`,
+        errors: nfse.erros,
+      };
     }
     const errors = result.erros && result.erros.length > 0 ? result.erros : null;
     if (errors) {

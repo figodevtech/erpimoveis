@@ -104,7 +104,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     const { data: empresa, error: empresaError } = await supabaseAdmin
       .from("empresa")
-      .select("id, cnpj, inscricaomunicipal, codigomunicipio, regimetributario")
+      .select("id, cnpj, inscricaomunicipal, codigomunicipio, regimetributario, ambiente")
       .order("id", { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -233,6 +233,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             // Sem integração com o autorizador, a tela mostra o motivo e não
             // deixa emitir — a rota de emissão recusa do mesmo jeito.
             bloqueio: transportDaPolitica(politica, new NFSeService()).motivoIndisponivel,
+            aviso: politica.aviso ?? null,
+            ambiente: empresa.ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO",
           }
         : null,
       codigoMunicipio,

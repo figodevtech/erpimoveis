@@ -87,6 +87,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         // Sem integração com o autorizador, a tela mostra o motivo e não
         // deixa emitir — a rota de emissão recusa do mesmo jeito.
         bloqueio: transportDaPolitica(politica, new NFSeService()).motivoIndisponivel,
+        aviso: politica.aviso ?? null,
+        ambiente: empresa.ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO",
       },
       padraoFiscal,
       padraoAusente,

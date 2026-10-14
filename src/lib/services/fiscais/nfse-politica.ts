@@ -57,11 +57,10 @@ export type PoliticaNFSe = {
   /** Explicação curta, para tela e diagnóstico. */
   motivo: string;
   /**
-   * A rota está decidida, mas a emissão ainda não pode sair por ela. O
-   * transporte fica indisponível com este motivo: a revisão mostra e a emissão
-   * recusa antes de gravar ou enviar qualquer coisa. Ausente = liberado.
+   * Aviso informativo para a tela. Nunca impede a emissão: quem aceita ou
+   * recusa é o autorizador, e o retorno dele chega inteiro ao usuário.
    */
-  bloqueio?: string;
+  aviso?: string;
 };
 
 export type EntradaPoliticaNFSe = {
@@ -201,9 +200,21 @@ const ASSINATURA_FORA_DO_EMISSOR_NACIONAL = "deve estar parametrizado para utili
 export const MENSAGEM_FORA_DO_EMISSOR_NACIONAL =
   "Esta tentativa recebeu E0039 sobre a parametrização do emissor. "
   + "O retorno não determina a integração vigente. Para João Pessoa, emita uma nova nota "
-  + "pela tela atual, com formato nacional via Focus em ambiente municipal próprio. "
-  + "Para Lucena, o Emissor Nacional ainda não aceitou este CNPJ: confirme a habilitação "
-  + "com a Focus antes de emitir de novo — reenviar igual repete a recusa.";
+  + "pela tela atual, com formato nacional via Focus em ambiente municipal próprio.";
+
+/**
+ * Complemento do E0039 para Lucena. Não reinterpreta o retorno: diz só o que
+ * ele indica e onde se resolve — a habilitação não está no ERP.
+ */
+export const MENSAGEM_FORA_DO_EMISSOR_NACIONAL_LUCENA =
+  "Esta tentativa recebeu E0039: o Sistema Nacional não aceitou o município emissor desta DPS. "
+  + "Em Lucena/PB, isso depende da habilitação do prestador no Ambiente Nacional, que não é feita pelo ERP: "
+  + "confirme-a com a Focus. Reenviar igual repete a recusa.";
+
+/** O complemento do E0039 do município do prestador. */
+export function mensagemForaDoEmissorNacional(lucena: boolean): string {
+  return lucena ? MENSAGEM_FORA_DO_EMISSOR_NACIONAL_LUCENA : MENSAGEM_FORA_DO_EMISSOR_NACIONAL;
+}
 
 /**
  * A recusa de João Pessoa que manda usar o padrão Nacional. Chega com o código
@@ -218,43 +229,30 @@ export function detectarEmissorMunicipalEncerrado(erros: unknown): boolean {
 // ---------------------------------------------------------------------------
 // Lucena/PB
 //
-// O emissor municipal de Lucena (Tinus) não é integrado ao ERP. O Simples
-// Nacional (ME/EPP) passa ao Emissor Público Nacional em 01/11/2026 pela
-// Resolução CGSN nº 191/2026, independentemente da opção do município, e é por
-// esse caminho — Focus `/v2/nfsen` — que a nota sai do ERP.
+// O emissor municipal de Lucena (Tinus) não é integrado ao ERP. A nota do
+// Simples Nacional (ME/EPP) sai pelo Ambiente Nacional via Focus `/v2/nfsen`.
 //
-// Antes disso o município pode antecipar a habilitação do Simples no Emissor
-// Nacional, mas não há confirmação de que Lucena antecipou. Sem confirmação,
-// a rota fica decidida e bloqueada: nada é gravado nem enviado à Focus.
-// Quando houver antecipação comprovada para o CNPJ, a liberação entra aqui.
+// A Resolução CGSN nº 191/2026 torna o Emissor Nacional obrigatório para o
+// Simples em 01/11/2026. Essa data NÃO é condição técnica aqui: antes dela a
+// tentativa também vai, e quem decide se o prestador está habilitado é o
+// autorizador. A recusa dele chega inteira ao usuário — o ERP não a presume.
 //
 // Regime normal (CRT 3) fica fora: não há integração para ele em Lucena.
 // ---------------------------------------------------------------------------
 
-export const MENSAGEM_LUCENA_AGUARDANDO_NACIONAL =
-  "Em Lucena/PB, o Simples Nacional emite pelo Emissor Nacional (Focus) a partir de 01/11/2026 "
-  + "(Resolução CGSN nº 191/2026). Até 31/10/2026 a NFS-e sai pelo emissor da prefeitura, "
-  + "que o ERP não integra. Cadastre desde já o padrão fiscal Nacional para a virada.";
+export const AVISO_LUCENA_EMISSAO_ANTECIPADA =
+  "A emissão antecipada depende da habilitação do prestador no Ambiente Nacional. "
+  + "Caso não esteja disponível, a Focus retornará o motivo da recusa.";
 
 function regraLucena(regime: string, data: string): PoliticaNFSe | null {
   if (regime !== "1" && regime !== "2") return null;
-  if (data >= INICIO_NACIONAL_SIMPLES) {
-    return nacional(
-      regime,
-      data,
-      "LUCENA_SIMPLES_NACIONAL",
-      "Simples Nacional de Lucena no Emissor Público Nacional a partir de 01/11/2026 (CGSN 191/2026).",
-    );
-  }
-  return {
-    ...nacional(
-      regime,
-      data,
-      "LUCENA_SIMPLES_AGUARDANDO_NACIONAL",
-      "Simples Nacional de Lucena passa ao Emissor Público Nacional em 01/11/2026 (CGSN 191/2026).",
-    ),
-    bloqueio: MENSAGEM_LUCENA_AGUARDANDO_NACIONAL,
-  };
+  const politica = nacional(
+    regime,
+    data,
+    "LUCENA_SIMPLES_NACIONAL",
+    "Lucena/PB — emissão pelo Ambiente Nacional via Focus NFe.",
+  );
+  return data < INICIO_NACIONAL_SIMPLES ? { ...politica, aviso: AVISO_LUCENA_EMISSAO_ANTECIPADA } : politica;
 }
 
 /** A regra que decidiu é de Lucena. */
@@ -458,9 +456,11 @@ export function familiaDoModeloNFSe(modeloEmissao: unknown): "NACIONAL" | "MUNIC
  */
 export function motivoParaNaoReenviar(
   nota: { modelo_emissao?: unknown; erros?: unknown },
-  politicaHoje: Pick<PoliticaNFSe, "modelo" | "autorizador"> | null | undefined,
+  politicaHoje: (Pick<PoliticaNFSe, "modelo" | "autorizador"> & Partial<Pick<PoliticaNFSe, "regra">>) | null | undefined,
 ): string | null {
-  if (detectarMunicipioForaDoEmissorNacional(nota.erros)) return MENSAGEM_FORA_DO_EMISSOR_NACIONAL;
+  if (detectarMunicipioForaDoEmissorNacional(nota.erros)) {
+    return mensagemForaDoEmissorNacional(politicaDeLucena(politicaHoje));
+  }
   if (familiaDoModeloNFSe(nota.modelo_emissao) === "NACIONAL") {
     if (politicaHoje && politicaHoje.modelo !== "NACIONAL") return MENSAGEM_EMISSOR_NACIONAL_EXIGIDO;
     return null;
@@ -487,7 +487,7 @@ export function rotuloPoliticaNFSe(
 ): string {
   if (!politica) return rotuloModeloNFSe(null);
   if (politica.autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL") return "NFS-e João Pessoa · Formato Nacional via Focus";
-  if (politicaDeLucena(politica)) return "NFS-e Nacional · Lucena via Focus";
+  if (politicaDeLucena(politica)) return "NFS-e Nacional — Lucena/PB via Focus NFe";
   return rotuloModeloNFSe(politica.modelo);
 }
 
@@ -523,7 +523,12 @@ function mensagensDosErros(erros: unknown): string[] {
  * for o caso. O retorno original da Focus vem sempre junto — a explicação
  * nunca o substitui.
  */
-export function resumirErrosNFSe(erros: unknown): { codigo: string | null; mensagem: string } | null {
+export function resumirErrosNFSe(
+  erros: unknown,
+  /** Município do prestador: escolhe o complemento do E0039. */
+  codigoMunicipio?: unknown,
+): { codigo: string | null; mensagem: string } | null {
+  const lucena = String(codigoMunicipio ?? "").replace(/\D/g, "") === IBGE_LUCENA;
   const lista = Array.isArray(erros) ? erros : erros ? [erros] : [];
   for (const erro of lista) {
     const mensagem = mensagensDosErros(erro)[0];
@@ -532,7 +537,7 @@ export function resumirErrosNFSe(erros: unknown): { codigo: string | null; mensa
       ? String((erro as Record<string, unknown>).codigo ?? "").trim() || null
       : null;
     const explicacao = detectarMunicipioForaDoEmissorNacional(erros)
-      ? MENSAGEM_FORA_DO_EMISSOR_NACIONAL
+      ? mensagemForaDoEmissorNacional(lucena)
       : detectarEmissorMunicipalEncerrado(erros)
         ? MENSAGEM_EMISSOR_NACIONAL_EXIGIDO
         : null;

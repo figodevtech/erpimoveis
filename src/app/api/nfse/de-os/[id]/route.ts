@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   CODIGO_RESULTADO_INCERTO,
+  MENSAGEM_ENVIO_SEM_RESPOSTA,
   atualizarRegistroNFSe,
   errosDeResultadoIncerto,
   falhaDeRedeNoEnvio,
@@ -18,11 +19,7 @@ import {
   type NFSeCodigosFiscais,
 } from "@/lib/services/fiscais/nfse-service";
 import {
-  MENSAGEM_EMISSOR_NACIONAL_EXIGIDO,
-  MENSAGEM_FORA_DO_EMISSOR_NACIONAL,
-  detectarMunicipioForaDoEmissorNacional,
   dataDoDiaNFSe,
-  detectarEmissorMunicipalEncerrado,
   contextoEmissaoOuErro,
   itensListaDosServicos,
   type PoliticaNFSe,
@@ -31,6 +28,7 @@ import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 import { notaDoServicoNFSe } from "@/lib/services/fiscais/nfse-nota-servico";
 import { carregarSelecaoNFSe } from "@/app/api/nfse/_lib/carregar-selecao";
 import { normalizarSelecaoNFSe, SelecaoNFSeError } from "@/lib/services/fiscais/nfse-selecao";
+import { descreverRecusaNFSe, desfechoDoEnvioNFSe, montarRecusaNFSe } from "@/lib/services/fiscais/nfse-recusa";
 import { verificarStatusOSParaEmissao } from "@/lib/nfe/elegibilidadeEmissaoServidor";
 
 export const runtime = "nodejs";
@@ -375,7 +373,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         {
           ok: false,
           codigo: CODIGO_RESULTADO_INCERTO,
-          message: "A Focus não respondeu ao envio. A nota ficou em processamento: consulte-a antes de emitir de novo.",
+          message: MENSAGEM_ENVIO_SEM_RESPOSTA,
           referencia,
         },
         { status: 502 },
@@ -389,15 +387,23 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // rejeitada que isolou a variavel na investigacao da OS 195.
     retornoBruto = resultado.retornoBruto ?? retornoBruto;
 
-    const statusFinal = resultado.ok
+    // 5xx não diz o que aconteceu: pode ter chegado. Fica em processamento
+    // com a mesma referência, como a falha de rede, e nunca vira rejeição.
+    const desfecho = desfechoDoEnvioNFSe(resultado);
+    const statusFinal = desfecho === "ACEITO"
       ? normalizarStatusNFSe(resultado.status)
-      : "REJEITADA";
+      : desfecho === "REJEITADO" ? "REJEITADA" : "PROCESSANDO";
+    const errosFinais = desfecho === "ACEITO" || desfecho === "JA_RECEBIDO"
+      ? null
+      : desfecho === "INCERTO"
+        ? errosDeResultadoIncerto(`HTTP ${resultado.retornoBruto?.http_status ?? "?"}: ${resultado.message ?? ""}`)
+        : resultado.erros;
 
     const updateError = await atualizarRegistroNFSe(
       registroId,
       {
         status: statusFinal,
-        erros: resultado.ok ? null : resultado.erros,
+        erros: errosFinais,
       },
       {
         payload_enviado: payloadEnviado,
@@ -418,17 +424,31 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    if (!resultado.ok) {
-      // A recusa de emissor encerrado ganha explicação na frente, mas o
-      // retorno da Focus segue inteiro na mensagem e em `erros`.
-      const explicacao = detectarMunicipioForaDoEmissorNacional(resultado.erros)
-        ? MENSAGEM_FORA_DO_EMISSOR_NACIONAL
-        : detectarEmissorMunicipalEncerrado(resultado.erros)
-          ? MENSAGEM_EMISSOR_NACIONAL_EXIGIDO
-          : null;
-      const message = explicacao ? `${explicacao} Retorno da Focus: ${resultado.message}` : resultado.message;
+    if (desfecho === "INCERTO") {
       return NextResponse.json(
-        { ok: false, message, erros: resultado.erros, referencia },
+        {
+          ok: false,
+          codigo: CODIGO_RESULTADO_INCERTO,
+          message: MENSAGEM_ENVIO_SEM_RESPOSTA,
+          httpStatus: resultado.retornoBruto?.http_status ?? null,
+          erros: resultado.erros,
+          referencia,
+        },
+        { status: 502 },
+      );
+    }
+
+    if (desfecho === "REJEITADO") {
+      // O retorno da Focus vai inteiro: HTTP, código, mensagem e correção de
+      // cada erro. O complemento do município entra depois, como observação.
+      const rejeicao = montarRecusaNFSe({
+        envio: resultado,
+        referencia,
+        ambiente: empresa.ambiente,
+        codigoMunicipio: empresa.codigomunicipio,
+      });
+      return NextResponse.json(
+        { ok: false, message: descreverRecusaNFSe(rejeicao), rejeicao, erros: resultado.erros, referencia },
         { status: 400 },
       );
     }

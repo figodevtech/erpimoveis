@@ -2,13 +2,17 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   CODIGO_RESULTADO_INCERTO,
+  MENSAGEM_ENVIO_SEM_RESPOSTA,
   acrescentarInteracaoNFSe,
   arquivarTentativaNFSe,
   atualizarRegistroNFSe,
   errosDeResultadoIncerto,
   falhaDeRedeNoEnvio,
   interacaoNFSe,
+  temResultadoIncerto,
 } from "@/lib/services/fiscais/nfse-registro";
+import { carregarEmpresaDaNota } from "@/lib/services/fiscais/nfse-empresa";
+import { descreverRecusaNFSe, desfechoDoEnvioNFSe, montarRecusaNFSe } from "@/lib/services/fiscais/nfse-recusa";
 import {
   NFSeService,
   criarReferenciaPorServicos,
@@ -17,6 +21,7 @@ import {
 } from "@/lib/services/fiscais/nfse-service";
 import {
   dataDoDiaNFSe,
+  familiaDoModeloNFSe,
   motivoParaNaoReenviar,
   resolverPoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
@@ -78,9 +83,16 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     // Pela normalização, não pelo texto cru: notas gravadas antes dela ficaram
     // com o `erro_autorizacao` da Focus, que é a mesma coisa que REJEITADA.
-    if (normalizarStatusNFSe(origem.status) !== "REJEITADA") {
+    // A outra que pode voltar é a de envio sem confirmação — e só com a MESMA
+    // referência, porque o primeiro envio pode estar na Focus.
+    const mesmaReferencia = normalizarStatusNFSe(origem.status) === "PROCESSANDO" && temResultadoIncerto(origem.erros);
+    if (normalizarStatusNFSe(origem.status) !== "REJEITADA" && !mesmaReferencia) {
       return NextResponse.json(
-        { ok: false, message: "Só uma NFS-e rejeitada pode ser reenviada.", statusAtual: origem.status },
+        {
+          ok: false,
+          message: "Só uma NFS-e rejeitada, ou com envio sem confirmação da Focus, pode ser reenviada.",
+          statusAtual: origem.status,
+        },
         { status: 400 },
       );
     }
@@ -105,16 +117,19 @@ export async function POST(_req: Request, { params }: RouteParams) {
      * `retorno_bruto` e `tentativas` intactos.
      */
     // A empresa da nota, não a primeira do banco: é ela que emitiu e é o token
-    // dela que vai no reenvio. Nota antiga sem `empresaid` cai na única empresa.
-    const empresaDaNota = () => {
-      const consulta = supabaseAdmin
-        .from("empresa")
-        .select("id, ambiente, codigomunicipio, regimetributario, timezone_iana");
-      return origem.empresaid
-        ? consulta.eq("id", origem.empresaid).maybeSingle()
-        : consulta.order("id", { ascending: true }).limit(1).maybeSingle();
-    };
-    const { data: empresaPolitica } = await empresaDaNota();
+    // dela que vai no reenvio. Nota antiga sem `empresaid` só usa a empresa do
+    // banco quando há uma só.
+    const { data: empresa, error: empresaError } = await carregarEmpresaDaNota(
+      origem.empresaid,
+      "id, ambiente, codigomunicipio, regimetributario, timezone_iana",
+    );
+    if (empresaError || !empresa) {
+      return NextResponse.json(
+        { ok: false, message: empresaError?.message ?? "A empresa emitente desta NFS-e não foi encontrada." },
+        { status: 409 },
+      );
+    }
+    const empresaPolitica = empresa;
     const payload = (origem.payload_enviado ?? {}) as { servico?: { item_lista_servico?: unknown } };
     const politicaHoje = empresaPolitica
       ? resolverPoliticaNFSe({
@@ -126,7 +141,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
       : null;
     // E0039 bloqueia somente o reenvio exato da tentativa histórica.
     // Novas emissões seguem a política reimplementada, sem flag temporária.
-    const motivo = motivoParaNaoReenviar(origem, politicaHoje);
+    // A nota incerta é o MESMO documento: resolvê-la não depende da regra de hoje.
+    const motivo = mesmaReferencia ? null : motivoParaNaoReenviar(origem, politicaHoje);
     if (motivo) {
       return NextResponse.json(
         {
@@ -173,12 +189,6 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    const { data: empresa, error: empresaError } = await empresaDaNota();
-
-    if (empresaError || !empresa) {
-      return NextResponse.json({ ok: false, message: "A aplicação não possui uma empresa configurada." }, { status: 400 });
-    }
-
     const { data: nfseConfig } = await supabaseAdmin
       .from("nfse_config")
       .select("token")
@@ -196,7 +206,9 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    const referencia = criarReferenciaPorServicos(Number(origem.ordemservicoid), servicoIds);
+    const referencia = mesmaReferencia
+      ? String(origem.referencia)
+      : criarReferenciaPorServicos(Number(origem.ordemservicoid), servicoIds);
     const historico = arquivarTentativaNFSe(origem);
 
     // A referência nova entra ANTES do envio: o webhook da Focus casa por ela e
@@ -212,7 +224,9 @@ export async function POST(_req: Request, { params }: RouteParams) {
       {
         referencia,
         status: "PROCESSANDO",
-        erros: null,
+        // A marca de incerto fica até a Focus responder: se este reenvio
+        // também cair, a nota continua reconhecível como incerta.
+        erros: mesmaReferencia ? origem.erros : null,
         // A Focus recalcula a data de emissão no envio: manter a da primeira
         // tentativa faria a lista da OS mentir sobre quando o RPS saiu.
         dataemissao: agora,
@@ -228,7 +242,8 @@ export async function POST(_req: Request, { params }: RouteParams) {
         { status: 500 },
       );
     }
-    reservado = true;
+    // Com a mesma referência, uma exceção daqui em diante nunca vira rejeição.
+    reservado = !mesmaReferencia;
 
     const parametros = prepararReenvioNFSe(
       origem.payload_enviado as Record<string, unknown>,
@@ -256,23 +271,39 @@ export async function POST(_req: Request, { params }: RouteParams) {
         { payload_enviado: parametros },
       );
       return NextResponse.json(
-        {
-          ok: false,
-          codigo: CODIGO_RESULTADO_INCERTO,
-          message: "A Focus não respondeu ao reenvio. A nota ficou em processamento: consulte-a antes de tentar de novo.",
-          referencia,
-        },
+        { ok: false, codigo: CODIGO_RESULTADO_INCERTO, message: MENSAGEM_ENVIO_SEM_RESPOSTA, referencia },
         { status: 502 },
       );
     }
 
-    const statusFinal = resultado.ok ? normalizarStatusNFSe(resultado.status) : "REJEITADA";
+    /*
+     * Desfecho da resposta:
+     * - aceito, ou a Focus já tinha a referência: segue em processamento, e a
+     *   consulta traz o resultado;
+     * - 5xx: continua incerto, com a mesma referência;
+     * - recusa 4xx explícita: rejeitada. Na mesma referência isso só vale no
+     *   `/v2/nfsen`, onde a Focus documenta a recusa de referência repetida:
+     *   o mesmo payload recusado agora teria sido recusado na primeira vez. No
+     *   municipal essa recusa não é documentada, e a nota continua incerta.
+     */
+    let desfecho = desfechoDoEnvioNFSe(resultado);
+    if (mesmaReferencia && desfecho === "REJEITADO" && familiaDoModeloNFSe(origem.modelo_emissao) !== "NACIONAL") {
+      desfecho = "INCERTO";
+    }
+    const statusFinal = desfecho === "ACEITO"
+      ? normalizarStatusNFSe(resultado.status)
+      : desfecho === "REJEITADO" ? "REJEITADA" : "PROCESSANDO";
+    const errosFinais = desfecho === "ACEITO" || desfecho === "JA_RECEBIDO"
+      ? null
+      : desfecho === "INCERTO"
+        ? errosDeResultadoIncerto(`HTTP ${resultado.retornoBruto?.http_status ?? "?"}: ${resultado.message ?? ""}`)
+        : resultado.erros;
 
     const updateError = await atualizarRegistroNFSe(
       nfseId,
       {
         status: statusFinal,
-        erros: resultado.ok ? null : resultado.erros,
+        erros: errosFinais,
         updatedat: new Date().toISOString(),
       },
       {
@@ -297,15 +328,42 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    if (!resultado.ok) {
+    if (desfecho === "INCERTO") {
       return NextResponse.json(
-        { ok: false, message: resultado.message, erros: resultado.erros, referencia },
+        {
+          ok: false,
+          codigo: CODIGO_RESULTADO_INCERTO,
+          message: MENSAGEM_ENVIO_SEM_RESPOSTA,
+          httpStatus: resultado.retornoBruto?.http_status ?? null,
+          erros: resultado.erros,
+          referencia,
+        },
+        { status: 502 },
+      );
+    }
+
+    if (desfecho === "REJEITADO") {
+      const rejeicao = montarRecusaNFSe({
+        envio: resultado,
+        referencia,
+        ambiente: empresa.ambiente,
+        codigoMunicipio: empresa.codigomunicipio,
+      });
+      return NextResponse.json(
+        { ok: false, message: descreverRecusaNFSe(rejeicao), rejeicao, erros: resultado.erros, referencia },
         { status: 400 },
       );
     }
 
     return NextResponse.json(
-      { ok: true, message: "NFS-e reenviada para processamento.", referencia, nfseId },
+      {
+        ok: true,
+        message: desfecho === "JA_RECEBIDO"
+          ? "A Focus já tinha recebido esta referência: a nota segue em processamento e a consulta traz o desfecho."
+          : "NFS-e reenviada para processamento.",
+        referencia,
+        nfseId,
+      },
       { status: 202 },
     );
   } catch (error: unknown) {

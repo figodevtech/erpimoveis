@@ -43,6 +43,10 @@ export type PoliticaEmissaoResumo = {
   rotulo?: string;
   /** Sem integração com o autorizador: o motivo, e a emissão fica travada. */
   bloqueio?: string | null;
+  /** Informativo (ex.: emissão antecipada em Lucena). Nunca trava a emissão. */
+  aviso?: string | null;
+  /** Ambiente Focus da empresa: "PRODUCAO" ou "HOMOLOGACAO". */
+  ambiente?: string | null;
 };
 
 export type ServicoCadastro = {

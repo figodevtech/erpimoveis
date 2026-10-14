@@ -479,11 +479,16 @@ export function EmissaoNfseDialog({
           },
         }),
       });
-      const payload = await response.json().catch(() => ({})) as { ok?: boolean; message?: string };
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; message?: string; rejeicao?: unknown; codigo?: string };
       if (!response.ok || !payload.ok) {
         const message = payload.message || "Erro ao emitir NFS-e";
         setValidationError(message);
-        toast.error(message, { id: toastId });
+        // A recusa completa fica no formulário; o toast só avisa.
+        const titulo = payload.rejeicao
+          ? "A Focus recusou a NFS-e."
+          : payload.codigo === "RESULTADO_INCERTO" ? "A Focus não confirmou o envio." : message;
+        toast.error(titulo, { id: toastId });
+        if (payload.codigo === "RESULTADO_INCERTO") onAfterGenerate?.();
         return;
       }
       toast.success("NFS-e enviada para processamento.", { id: toastId });
@@ -521,6 +526,11 @@ export function EmissaoNfseDialog({
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-4 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><ShieldCheck aria-hidden="true" className="size-4 text-emerald-600" />{politicaEmissao?.rotulo ?? rotuloModeloNFSe(modeloEmissao)}</span>
+            {politicaEmissao?.ambiente ? (
+              <span className={politicaEmissao.ambiente === "PRODUCAO" ? "font-medium text-emerald-700" : "font-medium text-amber-700"}>
+                Ambiente: {politicaEmissao.ambiente === "PRODUCAO" ? "Produção" : "Homologação"}
+              </span>
+            ) : null}
             <span>{servicos.length} serviços</span><span>{autorizadas} autorizadas</span><span>{selecionados.length} selecionados</span>
             <span className={comPendencias ? "font-medium text-amber-700" : undefined}>{comPendencias} com pendências</span>
           </div>
@@ -557,6 +567,7 @@ export function EmissaoNfseDialog({
                   exigeRtc={Boolean(politicaEmissao?.exigeRtc)}
                   padraoAusente={padraoAusente}
                   bloqueioEmissao={politicaEmissao?.bloqueio ?? null}
+                  avisoEmissao={politicaEmissao?.aviso ?? null}
                   rotuloModelo={politicaEmissao?.rotulo ?? null}
                   motivoModelo={politicaEmissao?.motivo ?? null}
                   codigos={codigosFiscais}

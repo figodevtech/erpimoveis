@@ -376,9 +376,7 @@ export function EmissaoNotaDialog({
       dataCompetencia: dataDoDiaNFSe(new Date()),
     });
     if (politica?.autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL") return "João Pessoa · Formato Nacional via Focus";
-    if (politica && politicaDeLucena(politica)) {
-      return politica.bloqueio ? "Lucena · NFS-e Nacional a partir de 01/11/2026" : "Lucena · NFS-e Nacional via Focus";
-    }
+    if (politica && politicaDeLucena(politica)) return "Lucena/PB · NFS-e Nacional via Focus NFe";
     if (politica?.autorizador === "FOCUS_NACIONAL") return "NFS-e Nacional · Focus NFe";
     if (politica?.modelo === "MUNICIPAL_CABEDELO") return "Cabedelo · Focus NFe";
     if (politica?.modelo === "MUNICIPAL_JOAO_PESSOA") return "João Pessoa · Focus NFe";
@@ -696,8 +694,8 @@ export function EmissaoNotaDialog({
           justificativacancelamento: n.erros ? JSON.stringify(n.erros) : null,
           // Sem isto a rejeição da NFS-e aparecia como "motivo não registrado",
           // mesmo com `erros` gravado.
-          codigo_rejeicao: resumirErrosNFSe(n.erros)?.codigo ?? null,
-          motivo_rejeicao: resumirErrosNFSe(n.erros)?.mensagem ?? null,
+          codigo_rejeicao: resumirErrosNFSe(n.erros, empresaFiscal?.codigomunicipio)?.codigo ?? null,
+          motivo_rejeicao: resumirErrosNFSe(n.erros, empresaFiscal?.codigomunicipio)?.mensagem ?? null,
           createdat: n.createdat,
           empresaid: n.empresaid,
           url_pdf: n.url_pdf,
@@ -1190,6 +1188,27 @@ export function EmissaoNotaDialog({
                                   >
                                     Consultar NFS-e
                                   </Button>
+
+                                  {/* Envio sem confirmação da Focus: volta com a
+                                      MESMA referência, que a Focus não aceita
+                                      duas vezes — não há risco de duas notas. */}
+                                  {isProcessing && nfe.codigo_rejeicao === "RESULTADO_INCERTO" && (
+                                    <Button
+                                      className="text-xs hover:cursor-pointer"
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={reenviandoNfseId === nfe.id}
+                                      title="A Focus não confirmou o primeiro envio. Reenvia com a mesma referência: se o envio já tinha chegado, a Focus recusa a repetição e a nota segue em processamento."
+                                      onClick={() => void reenviarNfse(nfe)}
+                                    >
+                                      {reenviandoNfseId === nfe.id ? (
+                                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <RotateCw className="mr-1.5 h-3.5 w-3.5" />
+                                      )}
+                                      Reenviar com a mesma referência
+                                    </Button>
+                                  )}
 
                                   {/* Rejeitada não virou documento na prefeitura:
                                       dá para mandar o mesmo envio de novo, e dá

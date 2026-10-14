@@ -43,18 +43,28 @@ export async function atualizarRegistroNFSe(
 }
 
 /**
- * O envio saiu e a resposta não chegou (rede caiu, conexão reiniciada). A Focus
- * pode ter recebido: marcar REJEITADA liberaria um reenvio com referência nova,
- * e a nota poderia sair duas vezes. A nota fica PROCESSANDO com esta marca, e a
- * consulta pela MESMA referência decide — achou, segue o status da Focus; a
- * Focus respondeu 404, nada chegou e a nota volta a ser reenviável.
+ * O envio saiu e a resposta não disse o que aconteceu (rede caiu, timeout,
+ * HTTP 5xx). A Focus pode ter recebido: marcar REJEITADA liberaria um reenvio
+ * com referência nova, e a nota poderia sair duas vezes.
+ *
+ * A nota fica PROCESSANDO com esta marca e a MESMA referência. A consulta traz
+ * o desfecho quando a Focus conhece a referência. Um 404 na consulta não prova
+ * nada — pode ser só atraso —, então não libera referência nova. O que resolve
+ * é reenviar com a mesma referência: a Focus recusa referência repetida ("Já
+ * existe um DPS com esta referência", 422 do `/v2/nfsen`), então o reenvio ou
+ * processa o que não chegou, ou confirma que já tinha chegado.
  */
 export const CODIGO_RESULTADO_INCERTO = "RESULTADO_INCERTO";
+
+export const MENSAGEM_ENVIO_SEM_RESPOSTA =
+  "A Focus não confirmou o recebimento do envio. A nota ficou em processamento com a mesma referência. "
+  + "Consulte a nota; se a Focus não a encontrar, use “Reenviar com a mesma referência” — "
+  + "a Focus recusa referência repetida, então não há risco de duas notas.";
 
 export function errosDeResultadoIncerto(detalhe: string) {
   return [{
     codigo: CODIGO_RESULTADO_INCERTO,
-    mensagem: "O envio à Focus não teve resposta. Consulte a nota antes de tentar de novo: ela pode ter sido recebida.",
+    mensagem: MENSAGEM_ENVIO_SEM_RESPOSTA,
     correcao: detalhe || null,
   }];
 }
