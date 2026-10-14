@@ -69,4 +69,11 @@ salvo.forma_pagamento = "PIX";
 assert.equal((await enviar({status:"FATURAMENTO",pagamentosPrevistos:[]})).status, 400, "Edição explícita não deve contornar validações");
 assert.equal((await enviar({status:"FATURAMENTO",pagamentosPrevistos:[{metodo:"PIX",valor:100,parcelas:null}],descricaoFinanceiro:"Novo acordo"})).status, 200);
 assert.equal(chamadas.at(-1).args.p_condicoes.descricao_financeiro, "Novo acordo");
-console.log("Preservação de pagamentos da OS validada: acordo legado, múltiplos métodos, OS sem acordo e edição explícita.");
+for (const final of ["CONCLUIDO", "CANCELADO", "SEM_COBRANCA"]) {
+  for (const destino of ["EM_ANDAMENTO", "ORCAMENTO", "SEM_COBRANCA", "PAGAMENTO"]) {
+    salvo = { status: final, forma_pagamento: "PIX", pagamentos_previstos: null };
+    assert.equal((await enviar({ status: destino, semCobranca: destino === "SEM_COBRANCA" })).status, 409, `${final} -> ${destino} deveria ser recusado`);
+    assert.deepEqual(chamadas, [], `${final} -> ${destino} não pode chegar às RPCs`);
+  }
+}
+console.log("Preservação de pagamentos da OS validada: acordo legado, múltiplos métodos, OS sem acordo, edição explícita e OS encerrada travada.");

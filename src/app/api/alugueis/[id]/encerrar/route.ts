@@ -5,7 +5,11 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAlugueisEdit } from "@/app/api/_authz/perms";
 import { ErroAluguel, idDaRota, respostaDeErro, usuarioDaSessao } from "@/lib/alugueis/server";
 
-/** Body: { encerradoEm?: ISO, observacao?: string }. Devolve todo o estoque do aluguel. */
+/**
+ * Body: { encerradoEm?: ISO, observacao?: string, itens?: [{ id, quantidadeDevolvida }] }.
+ * O que voltou entra no estoque; a falta segue fora, ligada ao aluguel. Item
+ * fora da lista voltou inteiro.
+ */
 export async function PUT(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     await requireAlugueisEdit();
@@ -21,10 +25,22 @@ export async function PUT(req: NextRequest, context: { params: Promise<{ id: str
       encerradoEm = data.toISOString();
     }
 
+    const itens: unknown[] = Array.isArray(body?.itens) ? body.itens : [];
+    const retornos = itens.map((item: any) => {
+      const itemId = Number(item?.id);
+      const quantidade = Number(item?.quantidadeDevolvida);
+      if (!Number.isSafeInteger(itemId) || itemId <= 0) throw new ErroAluguel("Item do retorno inválido.", 400);
+      if (!Number.isInteger(quantidade) || quantidade < 0) {
+        throw new ErroAluguel("A quantidade que retornou deve ser um número inteiro, zero ou maior.", 400);
+      }
+      return { id: itemId, quantidade_devolvida: quantidade };
+    });
+
     const { error } = await supabaseAdmin.rpc("aluguel_encerrar", {
       p_id: id,
       p_encerrado_em: encerradoEm,
       p_observacao: String(body?.observacao ?? "").trim() || null,
+      p_itens: retornos,
       p_usuario: usuario,
     });
     if (error) throw error;

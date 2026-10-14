@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useSession } from "next-auth/react";
 import {
   ClipboardCheck,
@@ -28,13 +29,28 @@ export type AcaoAluguel =
   | "detalhes"
   | "editar"
   | "checklist-saida"
+  | "checklist-retorno"
   | "pausar"
   | "reiniciar"
   | "encerrar"
   | "excluir";
 
-/** Opções dinâmicas: status do aluguel (politicaAluguel) e permissões do usuário. */
-export function RowActions({ aluguel, onAcao }: { aluguel: AluguelLista; onAcao: (acao: AcaoAluguel, aluguel: AluguelLista) => void }) {
+/**
+ * Opções dinâmicas: status do aluguel (politicaAluguel) e permissões do usuário.
+ * `ocultar` tira opções que não fazem sentido onde o menu está (ex.: Detalhes
+ * dentro dos próprios detalhes).
+ */
+export function RowActions({
+  aluguel,
+  onAcao,
+  ocultar = [],
+  trigger,
+}: {
+  aluguel: AluguelLista;
+  onAcao: (acao: AcaoAluguel, aluguel: AluguelLista) => void;
+  ocultar?: AcaoAluguel[];
+  trigger?: ReactNode;
+}) {
   const { data: session } = useSession();
   const permissoes = (session?.user as any)?.permissoes;
   const podeEditar = permissionSetHas(permissoes, PERMS.ALUGUEIS_EDITAR);
@@ -42,32 +58,43 @@ export function RowActions({ aluguel, onAcao }: { aluguel: AluguelLista; onAcao:
   const politica = politicaAluguel(aluguel.status);
 
   const editar = podeEditar && politica.podeEditar;
-  const checklist = podeEditar && politica.podeChecklistSaida;
+  const checklistSaida = podeEditar && politica.podeChecklistSaida;
+  const checklistRetorno = podeEditar && politica.podeChecklistRetorno;
   const pausar = podeEditar && politica.podePausar;
   const reiniciar = podeEditar && politica.podeReiniciar;
   const encerrar = podeEditar && politica.podeEncerrar;
   const excluir = podeExcluir && politica.podeExcluir;
+  const detalhes = !ocultar.includes("detalhes");
 
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8 hover:cursor-pointer" aria-label={`Ações do aluguel #${aluguel.id}`}>
-          <MoreHorizontal className="h-4 w-4" />
-        </Button>
+        {trigger ?? (
+          <Button variant="ghost" size="icon" className="h-8 w-8 hover:cursor-pointer" aria-label={`Ações do aluguel #${aluguel.id}`}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel>Ações</DropdownMenuLabel>
-        <DropdownMenuItem onClick={() => onAcao("detalhes", aluguel)}>
-          <Eye className="mr-2 h-4 w-4" /> Detalhes
-        </DropdownMenuItem>
+        {detalhes ? (
+          <DropdownMenuItem onClick={() => onAcao("detalhes", aluguel)}>
+            <Eye className="mr-2 h-4 w-4" /> Detalhes
+          </DropdownMenuItem>
+        ) : null}
         {editar ? (
           <DropdownMenuItem onClick={() => onAcao("editar", aluguel)}>
             <Pencil className="mr-2 h-4 w-4" /> Editar
           </DropdownMenuItem>
         ) : null}
-        {checklist ? (
+        {checklistSaida ? (
           <DropdownMenuItem onClick={() => onAcao("checklist-saida", aluguel)}>
             <ClipboardCheck className="mr-2 h-4 w-4" /> Checklist de saída
+          </DropdownMenuItem>
+        ) : null}
+        {checklistRetorno ? (
+          <DropdownMenuItem onClick={() => onAcao("checklist-retorno", aluguel)}>
+            <ClipboardCheck className="mr-2 h-4 w-4" /> Checklist de retorno
           </DropdownMenuItem>
         ) : null}
 

@@ -2,26 +2,29 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import type { FiltroDaAba } from "@/lib/alugueis/status";
 
 export const SELECT_LISTA_ALUGUEL = `
   id, status, data_inicio, data_limite, pausado_em, encerrado_em,
-  cliente_id, cliente_nome, cliente_documento, cliente_telefone, cliente_email,
+  cliente_id, usuario_id, cliente_nome, cliente_documento, cliente_telefone, cliente_email,
   observacao, valor_total, created_at, updated_at,
   cliente:cliente_id ( id, nomerazaosocial, cpfcnpj, telefone, email ),
-  itens:aluguel_item ( id, tipo, descricao, identificacao, quantidade, valor, devolvido_em ),
+  destinatario:usuario_id ( id, nome, email ),
+  itens:aluguel_item ( id, tipo, descricao, identificacao, quantidade, quantidade_devolvida, valor, devolvido_em ),
   checklists:aluguel_checklist ( id, tipo )
 `;
 
 export const SELECT_DETALHE_ALUGUEL = `
   id, status, data_inicio, data_limite, pausado_em, encerrado_em, observacao_encerramento,
-  cliente_id, cliente_nome, cliente_documento, cliente_telefone, cliente_email,
+  cliente_id, usuario_id, cliente_nome, cliente_documento, cliente_telefone, cliente_email,
   observacao, valor_total, created_at, updated_at,
   cliente:cliente_id ( id, nomerazaosocial, cpfcnpj, telefone, email ),
+  destinatario:usuario_id ( id, nome, email ),
   criador:created_by ( id, nome ),
   encerrador:encerrado_por ( id, nome ),
   itens:aluguel_item (
     id, tipo, produto_id, usoconsumo_item_id, veiculo_id, descricao, identificacao,
-    quantidade, valor, estoque_saida_id, usoconsumo_saida_id, devolvido_em,
+    quantidade, quantidade_devolvida, valor, estoque_saida_id, usoconsumo_saida_id, devolvido_em,
     produto:produto_id ( id, titulo, referencia, estoque ),
     usoconsumo:usoconsumo_item_id ( id, titulo, referencia, estoque, escopo ),
     veiculo:veiculo_id ( id, placa, marca, modelo )
@@ -36,6 +39,19 @@ export const SELECT_DETALHE_ALUGUEL = `
   ),
   eventos:aluguel_evento ( id, tipo, dados, created_at, usuario:usuario_id ( id, nome ) )
 `;
+
+/**
+ * Critério da aba sobre a consulta de `aluguel`; a lista e os contadores usam o
+ * mesmo. `Q` fica solto: amarrar ao builder do PostgREST estoura a inferência.
+ */
+export function aplicarFiltroDaAba<Q>(query: Q, filtro: FiltroDaAba): Q {
+  let resultado = query as any;
+  if (filtro.status) resultado = resultado.eq("status", filtro.status);
+  // Prazo indeterminado (limite nulo) nunca atrasa: fica em andamento.
+  if (filtro.limiteDesde) resultado = resultado.or(`data_limite.gte.${filtro.limiteDesde},data_limite.is.null`);
+  if (filtro.limiteAntesDe) resultado = resultado.lt("data_limite", filtro.limiteAntesDe);
+  return resultado;
+}
 
 export class ErroAluguel extends Error {
   constructor(message: string, public statusCode = 400) {

@@ -6,7 +6,7 @@ import { ptBR } from "date-fns/locale";
 import {
   CalendarDays,
   Car,
-  ClipboardCheck,
+  FileText,
   Loader2,
   Package,
   PackagePlus,
@@ -22,6 +22,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import ValueInput from "@/components/ui/value-input";
 import { toast } from "@/lib/toast";
@@ -42,17 +43,13 @@ import { DialogShell } from "@/app/(app)/(pages)/ordens/components/dialogs/dialo
 import { OrdemFormSection } from "@/app/(app)/(pages)/ordens/components/form-section";
 
 import { avisarAlteracaoAlugueis, carregarAluguel, criarAluguel, editarAluguel } from "../lib/api";
-import type { AluguelPayload, ClienteCadastrado, ItemAluguelForm } from "../types";
-import {
-  ChecklistRascunhoCard,
-  RASCUNHO_VAZIO,
-  gravarChecklist,
-  useModelosChecklist,
-  type RascunhoChecklist,
-} from "./checklist-aluguel";
+import type { AluguelPayload, ClienteCadastrado, ItemAluguelForm, UsuarioDestinatario } from "../types";
+import { UsuarioSelect } from "./usuario-select";
 import { fmtMoeda } from "./status-aluguel";
 
-type ModoCliente = "cadastrado" | "avulso";
+type ModoCliente = "cadastrado" | "usuario" | "avulso";
+
+const ROTULO_MODO: Record<ModoCliente, string> = { cadastrado: "Cliente", usuario: "Usuário", avulso: "Avulso" };
 type ClienteAvulso = { nome: string; documento: string; telefone: string; email: string };
 
 const AVULSO_VAZIO: ClienteAvulso = { nome: "", documento: "", telefone: "", email: "" };
@@ -117,18 +114,18 @@ export function AluguelDialog({
   const [cliente, setCliente] = useState<ClienteCadastrado | null>(null);
   const [avulso, setAvulso] = useState<ClienteAvulso>(AVULSO_VAZIO);
   const [clienteAberto, setClienteAberto] = useState(false);
+  const [usuarioDestino, setUsuarioDestino] = useState<UsuarioDestinatario | null>(null);
+  const [usuarioAberto, setUsuarioAberto] = useState(false);
 
   const [dataInicio, setDataInicio] = useState(hojeAluguel());
   const [dataLimite, setDataLimite] = useState(somarDias(hojeAluguel(), 7));
+  const [indeterminado, setIndeterminado] = useState(false);
   const [observacao, setObservacao] = useState("");
 
   const [itens, setItens] = useState<ItemAluguelForm[]>([]);
   const [estoqueAberto, setEstoqueAberto] = useState(false);
   const [veiculoAberto, setVeiculoAberto] = useState(false);
   const [itemAvulso, setItemAvulso] = useState({ descricao: "", identificacao: "", quantidade: 1 });
-
-  const [checklistSaida, setChecklistSaida] = useState<RascunhoChecklist>(RASCUNHO_VAZIO);
-  const modelos = useModelosChecklist(open && !editando);
 
   // O pai passa a callback inline; como dependência do effect, cada render dele
   // zeraria o formulário no meio da digitação.
@@ -141,13 +138,14 @@ export function AluguelDialog({
     if (!open) return;
     setModoCliente("cadastrado");
     setCliente(null);
+    setUsuarioDestino(null);
     setAvulso(AVULSO_VAZIO);
     setDataInicio(hojeAluguel());
     setDataLimite(somarDias(hojeAluguel(), 7));
+    setIndeterminado(false);
     setObservacao("");
     setItens([]);
     setItemAvulso({ descricao: "", identificacao: "", quantidade: 1 });
-    setChecklistSaida(RASCUNHO_VAZIO);
     if (!aluguelId) return;
 
     let vivo = true;
@@ -158,6 +156,9 @@ export function AluguelDialog({
         if (aluguel.cliente_id && aluguel.cliente) {
           setModoCliente("cadastrado");
           setCliente(aluguel.cliente);
+        } else if (aluguel.usuario_id) {
+          setModoCliente("usuario");
+          setUsuarioDestino(aluguel.destinatario ?? { id: aluguel.usuario_id, nome: null });
         } else {
           setModoCliente("avulso");
           setAvulso({
@@ -168,7 +169,9 @@ export function AluguelDialog({
           });
         }
         setDataInicio(aluguel.data_inicio);
-        setDataLimite(aluguel.data_limite);
+        // Sem limite: o campo guarda uma sugestão, usada se o prazo voltar a ser definido.
+        setIndeterminado(!aluguel.data_limite);
+        setDataLimite(aluguel.data_limite ?? somarDias(aluguel.data_inicio, 7));
         setObservacao(aluguel.observacao ?? "");
         setItens(
           aluguel.itens.map((item) => ({
@@ -278,10 +281,12 @@ export function AluguelDialog({
   }
 
   function validar(): string | null {
-    if (modoCliente === "cadastrado" && !cliente) return "Selecione o cliente ou mude para cliente avulso.";
+    if (modoCliente === "cadastrado" && !cliente) return "Selecione o cliente ou mude para usuário ou avulso.";
+    if (modoCliente === "usuario" && !usuarioDestino) return "Selecione o usuário que recebe o aluguel.";
     if (modoCliente === "avulso" && !avulso.nome.trim()) return "Informe o nome do cliente avulso.";
-    if (!dataInicio || !dataLimite) return "Informe a data de início e a data limite.";
-    if (dataLimite < dataInicio) return "A data limite não pode ser anterior à data de início.";
+    if (!dataInicio) return "Informe a data de início.";
+    if (!indeterminado && !dataLimite) return "Informe a data limite ou marque o prazo indeterminado.";
+    if (!indeterminado && dataLimite < dataInicio) return "A data limite não pode ser anterior à data de início.";
     if (!itens.length) return "Adicione ao menos um item ao aluguel.";
     if (itens.some((item) => !item.descricao.trim())) return "Todo item precisa de descrição.";
     if (itens.some((item) => !Number.isInteger(item.quantidade) || item.quantidade <= 0)) return "Quantidade inválida em algum item.";
@@ -296,8 +301,10 @@ export function AluguelDialog({
     }
     const payload: AluguelPayload = {
       data_inicio: dataInicio,
-      data_limite: dataLimite,
+      data_limite: indeterminado ? null : dataLimite,
+      indeterminado,
       cliente_id: modoCliente === "cadastrado" ? cliente?.id ?? null : null,
+      usuario_id: modoCliente === "usuario" ? usuarioDestino?.id ?? null : null,
       cliente: modoCliente === "avulso" ? { ...avulso, nome: avulso.nome.trim() } : undefined,
       observacao: observacao.trim(),
       itens: itens.map((item) => ({
@@ -316,14 +323,11 @@ export function AluguelDialog({
     setSalvando(true);
     try {
       const { id } = aluguelId ? await editarAluguel(aluguelId, payload) : await criarAluguel(payload);
-      if (!aluguelId && checklistSaida.templateId) {
-        try {
-          await gravarChecklist(id, "SAIDA", checklistSaida, modelos);
-        } catch (error: any) {
-          toast.error(`Aluguel #${id} criado, mas o checklist de saída falhou: ${error?.message ?? "erro"}. Preencha pelos detalhes.`);
-        }
-      }
-      toast.success(aluguelId ? `Aluguel #${id} atualizado.` : `Aluguel #${id} criado.`);
+      toast.success(
+        aluguelId
+          ? `Aluguel #${id} atualizado.`
+          : `Aluguel #${id} criado. O checklist de saída é registrado pelas ações do aluguel.`,
+      );
       avisarAlteracaoAlugueis();
       onOpenChange(false);
     } catch (error: any) {
@@ -363,9 +367,13 @@ export function AluguelDialog({
         </div>
       ) : (
         <div className="space-y-4">
-          <OrdemFormSection icon={UserRound} title="Cliente" description="Do cadastro ou avulso, sem cadastrar.">
+          <OrdemFormSection
+            icon={UserRound}
+            title="Destinatário"
+            description="Cliente do cadastro, usuário do sistema ou avulso, sem cadastrar."
+          >
             <div className="mb-3 inline-flex rounded-md border p-0.5">
-              {(["cadastrado", "avulso"] as const).map((modo) => (
+              {(["cadastrado", "usuario", "avulso"] as const).map((modo) => (
                 <Button
                   key={modo}
                   type="button"
@@ -373,7 +381,7 @@ export function AluguelDialog({
                   variant={modoCliente === modo ? "secondary" : "ghost"}
                   onClick={() => setModoCliente(modo)}
                 >
-                  {modo === "cadastrado" ? "Cadastrado" : "Avulso"}
+                  {ROTULO_MODO[modo]}
                 </Button>
               ))}
             </div>
@@ -409,6 +417,29 @@ export function AluguelDialog({
                   </Button>
                 </CustomerSelect>
               </div>
+            ) : modoCliente === "usuario" ? (
+              <div className="flex flex-wrap items-center gap-3">
+                {usuarioDestino ? (
+                  <div className="min-w-0 flex-1 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                    <p className="font-medium">{usuarioDestino.nome || usuarioDestino.email || "Usuário"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {[usuarioDestino.email, usuarioDestino.setor?.nome].filter(Boolean).join(" · ") || "Usuário do sistema"}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="flex-1 text-sm text-muted-foreground">Nenhum usuário selecionado.</p>
+                )}
+                <UsuarioSelect
+                  open={usuarioAberto}
+                  setOpen={setUsuarioAberto}
+                  selecionadoId={usuarioDestino?.id}
+                  onSelect={setUsuarioDestino}
+                >
+                  <Button type="button" variant="outline">
+                    {usuarioDestino ? "Trocar usuário" : "Selecionar usuário"}
+                  </Button>
+                </UsuarioSelect>
+              </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5 sm:col-span-2">
@@ -431,12 +462,22 @@ export function AluguelDialog({
             )}
           </OrdemFormSection>
 
-          <OrdemFormSection icon={CalendarDays} title="Período" description="A contagem de dias usa a data limite.">
+          <OrdemFormSection
+            icon={CalendarDays}
+            title="Período"
+            description={indeterminado ? "Sem data limite: conta os dias em aberto e nunca atrasa." : "A contagem de dias usa a data limite."}
+          >
+            <label className="mb-3 flex w-fit cursor-pointer items-center gap-2 text-sm">
+              <Switch checked={indeterminado} onCheckedChange={setIndeterminado} aria-label="Prazo indeterminado" />
+              Prazo indeterminado
+            </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <CampoData label="Data de início" valor={dataInicio} onChange={alterarInicio} />
-              <CampoData label="Data limite" valor={dataLimite} onChange={setDataLimite} minimo={dataInicio} />
+              {!indeterminado ? (
+                <CampoData label="Data limite" valor={dataLimite} onChange={setDataLimite} minimo={dataInicio} />
+              ) : null}
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className={cn("mt-3 flex flex-wrap items-center gap-2", indeterminado && "hidden")}>
               <span className="text-xs text-muted-foreground">Duração:</span>
               {ATALHOS_DURACAO.map((dias) => (
                 <Button
@@ -608,20 +649,7 @@ export function AluguelDialog({
             )}
           </OrdemFormSection>
 
-          {!editando ? (
-            <OrdemFormSection icon={ClipboardCheck} title="Checklist de saída" description="Opcional. Pode ser feito depois pelos detalhes.">
-              <ChecklistRascunhoCard
-                tipo="SAIDA"
-                rascunho={checklistSaida}
-                modelos={modelos}
-                onChange={setChecklistSaida}
-                disabled={salvando}
-                ajuda={modelos.length ? "Opcional" : "Nenhum modelo de checklist ativo em Configurações."}
-              />
-            </OrdemFormSection>
-          ) : null}
-
-          <OrdemFormSection icon={ClipboardCheck} title="Observação">
+          <OrdemFormSection icon={FileText} title="Observação">
             <Textarea
               rows={3}
               maxLength={1000}

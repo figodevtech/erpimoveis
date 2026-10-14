@@ -8,7 +8,16 @@
 --   3) cancelar a saida pelo Estoque e recusado;
 --   4) o mesmo veiculo nao entra em dois alugueis abertos;
 --   5) pausar e reiniciar: datas novas a partir de hoje, mesma duracao;
---   6) encerrar devolve tudo; excluir um aluguel ativo tambem.
+--   6) encerrar devolve tudo; excluir um aluguel ativo tambem;
+--   7) checklist regravado mantem as fotos;
+--   8) a edicao guarda a descricao do item retirado; retorno antes do inicio e
+--      recusado; checklist de retorno so depois do encerramento, o de saida so
+--      antes (20261013180000);
+--   9) prazo indeterminado fica sem limite, inclusive ao reiniciar; o retorno
+--      por item devolve so o que voltou e a falta segue fora, ligada ao
+--      aluguel; excluir depois devolve tudo (20261013190000);
+--  10) usuario do sistema como destinatario: exclusivo com cliente e avulso
+--      (20261013200000).
 begin;
 
 do $test$
@@ -151,6 +160,12 @@ begin
     raise exception '2) cliente avulso nao gravado: % %', v_linha.cliente_id, v_linha.cliente_documento;
   end if;
   raise notice '2) editar: produto 5, geral devolvido, cliente avulso %', v_linha.cliente_nome;
+  if not exists (
+    select 1 from public.aluguel_evento
+     where aluguel_id = v_aluguel and tipo = 'EDITADO'
+       and dados->'descricao_removidos' ? '2x Furadeira de teste do aluguel'
+       and dados->'descricao_trocados' ->> 0 like '3x %-> 5x %'
+  ) then raise exception '8) evento EDITADO sem a descricao do item retirado e do trocado'; end if;
 
   -- 5) Pausar e reiniciar
   perform public.aluguel_pausar(v_aluguel, v_usuario);
@@ -201,6 +216,24 @@ begin
   ) then raise exception '7) item retirado continuou no checklist'; end if;
   raise notice '7) checklist regravado: foto mantida, item retirado saiu, item sem status aceito';
 
+  -- 8) Retorno antes do encerramento e retorno antes do inicio sao recusados
+  begin
+    perform public.aluguel_salvar_checklist(v_aluguel, 'RETORNO', jsonb_build_object(
+      'itens', jsonb_build_array(jsonb_build_object('titulo', 'Pintura', 'status', 'OK'))
+    ), v_usuario);
+    raise exception '8) checklist de retorno com o aluguel aberto deveria ser recusado';
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    perform public.aluguel_encerrar(
+      v_aluguel, ((v_hoje - 1)::text || ' 12:00:00-03')::timestamptz, null, v_usuario);
+    raise exception '8) retorno antes do inicio deveria ser recusado';
+  exception when sqlstate '22023' then
+    get stacked diagnostics v_mensagem = message_text;
+    if v_mensagem not like '%anterior ao inicio%' then raise; end if;
+  end;
+  raise notice '8) retorno com aluguel aberto e retorno antes do inicio recusados';
+
   -- 6) Encerrar devolve tudo
   perform public.aluguel_encerrar(v_aluguel, null, 'Voltou sem avarias', v_usuario);
   select estoque into v_saldo from public.produto where id = v_produto;
@@ -208,6 +241,10 @@ begin
   if exists (select 1 from public.aluguel_item where aluguel_id = v_aluguel and devolvido_em is null) then
     raise exception '6) itens sem marca de devolvido';
   end if;
+  if exists (
+    select 1 from public.aluguel_item
+     where aluguel_id = v_aluguel and quantidade_devolvida is distinct from quantidade
+  ) then raise exception '6) encerrar sem lista de itens deveria registrar o retorno inteiro'; end if;
   begin
     perform public.aluguel_salvar(jsonb_build_object(
       'id', v_aluguel, 'data_inicio', v_hoje, 'data_limite', v_hoje,
@@ -217,6 +254,19 @@ begin
     raise exception '6) editar encerrado deveria ser recusado';
   exception when sqlstate '22023' then null;
   end;
+
+  -- 8) Encerrado: retorno liberado, saida travada
+  perform public.aluguel_salvar_checklist(v_aluguel, 'RETORNO', jsonb_build_object(
+    'itens', jsonb_build_array(jsonb_build_object('titulo', 'Pintura', 'status', 'OK'))
+  ), v_usuario);
+  begin
+    perform public.aluguel_salvar_checklist(v_aluguel, 'SAIDA', jsonb_build_object(
+      'itens', jsonb_build_array(jsonb_build_object('titulo', 'Pintura', 'status', 'OK'))
+    ), v_usuario);
+    raise exception '8) checklist de saida depois do encerramento deveria ser recusado';
+  exception when sqlstate '22023' then null;
+  end;
+  raise notice '8) encerrado: retorno gravado, saida recusada';
 
   -- Encerrado, o veiculo fica livre para outro aluguel; excluir esse devolve o saldo.
   v_outro := public.aluguel_salvar(jsonb_build_object(
@@ -236,8 +286,109 @@ begin
     raise exception '6) exclusao deveria ser logica';
   end if;
 
-  if (select count(*) from public.aluguel_evento where aluguel_id = v_aluguel) <> 7 then
-    raise exception '6) eventos do primeiro aluguel: esperado 7 (criado, editado, pausado, reiniciado, 2 checklists, encerrado), veio %',
+  -- 9) Prazo indeterminado e retorno parcial
+  begin
+    perform public.aluguel_salvar(jsonb_build_object(
+      'data_inicio', v_hoje,
+      'cliente', jsonb_build_object('nome', 'Sem limite'),
+      'itens', jsonb_build_array(jsonb_build_object('tipo', 'AVULSO', 'descricao', 'x'))
+    ), v_usuario);
+    raise exception '9) sem data limite e sem prazo indeterminado deveria ser recusado';
+  exception when sqlstate '22023' then null;
+  end;
+
+  v_outro := public.aluguel_salvar(jsonb_build_object(
+    'data_inicio', v_hoje - 3,
+    'data_limite', v_hoje + 30,
+    'indeterminado', true,
+    'cliente', jsonb_build_object('nome', 'Cliente sem prazo'),
+    'itens', jsonb_build_array(
+      jsonb_build_object('tipo', 'PRODUTO', 'produto_id', v_produto, 'quantidade', 4),
+      jsonb_build_object('tipo', 'AVULSO', 'descricao', 'Cone', 'quantidade', 2)
+    )
+  ), v_usuario);
+  if (select data_limite from public.aluguel where id = v_outro) is not null then
+    raise exception '9) prazo indeterminado deveria ignorar a data limite enviada';
+  end if;
+  perform public.aluguel_reiniciar(v_outro, v_usuario);
+  select * into v_linha from public.aluguel where id = v_outro;
+  if v_linha.data_inicio <> v_hoje or v_linha.data_limite is not null then
+    raise exception '9) reiniciar sem prazo: % %', v_linha.data_inicio, v_linha.data_limite;
+  end if;
+
+  select id into v_item_produto from public.aluguel_item where aluguel_id = v_outro and tipo = 'PRODUTO';
+  select id into v_item_uso from public.aluguel_item where aluguel_id = v_outro and tipo = 'AVULSO';
+  begin
+    perform public.aluguel_encerrar(v_outro, null, null,
+      jsonb_build_array(jsonb_build_object('id', v_item_produto, 'quantidade_devolvida', 5)), v_usuario);
+    raise exception '9) retorno acima do alugado deveria ser recusado';
+  exception when sqlstate '22023' then null;
+  end;
+
+  perform public.aluguel_encerrar(v_outro, null, null, jsonb_build_array(
+    jsonb_build_object('id', v_item_produto, 'quantidade_devolvida', 1),
+    jsonb_build_object('id', v_item_uso, 'quantidade_devolvida', 0)
+  ), v_usuario);
+  select estoque into v_saldo from public.produto where id = v_produto;
+  if v_saldo <> 7 then raise exception '9) voltou 1 de 4: saldo esperado 7, veio %', v_saldo; end if;
+  select estoque_saida_id into v_saida from public.aluguel_item where id = v_item_produto;
+  if not exists (
+    select 1 from public.estoque_saida s
+     where s.id = v_saida and s.aluguel_id = v_outro and s.motivo = 'ALUGUEL' and s.status <> 'CANCELADA'
+  ) or not exists (
+    select 1 from public.estoque_movimento m
+     where m.saida_id = v_saida and m.sentido = 'SAIDA' and m.quantidade = 3
+  ) then raise exception '9) a falta deveria ficar numa saida de 3 ligada ao aluguel'; end if;
+  if (select quantidade_devolvida from public.aluguel_item where id = v_item_produto) <> 1
+     or (select quantidade_devolvida from public.aluguel_item where id = v_item_uso) <> 0 then
+    raise exception '9) quantidade devolvida nao gravada';
+  end if;
+  if not exists (
+    select 1 from public.aluguel_evento
+     where aluguel_id = v_outro and tipo = 'ENCERRADO'
+       and dados->'nao_retornados' ? '3x Produto de teste do aluguel'
+       and dados->'nao_retornados' ? '2x Cone'
+  ) then raise exception '9) evento de encerramento sem os itens que nao voltaram'; end if;
+  perform public.aluguel_excluir(v_outro, 'Teste do retorno parcial', v_usuario);
+  select estoque into v_saldo from public.produto where id = v_produto;
+  if v_saldo <> 10 then raise exception '9) excluir deveria devolver a falta, saldo 10, veio %', v_saldo; end if;
+  raise notice '9) prazo indeterminado e retorno parcial: falta fora do estoque, exclusao devolve tudo';
+
+  -- 10) Usuario como destinatario
+  begin
+    perform public.aluguel_salvar(jsonb_build_object(
+      'data_inicio', v_hoje, 'data_limite', v_hoje + 1,
+      'cliente_id', v_cliente, 'usuario_id', v_usuario,
+      'itens', jsonb_build_array(jsonb_build_object('tipo', 'AVULSO', 'descricao', 'x'))
+    ), v_usuario);
+    raise exception '10) cliente e usuario juntos deveria ser recusado';
+  exception when sqlstate '22023' then null;
+  end;
+  v_outro := public.aluguel_salvar(jsonb_build_object(
+    'data_inicio', v_hoje, 'data_limite', v_hoje + 1,
+    'usuario_id', v_usuario,
+    'cliente', jsonb_build_object('nome', 'Ignorado', 'telefone', '999'),
+    'itens', jsonb_build_array(jsonb_build_object('tipo', 'AVULSO', 'descricao', 'Escada'))
+  ), v_usuario);
+  select * into v_linha from public.aluguel where id = v_outro;
+  if v_linha.usuario_id is distinct from v_usuario or v_linha.cliente_id is not null
+     or v_linha.cliente_nome is not null or v_linha.cliente_telefone is not null then
+    raise exception '10) destinatario usuario: % % % %', v_linha.usuario_id, v_linha.cliente_id, v_linha.cliente_nome, v_linha.cliente_telefone;
+  end if;
+  -- Editar para avulso solta o usuario.
+  perform public.aluguel_salvar(jsonb_build_object(
+    'id', v_outro, 'data_inicio', v_hoje, 'data_limite', v_hoje + 1,
+    'cliente', jsonb_build_object('nome', 'Agora avulso'),
+    'itens', (select jsonb_agg(jsonb_build_object('id', id, 'tipo', tipo, 'descricao', descricao)) from public.aluguel_item where aluguel_id = v_outro)
+  ), v_usuario);
+  select * into v_linha from public.aluguel where id = v_outro;
+  if v_linha.usuario_id is not null or v_linha.cliente_nome <> 'Agora avulso' then
+    raise exception '10) troca para avulso: % %', v_linha.usuario_id, v_linha.cliente_nome;
+  end if;
+  raise notice '10) usuario como destinatario: gravado, exclusivo e trocavel';
+
+  if (select count(*) from public.aluguel_evento where aluguel_id = v_aluguel) <> 8 then
+    raise exception '6) eventos do primeiro aluguel: esperado 8 (criado, editado, pausado, reiniciado, 2 checklists de saida, encerrado, retorno), veio %',
       (select count(*) from public.aluguel_evento where aluguel_id = v_aluguel);
   end if;
   raise notice '6) encerrar e excluir devolvem o saldo; linha do tempo completa';

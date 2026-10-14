@@ -1,11 +1,16 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import { tipoDestinatario, type AluguelLista } from "../types";
 import { cn } from "@/lib/utils";
 import {
   ROTULO_STATUS_ALUGUEL,
+  diasDeAtrasoNaDevolucao,
+  diasEmAberto,
   diasRestantes,
+  rotuloDevolucao,
   rotuloDias,
+  rotuloDiasEmAberto,
   statusExibicao,
   type DatasDoAluguel,
   type StatusExibicaoAluguel,
@@ -45,8 +50,45 @@ export function StatusAluguelBadge({ aluguel, className }: { aluguel: DatasDoAlu
   );
 }
 
+/** Selo do destinatário que não é cliente do cadastro: usuário do sistema ou avulso. */
+export function DestinatarioBadge({
+  aluguel,
+  className,
+}: {
+  aluguel: Pick<AluguelLista, "cliente_id" | "usuario_id">;
+  className?: string;
+}) {
+  const tipo = tipoDestinatario(aluguel);
+  if (tipo === "cliente") return null;
+  return (
+    <Badge variant="outline" className={cn("text-[10px]", tipo === "usuario" && "border-primary/40 text-primary", className)}>
+      {tipo === "usuario" ? "Usuário" : "Avulso"}
+    </Badge>
+  );
+}
+
 export function DiasAluguel({ aluguel, className }: { aluguel: DatasDoAluguel; className?: string }) {
   const status = statusExibicao(aluguel);
+  if (status === "ENCERRADO") {
+    const atraso = diasDeAtrasoNaDevolucao(aluguel);
+    const semPrazo = !aluguel.data_limite;
+    return (
+      <span className={cn("tabular-nums", atraso ? "text-red-700 dark:text-red-300" : CLASSES_DIAS.ENCERRADO, className)}>
+        {semPrazo
+          ? `${rotuloDevolucao(atraso, true)} após ${Math.max(0, diasEmAberto(aluguel))} dia(s)`
+          : rotuloDevolucao(atraso)}
+      </span>
+    );
+  }
+  if (!aluguel.data_limite) {
+    // Prazo indeterminado: sem limite, conta os dias em aberto.
+    const texto = rotuloDiasEmAberto(diasEmAberto(aluguel));
+    return (
+      <span className={cn("tabular-nums", CLASSES_DIAS[status], className)}>
+        {status === "PAUSADO" ? `${texto} (pausado)` : texto}
+      </span>
+    );
+  }
   const dias = diasRestantes(aluguel);
   const texto = status === "AGENDADO" ? rotuloDias(dias, "EM_ANDAMENTO") : rotuloDias(dias, status);
   return (
@@ -60,6 +102,11 @@ export function fmtData(data?: string | null) {
   if (!data) return "—";
   const [ano, mes, dia] = data.slice(0, 10).split("-");
   return `${dia}/${mes}/${ano}`;
+}
+
+/** Data limite, ou "Indeterminado" quando não há. */
+export function fmtLimite(data?: string | null) {
+  return data ? fmtData(data) : "Indeterminado";
 }
 
 export function fmtDataHora(valor?: string | null) {

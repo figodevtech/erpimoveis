@@ -4,6 +4,9 @@
 // O banco grava só ATIVO, PAUSADO e ENCERRADO. "Agendado", "vence hoje" e
 // "atrasado" são leituras das datas contra o dia de hoje em Fortaleza — o mesmo
 // fuso de `public.aluguel_hoje()` na migration 20261013150000.
+//
+// `data_limite` nula é prazo indeterminado (20261013190000): nunca atrasa nem
+// vence; a contagem passa a ser de dias em aberto desde o início.
 
 export const FUSO_ALUGUEL = "America/Fortaleza";
 
@@ -30,8 +33,10 @@ export type TipoItemAluguel = (typeof TIPOS_ITEM_ALUGUEL)[number];
 export type DatasDoAluguel = {
   status: StatusAluguel;
   data_inicio: string;
-  data_limite: string;
+  /** Nula: prazo indeterminado. */
+  data_limite: string | null;
   pausado_em?: string | null;
+  encerrado_em?: string | null;
 };
 
 const MILISSEGUNDOS_POR_DIA = 86_400_000;
@@ -67,37 +72,76 @@ export function somarDias(data: string, dias: number): string {
   return new Date(paraDiaUtc(data) + dias * MILISSEGUNDOS_POR_DIA).toISOString().slice(0, 10);
 }
 
-/** Duração combinada, em dias, entre o início e o limite. */
-export function duracaoContratada(aluguel: Pick<DatasDoAluguel, "data_inicio" | "data_limite">): number {
-  return diferencaEmDias(aluguel.data_inicio, aluguel.data_limite);
+/** Duração combinada, em dias, entre o início e o limite. Prazo indeterminado: null. */
+export function duracaoContratada(aluguel: Pick<DatasDoAluguel, "data_inicio" | "data_limite">): number | null {
+  return aluguel.data_limite ? diferencaEmDias(aluguel.data_inicio, aluguel.data_limite) : null;
+}
+
+/** Dia em que a contagem para: a pausa, o retorno ou hoje. */
+function diaDeReferencia(aluguel: DatasDoAluguel, hoje: string): string {
+  if (aluguel.pausado_em && aluguel.status !== "ATIVO") return dataNoFuso(aluguel.pausado_em);
+  if (aluguel.status === "ENCERRADO" && aluguel.encerrado_em) return dataNoFuso(aluguel.encerrado_em);
+  return hoje;
 }
 
 /**
  * Dias até o limite; negativo é atraso. Pausado fica congelado no dia da pausa.
- * Encerrado não conta mais: devolve null.
+ * Encerrado não conta mais e prazo indeterminado não tem limite: null.
  */
 export function diasRestantes(aluguel: DatasDoAluguel, hoje: string = hojeAluguel()): number | null {
-  if (aluguel.status === "ENCERRADO") return null;
-  const referencia = aluguel.status === "PAUSADO" && aluguel.pausado_em ? dataNoFuso(aluguel.pausado_em) : hoje;
-  return diferencaEmDias(referencia, aluguel.data_limite);
+  if (aluguel.status === "ENCERRADO" || !aluguel.data_limite) return null;
+  return diferencaEmDias(diaDeReferencia(aluguel, hoje), aluguel.data_limite);
+}
+
+/** Dias desde o início até hoje, a pausa ou o retorno. Negativo: ainda não começou. */
+export function diasEmAberto(aluguel: DatasDoAluguel, hoje: string = hojeAluguel()): number {
+  return diferencaEmDias(aluguel.data_inicio, diaDeReferencia(aluguel, hoje));
+}
+
+/**
+ * Encerrado: dias de atraso na devolução (0 = no prazo). Quem foi encerrado
+ * pausado conta até a pausa, como `diasRestantes` (reiniciar limpa `pausado_em`,
+ * então ele só sobrevive ao encerramento de um aluguel pausado). Aberto: null.
+ */
+export function diasDeAtrasoNaDevolucao(aluguel: DatasDoAluguel): number | null {
+  if (aluguel.status !== "ENCERRADO" || !aluguel.encerrado_em) return null;
+  // Sem limite não há atraso.
+  if (!aluguel.data_limite) return 0;
+  const referencia = dataNoFuso(aluguel.pausado_em || aluguel.encerrado_em);
+  return Math.max(0, diferencaEmDias(aluguel.data_limite, referencia));
+}
+
+export function rotuloDevolucao(diasDeAtraso: number | null, prazoIndeterminado = false): string {
+  if (diasDeAtraso === null) return "—";
+  if (prazoIndeterminado) return "Devolvido";
+  if (diasDeAtraso === 0) return "Devolvido no prazo";
+  return `Devolvido com ${diasDeAtraso} ${diasDeAtraso === 1 ? "dia" : "dias"} de atraso`;
 }
 
 export function statusExibicao(aluguel: DatasDoAluguel, hoje: string = hojeAluguel()): StatusExibicaoAluguel {
   if (aluguel.status === "ENCERRADO") return "ENCERRADO";
   if (aluguel.status === "PAUSADO") return "PAUSADO";
   if (diferencaEmDias(hoje, aluguel.data_inicio) > 0) return "AGENDADO";
+  if (!aluguel.data_limite) return "EM_ANDAMENTO";
   const restantes = diferencaEmDias(hoje, aluguel.data_limite);
   if (restantes < 0) return "ATRASADO";
   if (restantes === 0) return "VENCE_HOJE";
   return "EM_ANDAMENTO";
 }
 
-/** Reiniciar: a contagem volta a correr de hoje, com a mesma duração. */
+/** Reiniciar: a contagem volta a correr de hoje, com a mesma duração (ou sem limite). */
 export function datasAoReiniciar(
   aluguel: Pick<DatasDoAluguel, "data_inicio" | "data_limite">,
   hoje: string = hojeAluguel(),
-): { data_inicio: string; data_limite: string } {
-  return { data_inicio: hoje, data_limite: somarDias(hoje, duracaoContratada(aluguel)) };
+): { data_inicio: string; data_limite: string | null } {
+  const duracao = duracaoContratada(aluguel);
+  return { data_inicio: hoje, data_limite: duracao === null ? null : somarDias(hoje, duracao) };
+}
+
+/** "N dias em aberto", para o prazo indeterminado. */
+export function rotuloDiasEmAberto(dias: number): string {
+  if (dias < 0) return `Começa em ${-dias} ${dias === -1 ? "dia" : "dias"}`;
+  return `${dias} ${dias === 1 ? "dia" : "dias"} em aberto`;
 }
 
 export const ROTULO_STATUS_ALUGUEL: Record<StatusExibicaoAluguel, string> = {
@@ -150,11 +194,15 @@ export function politicaAluguel(status: StatusAluguel): PoliticaAluguel {
 }
 
 /** Critério de cada aba, aplicado pela API sobre as colunas gravadas. */
-export function filtroDaAba(aba: AbaAluguel, hoje: string = hojeAluguel()): {
+export type FiltroDaAba = {
   status?: StatusAluguel;
+  /** Limite a partir deste dia ou sem limite (prazo indeterminado). */
   limiteDesde?: string;
+  /** Limite antes deste dia; sem limite fica de fora. */
   limiteAntesDe?: string;
-} {
+};
+
+export function filtroDaAba(aba: AbaAluguel, hoje: string = hojeAluguel()): FiltroDaAba {
   switch (aba) {
     case "EM_ANDAMENTO":
       return { status: "ATIVO", limiteDesde: hoje };

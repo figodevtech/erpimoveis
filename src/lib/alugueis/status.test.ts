@@ -3,11 +3,16 @@ import test from "node:test";
 
 import {
   datasAoReiniciar,
+  diasDeAtrasoNaDevolucao,
+  diasEmAberto,
+  duracaoContratada,
   diasRestantes,
   filtroDaAba,
   hojeAluguel,
   politicaAluguel,
+  rotuloDevolucao,
   rotuloDias,
+  rotuloDiasEmAberto,
   statusExibicao,
 } from "./status";
 
@@ -83,4 +88,40 @@ test("abas: atrasado é ativo com limite antes de hoje", () => {
   assert.deepEqual(filtroDaAba("ATRASADOS", HOJE), { status: "ATIVO", limiteAntesDe: HOJE });
   assert.deepEqual(filtroDaAba("EM_ANDAMENTO", HOJE), { status: "ATIVO", limiteDesde: HOJE });
   assert.deepEqual(filtroDaAba("TODOS", HOJE), {});
+});
+
+test("devolução: atraso pelo dia de Fortaleza; encerrado pausado conta até a pausa", () => {
+  const encerrado = { status: "ENCERRADO" as const, data_inicio: "2026-10-01", data_limite: "2026-10-10" };
+  // 01:00 UTC do dia 11 ainda é dia 10 em Fortaleza: no prazo.
+  assert.equal(diasDeAtrasoNaDevolucao({ ...encerrado, encerrado_em: "2026-10-11T01:00:00Z" }), 0);
+  assert.equal(diasDeAtrasoNaDevolucao({ ...encerrado, encerrado_em: "2026-10-08T12:00:00Z" }), 0);
+  assert.equal(diasDeAtrasoNaDevolucao({ ...encerrado, encerrado_em: "2026-10-13T15:00:00Z" }), 3);
+  assert.equal(
+    diasDeAtrasoNaDevolucao({ ...encerrado, encerrado_em: "2026-10-13T15:00:00Z", pausado_em: "2026-10-09T15:00:00Z" }),
+    0,
+  );
+  assert.equal(diasDeAtrasoNaDevolucao({ ...encerrado, status: "ATIVO", encerrado_em: null }), null);
+  assert.equal(rotuloDevolucao(0), "Devolvido no prazo");
+  assert.equal(rotuloDevolucao(1), "Devolvido com 1 dia de atraso");
+  assert.equal(rotuloDevolucao(3), "Devolvido com 3 dias de atraso");
+});
+
+test("prazo indeterminado: nunca atrasa, conta dias em aberto e reinicia sem limite", () => {
+  const semPrazo = { status: "ATIVO" as const, data_inicio: "2026-09-13", data_limite: null };
+  assert.equal(statusExibicao(semPrazo, HOJE), "EM_ANDAMENTO");
+  assert.equal(statusExibicao({ ...semPrazo, data_inicio: "2026-10-20" }, HOJE), "AGENDADO");
+  assert.equal(diasRestantes(semPrazo, HOJE), null);
+  assert.equal(duracaoContratada(semPrazo), null);
+  assert.equal(diasEmAberto(semPrazo, HOJE), 30);
+  assert.equal(rotuloDiasEmAberto(30), "30 dias em aberto");
+  assert.equal(rotuloDiasEmAberto(1), "1 dia em aberto");
+  assert.equal(rotuloDiasEmAberto(-7), "Começa em 7 dias");
+  // Pausado congela no dia da pausa; encerrado conta até o retorno.
+  assert.equal(diasEmAberto({ ...semPrazo, status: "PAUSADO", pausado_em: "2026-10-03T15:00:00Z" }, HOJE), 20);
+  assert.equal(diasEmAberto({ ...semPrazo, status: "ENCERRADO", encerrado_em: "2026-10-08T15:00:00Z" }, HOJE), 25);
+  assert.equal(diasDeAtrasoNaDevolucao({ ...semPrazo, status: "ENCERRADO", encerrado_em: "2026-10-08T15:00:00Z" }), 0);
+  assert.deepEqual(datasAoReiniciar(semPrazo, HOJE), { data_inicio: HOJE, data_limite: null });
+  // A aba "Em andamento" aceita o limite nulo; "Atrasados" fica só com limite vencido.
+  assert.deepEqual(filtroDaAba("EM_ANDAMENTO", HOJE), { status: "ATIVO", limiteDesde: HOJE });
+  assert.deepEqual(filtroDaAba("ATRASADOS", HOJE), { status: "ATIVO", limiteAntesDe: HOJE });
 });

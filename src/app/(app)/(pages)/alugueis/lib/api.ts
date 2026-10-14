@@ -1,5 +1,5 @@
 import type { AbaAluguel } from "@/lib/alugueis/status";
-import type { AluguelDetalhe, AluguelLista, AluguelPayload } from "../types";
+import type { AluguelDetalhe, AluguelLista, AluguelPayload, UsuarioDestinatario } from "../types";
 
 async function lerResposta<T>(resposta: Response, falha: string): Promise<T> {
   const json = await resposta.json().catch(() => ({}));
@@ -38,6 +38,15 @@ export async function contarAlugueis() {
   return lerResposta<Record<AbaAluguel, number>>(await fetch("/api/alugueis/stats", { cache: "no-store" }), "Falha ao contar aluguéis.");
 }
 
+/** Usuários ativos que podem receber um aluguel. */
+export async function listarUsuariosDestinatarios() {
+  const json = await lerResposta<{ usuarios: UsuarioDestinatario[] }>(
+    await fetch("/api/alugueis/usuarios", { cache: "no-store" }),
+    "Falha ao carregar usuários.",
+  );
+  return json.usuarios ?? [];
+}
+
 export async function carregarAluguel(id: number) {
   return lerResposta<AluguelDetalhe>(await fetch(`/api/alugueis/${id}`, { cache: "no-store" }), "Falha ao carregar aluguel.");
 }
@@ -62,7 +71,10 @@ export async function reiniciarAluguel(id: number) {
   return lerResposta(await enviar(`/api/alugueis/${id}/reiniciar`, "PUT"), "Falha ao reiniciar aluguel.");
 }
 
-export async function encerrarAluguel(id: number, dados: { encerradoEm?: string; observacao?: string }) {
+export async function encerrarAluguel(
+  id: number,
+  dados: { encerradoEm?: string; observacao?: string; itens: { id: number; quantidadeDevolvida: number }[] },
+) {
   return lerResposta(await enviar(`/api/alugueis/${id}/encerrar`, "PUT", dados), "Falha ao encerrar aluguel.");
 }
 

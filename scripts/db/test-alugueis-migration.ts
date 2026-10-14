@@ -113,6 +113,8 @@ async function main() {
       "public.aluguel_pausar(bigint, uuid)",
       "public.aluguel_reiniciar(bigint, uuid)",
       "public.aluguel_encerrar(bigint, timestamptz, text, uuid)",
+      "public.aluguel_encerrar(bigint, timestamptz, text, jsonb, uuid)",
+      "public.aluguel_reter_falta(bigint, integer, uuid)",
       "public.aluguel_excluir(bigint, text, uuid)",
       "public.aluguel_salvar_checklist(bigint, text, jsonb, uuid)",
       "public.cancelar_saida_estoque(bigint, text, uuid)",

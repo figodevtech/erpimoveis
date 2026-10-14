@@ -19,13 +19,14 @@ import { datasAoReiniciar, diasRestantes } from "@/lib/alugueis/status";
 
 import { avisarAlteracaoAlugueis, excluirAluguel, pausarAluguel, reiniciarAluguel } from "../lib/api";
 import type { AluguelLista } from "../types";
-import { nomeDoCliente } from "../types";
+import { nomeDoCliente, quantidadeQueVoltou } from "../types";
 import { AluguelDialog } from "./aluguel-dialog";
 import { AlugueisTabs } from "./alugueis-tabs";
-import { DetalhesAluguelDialog, type AbaDetalhesAluguel } from "./detalhes-aluguel-dialog";
+import { ChecklistAluguelDialog, type TipoChecklistAluguel } from "./checklist-aluguel";
+import { DetalhesAluguelDialog } from "./detalhes-aluguel-dialog";
 import { EncerrarAluguelDialog } from "./encerrar-aluguel-dialog";
 import type { AcaoAluguel } from "./row-actions";
-import { fmtData } from "./status-aluguel";
+import { fmtData, fmtLimite } from "./status-aluguel";
 
 type Confirmacao = { acao: "pausar" | "reiniciar" | "excluir"; aluguel: AluguelLista } | null;
 
@@ -34,7 +35,8 @@ const TEM_SALDO = new Set(["PRODUTO", "USOCONSUMO", "GERAL"]);
 export default function GerenciadorAlugueis() {
   const [formAberto, setFormAberto] = useState(false);
   const [editandoId, setEditandoId] = useState<number | null>(null);
-  const [detalhes, setDetalhes] = useState<{ id: number; aba: AbaDetalhesAluguel } | null>(null);
+  const [detalhesId, setDetalhesId] = useState<number | null>(null);
+  const [checklist, setChecklist] = useState<{ aluguelId: number; tipo: TipoChecklistAluguel } | null>(null);
   const [encerrando, setEncerrando] = useState<AluguelLista | null>(null);
   const [confirmacao, setConfirmacao] = useState<Confirmacao>(null);
   const [motivo, setMotivo] = useState("");
@@ -43,10 +45,13 @@ export default function GerenciadorAlugueis() {
   function aoAcionar(acao: AcaoAluguel, aluguel: AluguelLista) {
     switch (acao) {
       case "detalhes":
-        setDetalhes({ id: aluguel.id, aba: "resumo" });
+        setDetalhesId(aluguel.id);
         break;
       case "checklist-saida":
-        setDetalhes({ id: aluguel.id, aba: "checklists" });
+        setChecklist({ aluguelId: aluguel.id, tipo: "SAIDA" });
+        break;
+      case "checklist-retorno":
+        setChecklist({ aluguelId: aluguel.id, tipo: "RETORNO" });
         break;
       case "editar":
         setEditandoId(aluguel.id);
@@ -72,7 +77,11 @@ export default function GerenciadorAlugueis() {
     try {
       if (acao === "pausar") await pausarAluguel(aluguel.id);
       if (acao === "reiniciar") await reiniciarAluguel(aluguel.id);
-      if (acao === "excluir") await excluirAluguel(aluguel.id, motivo.trim());
+      if (acao === "excluir") {
+        await excluirAluguel(aluguel.id, motivo.trim());
+        // Excluído, os detalhes dele não têm mais o que mostrar.
+        setDetalhesId((atual) => (atual === aluguel.id ? null : atual));
+      }
       toast.success(
         acao === "pausar"
           ? `Aluguel #${aluguel.id} pausado.`
@@ -91,8 +100,14 @@ export default function GerenciadorAlugueis() {
 
   const alvo = confirmacao?.aluguel;
   const novasDatas = alvo ? datasAoReiniciar(alvo) : null;
+  // Aberto: o que está fora volta. Encerrado: só a falta do retorno, que seguiu fora.
   const devolveEstoque =
-    alvo && alvo.status !== "ENCERRADO" && alvo.itens.some((item) => TEM_SALDO.has(item.tipo) && !item.devolvido_em);
+    alvo &&
+    alvo.itens.some(
+      (item) =>
+        TEM_SALDO.has(item.tipo) &&
+        (alvo.status === "ENCERRADO" ? quantidadeQueVoltou(item) < item.quantidade : !item.devolvido_em),
+    );
 
   return (
     <>
@@ -114,12 +129,14 @@ export default function GerenciadorAlugueis() {
       />
 
       <DetalhesAluguelDialog
-        aluguelId={detalhes?.id ?? null}
-        abaInicial={detalhes?.aba}
-        onOpenChange={(aberto) => !aberto && setDetalhes(null)}
+        aluguelId={detalhesId}
+        onOpenChange={(aberto) => !aberto && setDetalhesId(null)}
+        onAcao={aoAcionar}
       />
 
       <EncerrarAluguelDialog aluguel={encerrando} onOpenChange={(aberto) => !aberto && setEncerrando(null)} />
+
+      <ChecklistAluguelDialog alvo={checklist} onOpenChange={(aberto) => !aberto && setChecklist(null)} />
 
       <AlertDialog open={Boolean(confirmacao)} onOpenChange={(aberto) => !aberto && !executando && setConfirmacao(null)}>
         <AlertDialogContent>
@@ -136,16 +153,25 @@ export default function GerenciadorAlugueis() {
                 <p>{alvo ? nomeDoCliente(alvo) : null}</p>
                 {confirmacao?.acao === "pausar" && alvo ? (
                   <p>
-                    A contagem fica congelada em {diasRestantes(alvo)} dia(s) até o limite. Para voltar a contar, use
-                    Reiniciar. O estoque não muda.
+                    {alvo.data_limite
+                      ? `A contagem fica congelada em ${diasRestantes(alvo)} dia(s) até o limite.`
+                      : "A contagem de dias em aberto fica congelada."}{" "}
+                    Para voltar a contar, use Reiniciar. O estoque não muda.
                   </p>
                 ) : null}
                 {confirmacao?.acao === "reiniciar" && novasDatas ? (
-                  <p>
-                    A contagem volta a correr a partir de hoje, com a mesma duração: de{" "}
-                    <strong className="text-foreground">{fmtData(novasDatas.data_inicio)}</strong> a{" "}
-                    <strong className="text-foreground">{fmtData(novasDatas.data_limite)}</strong>.
-                  </p>
+                  novasDatas.data_limite ? (
+                    <p>
+                      A contagem volta a correr a partir de hoje, com a mesma duração: de{" "}
+                      <strong className="text-foreground">{fmtData(novasDatas.data_inicio)}</strong> a{" "}
+                      <strong className="text-foreground">{fmtLimite(novasDatas.data_limite)}</strong>.
+                    </p>
+                  ) : (
+                    <p>
+                      A contagem volta a correr a partir de hoje (
+                      <strong className="text-foreground">{fmtData(novasDatas.data_inicio)}</strong>), sem data limite.
+                    </p>
+                  )
                 ) : null}
                 {confirmacao?.acao === "excluir" ? (
                   <p>

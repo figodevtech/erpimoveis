@@ -17,18 +17,35 @@ function safeName(name: string) {
   return (name || "imagem").normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^\w.\-]+/g, "_").slice(0, 120);
 }
 
+/**
+ * Item do checklist com a mesma trava da gravação (`aluguel_salvar_checklist`):
+ * aluguel excluído não aceita foto; a saída só muda com o aluguel aberto e o
+ * retorno só depois do encerramento.
+ */
 async function itemDoChecklist(valor: string) {
   const id = Number(valor);
   if (!Number.isSafeInteger(id) || id <= 0) throw new ErroAluguel("Item inválido.", 400);
   const { data, error } = await supabaseAdmin
     .from("aluguel_checklist_item")
-    .select("id, checklist:checklist_id ( id, aluguel_id )")
+    .select("id, checklist:checklist_id ( id, tipo, aluguel:aluguel_id ( id, status, is_deleted ) )")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
   if (!data) throw new ErroAluguel("Item do checklist não encontrado.", 404);
-  const checklist = data.checklist as unknown as { id: number; aluguel_id: number } | null;
-  return { id, aluguelId: Number(checklist?.aluguel_id) };
+  const checklist = data.checklist as unknown as {
+    id: number;
+    tipo: "SAIDA" | "RETORNO";
+    aluguel: { id: number; status: string; is_deleted: boolean } | null;
+  } | null;
+  const aluguel = checklist?.aluguel;
+  if (!aluguel || aluguel.is_deleted) throw new ErroAluguel("Aluguel não encontrado.", 404);
+  if (checklist.tipo === "SAIDA" && aluguel.status === "ENCERRADO") {
+    throw new ErroAluguel("O checklist de saída não muda depois do encerramento.", 409);
+  }
+  if (checklist.tipo === "RETORNO" && aluguel.status !== "ENCERRADO") {
+    throw new ErroAluguel("O checklist de retorno fica disponível depois do encerramento do aluguel.", 409);
+  }
+  return { id, aluguelId: Number(aluguel.id) };
 }
 
 export async function POST(req: NextRequest, context: RouteContext) {

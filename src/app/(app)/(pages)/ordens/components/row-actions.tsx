@@ -153,7 +153,7 @@ export function RowActions<TRow extends RowBase>({
   const showCancelarOS = canEdit && !isFinalState;
 
   // Orçamento
-  const showBudget = canEdit && (st === "ORCAMENTO" || st === "ORCAMENTO_RECUSADO " || st === "EM_ANDAMENTO") && policy.canEditBudget;
+  const showBudget = canEdit && (st === "ORCAMENTO" || st === "ORCAMENTO_RECUSADO" || st === "EM_ANDAMENTO") && policy.canEditBudget;
 
   // Editar OS
   const showEditOS = canEdit && st === "ORCAMENTO" && policy.showEditOS;

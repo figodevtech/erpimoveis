@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   CalendarDays,
@@ -9,8 +9,8 @@ import {
   History,
   KeyRound,
   Loader2,
+  MoreHorizontal,
   Package,
-  Trash2,
   UserRound,
 } from "lucide-react";
 
@@ -28,20 +28,14 @@ import {
   duracaoContratada,
   politicaAluguel,
 } from "@/lib/alugueis/status";
-import { ChecklistPreenchimentoDialog } from "@/components/checklist/checklist-preenchimento-dialog";
 import { ChecklistImagePreview } from "@/app/(app)/(pages)/ordens/components/dialogs/checklist-image-preview";
 
-import { avisarAlteracaoAlugueis, carregarAluguel, excluirFotoChecklist } from "../lib/api";
+import { carregarAluguel } from "../lib/api";
 import type { AluguelDetalhe, ChecklistAluguel, EventoAluguel } from "../types";
-import { nomeDoCliente } from "../types";
-import {
-  TEXTOS_CHECKLIST,
-  gravarChecklist,
-  rascunhoDoSalvo,
-  useModelosChecklist,
-  type TipoChecklistAluguel,
-} from "./checklist-aluguel";
-import { DiasAluguel, StatusAluguelBadge, fmtData, fmtDataHora, fmtMoeda } from "./status-aluguel";
+import { nomeDoCliente, quantidadeQueVoltou } from "../types";
+import { TEXTOS_CHECKLIST, type TipoChecklistAluguel } from "./checklist-aluguel";
+import { RowActions, type AcaoAluguel } from "./row-actions";
+import { DestinatarioBadge, DiasAluguel, StatusAluguelBadge, fmtData, fmtDataHora, fmtLimite, fmtMoeda } from "./status-aluguel";
 
 const tabTriggerClass =
   "group h-8 rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm";
@@ -76,24 +70,35 @@ function Cartao({ icone: Icone, titulo, children }: { icone: typeof UserRound; t
 
 function descreverEvento(evento: EventoAluguel): string {
   const d = evento.dados ?? {};
-  const periodo = (p?: { data_inicio?: string; data_limite?: string }) =>
-    p ? `${fmtData(p.data_inicio)} a ${fmtData(p.data_limite)}` : "";
+  const periodo = (p?: { data_inicio?: string; data_limite?: string | null }) =>
+    !p ? "" : p.data_limite ? `${fmtData(p.data_inicio)} a ${fmtData(p.data_limite)}` : `${fmtData(p.data_inicio)}, sem limite`;
   switch (evento.tipo) {
     case "CRIADO":
-      return `Aluguel criado com ${d.itens ?? 0} item(ns), de ${fmtData(d.data_inicio)} a ${fmtData(d.data_limite)}.`;
+      return `Aluguel criado com ${d.itens ?? 0} item(ns), ${d.data_limite ? `de ${periodo(d)}` : `a partir de ${fmtData(d.data_inicio)}, prazo indeterminado`}.`;
     case "EDITADO": {
       const partes = [];
       if (JSON.stringify(d.antes) !== JSON.stringify(d.depois)) partes.push(`período ${periodo(d.antes)} → ${periodo(d.depois)}`);
-      if (d.itens_adicionados) partes.push(`${d.itens_adicionados} item(ns) adicionado(s)`);
-      if (d.itens_removidos) partes.push(`${d.itens_removidos} item(ns) devolvido(s) ao retirar`);
+      // Eventos a partir de 20261013180000 trazem a descrição; os anteriores, só a contagem.
+      const lista = (valor: unknown) => (Array.isArray(valor) && valor.length ? (valor as string[]).join(", ") : null);
+      const adicionados = lista(d.descricao_adicionados);
+      const removidos = lista(d.descricao_removidos);
+      const trocados = lista(d.descricao_trocados);
+      if (adicionados) partes.push(`adicionado(s): ${adicionados}`);
+      else if (d.itens_adicionados) partes.push(`${d.itens_adicionados} item(ns) adicionado(s)`);
+      if (removidos) partes.push(`retirado(s) e devolvido(s) ao estoque: ${removidos}`);
+      else if (d.itens_removidos) partes.push(`${d.itens_removidos} item(ns) devolvido(s) ao retirar`);
+      if (trocados) partes.push(`alterado(s): ${trocados}`);
       return partes.length ? `Editado: ${partes.join("; ")}.` : "Dados do aluguel editados.";
     }
     case "PAUSADO":
-      return `Contagem pausada com ${d.dias_restantes ?? "?"} dia(s) até o limite.`;
+      return d.dias_restantes == null ? "Contagem pausada (prazo indeterminado)." : `Contagem pausada com ${d.dias_restantes} dia(s) até o limite.`;
     case "REINICIADO":
-      return `Reiniciado a partir de hoje: ${periodo(d.depois)} (${d.duracao_dias ?? "?"} dias). Antes: ${periodo(d.antes)}.`;
+      return `Reiniciado a partir de hoje: ${periodo(d.depois)}${d.duracao_dias == null ? "" : ` (${d.duracao_dias} dias)`}. Antes: ${periodo(d.antes)}.`;
     case "ENCERRADO":
-      return `Encerrado com retorno em ${fmtDataHora(d.encerrado_em)}; ${d.itens_devolvidos ?? 0} item(ns) baixado(s) do aluguel.${d.observacao ? ` Obs.: ${d.observacao}` : ""}`;
+    {
+      const naoVoltaram = Array.isArray(d.nao_retornados) && d.nao_retornados.length ? d.nao_retornados.join(", ") : null;
+      return `Encerrado com retorno em ${fmtDataHora(d.encerrado_em)}; ${d.itens_devolvidos ?? 0} item(ns) baixado(s) do aluguel.${naoVoltaram ? ` Não retornou: ${naoVoltaram}.` : ""}${d.observacao ? ` Obs.: ${d.observacao}` : ""}`;
+    }
     case "EXCLUIDO":
       return `Excluído: ${d.motivo ?? ""}`;
     case "CHECKLIST_SAIDA":
@@ -119,32 +124,18 @@ function ChecklistSecao({
   tipo,
   aluguel,
   podeEditar,
-  onAlterado,
+  onAcao,
 }: {
   tipo: TipoChecklistAluguel;
   aluguel: AluguelDetalhe;
   podeEditar: boolean;
-  onAlterado: () => void;
+  onAcao: (acao: AcaoAluguel, aluguel: AluguelDetalhe) => void;
 }) {
   const salvo: ChecklistAluguel | undefined = aluguel.checklists.find((item) => item.tipo === tipo);
-  const [editando, setEditando] = useState(false);
-  const [gravando, setGravando] = useState(false);
   const politica = politicaAluguel(aluguel.status);
   // Saída se mexe enquanto o aluguel está aberto; retorno, depois do encerramento.
   const liberado = podeEditar && (tipo === "SAIDA" ? politica.podeChecklistSaida : politica.podeChecklistRetorno);
-  const modelos = useModelosChecklist(liberado);
-  // O dialog lê o rascunho só ao montar: por isso ele abre depois dos modelos.
-  const rascunhoSalvo = useMemo(() => rascunhoDoSalvo(salvo, modelos), [salvo, modelos]);
   const textos = TEXTOS_CHECKLIST[tipo];
-
-  async function removerFoto(itemId: number, imagemId: number) {
-    try {
-      await excluirFotoChecklist(itemId, imagemId);
-      onAlterado();
-    } catch (error: any) {
-      toast.error(error?.message || "Falha ao excluir foto.");
-    }
-  }
 
   return (
     <AccordionItem value={tipo} className="rounded-lg border bg-card px-4">
@@ -164,8 +155,11 @@ function ChecklistSecao({
       <AccordionContent className="space-y-3 pb-4">
         {liberado ? (
           <div className="flex justify-end">
-            <Button size="sm" variant="outline" disabled={gravando || !modelos.length} onClick={() => setEditando(true)}>
-              {gravando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onAcao(tipo === "SAIDA" ? "checklist-saida" : "checklist-retorno", aluguel)}
+            >
               {salvo ? "Editar checklist" : "Preencher checklist"}
             </Button>
           </div>
@@ -191,20 +185,8 @@ function ChecklistSecao({
                 {item.imagens?.length ? (
                   <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                     {item.imagens.map((imagem) => (
-                      <div key={imagem.id} className="relative w-28 shrink-0">
+                      <div key={imagem.id} className="w-28 shrink-0">
                         <ChecklistImagePreview src={imagem.url} alt={imagem.descricao ?? item.titulo} />
-                        {liberado ? (
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="secondary"
-                            className="absolute right-1 top-1 h-6 w-6"
-                            aria-label="Excluir foto"
-                            onClick={() => void removerFoto(item.id, imagem.id)}
-                          >
-                            <Trash2 className="h-3 w-3 text-red-600" />
-                          </Button>
-                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -214,37 +196,10 @@ function ChecklistSecao({
         ) : (
           <p className="text-sm text-muted-foreground">
             {tipo === "RETORNO" && aluguel.status !== "ENCERRADO"
-              ? "O checklist de retorno é feito ao encerrar o aluguel."
+              ? "O checklist de retorno fica disponível depois do encerramento do aluguel."
               : "Nenhum checklist registrado."}
           </p>
         )}
-
-        {editando ? (
-          <ChecklistPreenchimentoDialog
-            open
-            onOpenChange={setEditando}
-            titulo={textos.titulo}
-            descricao={`${textos.descricao} As fotos já gravadas continuam no item.`}
-            exigirTodos={false}
-            templates={modelos}
-            templateId={rascunhoSalvo.templateId}
-            marks={rascunhoSalvo.marks}
-            images={{}}
-            videos={{}}
-            onVideos={() => undefined}
-            videoEnabled={false}
-            onApply={(templateId, marks, images) => {
-              setGravando(true);
-              gravarChecklist(aluguel.id, tipo, { templateId, marks, images }, modelos)
-                .then(() => {
-                  toast.success(`${textos.titulo} gravado.`);
-                  onAlterado();
-                })
-                .catch((error) => toast.error(error?.message || "Falha ao gravar checklist."))
-                .finally(() => setGravando(false));
-            }}
-          />
-        ) : null}
       </AccordionContent>
     </AccordionItem>
   );
@@ -255,10 +210,13 @@ export type AbaDetalhesAluguel = "resumo" | "itens" | "checklists" | "historico"
 export function DetalhesAluguelDialog({
   aluguelId,
   onOpenChange,
+  onAcao,
   abaInicial = "resumo",
 }: {
   aluguelId: number | null;
   onOpenChange: (open: boolean) => void;
+  /** As mesmas ações do menu da lista; a tela recarrega com `alugueis:refresh`. */
+  onAcao: (acao: AcaoAluguel, aluguel: AluguelDetalhe) => void;
   abaInicial?: AbaDetalhesAluguel;
 }) {
   const open = Boolean(aluguelId);
@@ -295,10 +253,13 @@ export function DetalhesAluguelDialog({
     };
   }, [aluguelId, recarregar, abaInicial]);
 
-  const aoAlterarChecklist = useCallback(() => {
-    void recarregar();
-    avisarAlteracaoAlugueis();
-  }, [recarregar]);
+  // Ações abertas daqui (editar, checklist, encerrar...) avisam pelo mesmo evento da lista.
+  useEffect(() => {
+    if (!aluguelId) return;
+    const aoMudar = () => void recarregar();
+    window.addEventListener("alugueis:refresh", aoMudar);
+    return () => window.removeEventListener("alugueis:refresh", aoMudar);
+  }, [aluguelId, recarregar]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -311,6 +272,20 @@ export function DetalhesAluguelDialog({
               <KeyRound className="h-5 w-5 text-primary" />
               Aluguel #{aluguelId}
               {dados ? <StatusAluguelBadge aluguel={dados} /> : null}
+              {dados ? (
+                <span className="ml-auto">
+                  <RowActions
+                    aluguel={dados}
+                    onAcao={(acao) => onAcao(acao, dados)}
+                    ocultar={["detalhes"]}
+                    trigger={
+                      <Button variant="outline" size="sm" className="h-8">
+                        <MoreHorizontal className="mr-1 h-4 w-4" /> Ações
+                      </Button>
+                    }
+                  />
+                </span>
+              ) : null}
             </DialogTitle>
             <DialogDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
               {dados ? (
@@ -358,20 +333,22 @@ export function DetalhesAluguelDialog({
             </div>
 
             <TabsContent value="resumo" className={tabContentClass}>
-              <Cartao icone={UserRound} titulo="Cliente">
+              <Cartao icone={UserRound} titulo="Destinatário">
                 <Campo rotulo="Nome">
                   {nomeDoCliente(dados)}
-                  {!dados.cliente_id ? <Badge variant="outline" className="ml-2 text-[10px]">Avulso</Badge> : null}
+                  <DestinatarioBadge aluguel={dados} className="ml-2" />
                 </Campo>
                 <Campo rotulo="CPF/CNPJ">{dados.cliente?.cpfcnpj || dados.cliente_documento || "—"}</Campo>
                 <Campo rotulo="Telefone">{dados.cliente?.telefone || dados.cliente_telefone || "—"}</Campo>
-                <Campo rotulo="E-mail">{dados.cliente?.email || dados.cliente_email || "—"}</Campo>
+                <Campo rotulo="E-mail">{dados.cliente?.email || dados.destinatario?.email || dados.cliente_email || "—"}</Campo>
               </Cartao>
 
               <Cartao icone={CalendarDays} titulo="Período">
                 <Campo rotulo="Início">{fmtData(dados.data_inicio)}</Campo>
-                <Campo rotulo="Limite">{fmtData(dados.data_limite)}</Campo>
-                <Campo rotulo="Duração contratada">{duracaoContratada(dados)} dia(s)</Campo>
+                <Campo rotulo="Limite">{fmtLimite(dados.data_limite)}</Campo>
+                <Campo rotulo="Duração contratada">
+                  {dados.data_limite ? `${duracaoContratada(dados)} dia(s)` : "Prazo indeterminado"}
+                </Campo>
                 <Campo rotulo="Situação"><DiasAluguel aluguel={dados} /></Campo>
                 {dados.pausado_em ? <Campo rotulo="Pausado em">{fmtDataHora(dados.pausado_em)}</Campo> : null}
                 {dados.encerrado_em ? (
@@ -403,6 +380,7 @@ export function DetalhesAluguelDialog({
                       <TableHead>Item</TableHead>
                       <TableHead>Identificação</TableHead>
                       <TableHead className="text-right">Qtd.</TableHead>
+                      {dados.status === "ENCERRADO" ? <TableHead className="text-right">Retornou</TableHead> : null}
                       <TableHead className="text-right">Valor</TableHead>
                       <TableHead className="text-right">Subtotal</TableHead>
                       <TableHead>Estoque</TableHead>
@@ -411,6 +389,8 @@ export function DetalhesAluguelDialog({
                   <TableBody>
                     {dados.itens.map((item) => {
                       const saida = item.estoque_saida_id ?? item.usoconsumo_saida_id;
+                      const voltou = quantidadeQueVoltou(item);
+                      const falta = dados.status === "ENCERRADO" ? item.quantidade - voltou : 0;
                       return (
                         <TableRow key={item.id}>
                           <TableCell>
@@ -419,11 +399,22 @@ export function DetalhesAluguelDialog({
                           <TableCell className="font-medium">{item.descricao}</TableCell>
                           <TableCell>{item.identificacao || "—"}</TableCell>
                           <TableCell className="text-right tabular-nums">{item.quantidade}</TableCell>
+                          {dados.status === "ENCERRADO" ? (
+                            <TableCell className={cn("text-right tabular-nums", falta > 0 && "font-semibold text-amber-700 dark:text-amber-300")}>
+                              {voltou}
+                            </TableCell>
+                          ) : null}
                           <TableCell className="text-right tabular-nums">{fmtMoeda(item.valor)}</TableCell>
                           <TableCell className="text-right tabular-nums">{fmtMoeda(item.valor * item.quantidade)}</TableCell>
                           <TableCell>
                             {!saida ? (
-                              <span className="text-muted-foreground">Sem saldo</span>
+                              <span className="text-muted-foreground">{falta > 0 ? `${falta} não retornou` : "Sem saldo"}</span>
+                            ) : item.devolvido_em && falta > 0 ? (
+                              // A saída apontada é a da falta, que seguiu fora do estoque.
+                              <span className="text-amber-700 dark:text-amber-300">
+                                {voltou ? `${voltou} devolvido · ` : ""}
+                                {falta} fora do estoque · saída #{saida}
+                              </span>
                             ) : item.devolvido_em ? (
                               <span className="text-emerald-700 dark:text-emerald-300">Devolvido · saída #{saida}</span>
                             ) : (
@@ -443,8 +434,8 @@ export function DetalhesAluguelDialog({
 
             <TabsContent value="checklists" className={tabContentClass}>
               <Accordion type="multiple" defaultValue={["SAIDA", "RETORNO"]} className="space-y-3">
-                <ChecklistSecao tipo="SAIDA" aluguel={dados} podeEditar={podeEditar} onAlterado={aoAlterarChecklist} />
-                <ChecklistSecao tipo="RETORNO" aluguel={dados} podeEditar={podeEditar} onAlterado={aoAlterarChecklist} />
+                <ChecklistSecao tipo="SAIDA" aluguel={dados} podeEditar={podeEditar} onAcao={onAcao} />
+                <ChecklistSecao tipo="RETORNO" aluguel={dados} podeEditar={podeEditar} onAcao={onAcao} />
               </Accordion>
             </TabsContent>
 

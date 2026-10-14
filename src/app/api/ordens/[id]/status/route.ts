@@ -52,6 +52,13 @@ type Body = {
 
 type ParamsId = { id: string };
 
+const ROTULO_STATUS_FINAL: Record<string, string> = {
+  CANCELADO: "cancelada",
+  CONCLUIDO: "concluída",
+  SEM_COBRANCA: "finalizada sem cobrança",
+};
+const STATUS_FINAIS_OS = new Set(Object.keys(ROTULO_STATUS_FINAL));
+
 export async function PUT(req: NextRequest, { params }: { params: Promise<ParamsId> }) {
   try {
     await requireOSEdit();
@@ -64,6 +71,27 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<Params
 
     const body = (await req.json()) as Body;
     const status = body.status;
+
+    // OS encerrada não muda de etapa por aqui. Cancelar tem rota própria e a
+    // conclusão vem do recálculo financeiro; sem esta trava, uma chamada direta
+    // ou um clique cruzado com outro usuário reabriria a OS ou, no "sem
+    // cobrança", zeraria o total de uma OS já paga.
+    const origem = await supabaseAdmin
+      .from("ordemservico")
+      .select("status")
+      .eq("id", osId)
+      .eq("is_deleted", false)
+      .maybeSingle();
+    if (origem.error) throw origem.error;
+    if (!origem.data) return NextResponse.json({ error: "OS não encontrada." }, { status: 404 });
+    const statusOrigem = String(origem.data.status ?? "").toUpperCase();
+    if (STATUS_FINAIS_OS.has(statusOrigem)) {
+      return NextResponse.json(
+        { error: `A OS #${osId} está ${ROTULO_STATUS_FINAL[statusOrigem]} e não muda mais de etapa.` },
+        { status: 409 },
+      );
+    }
+
     let preservarCondicoes = false;
     // Não reutilizar a finalização da execução para devolver uma OS: ela
     // também salva condições comerciais que devem ser preservadas aqui.

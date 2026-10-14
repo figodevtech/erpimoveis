@@ -8,12 +8,22 @@ export type ClienteCadastrado = {
   email?: string | null;
 };
 
+/** Usuário do sistema que pode receber um aluguel. */
+export type UsuarioDestinatario = {
+  id: string;
+  nome: string | null;
+  email?: string | null;
+  setor?: { id: number; nome: string } | null;
+};
+
 export type ItemAluguelResumo = {
   id: number;
   tipo: TipoItemAluguel;
   descricao: string;
   identificacao?: string | null;
   quantidade: number;
+  /** Quanto voltou no encerramento; nulo enquanto aberto (ou encerrado antes do retorno por item). */
+  quantidade_devolvida?: number | null;
   valor: number;
   devolvido_em?: string | null;
 };
@@ -22,7 +32,8 @@ export type AluguelLista = {
   id: number;
   status: StatusAluguel;
   data_inicio: string;
-  data_limite: string;
+  /** Nula: prazo indeterminado. */
+  data_limite: string | null;
   pausado_em?: string | null;
   encerrado_em?: string | null;
   cliente_id?: number | null;
@@ -34,6 +45,9 @@ export type AluguelLista = {
   valor_total: number;
   created_at: string;
   cliente?: ClienteCadastrado | null;
+  /** Usuário do sistema como destinatário; exclusivo com cliente e avulso. */
+  usuario_id?: string | null;
+  destinatario?: UsuarioDestinatario | null;
   itens: ItemAluguelResumo[];
   checklists?: { id: number; tipo: "SAIDA" | "RETORNO" }[];
 };
@@ -114,13 +128,40 @@ export type ItemAluguelForm = {
 
 export type AluguelPayload = {
   data_inicio: string;
-  data_limite: string;
+  data_limite: string | null;
+  indeterminado: boolean;
   cliente_id: number | null;
+  usuario_id: string | null;
   cliente?: { nome: string; documento?: string; telefone?: string; email?: string };
   observacao?: string;
   itens: Array<Omit<ItemAluguelForm, "chave" | "disponivel">>;
 };
 
-export function nomeDoCliente(aluguel: Pick<AluguelLista, "cliente" | "cliente_nome">): string {
-  return aluguel.cliente?.nomerazaosocial || aluguel.cliente_nome || "—";
+/** Quanto voltou do item: a quantidade gravada no encerramento ou, sem ela, tudo. */
+export function quantidadeQueVoltou(item: Pick<ItemAluguelResumo, "quantidade" | "quantidade_devolvida">): number {
+  return item.quantidade_devolvida ?? item.quantidade;
+}
+
+/** Itens encerrados com falta no retorno. */
+export function itensQueNaoVoltaram<T extends Pick<ItemAluguelResumo, "quantidade" | "quantidade_devolvida">>(itens: T[]): T[] {
+  return itens.filter((item) => quantidadeQueVoltou(item) < item.quantidade);
+}
+
+export type TipoDestinatario = "cliente" | "usuario" | "avulso";
+
+/** Quem recebeu o aluguel: cliente do cadastro, usuário do sistema ou avulso. */
+export function tipoDestinatario(aluguel: Pick<AluguelLista, "cliente_id" | "usuario_id">): TipoDestinatario {
+  if (aluguel.cliente_id) return "cliente";
+  if (aluguel.usuario_id) return "usuario";
+  return "avulso";
+}
+
+export function nomeDoCliente(aluguel: Pick<AluguelLista, "cliente" | "cliente_nome" | "destinatario">): string {
+  return (
+    aluguel.cliente?.nomerazaosocial ||
+    aluguel.destinatario?.nome ||
+    aluguel.destinatario?.email ||
+    aluguel.cliente_nome ||
+    "—"
+  );
 }

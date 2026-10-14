@@ -34,9 +34,9 @@ import { ROTULO_TIPO_ITEM_ALUGUEL, type AbaAluguel } from "@/lib/alugueis/status
 
 import { listarAlugueis } from "../lib/api";
 import type { AluguelLista } from "../types";
-import { nomeDoCliente } from "../types";
+import { itensQueNaoVoltaram, nomeDoCliente } from "../types";
 import { RowActions, type AcaoAluguel } from "./row-actions";
-import { DiasAluguel, StatusAluguelBadge, fmtData, fmtMoeda } from "./status-aluguel";
+import { DestinatarioBadge, DiasAluguel, StatusAluguelBadge, fmtData, fmtLimite, fmtMoeda } from "./status-aluguel";
 
 type Ordenacao = "id" | "inicio" | "limite" | "valor";
 type Direcao = "asc" | "desc";
@@ -56,6 +56,24 @@ function resumoItens(aluguel: AluguelLista) {
   if (!primeiro) return "—";
   const texto = `${primeiro.quantidade > 1 ? `${primeiro.quantidade}× ` : ""}${primeiro.descricao}${primeiro.identificacao ? ` (${primeiro.identificacao})` : ""}`;
   return resto.length ? `${texto} +${resto.length}` : texto;
+}
+
+/** Encerrado com item que não voltou inteiro. */
+function RetornoParcialBadge({ aluguel }: { aluguel: AluguelLista }) {
+  if (aluguel.status !== "ENCERRADO") return null;
+  const faltas = itensQueNaoVoltaram(aluguel.itens);
+  if (!faltas.length) return null;
+  return (
+    <Badge
+      variant="outline"
+      className="border-amber-500/40 px-2 py-0.5 text-[11px] text-amber-800 dark:text-amber-300"
+      title={`Não retornou: ${faltas
+        .map((item) => `${item.quantidade - (item.quantidade_devolvida ?? item.quantidade)}× ${item.descricao}`)
+        .join(", ")}`}
+    >
+      Retorno parcial
+    </Badge>
+  );
 }
 
 function CabecalhoOrdenavel({
@@ -181,7 +199,7 @@ export function AlugueisTabela({
       <Input
         value={busca}
         onChange={(e) => setBusca(e.target.value)}
-        placeholder="Buscar... (#ID, cliente, item, placa)"
+        placeholder="Buscar... (#ID, cliente, usuário, item, placa)"
         className="pl-8 pr-9"
       />
       {busca ? (
@@ -275,12 +293,15 @@ export function AlugueisTabela({
                       <Badge variant="outline" className="border-slate-300 bg-slate-100 px-2 py-0.5 font-mono text-xs font-bold text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                         #{aluguel.id}
                       </Badge>
-                      <StatusAluguelBadge aluguel={aluguel} />
+                      <span className="flex flex-wrap justify-end gap-1">
+                        <StatusAluguelBadge aluguel={aluguel} />
+                        <RetornoParcialBadge aluguel={aluguel} />
+                      </span>
                     </div>
                     <div>
                       <p className="truncate text-sm font-semibold" title={nomeDoCliente(aluguel)}>
                         {nomeDoCliente(aluguel)}
-                        {!aluguel.cliente_id ? <Badge variant="outline" className="ml-2 text-[10px]">Avulso</Badge> : null}
+                        <DestinatarioBadge aluguel={aluguel} className="ml-2" />
                       </p>
                       <p className="mt-1 flex items-center gap-1 truncate text-xs text-muted-foreground" title={aluguel.itens.map((i) => i.descricao).join(", ")}>
                         <Package className="h-3 w-3 shrink-0" />
@@ -295,7 +316,7 @@ export function AlugueisTabela({
                     <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <CalendarDays className="h-3 w-3" />
-                        {fmtData(aluguel.data_inicio)} → <strong className="font-medium text-foreground">{fmtData(aluguel.data_limite)}</strong>
+                        {fmtData(aluguel.data_inicio)} → <strong className="font-medium text-foreground">{fmtLimite(aluguel.data_limite)}</strong>
                       </span>
                       <span className="font-medium text-foreground">{fmtMoeda(aluguel.valor_total)}</span>
                     </div>
@@ -349,7 +370,7 @@ export function AlugueisTabela({
                       <TableCell>
                         <div className="flex items-center gap-1.5">
                           <span className="truncate font-medium" title={nomeDoCliente(aluguel)}>{nomeDoCliente(aluguel)}</span>
-                          {!aluguel.cliente_id ? <Badge variant="outline" className="text-[10px]">Avulso</Badge> : null}
+                          <DestinatarioBadge aluguel={aluguel} />
                         </div>
                         {aluguel.cliente?.telefone || aluguel.cliente_telefone ? (
                           <span className="text-[11px] text-muted-foreground">{aluguel.cliente?.telefone || aluguel.cliente_telefone}</span>
@@ -361,9 +382,14 @@ export function AlugueisTabela({
                         </span>
                       </TableCell>
                       <TableCell>{fmtData(aluguel.data_inicio)}</TableCell>
-                      <TableCell>{fmtData(aluguel.data_limite)}</TableCell>
+                      <TableCell>{fmtLimite(aluguel.data_limite)}</TableCell>
                       <TableCell><DiasAluguel aluguel={aluguel} /></TableCell>
-                      <TableCell><StatusAluguelBadge aluguel={aluguel} /></TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          <StatusAluguelBadge aluguel={aluguel} />
+                          <RetornoParcialBadge aluguel={aluguel} />
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{fmtMoeda(aluguel.valor_total)}</TableCell>
                       <TableCell className="text-center" onDoubleClick={(e) => e.stopPropagation()}>
                         <RowActions aluguel={aluguel} onAcao={onAcao} />
