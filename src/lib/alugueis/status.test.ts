@@ -87,7 +87,7 @@ test("ações por status", () => {
 test("abas: atrasado é ativo com limite antes de hoje", () => {
   assert.deepEqual(filtroDaAba("ATRASADOS", HOJE), { status: "ATIVO", limiteAntesDe: HOJE });
   assert.deepEqual(filtroDaAba("EM_ANDAMENTO", HOJE), { status: "ATIVO", limiteDesde: HOJE });
-  assert.deepEqual(filtroDaAba("TODOS", HOJE), {});
+  assert.deepEqual(filtroDaAba("ABERTOS", HOJE), { statusEm: ["ATIVO", "PAUSADO"] });
 });
 
 test("devolução: atraso pelo dia de Fortaleza; encerrado pausado conta até a pausa", () => {

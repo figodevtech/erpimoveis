@@ -186,6 +186,9 @@ const ROUTE_ANY_PERMS: Array<{ prefix: string; perms: Permission[] }> = [
   },
   { prefix: "/etiquetas", perms: [PERMS.ESTOQUE, PERMS.USOCONSUMO] },
   { prefix: "/print/etiquetas", perms: [PERMS.ESTOQUE, PERMS.USOCONSUMO] },
+  // Documentos dinâmicos: a rota confere a permissão do módulo do modelo.
+  { prefix: "/api/documentos", perms: [PERMS.VENDAS, PERMS.ORDENS, PERMS.ALUGUEIS] },
+  { prefix: "/print/documento", perms: [PERMS.VENDAS, PERMS.ORDENS, PERMS.ALUGUEIS] },
 ];
 
 const API_ACTION_PERMS: Array<{

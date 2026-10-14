@@ -50,6 +50,7 @@ const routeTitles: Record<string, string> = {
   "/configuracoes/empresa": "Dados da Empresa",
   "/configuracoes/fiscal-pagamentos": "Configurações Fiscais e de Pagamentos",
   "/configuracoes/checklist": "Gerenciamento de Checklists",
+  "/configuracoes/documentos": "Documentos personalizados",
   "/configuracoes/auditoria": "Auditoria",
   "/configuracoes/telegram": "Integração com Telegram",
   "/nao-autorizado": "Acesso não autorizado",
@@ -95,7 +96,11 @@ export default function ClientAppShell({
   hideHeader?: boolean;
 }) {
   const pathname = usePathname();
-  const title = routeTitles[pathname] ?? humanize(pathname);
+  const title =
+    routeTitles[pathname] ??
+    // Criação e edição de documento ficam sob a lista.
+    (pathname.startsWith("/configuracoes/documentos/") ? routeTitles["/configuracoes/documentos"] : undefined) ??
+    humanize(pathname);
   const router = useRouter();
   const config = useConfig();
   const { radio } = useUserPreferences();

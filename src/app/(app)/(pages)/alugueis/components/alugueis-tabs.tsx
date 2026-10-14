@@ -11,7 +11,16 @@ import type { AluguelLista } from "../types";
 import { AlugueisTabela } from "./alugueis-tabela";
 import type { AcaoAluguel } from "./row-actions";
 
+// "Abertos" (tudo menos encerrados) vem primeiro e é a aba de entrada do módulo.
 const ABAS: { key: AbaAluguel; label: string; icon: JSX.Element; dot: string; active: string; accent: string }[] = [
+  {
+    key: "ABERTOS",
+    label: "Abertos",
+    icon: <Layers className="h-4 w-4" />,
+    dot: "bg-violet-500",
+    active: "data-[state=active]:bg-violet-600/15 data-[state=active]:text-violet-700 data-[state=active]:ring-violet-500/30",
+    accent: "text-violet-700 dark:text-violet-300",
+  },
   {
     key: "EM_ANDAMENTO",
     label: "Em andamento",
@@ -44,17 +53,9 @@ const ABAS: { key: AbaAluguel; label: string; icon: JSX.Element; dot: string; ac
     active: "data-[state=active]:bg-indigo-500/15 data-[state=active]:text-indigo-800 data-[state=active]:ring-indigo-500/30",
     accent: "text-indigo-700 dark:text-indigo-300",
   },
-  {
-    key: "TODOS",
-    label: "Todos",
-    icon: <Layers className="h-4 w-4" />,
-    dot: "bg-violet-500",
-    active: "data-[state=active]:bg-violet-600/15 data-[state=active]:text-violet-700 data-[state=active]:ring-violet-500/30",
-    accent: "text-violet-700 dark:text-violet-300",
-  },
 ];
 
-const ZERADO: Record<AbaAluguel, number> = { TODOS: 0, EM_ANDAMENTO: 0, ATRASADOS: 0, PAUSADOS: 0, ENCERRADOS: 0 };
+const ZERADO: Record<AbaAluguel, number> = { ABERTOS: 0, EM_ANDAMENTO: 0, ATRASADOS: 0, PAUSADOS: 0, ENCERRADOS: 0 };
 
 function MiniCard({ title, value, icon, accent }: { title: string; value: number; icon: JSX.Element; accent: string }) {
   return (
@@ -77,7 +78,7 @@ export function AlugueisTabs({
   onNovo: () => void;
   onAcao: (acao: AcaoAluguel, aluguel: AluguelLista) => void;
 }) {
-  const [aba, setAba] = useState<AbaAluguel>("EM_ANDAMENTO");
+  const [aba, setAba] = useState<AbaAluguel>("ABERTOS");
   const [contagem, setContagem] = useState(ZERADO);
   const [resumoMobile, setResumoMobile] = useState(false);
   const requisicao = useRef(0);

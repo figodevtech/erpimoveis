@@ -341,6 +341,12 @@ const data = {
           perm: PERMS.CONFIG,
         },
         {
+          title: "Documentos",
+          url: "/configuracoes/documentos",
+          icon: FileText,
+          perm: PERMS.CONFIG,
+        },
+        {
           title: "Telegram",
           url: "/configuracoes/telegram",
           icon: Send,

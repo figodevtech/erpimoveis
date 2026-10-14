@@ -45,6 +45,7 @@ const TABELAS = [
   "tipos_motivo_saida",
   "usoconsumo_grupo",
   "os_termo_impressao",
+  "documento_modelo",
 ] as const;
 // Fora de propósito: unidades de medida, que cada oficina cadastra (nenhuma
 // linha igual entre os clientes), e o que depende da empresa cadastrada

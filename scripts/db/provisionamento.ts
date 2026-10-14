@@ -168,7 +168,7 @@ export async function exportModel() {
       array_to_string(array(select quote_ident(r::text) from unnest(roles) r),','),
       case when qual is null then '' else ' USING ('||qual||')' end,
       case when with_check is null then '' else ' WITH CHECK ('||with_check||')' end) ddl
-      from pg_policies where schemaname='storage' order by tablename,policyname`)).rows.map((row) => row.ddl).join("\n");
+      from pg_policies where schemaname in ('storage','realtime') order by schemaname,tablename,policyname`)).rows.map((row) => row.ddl).join("\n");
     const realtime = (await client.query(SCHEMA_QUERIES.realtime)).rows.map((row) => {
       if (row.prattrs !== null || row.row_filter) throw new Error("Realtime com filtros exige exportacao especifica.");
       return `ALTER PUBLICATION ${quote(row.pubname)} ADD TABLE public.${quote(row.relname)};`;

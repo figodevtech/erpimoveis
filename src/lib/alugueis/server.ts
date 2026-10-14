@@ -3,6 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import type { FiltroDaAba } from "@/lib/alugueis/status";
+import { LIMITE_HTML_TEXTO_RICO } from "@/lib/texto-rico";
 
 export const SELECT_LISTA_ALUGUEL = `
   id, status, data_inicio, data_limite, pausado_em, encerrado_em,
@@ -47,6 +48,7 @@ export const SELECT_DETALHE_ALUGUEL = `
 export function aplicarFiltroDaAba<Q>(query: Q, filtro: FiltroDaAba): Q {
   let resultado = query as any;
   if (filtro.status) resultado = resultado.eq("status", filtro.status);
+  if (filtro.statusEm) resultado = resultado.in("status", filtro.statusEm);
   // Prazo indeterminado (limite nulo) nunca atrasa: fica em andamento.
   if (filtro.limiteDesde) resultado = resultado.or(`data_limite.gte.${filtro.limiteDesde},data_limite.is.null`);
   if (filtro.limiteAntesDe) resultado = resultado.lt("data_limite", filtro.limiteAntesDe);
@@ -64,6 +66,13 @@ export async function usuarioDaSessao(): Promise<string> {
   const id = (session?.user as { id?: string } | undefined)?.id;
   if (!id) throw new ErroAluguel("Não autenticado.", 401);
   return id;
+}
+
+/** A observação é HTML do editor de texto rico; o tamanho é limitado aqui. */
+export function validarObservacao(valor: unknown) {
+  if (typeof valor === "string" && valor.length > LIMITE_HTML_TEXTO_RICO) {
+    throw new ErroAluguel("A observação está longa demais.", 400);
+  }
 }
 
 export function idDaRota(valor: string): number {

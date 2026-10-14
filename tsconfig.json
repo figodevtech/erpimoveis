@@ -36,11 +36,12 @@
     ".next-verificacao/types/**/*.ts",
     ".next-verificacao2/types/**/*.ts",
     ".next-verificacao3/types/**/*.ts",
+    ".next-verificacao4/types/**/*.ts",
     ".next-verify-nfe/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
     "src/app/(app)/(pages)/dashboard/components/dashboard-clientes",
-    ".next-verificacao4/types/**/*.ts"
+    ".next-lucena-build/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

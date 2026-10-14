@@ -23,7 +23,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import { EditorTextoRico } from "@/components/texto-rico/editor-texto-rico";
+import { LIMITE_HTML_TEXTO_RICO } from "@/lib/texto-rico";
 import ValueInput from "@/components/ui/value-input";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -289,6 +290,7 @@ export function AluguelDialog({
     if (!indeterminado && dataLimite < dataInicio) return "A data limite não pode ser anterior à data de início.";
     if (!itens.length) return "Adicione ao menos um item ao aluguel.";
     if (itens.some((item) => !item.descricao.trim())) return "Todo item precisa de descrição.";
+    if (observacao.length > LIMITE_HTML_TEXTO_RICO) return "A observação está longa demais.";
     if (itens.some((item) => !Number.isInteger(item.quantidade) || item.quantidade <= 0)) return "Quantidade inválida em algum item.";
     return null;
   }
@@ -306,7 +308,7 @@ export function AluguelDialog({
       cliente_id: modoCliente === "cadastrado" ? cliente?.id ?? null : null,
       usuario_id: modoCliente === "usuario" ? usuarioDestino?.id ?? null : null,
       cliente: modoCliente === "avulso" ? { ...avulso, nome: avulso.nome.trim() } : undefined,
-      observacao: observacao.trim(),
+      observacao,
       itens: itens.map((item) => ({
         id: item.id,
         tipo: item.tipo,
@@ -650,12 +652,12 @@ export function AluguelDialog({
           </OrdemFormSection>
 
           <OrdemFormSection icon={FileText} title="Observação">
-            <Textarea
-              rows={3}
-              maxLength={1000}
+            <EditorTextoRico
+              aria-label="Observação do aluguel"
               placeholder="Condições combinadas, caução, local de entrega..."
               value={observacao}
-              onChange={(e) => setObservacao(e.target.value)}
+              onChange={setObservacao}
+              disabled={salvando}
             />
           </OrdemFormSection>
         </div>

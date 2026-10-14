@@ -126,6 +126,7 @@ import { tituloServicoDaOs } from "@/lib/ordens/titulo-servico";
 import { ClienteResumoCard } from "@/components/cliente/cliente-resumo-card";
 import { TrocarClienteOsButton } from "./trocar-cliente-os-dialog";
 import { CriadorOsCard } from "./criador-os-card";
+import { BotaoDocumentos } from "@/components/documentos/botao-documentos";
 import type {
   ChecklistDocumentoResumo,
   ChecklistTipo,
@@ -1017,11 +1018,20 @@ export function OSDetalhesDialog({
   );
 
   const detalhesRequestRef = useRef(0);
+  // OS cujos detalhes já estão na tela. O realtime é por empresa e o hook ainda
+  // reconcilia a cada minuto e ao voltar para a aba: recarregar com o
+  // "Carregando" desmontava o dialog inteiro várias vezes por minuto nas
+  // oficinas movimentadas. Só a primeira carga de cada OS mostra o spinner.
+  const detalhesCarregadosOsIdRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!open) detalhesCarregadosOsIdRef.current = null;
+  }, [open]);
   const recarregarDetalhes = useCallback(async () => {
     if (!osId) return;
     const requestId = ++detalhesRequestRef.current;
+    const silenciosa = detalhesCarregadosOsIdRef.current === osId;
     try {
-      setLoading(true);
+      if (!silenciosa) setLoading(true);
       const [j, eventosResponse, auditoriaResponse] = await Promise.all([
         carregarDetalhesOS<OSDetalhesResponse>(osId),
         podeVerEventosFinanceiros
@@ -1059,6 +1069,7 @@ export function OSDetalhesDialog({
       }
       auditoriaItens.sort((a, b) => new Date(a.ocorridoEm).getTime() - new Date(b.ocorridoEm).getTime());
       if (requestId !== detalhesRequestRef.current) return;
+      detalhesCarregadosOsIdRef.current = osId;
       setData({
         ...j,
         eventosFinanceiros: eventosPayload?.eventos ?? [],
@@ -1066,6 +1077,12 @@ export function OSDetalhesDialog({
       });
     } catch (e: any) {
       if (requestId !== detalhesRequestRef.current) return;
+      // Falha de rede numa recarga de fundo não apaga a OS que já está na tela;
+      // a próxima reconciliação tenta de novo.
+      if (silenciosa) {
+        console.error(e);
+        return;
+      }
       toast.error(e?.message || "Erro ao carregar detalhes");
       setData(null);
     } finally {
@@ -1641,7 +1658,11 @@ export function OSDetalhesDialog({
       >
         {!loading ? (
           <div className="shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b relative">
-            <DialogHeader className="gap-0 px-5 py-4 pr-12">
+            {data && osId ? (
+              // Ao lado do X do dialog.
+              <BotaoDocumentos modulo="os" registroId={osId} className="absolute right-10 top-3.5 z-20" />
+            ) : null}
+            <DialogHeader className="gap-0 px-5 py-4 pr-20">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 space-y-1">
                   <DialogTitle className="flex flex-wrap items-center gap-2">

@@ -24,7 +24,8 @@ export type StatusExibicaoAluguel =
   | "PAUSADO"
   | "ENCERRADO";
 
-export const ABAS_ALUGUEL = ["TODOS", "EM_ANDAMENTO", "ATRASADOS", "PAUSADOS", "ENCERRADOS"] as const;
+/** "Abertos" é tudo o que não foi encerrado; é a aba de entrada do módulo. */
+export const ABAS_ALUGUEL = ["ABERTOS", "EM_ANDAMENTO", "ATRASADOS", "PAUSADOS", "ENCERRADOS"] as const;
 export type AbaAluguel = (typeof ABAS_ALUGUEL)[number];
 
 export const TIPOS_ITEM_ALUGUEL = ["PRODUTO", "USOCONSUMO", "GERAL", "VEICULO", "AVULSO"] as const;
@@ -196,6 +197,8 @@ export function politicaAluguel(status: StatusAluguel): PoliticaAluguel {
 /** Critério de cada aba, aplicado pela API sobre as colunas gravadas. */
 export type FiltroDaAba = {
   status?: StatusAluguel;
+  /** Qualquer um destes status. */
+  statusEm?: StatusAluguel[];
   /** Limite a partir deste dia ou sem limite (prazo indeterminado). */
   limiteDesde?: string;
   /** Limite antes deste dia; sem limite fica de fora. */
@@ -204,6 +207,8 @@ export type FiltroDaAba = {
 
 export function filtroDaAba(aba: AbaAluguel, hoje: string = hojeAluguel()): FiltroDaAba {
   switch (aba) {
+    case "ABERTOS":
+      return { statusEm: ["ATIVO", "PAUSADO"] };
     case "EM_ANDAMENTO":
       return { status: "ATIVO", limiteDesde: hoje };
     case "ATRASADOS":
@@ -212,12 +217,10 @@ export function filtroDaAba(aba: AbaAluguel, hoje: string = hojeAluguel()): Filt
       return { status: "PAUSADO" };
     case "ENCERRADOS":
       return { status: "ENCERRADO" };
-    default:
-      return {};
   }
 }
 
 export function parseAbaAluguel(valor: string | null | undefined): AbaAluguel {
   const aba = String(valor ?? "").toUpperCase();
-  return (ABAS_ALUGUEL as readonly string[]).includes(aba) ? (aba as AbaAluguel) : "TODOS";
+  return (ABAS_ALUGUEL as readonly string[]).includes(aba) ? (aba as AbaAluguel) : "ABERTOS";
 }

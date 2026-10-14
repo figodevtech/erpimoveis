@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "reac
 import { useSession } from "next-auth/react"
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants"
 import { VendaEventosFinanceiros } from "./venda-eventos-financeiros"
+import { BotaoDocumentos } from "@/components/documentos/botao-documentos"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -952,7 +953,15 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
           ) : (
             <>
               <Header className={isDesktop ? "shrink-0 border-b px-6 py-4" : "shrink-0 px-4 py-2"}>
-                <Title className={isDesktop ? "pr-4 text-sm sm:text-lg" : ""}>
+                {venda ? (
+                  // Ao lado do X do dialog; no drawer do celular, no canto do cabeçalho.
+                  <BotaoDocumentos
+                    modulo="venda"
+                    registroId={venda.id}
+                    className={isDesktop ? "absolute right-10 top-3.5 z-20" : "absolute right-4 top-4 z-20"}
+                  />
+                ) : null}
+                <Title className={isDesktop ? "pr-16 text-sm sm:text-lg" : "pr-10"}>
                   {venda ? `Venda #${venda.id}` : "Venda"}
                 </Title>
                 <Description>

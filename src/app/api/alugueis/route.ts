@@ -4,7 +4,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireAlugueisAccess, requireAlugueisCreate } from "@/app/api/_authz/perms";
 import { filtroDaAba, hojeAluguel, parseAbaAluguel } from "@/lib/alugueis/status";
-import { SELECT_LISTA_ALUGUEL, aplicarFiltroDaAba, respostaDeErro, usuarioDaSessao } from "@/lib/alugueis/server";
+import {
+  SELECT_LISTA_ALUGUEL,
+  aplicarFiltroDaAba,
+  respostaDeErro,
+  usuarioDaSessao,
+  validarObservacao,
+} from "@/lib/alugueis/server";
 
 /** Mesmo saneamento da lista de OS: tira o que quebra o `.or()` do PostgREST. */
 function sanitizarTermo(valor: string) {
@@ -137,6 +143,7 @@ export async function POST(req: NextRequest) {
     // Criar nunca edita: um `id` vindo no corpo é descartado.
     const payload = { ...((await req.json().catch(() => ({}))) ?? {}) };
     delete payload.id;
+    validarObservacao(payload.observacao);
 
     const { data, error } = await supabaseAdmin.rpc("aluguel_salvar", {
       p_payload: payload,

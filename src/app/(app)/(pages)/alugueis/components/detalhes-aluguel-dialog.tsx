@@ -28,6 +28,7 @@ import {
   duracaoContratada,
   politicaAluguel,
 } from "@/lib/alugueis/status";
+import { TextoRico } from "@/components/texto-rico/texto-rico";
 import { ChecklistImagePreview } from "@/app/(app)/(pages)/ordens/components/dialogs/checklist-image-preview";
 
 import { carregarAluguel } from "../lib/api";
@@ -35,6 +36,7 @@ import type { AluguelDetalhe, ChecklistAluguel, EventoAluguel } from "../types";
 import { nomeDoCliente, quantidadeQueVoltou } from "../types";
 import { TEXTOS_CHECKLIST, type TipoChecklistAluguel } from "./checklist-aluguel";
 import { RowActions, type AcaoAluguel } from "./row-actions";
+import { BotaoDocumentos } from "@/components/documentos/botao-documentos";
 import { DestinatarioBadge, DiasAluguel, StatusAluguelBadge, fmtData, fmtDataHora, fmtLimite, fmtMoeda } from "./status-aluguel";
 
 const tabTriggerClass =
@@ -266,8 +268,12 @@ export function DetalhesAluguelDialog({
       <DialogContent
         className="flex h-[100dvh] max-h-[100dvh] w-[100dvw] max-w-[100dvw] flex-col overflow-hidden rounded-none !gap-0 p-0 sm:h-[90vh] sm:w-[95vw] sm:rounded-lg md:max-w-[1000px]"
       >
-        <div className="shrink-0 border-b bg-background/95 backdrop-blur">
-          <DialogHeader className="gap-1 px-5 py-4 pr-12">
+        <div className="relative shrink-0 border-b bg-background/95 backdrop-blur">
+          {dados && aluguelId ? (
+            // Ao lado do X do dialog.
+            <BotaoDocumentos modulo="aluguel" registroId={aluguelId} className="absolute right-10 top-3.5 z-20" />
+          ) : null}
+          <DialogHeader className="gap-1 px-5 py-4 pr-20">
             <DialogTitle className="flex flex-wrap items-center gap-2">
               <KeyRound className="h-5 w-5 text-primary" />
               Aluguel #{aluguelId}
@@ -364,7 +370,11 @@ export function DetalhesAluguelDialog({
                 <Campo rotulo="Criado por">
                   {dados.criador?.nome ?? "—"} em {fmtDataHora(dados.created_at)}
                 </Campo>
-                <Campo rotulo="Observação">{dados.observacao || "—"}</Campo>
+                <div className="sm:col-span-2">
+                  <Campo rotulo="Observação">
+                    <TextoRico valor={dados.observacao} />
+                  </Campo>
+                </div>
                 {dados.observacao_encerramento ? (
                   <Campo rotulo="Observação do retorno">{dados.observacao_encerramento}</Campo>
                 ) : null}

@@ -9,6 +9,7 @@ import {
   idDaRota,
   respostaDeErro,
   usuarioDaSessao,
+  validarObservacao,
 } from "@/lib/alugueis/server";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -45,6 +46,7 @@ export async function PUT(req: NextRequest, context: RouteContext) {
     const usuario = await usuarioDaSessao();
     const id = idDaRota((await context.params).id);
     const body = await req.json().catch(() => ({}));
+    validarObservacao(body?.observacao);
 
     const { error } = await supabaseAdmin.rpc("aluguel_salvar", {
       p_payload: { ...(body ?? {}), id },
