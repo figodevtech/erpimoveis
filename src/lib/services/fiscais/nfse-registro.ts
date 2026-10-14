@@ -42,6 +42,39 @@ export async function atualizarRegistroNFSe(
   return error;
 }
 
+/**
+ * O envio saiu e a resposta não chegou (rede caiu, conexão reiniciada). A Focus
+ * pode ter recebido: marcar REJEITADA liberaria um reenvio com referência nova,
+ * e a nota poderia sair duas vezes. A nota fica PROCESSANDO com esta marca, e a
+ * consulta pela MESMA referência decide — achou, segue o status da Focus; a
+ * Focus respondeu 404, nada chegou e a nota volta a ser reenviável.
+ */
+export const CODIGO_RESULTADO_INCERTO = "RESULTADO_INCERTO";
+
+export function errosDeResultadoIncerto(detalhe: string) {
+  return [{
+    codigo: CODIGO_RESULTADO_INCERTO,
+    mensagem: "O envio à Focus não teve resposta. Consulte a nota antes de tentar de novo: ela pode ter sido recebida.",
+    correcao: detalhe || null,
+  }];
+}
+
+export function temResultadoIncerto(erros: unknown): boolean {
+  return Array.isArray(erros) && erros.some((erro) =>
+    erro && typeof erro === "object" && (erro as Record<string, unknown>).codigo === CODIGO_RESULTADO_INCERTO,
+  );
+}
+
+/**
+ * Falha do `fetch` em si: a requisição pode ou não ter chegado. O undici lança
+ * TypeError "fetch failed"; outro TypeError é erro de código, antes do envio.
+ */
+export function falhaDeRedeNoEnvio(erro: unknown): boolean {
+  if (!(erro instanceof Error)) return false;
+  if (erro.name === "AbortError" || erro.name === "TimeoutError") return true;
+  return erro.name === "TypeError" && /fetch failed|network/i.test(erro.message);
+}
+
 /** Uma tentativa de envio que a prefeitura recusou, guardada para diagnóstico. */
 export type NFSeTentativaArquivada = {
   referencia: unknown;

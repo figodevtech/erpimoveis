@@ -44,6 +44,7 @@ import { CancelarNotaDialog } from "./cancelar-nota-dialog";
 import { MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
 import {
   dataDoDiaNFSe,
+  politicaDeLucena,
   resolverPoliticaNFSe,
   resumirErrosNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
@@ -375,6 +376,9 @@ export function EmissaoNotaDialog({
       dataCompetencia: dataDoDiaNFSe(new Date()),
     });
     if (politica?.autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL") return "João Pessoa · Formato Nacional via Focus";
+    if (politica && politicaDeLucena(politica)) {
+      return politica.bloqueio ? "Lucena · NFS-e Nacional a partir de 01/11/2026" : "Lucena · NFS-e Nacional via Focus";
+    }
     if (politica?.autorizador === "FOCUS_NACIONAL") return "NFS-e Nacional · Focus NFe";
     if (politica?.modelo === "MUNICIPAL_CABEDELO") return "Cabedelo · Focus NFe";
     if (politica?.modelo === "MUNICIPAL_JOAO_PESSOA") return "João Pessoa · Focus NFe";

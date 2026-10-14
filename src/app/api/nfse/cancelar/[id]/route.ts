@@ -50,7 +50,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     // 2. Cancel on Focus NFe
-    const { data: empresa } = await supabaseAdmin.from("empresa").select("id, ambiente").limit(1).single();
+    // A empresa que emitiu a nota, com o token dela. Nota antiga sem
+    // `empresaid` cai na única empresa do banco, como antes.
+    const consultaEmpresa = supabaseAdmin.from("empresa").select("id, ambiente");
+    const { data: empresa } = nfsDb.empresaid
+      ? await consultaEmpresa.eq("id", nfsDb.empresaid).maybeSingle()
+      : await consultaEmpresa.order("id", { ascending: true }).limit(1).maybeSingle();
     const { data: nfseConfig } = empresa
       ? await supabaseAdmin.from("nfse_config").select("token").eq("empresa_id", empresa.id).maybeSingle()
       : { data: null };

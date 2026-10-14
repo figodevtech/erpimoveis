@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
+  CODIGO_RESULTADO_INCERTO,
   acrescentarInteracaoNFSe,
   arquivarTentativaNFSe,
   atualizarRegistroNFSe,
+  errosDeResultadoIncerto,
+  falhaDeRedeNoEnvio,
   interacaoNFSe,
 } from "@/lib/services/fiscais/nfse-registro";
 import {
@@ -101,17 +104,23 @@ export async function POST(_req: Request, { params }: RouteParams) {
      * Nada é enviado e a nota fica como está, com `erros`,
      * `retorno_bruto` e `tentativas` intactos.
      */
-    const { data: empresaPolitica } = await supabaseAdmin
-      .from("empresa")
-      .select("codigomunicipio, regimetributario")
-      .limit(1)
-      .maybeSingle();
+    // A empresa da nota, não a primeira do banco: é ela que emitiu e é o token
+    // dela que vai no reenvio. Nota antiga sem `empresaid` cai na única empresa.
+    const empresaDaNota = () => {
+      const consulta = supabaseAdmin
+        .from("empresa")
+        .select("id, ambiente, codigomunicipio, regimetributario, timezone_iana");
+      return origem.empresaid
+        ? consulta.eq("id", origem.empresaid).maybeSingle()
+        : consulta.order("id", { ascending: true }).limit(1).maybeSingle();
+    };
+    const { data: empresaPolitica } = await empresaDaNota();
     const payload = (origem.payload_enviado ?? {}) as { servico?: { item_lista_servico?: unknown } };
     const politicaHoje = empresaPolitica
       ? resolverPoliticaNFSe({
           codigoMunicipio: empresaPolitica.codigomunicipio,
           regimeTributario: empresaPolitica.regimetributario,
-          dataCompetencia: dataDoDiaNFSe(new Date()),
+          dataCompetencia: dataDoDiaNFSe(new Date(), empresaPolitica.timezone_iana),
           itensListaServico: [String(payload.servico?.item_lista_servico ?? "")],
         })
       : null;
@@ -164,11 +173,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
       );
     }
 
-    const { data: empresa, error: empresaError } = await supabaseAdmin
-      .from("empresa")
-      .select("id, ambiente")
-      .limit(1)
-      .single();
+    const { data: empresa, error: empresaError } = await empresaDaNota();
 
     if (empresaError || !empresa) {
       return NextResponse.json({ ok: false, message: "A aplicação não possui uma empresa configurada." }, { status: 400 });
@@ -232,7 +237,34 @@ export async function POST(_req: Request, { params }: RouteParams) {
 
     // O payload vem do banco como JSON opaco: quem garantiu o formato foi o
     // mapeador que montou a emissão original.
-    const resultado = await transport.emitir(parametros);
+    let resultado: Awaited<ReturnType<typeof transport.emitir>>;
+    try {
+      resultado = await transport.emitir(parametros);
+    } catch (erroEnvio) {
+      if (!falhaDeRedeNoEnvio(erroEnvio)) throw erroEnvio;
+      // Sem resposta, a Focus pode ter recebido esta referência: a nota não
+      // volta a REJEITADA, senão um novo reenvio duplicaria o documento.
+      console.error("[POST /api/nfse/reemitir] Envio sem resposta", erroEnvio);
+      reservado = false;
+      await atualizarRegistroNFSe(
+        nfseId,
+        {
+          status: "PROCESSANDO",
+          erros: errosDeResultadoIncerto(erroEnvio instanceof Error ? erroEnvio.message : ""),
+          updatedat: new Date().toISOString(),
+        },
+        { payload_enviado: parametros },
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          codigo: CODIGO_RESULTADO_INCERTO,
+          message: "A Focus não respondeu ao reenvio. A nota ficou em processamento: consulte-a antes de tentar de novo.",
+          referencia,
+        },
+        { status: 502 },
+      );
+    }
 
     const statusFinal = resultado.ok ? normalizarStatusNFSe(resultado.status) : "REJEITADA";
 

@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { atualizarRegistroNFSe, interacaoNFSe } from "@/lib/services/fiscais/nfse-registro";
+import {
+  CODIGO_RESULTADO_INCERTO,
+  atualizarRegistroNFSe,
+  errosDeResultadoIncerto,
+  falhaDeRedeNoEnvio,
+  interacaoNFSe,
+} from "@/lib/services/fiscais/nfse-registro";
 import { transportDaPolitica } from "@/lib/services/fiscais/nfse-transport";
 import {
   NFSeService,
@@ -352,7 +358,29 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const resultado = await transport.emitir(parametrosNacionais ?? parametrosMunicipais);
+    let resultado: Awaited<ReturnType<typeof transport.emitir>>;
+    try {
+      resultado = await transport.emitir(parametrosNacionais ?? parametrosMunicipais);
+    } catch (erroEnvio) {
+      if (!falhaDeRedeNoEnvio(erroEnvio)) throw erroEnvio;
+      // Sem resposta não há como saber se a Focus recebeu: a nota fica em
+      // PROCESSANDO, com a mesma referência, até a consulta responder.
+      console.error("[POST /api/nfse/de-os] Envio sem resposta", erroEnvio);
+      await atualizarRegistroNFSe(
+        registroId,
+        { status: "PROCESSANDO", erros: errosDeResultadoIncerto(erroEnvio instanceof Error ? erroEnvio.message : "") },
+        { payload_enviado: payloadEnviado },
+      );
+      return NextResponse.json(
+        {
+          ok: false,
+          codigo: CODIGO_RESULTADO_INCERTO,
+          message: "A Focus não respondeu ao envio. A nota ficou em processamento: consulte-a antes de emitir de novo.",
+          referencia,
+        },
+        { status: 502 },
+      );
+    }
 
     // O payload que a Focus recebeu de fato: o mapeador nao conhece o
     // data_emissao, que e calculado na hora do envio.

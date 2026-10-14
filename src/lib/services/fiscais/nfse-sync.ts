@@ -3,6 +3,7 @@ import {
   atualizarRegistroNFSe,
   interacaoNFSe,
   registrarInteracaoNFSe,
+  temResultadoIncerto,
 } from "@/lib/services/fiscais/nfse-registro";
 import { transportDoRegistro } from "@/lib/services/fiscais/nfse-transport";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -18,6 +19,7 @@ export type NfseSyncRecord = {
   url_xml?: string | null;
   protocolo?: string | null;
   numero?: string | null;
+  erros?: unknown;
 };
 
 async function loadCompany(nfse: NfseSyncRecord) {
@@ -65,6 +67,21 @@ export async function syncNfseWithFocus(nfse: NfseSyncRecord) {
   await registrarInteracaoNFSe(nfse.id, interacaoNFSe("CONSULTA", nfse.referencia, result.retornoBruto));
 
   if (!result.ok) {
+    // Envio que ficou sem resposta e a Focus não conhece a referência: nada
+    // chegou lá. Só agora é seguro liberar o reenvio.
+    if (temResultadoIncerto(nfse.erros) && result.retornoBruto?.http_status === 404) {
+      const erros = [{
+        codigo: "NAO_RECEBIDA",
+        mensagem: "A Focus não recebeu esta emissão: a referência não existe lá. A nota pode ser reenviada.",
+      }];
+      const updateError = await atualizarRegistroNFSe(
+        nfse.id,
+        { status: "REJEITADA", erros },
+        { retorno_bruto: result.retornoBruto },
+      );
+      if (updateError) throw updateError;
+      return { ok: false as const, message: erros[0].mensagem, errors: erros };
+    }
     const errors = result.erros && result.erros.length > 0 ? result.erros : null;
     if (errors) {
       const updateError = await atualizarRegistroNFSe(

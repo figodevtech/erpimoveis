@@ -56,6 +56,12 @@ export type PoliticaNFSe = {
   regra: string;
   /** Explicação curta, para tela e diagnóstico. */
   motivo: string;
+  /**
+   * A rota está decidida, mas a emissão ainda não pode sair por ela. O
+   * transporte fica indisponível com este motivo: a revisão mostra e a emissão
+   * recusa antes de gravar ou enviar qualquer coisa. Ausente = liberado.
+   */
+  bloqueio?: string;
 };
 
 export type EntradaPoliticaNFSe = {
@@ -72,12 +78,13 @@ export type EntradaPoliticaNFSe = {
 
 const IBGE_JOAO_PESSOA = "2507507";
 const IBGE_CABEDELO = "2503209";
+const IBGE_LUCENA = "2508604";
 
 /**
  * Simples Nacional (ME/EPP) passa a emitir no padrão Nacional.
  * Resolução CGSN nº 191/2026, que adiou de setembro para novembro o prazo da
- * CGSN nº 189/2026. Hoje só a regra de João Pessoa usa esta data — ver
- * `regraJoaoPessoa`.
+ * CGSN nº 189/2026. Usada pelas regras de João Pessoa e de Lucena — ver
+ * `regraJoaoPessoa` e `regraLucena`.
  */
 export const INICIO_NACIONAL_SIMPLES = "2026-11-01";
 
@@ -194,7 +201,9 @@ const ASSINATURA_FORA_DO_EMISSOR_NACIONAL = "deve estar parametrizado para utili
 export const MENSAGEM_FORA_DO_EMISSOR_NACIONAL =
   "Esta tentativa recebeu E0039 sobre a parametrização do emissor. "
   + "O retorno não determina a integração vigente. Para João Pessoa, emita uma nova nota "
-  + "pela tela atual, com formato nacional via Focus em ambiente municipal próprio.";
+  + "pela tela atual, com formato nacional via Focus em ambiente municipal próprio. "
+  + "Para Lucena, o Emissor Nacional ainda não aceitou este CNPJ: confirme a habilitação "
+  + "com a Focus antes de emitir de novo — reenviar igual repete a recusa.";
 
 /**
  * A recusa de João Pessoa que manda usar o padrão Nacional. Chega com o código
@@ -204,6 +213,53 @@ export function detectarEmissorMunicipalEncerrado(erros: unknown): boolean {
   return mensagensDosErros(erros).some((mensagem) =>
     semAcento(mensagem).includes(ASSINATURA_EMISSOR_ENCERRADO),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Lucena/PB
+//
+// O emissor municipal de Lucena (Tinus) não é integrado ao ERP. O Simples
+// Nacional (ME/EPP) passa ao Emissor Público Nacional em 01/11/2026 pela
+// Resolução CGSN nº 191/2026, independentemente da opção do município, e é por
+// esse caminho — Focus `/v2/nfsen` — que a nota sai do ERP.
+//
+// Antes disso o município pode antecipar a habilitação do Simples no Emissor
+// Nacional, mas não há confirmação de que Lucena antecipou. Sem confirmação,
+// a rota fica decidida e bloqueada: nada é gravado nem enviado à Focus.
+// Quando houver antecipação comprovada para o CNPJ, a liberação entra aqui.
+//
+// Regime normal (CRT 3) fica fora: não há integração para ele em Lucena.
+// ---------------------------------------------------------------------------
+
+export const MENSAGEM_LUCENA_AGUARDANDO_NACIONAL =
+  "Em Lucena/PB, o Simples Nacional emite pelo Emissor Nacional (Focus) a partir de 01/11/2026 "
+  + "(Resolução CGSN nº 191/2026). Até 31/10/2026 a NFS-e sai pelo emissor da prefeitura, "
+  + "que o ERP não integra. Cadastre desde já o padrão fiscal Nacional para a virada.";
+
+function regraLucena(regime: string, data: string): PoliticaNFSe | null {
+  if (regime !== "1" && regime !== "2") return null;
+  if (data >= INICIO_NACIONAL_SIMPLES) {
+    return nacional(
+      regime,
+      data,
+      "LUCENA_SIMPLES_NACIONAL",
+      "Simples Nacional de Lucena no Emissor Público Nacional a partir de 01/11/2026 (CGSN 191/2026).",
+    );
+  }
+  return {
+    ...nacional(
+      regime,
+      data,
+      "LUCENA_SIMPLES_AGUARDANDO_NACIONAL",
+      "Simples Nacional de Lucena passa ao Emissor Público Nacional em 01/11/2026 (CGSN 191/2026).",
+    ),
+    bloqueio: MENSAGEM_LUCENA_AGUARDANDO_NACIONAL,
+  };
+}
+
+/** A regra que decidiu é de Lucena. */
+export function politicaDeLucena(politica: Partial<Pick<PoliticaNFSe, "regra">> | null | undefined): boolean {
+  return String(politica?.regra ?? "").startsWith("LUCENA_");
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +322,7 @@ export function resolverPoliticaNFSe(entrada: EntradaPoliticaNFSe): PoliticaNFSe
       motivo: "Emissor municipal de Cabedelo.",
     };
   }
+  if (municipio === IBGE_LUCENA) return regraLucena(regime, data);
   return null;
 }
 
@@ -425,9 +482,12 @@ export function reenvioExigeNovoModelo(
 }
 
 /** Rótulo do destino da nota, para cabeçalhos e configurações. */
-export function rotuloPoliticaNFSe(politica: Pick<PoliticaNFSe, "modelo" | "autorizador"> | null | undefined): string {
+export function rotuloPoliticaNFSe(
+  politica: (Pick<PoliticaNFSe, "modelo" | "autorizador"> & Partial<Pick<PoliticaNFSe, "regra">>) | null | undefined,
+): string {
   if (!politica) return rotuloModeloNFSe(null);
   if (politica.autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL") return "NFS-e João Pessoa · Formato Nacional via Focus";
+  if (politicaDeLucena(politica)) return "NFS-e Nacional · Lucena via Focus";
   return rotuloModeloNFSe(politica.modelo);
 }
 
