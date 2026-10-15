@@ -4,6 +4,7 @@ import {
   hasOnlyMercadoLivreValidationWarnings,
   isMercadoLivreListingTypeEnabled,
 } from "@/lib/integrations/mercadolivre-listing-validation";
+import { fetchMercadoLivre } from "@/lib/integrations/mercadolivre";
 import { buildMercadoLivreShippingDimensions } from "@/lib/integrations/mercadolivre-mercado-envios";
 import {
   getMercadoLivrePictureRequirement,
@@ -433,7 +434,7 @@ export async function runMercadoLivreItemValidation(
   payload: Record<string, unknown>,
   context: MercadoLivreErrorContext = {},
 ): Promise<MercadoLivreValidationResult> {
-  const response = await fetch("https://api.mercadolibre.com/items/validate", {
+  const response = await fetchMercadoLivre("https://api.mercadolibre.com/items/validate", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -525,6 +526,13 @@ export async function assertMercadoLivreItemIsValid(
 ) {
   const result = await runMercadoLivreItemValidation(accessToken, payload, context);
   if (result.valid) return result;
+
+  // Limite de requisições não é recusa: o anúncio nem chegou a ser avaliado.
+  if (result.status === 429) {
+    const error = new Error(MERCADO_LIVRE_RATE_LIMITED);
+    (error as any).status = 429;
+    throw error;
+  }
 
   const error = new Error(`Validação do anúncio recusada: ${JSON.stringify(result.validation)}`);
   (error as any).status = 422;
@@ -636,8 +644,14 @@ export function formatMercadoLivreError(error: any, context: MercadoLivreErrorCo
   }
 }
 
+const MERCADO_LIVRE_RATE_LIMITED =
+  "O Mercado Livre limitou as requisições por alguns instantes (local_rate_limited). O anúncio não foi avaliado nem recusado: aguarde cerca de um minuto e tente de novo.";
+
 export function translateMercadoLivreError(message: string, context: MercadoLivreErrorContext = {}) {
   const normalized = message.toLowerCase();
+  if (normalized.includes("local_rate_limited") || normalized.includes("too many requests")) {
+    return MERCADO_LIVRE_RATE_LIMITED;
+  }
   if (normalized.includes("seller.unable_to_list") || normalized.includes("seller is not allowed to publish")) {
     return "Conta vendedora: o Mercado Livre bloqueou novas publicações. Verifique identidade, dados cadastrais, reputação e avisos pendentes na conta.";
   }
