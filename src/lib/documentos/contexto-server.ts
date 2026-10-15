@@ -1,6 +1,6 @@
 import "server-only";
 
-import { fetchLogoEmpresaDataUrl } from "@/lib/empresa-logo";
+import { fetchPrimeiroLogoEmpresa } from "@/lib/empresa-logo";
 import { nomeOficialMunicipioIbge } from "@/lib/ibge/municipio";
 import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -90,7 +90,10 @@ export async function montarContexto(
   registroId: number,
   emissao: Omit<EmissaoDocumento, "logoUrl">,
 ): Promise<ContextoDocumento | null> {
-  const [empresa, logoUrl] = await Promise.all([lerEmpresa(), fetchLogoEmpresaDataUrl()]);
+  // A logo vai pela URL pública, não embutida: o frame da folha a carrega
+  // e a paginação espera a imagem. Embutida, uma logo de 1,3 MB virava 1,75 MB
+  // de texto em cada documento aberto — e derrubava a página no `next dev`.
+  const [empresa, logoUrl] = await Promise.all([lerEmpresa(), fetchPrimeiroLogoEmpresa()]);
   const comLogo: EmissaoDocumento = { ...emissao, logoUrl };
 
   if (modulo === "venda") {

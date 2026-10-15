@@ -161,9 +161,15 @@ export async function registrarEntradaConfirmada(
       .select("nome, exige_valor")
       .eq("codigo", tipo)
       .maybeSingle();
+    // O trigger da tabela entrada recusaria de qualquer jeito. Sem esta checagem,
+    // tipo ausente virava "exige valor" — banco sem o catálogo de tipos parecia
+    // problema de preço (BR Peças, out/2026).
+    if (!tipoCadastrado) {
+      throw new Error(`O tipo de entrada "${tipo}" não está cadastrado neste banco.`);
+    }
     const semValor = itens.some((item: (typeof itens)[number]) => item.valor_unitario_compra <= 0);
-    if (tipoCadastrado?.exige_valor !== false && semValor) {
-      throw new Error(`O tipo "${tipoCadastrado?.nome ?? tipo}" exige valor unitário maior que zero.`);
+    if (tipoCadastrado.exige_valor !== false && semValor) {
+      throw new Error(`O tipo "${tipoCadastrado.nome}" exige valor unitário maior que zero.`);
     }
   }
 

@@ -72,6 +72,12 @@ export function dataPorExtenso(valor: unknown): string {
   return `${numeroDoDia === 1 ? "1º" : numeroDoDia} de ${MESES[Number(mes) - 1]} de ${ano}`;
 }
 
+/** Ano (AAAA) no fuso da operação. */
+export function ano(valor: unknown): string {
+  const dia = diaNoFuso(valor);
+  return dia ? dia.slice(0, 4) : "";
+}
+
 export function documento(valor: unknown): string {
   return texto(valor) ? formatCpfCnpj(valor) : "";
 }

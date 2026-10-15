@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { data, dataPorExtenso, moeda, valorPorExtenso } from "./formatacao";
+import { ano, data, dataPorExtenso, moeda, valorPorExtenso } from "./formatacao";
 
 test("valor por extenso: reais e centavos", () => {
   const casos: Array<[number, string]> = [
@@ -36,6 +36,13 @@ test("data por extenso, com o primeiro dia ordinal", () => {
   assert.equal(dataPorExtenso("2026-10-14"), "14 de outubro de 2026");
   assert.equal(dataPorExtenso("2026-03-01"), "1º de março de 2026");
   assert.equal(dataPorExtenso(null), "");
+});
+
+test("ano no fuso da operação", () => {
+  // 01h de 1º de janeiro em UTC ainda é 31 de dezembro em Fortaleza.
+  assert.equal(ano(new Date("2027-01-01T01:00:00Z")), "2026");
+  assert.equal(ano("2026-10-14"), "2026");
+  assert.equal(ano(null), "");
 });
 
 test("coluna date não muda de dia; instante cai no dia de Fortaleza", () => {
