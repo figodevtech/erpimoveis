@@ -1,3 +1,4 @@
+import municipiosPorUf from "@/data/municipios-por-uf.json";
 import { getCodigoUF } from "@/lib/nfe/ufUtils";
 
 type MunicipioIbgeResponse = {
@@ -5,8 +6,17 @@ type MunicipioIbgeResponse = {
   nome?: string;
 };
 
-/** Nome como o IBGE escreve ("João Pessoa"); só resposta válida entra. */
-const municipioCache = new Map<string, string>();
+/**
+ * Nome como o IBGE escreve ("João Pessoa"); só resposta válida entra. Nasce
+ * com o dataset embutido (o mesmo do combo de cidade): o serviço do IBGE cai
+ * com frequência, e quando caía a emissão de NF-e parava com "fetch failed"
+ * (Jean Car, out/2026). A consulta online fica só para código fora da lista.
+ */
+const municipioCache = new Map<string, string>(
+  Object.values(municipiosPorUf as Record<string, Array<{ id: number; nome: string }>>)
+    .flat()
+    .map((municipio) => [String(municipio.id), municipio.nome] as const),
+);
 
 function codigoDoMunicipio(codigo: string) {
   const codigoNormalizado = String(codigo ?? "").replace(/\D/g, "");
@@ -23,7 +33,11 @@ async function buscarNomeOficial(codigoNormalizado: string): Promise<string> {
   const response = await fetch(
     `https://servicodados.ibge.gov.br/api/v1/localidades/municipios/${codigoNormalizado}`,
     { cache: "force-cache", signal: AbortSignal.timeout(10_000) }
-  );
+  ).catch(() => {
+    throw new Error(
+      `Código IBGE ${codigoNormalizado} não está na lista de municípios do sistema, e o IBGE não respondeu para confirmá-lo. Revise o código do município ou tente novamente em instantes.`,
+    );
+  });
   if (!response.ok) {
     throw new Error(`Código IBGE ${codigoNormalizado} não foi encontrado.`);
   }
