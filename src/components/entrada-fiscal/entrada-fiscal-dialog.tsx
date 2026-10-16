@@ -5,6 +5,8 @@ import { escopoDeEntradaDe, type UsoConsumoEscopo } from "@/lib/usoconsumo/escop
 import { addMonths, format } from "date-fns";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { totalEntradaAjustado, totalItemEntrada, type AjustesValoresEntrada } from "@/lib/estoque/entrada-valores";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Building2,
   Eye,
@@ -283,6 +285,9 @@ export function EntradaFiscalDialog({
   const [itemPersonalizado, setItemPersonalizado] =
     useState<UsoConsumoItemOption>();
   const [quantidadePersonalizada, setQuantidadePersonalizada] = useState("1");
+  const [valoresCompra, setValoresCompra] = useState<Record<string, number>>({});
+  const [motivoValoresCompra, setMotivoValoresCompra] = useState("");
+  const quantidadePersonalizadaNumero = Number(quantidadePersonalizada);
   const [produtoPersonalizadoOpen, setProdutoPersonalizadoOpen] = useState(false);
   const [itemPersonalizadoOpen, setItemPersonalizadoOpen] = useState(false);
 
@@ -383,6 +388,45 @@ export function EntradaFiscalDialog({
       ),
     [linhasPersonalizadas],
   );
+  const rateioPersonalizado = useMemo(() => {
+    try { return ratearCustoPersonalizado(custoPersonalizado, quantidadePersonalizadaNumero); }
+    catch { return null; }
+  }, [custoPersonalizado, quantidadePersonalizadaNumero]);
+  const linhasValoresCompra = useMemo(() => {
+    const normais = linhasNormais.map((linha) => {
+      const valores = valoresDeEstoque(linha);
+      return {
+        chave: String(linha.numeroItem), titulo: String(linha.descricao ?? ""),
+        inventory: linha.destino === "ESTOQUE" ? "produto" as const : "usoconsumo" as const,
+        numeroItemFiscal: Number(linha.numeroItem), consolidado: false,
+        quantidade: valores.quantidade, valor_unitario_compra: valores.valorUnitario,
+        valor_desconto: valores.valorDesconto, valor_frete: Number(linha.valorFrete ?? 0),
+        outras_despesas: valores.outrasDespesas,
+      };
+    });
+    if (linhasPersonalizadas.length && rateioPersonalizado) normais.push({
+      chave: "consolidado", titulo: "Item consolidado da entrada personalizada",
+      inventory: destinoPersonalizado === "ESTOQUE" ? "produto" : "usoconsumo",
+      numeroItemFiscal: 0, consolidado: true, quantidade: quantidadePersonalizadaNumero,
+      valor_unitario_compra: rateioPersonalizado.custoUnitario,
+      valor_desconto: rateioPersonalizado.valorDesconto, valor_frete: 0,
+      outras_despesas: rateioPersonalizado.outrasDespesas,
+    });
+    return normais;
+  }, [linhasNormais, linhasPersonalizadas.length, rateioPersonalizado, destinoPersonalizado, quantidadePersonalizadaNumero]);
+  const linhasComValorAjustado = linhasValoresCompra.filter((linha) =>
+    valoresCompra[linha.chave] !== undefined && valoresCompra[linha.chave] !== linha.valor_unitario_compra);
+  const diferencasCompra = linhasComValorAjustado.map((linha) =>
+    totalItemEntrada(linha, valoresCompra[linha.chave]) - totalItemEntrada(linha));
+  const custoEstoqueAtualizado = totalEntradaAjustado(custoDestinado, diferencasCompra);
+  const ajustesValores: AjustesValoresEntrada | undefined = linhasComValorAjustado.length ? {
+    motivo: motivoValoresCompra,
+    itens: linhasComValorAjustado.map((linha) => ({
+      inventory: linha.inventory,
+      ...(linha.consolidado ? { consolidado: true } : { numeroItemFiscal: linha.numeroItemFiscal }),
+      valorUnitarioCompra: valoresCompra[linha.chave],
+    })),
+  } : undefined;
   const linhasEstoque = useMemo(
     () => linhasNormais.filter((linha) => linha.destino === "ESTOQUE"),
     [linhasNormais],
@@ -558,21 +602,23 @@ export function EntradaFiscalDialog({
   }, [composicao]);
 
   /*
-   * O valor a pagar ao fornecedor é o VALOR FISCAL apropriado, nunca o custo.
+   * A referência original do financeiro é o valor fiscal apropriado.
    *
    * Com a nota inteira, isso é o `vNF` — o mesmo número das duplicatas. Com parte
    * já destinada em outra entrada, é o valor fiscal das linhas desta entrada, e a
    * outra parte fica com a entrada que a apropriou: nada é pago duas vezes.
    *
-   * A regra de custo de estoque não mexe neste número. São obrigações diferentes.
+   * Ajustes comerciais explícitos somam apenas a diferença de cada item,
+   * preservando os acréscimos fiscais que não pertencem às linhas físicas.
    */
   const notaInteira =
     Boolean(parsed) && linhasDisponiveis.length === (parsed?.itens.length ?? 0);
   const valorDaNota = Number(composicao?.totalNota ?? parsed?.totais?.valorNota ?? 0);
   // XML sem `vNF` legível não existe na prática, mas um zero aqui pediria
   // parcelas de R$ 0,00 — nesse caso o valor apropriado é o palpite honesto.
-  const totalAPagar =
+  const totalAPagarOriginal =
     notaInteira && valorDaNota > 0 ? valorDaNota : valorFiscalDestinado;
+  const totalAPagar = totalEntradaAjustado(totalAPagarOriginal, diferencasCompra);
   /** O valor fiscal e o custo de estoque divergem: a tela precisa mostrar os dois. */
   const custoDifereDoFiscal =
     paraCentavos(valorFiscalDestinado) !== paraCentavos(custoDestinado);
@@ -614,7 +660,6 @@ export function EntradaFiscalDialog({
   const notaDividida = linhasEstoque.length > 0 && linhasUsoConsumo.length > 0;
   const temApropriacaoAnterior =
     parsed?.itens.some((linha) => Boolean(linha.destinoApropriado)) ?? false;
-  const quantidadePersonalizadaNumero = Number(quantidadePersonalizada);
   const itemPersonalizadoId =
     destinoPersonalizado === "ESTOQUE"
       ? produtoPersonalizado?.id
@@ -633,16 +678,6 @@ export function EntradaFiscalDialog({
     entradaPersonalizada &&
     temLinhasPersonalizadas &&
     ehEstoqueSimples(destinoPersonalizado);
-  const rateioPersonalizado = useMemo(() => {
-    try {
-      return ratearCustoPersonalizado(
-        custoPersonalizado,
-        quantidadePersonalizadaNumero,
-      );
-    } catch {
-      return null;
-    }
-  }, [custoPersonalizado, quantidadePersonalizadaNumero]);
   const personalizadaValida =
     !temLinhasPersonalizadas ||
     (Boolean(parsed?.documentoFiscalRecebidoId) &&
@@ -683,6 +718,8 @@ export function EntradaFiscalDialog({
     setProdutoPersonalizado(undefined);
     setItemPersonalizado(undefined);
     setQuantidadePersonalizada("1");
+    setValoresCompra({});
+    setMotivoValoresCompra("");
     setProdutoPersonalizadoOpen(false);
     setItemPersonalizadoOpen(false);
     setPagamentoFuturo(true);
@@ -727,6 +764,8 @@ export function EntradaFiscalDialog({
       setProdutoPersonalizado(undefined);
       setItemPersonalizado(undefined);
       setQuantidadePersonalizada("1");
+      setValoresCompra({});
+      setMotivoValoresCompra("");
       setProdutoPersonalizadoOpen(false);
       setItemPersonalizadoOpen(false);
     };
@@ -1174,6 +1213,10 @@ export function EntradaFiscalDialog({
 
   async function registrar(opts?: { ignorarVencida?: boolean }) {
     if (!parsed) return toast.error("Nenhuma nota fiscal processada.");
+    if (ajustesValores && !motivoValoresCompra.trim()) return toast.error("Informe o motivo do ajuste dos valores de compra.");
+    if (totalAPagar < 0 || linhasValoresCompra.some((linha) => totalItemEntrada(linha, valoresCompra[linha.chave] ?? linha.valor_unitario_compra) < 0)) {
+      return toast.error("O total dos itens e da entrada não pode ser negativo.");
+    }
     if (!parsed.fornecedorReferenteId)
       return toast.error(
         "A nota deve estar vinculada a um fornecedor do sistema.",
@@ -1230,7 +1273,9 @@ export function EntradaFiscalDialog({
       // o mesmo número que as RPCs conferem via `valorTotalDocumento`.
       if (Math.abs(soma - totalAPagar) > 0.01) {
         return toast.error(
-          notaInteira
+          ajustesValores
+            ? `A soma das parcelas deve ser ${formatarEmReal(totalAPagar)} — o total de compra atualizado.`
+            : notaInteira
             ? `A soma das parcelas deve ser ${formatarEmReal(totalAPagar)} — o valor da NF-e.`
             : `A soma das parcelas deve ser ${formatarEmReal(totalAPagar)} — o valor fiscal desta entrada.`,
         );
@@ -1272,16 +1317,17 @@ export function EntradaFiscalDialog({
       dataEmissao: parsed.dataEmissao ?? null,
       notaChave: parsed.chaveAcesso ?? null,
       documentoFiscalRecebidoId: parsed.documentoFiscalRecebidoId ?? null,
-      // O total do documento é o que se paga; a soma dos itens é o custo. Os dois
-      // só diferem quando a nota trouxe frete sem repartir, e é contra este
-      // número que as RPCs conferem os lançamentos financeiros.
-      valorTotalDocumento: totalAPagar,
+      // O motor original recebe a referência fiscal. A rotina atômica aplica
+      // os ajustes e só então confere o financeiro pelo total atualizado.
+      valorTotalDocumento: totalAPagarOriginal,
+      ajustesValores,
     };
 
     setSubmitting(true);
     try {
       if (entradaHibrida) {
         await axios.post("/api/entradas/fiscal/hibrida", {
+          ajustesValores,
           documentoFiscalRecebidoId: parsed.documentoFiscalRecebidoId,
           fornecedorId: parsed.fornecedorReferenteId,
           itensNormais: linhasNormais.map((linha) => ({
@@ -1301,6 +1347,7 @@ export function EntradaFiscalDialog({
         });
       } else if (entradaIntegralPersonalizada) {
         await axios.post("/api/entradas/fiscal/personalizada", {
+          ajustesValores,
           documentoFiscalRecebidoId: parsed.documentoFiscalRecebidoId,
           fornecedorId: parsed.fornecedorReferenteId,
           destino: destinoPersonalizado,
@@ -1328,6 +1375,7 @@ export function EntradaFiscalDialog({
         });
       } else {
         await axios.post("/api/usoconsumo/entradas/fiscal", {
+          ajustesValores,
           escopo: escopoDaEntrada,
           fornecedor_id: parsed.fornecedorReferenteId,
           chave_nfe: parsed.chaveAcesso,
@@ -1335,7 +1383,7 @@ export function EntradaFiscalDialog({
           serie_nota: String(parsed.serie ?? ""),
           data_emissao: parsed.dataEmissao,
           documento_fiscal_recebido_id: parsed.documentoFiscalRecebidoId,
-          valor_total_documento: totalAPagar,
+          valor_total_documento: totalAPagarOriginal,
           itens: itensUsoConsumoPayload(),
           tributos: payloadDosLancamentos(lancamentosDre),
           transacoes: pagamentoFuturo
@@ -1641,19 +1689,19 @@ export function EntradaFiscalDialog({
 
                       <div className="grid gap-3 rounded-lg border bg-background p-3 text-xs sm:grid-cols-2 lg:grid-cols-5">
                         <div>
-                          <p className="text-muted-foreground">Custo normal</p>
+                          <p className="text-muted-foreground">Custo normal original</p>
                           <p className="mt-1 font-semibold tabular-nums">
                             {formatarEmReal(custoNormal)}
                           </p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Custo consolidado</p>
+                          <p className="text-muted-foreground">Custo consolidado original</p>
                           <p className="mt-1 font-semibold tabular-nums">
                             {formatarEmReal(custoPersonalizado)}
                           </p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Custo unitário médio</p>
+                          <p className="text-muted-foreground">Custo unitário original</p>
                           <p className="mt-1 font-semibold tabular-nums">
                             {rateioPersonalizado
                               ? formatarEmReal(rateioPersonalizado.custoUnitario)
@@ -1663,11 +1711,11 @@ export function EntradaFiscalDialog({
                         <div>
                           <p className="text-muted-foreground">Custo total de estoque</p>
                           <p className="mt-1 font-semibold tabular-nums">
-                            {formatarEmReal(custoDestinado)}
+                            {formatarEmReal(custoEstoqueAtualizado)}
                           </p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Valor fiscal/financeiro</p>
+                          <p className="text-muted-foreground">Valor fiscal da nota</p>
                           <p className="mt-1 font-semibold tabular-nums">
                             {formatarEmReal(valorDaNota)}
                           </p>
@@ -1675,6 +1723,38 @@ export function EntradaFiscalDialog({
                       </div>
                     </CardContent>
                   ) : null}
+                </Card>
+
+                <Card className="w-full max-w-full gap-4 py-4 sm:py-6">
+                  <CardHeader className="px-4 pb-0 sm:px-6">
+                    <CardTitle className="text-base">Valores de compra</CardTitle>
+                    <CardDescription>Informe os valores unitários de compra. Os valores originais da NF-e ficam preservados.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4 px-4 sm:px-6">
+                    {linhasValoresCompra.map((linha) => <div key={linha.chave} className="grid gap-3 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_11rem_auto] sm:items-end">
+                      <div className="min-w-0 text-xs"><p className="font-medium">{linha.titulo}</p>
+                        <p className="text-muted-foreground">Quantidade: {linha.quantidade}. Original da entrada: {formatarEmReal(linha.valor_unitario_compra)} por unidade.</p>
+                        <p>Total do item: {formatarEmReal(totalItemEntrada(linha, valoresCompra[linha.chave] ?? linha.valor_unitario_compra))}</p>
+                      </div>
+                      <div className="space-y-1"><Label htmlFor={`compra-fiscal-${linha.chave}`}>Valor unitário de compra</Label>
+                        <ValueInput id={`compra-fiscal-${linha.chave}`} decimals={4} mode="decimal" disabled={submitting}
+                          value={valoresCompra[linha.chave] ?? linha.valor_unitario_compra}
+                          onValueChange={(value) => setValoresCompra((current) => ({ ...current, [linha.chave]: value }))} />
+                      </div>
+                      <Button type="button" variant="ghost" size="sm" disabled={submitting} onClick={() => setValoresCompra((current) => {
+                        const next = { ...current }; delete next[linha.chave]; return next;
+                      })}>Restaurar valor original</Button>
+                    </div>)}
+                    {ajustesValores ? <div className="space-y-1">
+                      <Label htmlFor="motivo-valores-compra-fiscal">Motivo do ajuste dos valores</Label>
+                      <Textarea id="motivo-valores-compra-fiscal" value={motivoValoresCompra} maxLength={1000} disabled={submitting}
+                        onChange={(event) => setMotivoValoresCompra(event.target.value)} placeholder="Descreva o motivo dos valores informados." />
+                    </div> : null}
+                    <div className="flex flex-wrap justify-between gap-2 text-sm" aria-live="polite">
+                      <span>Valor da nota: {formatarEmReal(valorDaNota)}</span>
+                      <strong>Total de compra: {formatarEmReal(totalAPagar)}</strong>
+                    </div>
+                  </CardContent>
                 </Card>
 
                 <Card className="w-full max-w-full gap-4 py-4 sm:py-6">
@@ -1842,7 +1922,7 @@ export function EntradaFiscalDialog({
                           // Só aparece quando os dois divergem: repetir o mesmo
                           // número com dois rótulos seria ruído.
                           <p>
-                            Custo de estoque:{" "}
+                            Custo original de estoque:{" "}
                             <span className="font-semibold">
                               {formatarEmReal(custoDestinado)}
                             </span>
@@ -2003,14 +2083,14 @@ export function EntradaFiscalDialog({
                               </p>
                             ))}
                             <p>
-                              Custo de estoque:{" "}
+                              Custo original de estoque:{" "}
                               <span className="font-semibold">
                                 {formatarEmReal(custoDestinado)}
                               </span>
                             </p>
                           </div>
                           <p>
-                            O valor fiscal é o que se paga ao fornecedor; o custo é
+                            O valor fiscal segue o XML. O custo efetivo de compra é
                             o que entra no preço de compra do produto e só chega à
                             DRE quando o item sair por venda ou por OS.
                           </p>
@@ -2048,7 +2128,7 @@ export function EntradaFiscalDialog({
                               : ""}
                             . Os{" "}
                             <span className="font-semibold">
-                              {formatarEmReal(conferencia.custoEstoque)}
+                              {formatarEmReal(custoEstoqueAtualizado)}
                             </span>{" "}
                             de mercadoria ficam no estoque e só chegam à DRE como
                             custo quando o item sair.
