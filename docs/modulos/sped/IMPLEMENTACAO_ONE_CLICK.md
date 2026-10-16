@@ -189,9 +189,9 @@ npm run db:deploy:demo                  # só com autorização
 | Comando | Resultado |
 |---|---|
 | `npx tsx --test src/services/fiscal/sped/*.test.ts src/lib/sped/efd-icms-ipi/*.test.ts` | 179 testes, 0 falhas (antes: 91) |
-| `npm run test:negocio` | 2731 testes, 0 falhas |
+| `npm run test:negocio` | 2735 testes, 0 falhas |
 | `npx tsc --noEmit` | sem erros |
-| `npm run build` | ver o resumo da entrega |
+| `npm run build` | sem erros; rotas `/fiscal/sped`, `/fiscal/sped/avancado` e `/api/fiscal/sped/geracao-automatica[/id]` geradas |
 | `npm run db:test:sped-fiscal` | **não executado**: conecta nos bancos dos clientes; aguarda autorização |
 
 Cobertura dos 25 casos pedidos:
