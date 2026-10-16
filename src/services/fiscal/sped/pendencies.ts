@@ -63,7 +63,7 @@ const advanced = (tab: string, label: string) => (competenceId: string | null): 
   label,
 });
 const configuration = advanced("configuracao", "Abrir configuração fiscal");
-const items = advanced("itens", "Classificar itens");
+const items = advanced("decisoes-itens", "Classificar itens");
 const assessment = advanced("apuracao", "Abrir apuração");
 const imports = advanced("importacoes", "Abrir importações");
 const entries = (): SpedPendencyLink => ({ href: "/fiscal/sped/avancado", label: "Confirmar datas de entrada" });
@@ -100,6 +100,8 @@ const RULES: Record<string, Rule> = {
   E110_DEBITOS_DIVERGENTES: { category: "APURACAO", title: "Débitos da apuração não fecham com as notas", reason: "O E110 precisa somar o ICMS das saídas.", action: "Reporte ao suporte: é uma inconsistência interna do motor.", link: assessment },
   E110_CREDITOS_DIVERGENTES: { category: "APURACAO", title: "Créditos da apuração não fecham com as notas", reason: "O E110 precisa somar o ICMS creditado nas entradas.", action: "Reporte ao suporte: é uma inconsistência interna do motor.", link: assessment },
   DATA_ENTRADA_FISCAL_NAO_CONFIRMADA: { category: "DOCUMENTOS_FISCAIS", title: "Entradas sem data de entrada confirmada", reason: "A entrada é escriturada no mês em que a mercadoria chegou, não pela emissão.", action: "Confirme a data de entrada de cada nota.", link: entries, collapse: true },
+  NFE_RECEBIDA_SEM_ENTRADA: { category: "DOCUMENTOS_FISCAIS", title: "NF-e de compra sem entrada registrada", reason: "A SEFAZ tem NF-e emitida contra o CNPJ da empresa que não foi lançada no ERP.", action: "Registre a entrada com a data de chegada, ou confirme que a mercadoria não foi recebida.", link: notes, collapse: true },
+  ENTRADA_EMITIDA_NA_COMPETENCIA_SEM_DATA: { category: "DOCUMENTOS_FISCAIS", title: "Compra do mês registrada depois e sem data de entrada", reason: "A nota foi emitida nesta competência e só lançada depois.", action: "Confirme a data de entrada; se a mercadoria chegou neste mês, ela entra nesta competência.", link: entries, collapse: true },
   DFE_ENTRADA_AUSENTE: { category: "DOCUMENTOS_FISCAIS", title: "Entrada sem XML da nota", reason: "O C100/C170 é montado a partir do XML autorizado.", action: "Baixe o XML da nota (DF-e) e vincule à entrada.", link: notes, collapse: true },
   DFE_ESTABELECIMENTO_DIVERGENTE: { category: "DOCUMENTOS_FISCAIS", title: "Nota de outro estabelecimento vinculada", reason: "O documento pertence a outro CNPJ.", action: "Corrija o vínculo da entrada.", link: notes, collapse: true },
   ENTRADA_NFE_CANCELADA: { category: "DOCUMENTOS_FISCAIS", title: "Entrada com nota cancelada pelo fornecedor", reason: "Nota cancelada do fornecedor não é escriturada.", action: "Cancele a entrada ou vincule a nota substituta.", link: notes, collapse: true },

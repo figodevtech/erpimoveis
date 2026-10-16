@@ -35,7 +35,7 @@ describe("pendências agrupadas", () => {
   it("cada pendência traz motivo, ação e link para a tela de correção", () => {
     const result = buildSpedPendencies([diag("CODIGO_ITEM_CANONICO_AUSENTE")], "42");
     const item = result.groups[0].items[0];
-    assert.equal(item.link?.href, "/fiscal/sped/avancado?competencia=42&aba=itens");
+    assert.equal(item.link?.href, "/fiscal/sped/avancado?competencia=42&aba=decisoes-itens");
     assert.ok(item.title && item.reason && item.action);
   });
 

@@ -15,13 +15,13 @@ import {
 import {
   applySmartSpedConfiguration,
   closeValidatedSpedCompetence,
-  createSpedCompetence,
+  ensureSpedCompetenceState,
   generateSpedFileRecord,
   getSpedCompetenceDetail,
   getSpedCompetenceState,
   resolveCompanyId,
   resolveSpedCompetenceAutomatically,
-  validateSpedCompetence,
+  runSpedValidation,
 } from "./competenciaService";
 import { SpedServiceError, throwIfSupabaseError } from "./errors";
 import { buildSpedPendencies, type SpedPendencyGroup, type SpedPendency } from "./pendencies";
@@ -111,7 +111,7 @@ async function viewOf(job: Row): Promise<SpedGenerationJobView> {
   };
   if (!competenciaId || !["PENDENCIAS", "CONCLUIDA"].includes(status)) return base;
 
-  const detail = await getSpedCompetenceDetail(competenciaId);
+  const detail = await getSpedCompetenceDetail(competenciaId, { includeSnapshots: false });
   const stored = (job.resultado ?? {}) as Row;
   const fileId = text(stored.arquivo?.id);
   const file = fileId ? detail.arquivos.find((row) => row.id === fileId) ?? null : null;
@@ -247,8 +247,7 @@ export async function executeSpedGeneration(id: string): Promise<void> {
       throwIfSupabaseError(result.error);
     },
     async ensureCompetence() {
-      const detail = await createSpedCompetence({ companyId, competence, actorId });
-      return { id: detail.id, status: detail.status, versionNumber: detail.versao };
+      return ensureSpedCompetenceState({ companyId, competence, actorId });
     },
     async readCompetence(competenceId) {
       const state = await getSpedCompetenceState(competenceId);
@@ -264,7 +263,7 @@ export async function executeSpedGeneration(id: string): Promise<void> {
       return resolveSpedCompetenceAutomatically(competenceId, actorId, { progress });
     },
     async validate(competenceId, expectedVersion, progress) {
-      const result = await validateSpedCompetence(competenceId, expectedVersion, actorId, { progress });
+      const result = await runSpedValidation(competenceId, expectedVersion, actorId, { progress });
       return { blocked: result.blocked, recordCount: result.recordCount, reconciliation: result.reconciliation };
     },
     async close(competenceId) {

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { SpedWorkspace } from "./sped-workspace";
+import { SpedOneClick } from "./sped-one-click";
 
 export const metadata: Metadata = {
   title: "SPED Fiscal",
@@ -9,5 +9,5 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default function SpedPage() {
-  return <SpedWorkspace />;
+  return <SpedOneClick />;
 }

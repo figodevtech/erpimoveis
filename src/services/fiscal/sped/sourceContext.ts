@@ -18,6 +18,7 @@ import {
   isSpedFiscalEntryCandidate,
 } from "./entryScope";
 import { throwIfSupabaseError } from "./errors";
+import { civilDateInTimezone } from "./guards";
 import { fetchAllByIds, fetchAllPages, type SpedCollectionReport } from "./sourcePagination";
 
 type Row = Record<string, any>;
@@ -318,6 +319,8 @@ export async function collectSpedSources(competence: Row) {
       source: { source: "BANCO" as const, table: "entrada", id: row.id, documentKey: text(row.notachave) || undefined },
     }));
 
+  const receivedWithoutEntry = await receivedDocumentsWithoutEntry({ companyId, start, end, competenceText, timezone, track });
+
   return {
     competence: competenceText,
     start,
@@ -340,7 +343,7 @@ export async function collectSpedSources(competence: Row) {
     productsById,
     unitConversions,
     itemCorrelations,
-    mappingDiagnostics: [...mappingDiagnostics, ...lateEntryWarnings],
+    mappingDiagnostics: [...mappingDiagnostics, ...lateEntryWarnings, ...receivedWithoutEntry],
     unconfirmedEntryIds,
     priorEfd: priorEfdResult.data as Row | null,
     payments1601,
@@ -362,6 +365,56 @@ export async function collectSpedSources(competence: Row) {
 }
 
 export type SpedSourceContext = Awaited<ReturnType<typeof collectSpedSources>>;
+
+/**
+ * NF-e emitidas contra o CNPJ na competência (distribuição DF-e) sem entrada
+ * no ERP. Não bloqueia: a mercadoria pode não ter chegado ou ter sido
+ * recusada. Mas uma compra não pode sumir do SPED sem que alguém saiba.
+ */
+async function receivedDocumentsWithoutEntry(input: {
+  companyId: number;
+  start: string;
+  end: string;
+  competenceText: string;
+  timezone: string | null;
+  track: <T>(result: { rows: T[]; report: SpedCollectionReport }) => T[];
+}): Promise<SpedDiagnostic[]> {
+  const received = input.track(await fetchAllPages<Row>("NF-e recebidas na SEFAZ", ({ from, to }) => supabaseAdmin
+    .from("fiscal_dfe_documento").select("id, chave_acesso, schema, status, data_emissao, emitente_nome", { count: "exact" })
+    .eq("empresa_id", input.companyId)
+    .gte("data_emissao", `${shiftCivilDate(input.start, -1)}T00:00:00`).lte("data_emissao", `${shiftCivilDate(input.end, 1)}T23:59:59.999`)
+    .order("id").range(from, to)));
+  const byKey = new Map<string, Row>();
+  for (const row of received) {
+    const key = text(row.chave_acesso);
+    if (!/^d{44}$/.test(key) || !/^(procNFe|resNFe)/i.test(text(row.schema)) || /CANCEL|DENEG/i.test(text(row.status))) continue;
+    const civil = civilDateInTimezone(row.data_emissao, input.timezone) ?? text(row.data_emissao).slice(0, 10);
+    if (civil.slice(0, 7) !== input.competenceText) continue;
+    if (!byKey.has(key)) byKey.set(key, row);
+  }
+  if (byKey.size === 0) return [];
+  const keys = Array.from(byKey.keys());
+  const linked = input.track(await fetchAllByIds<Row, string>("entradas das NF-e recebidas", keys, (part, { from, to }) => supabaseAdmin
+    .from("entrada").select("id, notachave", { count: "exact" }).in("notachave", part).order("id").range(from, to)));
+  const linkedById = input.track(await fetchAllByIds<Row, number>("entradas vinculadas ao DF-e", received.map((row) => number(row.id)), (part, { from, to }) => supabaseAdmin
+    .from("entrada").select("id, fiscal_dfe_documento_id", { count: "exact" }).in("fiscal_dfe_documento_id", part).order("id").range(from, to)));
+  const entered = new Set(linked.map((row) => text(row.notachave)));
+  const enteredDfe = new Set(linkedById.map((row) => number(row.fiscal_dfe_documento_id)));
+  const keyByDfe = new Map(received.map((row) => [number(row.id), text(row.chave_acesso)]));
+  for (const id of enteredDfe) {
+    const key = keyByDfe.get(id);
+    if (key) entered.add(key);
+  }
+  return keys.filter((key) => !entered.has(key)).map((key) => {
+    const row = byKey.get(key)!;
+    return {
+      code: "NFE_RECEBIDA_SEM_ENTRADA",
+      severity: "AVISO" as const,
+      message: `A NF-e ${key}${text(row.emitente_nome) ? ` de ${text(row.emitente_nome)}` : ""} foi emitida contra a empresa em ${input.competenceText} e não tem entrada no ERP.`,
+      source: { source: "BANCO" as const, table: "fiscal_dfe_documento", id: row.id, documentKey: key },
+    };
+  });
+}
 
 export function productMaster(row: Row | undefined | null): SpedProductMaster | null {
   if (!row) return null;

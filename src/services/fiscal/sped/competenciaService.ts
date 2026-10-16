@@ -665,7 +665,13 @@ async function storeDocumentSnapshots(
 }
 
 async function replaceDiagnostics(executionId: number, diagnostics: SpedDiagnostic[]) {
-  if (diagnostics.length === 0) return;
+  // Lotes de 500: uma competência grande pode ter milhares de diagnósticos.
+  for (let index = 0; index < diagnostics.length; index += 500) {
+    await insertDiagnostics(executionId, diagnostics.slice(index, index + 500));
+  }
+}
+
+async function insertDiagnostics(executionId: number, diagnostics: SpedDiagnostic[]) {
   const result = await supabaseAdmin.from("fiscal_sped_inconsistencia").insert(diagnostics.map((diagnostic) => ({
     execucao_id: executionId,
     severidade: diagnostic.severity,
@@ -689,6 +695,23 @@ export async function resolveCompanyId(companyId: number | null | undefined): Pr
   throw chosen.error === "NENHUMA"
     ? new SpedServiceError("Cadastre a empresa antes de abrir uma competência SPED.", 422, "COMPANY_REQUIRED")
     : new SpedServiceError("Há mais de uma empresa cadastrada: informe a empresa da competência.", 400, "COMPANY_AMBIGUOUS");
+}
+
+/** Cria (ou reaproveita) a competência e devolve só o estado, sem o detalhe completo. */
+export async function ensureSpedCompetenceState(input: { companyId: number; competence: string; actorId: string }) {
+  let start: string;
+  try {
+    start = parseCompetence(input.competence).start;
+  } catch (error) {
+    throw new SpedServiceError(error instanceof Error ? error.message : "Competência inválida.", 400, "INVALID_COMPETENCE");
+  }
+  const result = await supabaseAdmin.rpc("fiscal_sped_criar_competencia", {
+    p_empresa_id: input.companyId,
+    p_competencia: start,
+    p_usuario_id: input.actorId,
+  });
+  throwIfSupabaseError(result.error);
+  return getSpedCompetenceState(String(result.data));
 }
 
 export async function createSpedCompetence(input: { companyId?: number | null; competence: string; actorId: string }) {
@@ -953,6 +976,17 @@ export async function validateSpedCompetence(
   actorId: string,
   options: { progress?: SpedProgress } = {},
 ) {
+  const result = await runSpedValidation(id, expectedVersion, actorId, options);
+  return { ...result, data: await getSpedCompetenceDetail(id) };
+}
+
+/** Validação sem montar o detalhe completo (documentos e itens) na resposta. */
+export async function runSpedValidation(
+  id: string,
+  expectedVersion: unknown,
+  actorId: string,
+  options: { progress?: SpedProgress } = {},
+) {
   const competence = await getCompetence(id);
   let version = await getVersion(competence.versao_atual_id);
   assertExpectedVersion(version, expectedVersion);
@@ -1023,7 +1057,6 @@ export async function validateSpedCompetence(
   const concluded = await supabaseAdmin.rpc("fiscal_sped_concluir_validacao", { p_execucao_id: begin.data, p_usuario_id: actorId });
   throwIfSupabaseError(concluded.error);
   return {
-    data: await getSpedCompetenceDetail(id),
     validation: concluded.data,
     blocked: hasBlockingDiagnostics(diagnostics),
     reconciliation: projection.reconciliation,
@@ -1282,7 +1315,18 @@ export async function listSpedCompetences(): Promise<SpedCompetenciaSummary[]> {
   return Promise.all((result.data ?? []).map((row: Row) => summaryFor(row)));
 }
 
-export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenciaDetail> {
+/** Lê todas as páginas e devolve no formato de resposta do Supabase. */
+async function allRows(label: string, page: (range: { from: number; to: number }) => PromiseLike<{ data: Row[] | null; error: { message?: string; code?: string } | null; count?: number | null }>) {
+  const { rows } = await fetchAllPages<Row>(label, page);
+  return { data: rows, error: null };
+}
+
+/**
+ * Detalhe da competência. Sem `includeSnapshots`, pula documentos e cadastros
+ * (o volume grande) e serve ao acompanhamento da geração.
+ */
+export async function getSpedCompetenceDetail(id: string, options: { includeSnapshots?: boolean } = {}): Promise<SpedCompetenciaDetail> {
+  const includeSnapshots = options.includeSnapshots !== false;
   const competence = await getCompetence(id);
   const version = await getVersion(competence.versao_atual_id);
   const summary = await summaryFor(competence);
@@ -1292,8 +1336,12 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
   const [companyResult, previousEfdResult, documentsResult, cadastrosResult, apuracaoResult, importsResult, adjustmentsResult, inventoryResult, execution, filesResult, accountantsResult] = await Promise.all([
     supabaseAdmin.from("empresa").select("id, cnpj, razaosocial, nomefantasia, inscricaoestadual").eq("id", competence.empresa_id).maybeSingle(),
     supabaseAdmin.from("fiscal_sped_efd_anterior_importacao").select("id, competencia_arquivo, nome_arquivo, arquivo_sha256, status, imported_at").eq("competencia_id", competence.id).order("imported_at", { ascending: false }).limit(1).maybeSingle(),
-    version ? supabaseAdmin.from("fiscal_sped_documento_snapshot").select("*, itens:fiscal_sped_item_snapshot(*)").eq("versao_id", version.id).order("data_emissao_civil").order("id") : Promise.resolve({ data: [], error: null }),
-    version ? supabaseAdmin.from("fiscal_sped_cadastro_snapshot").select("*").eq("versao_id", version.id).in("tipo", ["PARTICIPANTE", "ITEM"]).order("id") : Promise.resolve({ data: [], error: null }),
+    version && includeSnapshots
+      ? allRows("documentos da versão", ({ from, to }) => supabaseAdmin.from("fiscal_sped_documento_snapshot").select("*, itens:fiscal_sped_item_snapshot(*)", { count: "exact" }).eq("versao_id", version.id).order("data_emissao_civil").order("id").range(from, to))
+      : Promise.resolve({ data: [], error: null }),
+    version && includeSnapshots
+      ? allRows("cadastros da versão", ({ from, to }) => supabaseAdmin.from("fiscal_sped_cadastro_snapshot").select("*", { count: "exact" }).eq("versao_id", version.id).in("tipo", ["PARTICIPANTE", "ITEM"]).order("id").range(from, to))
+      : Promise.resolve({ data: [], error: null }),
     version ? supabaseAdmin.from("fiscal_sped_apuracao_snapshot").select("*").eq("versao_id", version.id).order("id") : Promise.resolve({ data: [], error: null }),
     supabaseAdmin.from("fiscal_sped_1601_importacao").select("id, nome_arquivo, arquivo_sha256, status, quantidade_linhas, imported_at").eq("competencia_id", competence.id).eq("status", "VALIDADA").order("imported_at", { ascending: false }),
     supabaseAdmin.from("fiscal_sped_ajuste_apuracao").select("*").eq("competencia_id", competence.id).eq("ativo", true).order("id"),
@@ -1306,7 +1354,9 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
   ]);
   for (const result of [companyResult, previousEfdResult, documentsResult, cadastrosResult, apuracaoResult, importsResult, adjustmentsResult, inventoryResult, filesResult, accountantsResult]) throwIfSupabaseError(result.error);
   const importIds = (importsResult.data ?? []).map((row: Row) => row.id);
-  const payments = importIds.length ? await supabaseAdmin.from("fiscal_sped_1601_linha").select("*").in("importacao_id", importIds).order("id") : { data: [], error: null };
+  const payments = importIds.length
+    ? await allRows("linhas do 1601", ({ from, to }) => supabaseAdmin.from("fiscal_sped_1601_linha").select("*", { count: "exact" }).in("importacao_id", importIds).order("id").range(from, to))
+    : { data: [], error: null };
   throwIfSupabaseError(payments.error);
   const fileRows = (filesResult.data ?? []) as Row[];
   const fileIds = fileRows.map((row) => row.id).filter(Boolean);
@@ -1324,10 +1374,13 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
     pvaValidationsByFile.set(fileId, [...(pvaValidationsByFile.get(fileId) ?? []), val]);
   }
   const inventoryItems = inventoryResult.data
-    ? await supabaseAdmin.from("fiscal_inventario_item").select("id, valor_total").eq("inventario_id", inventoryResult.data.id)
+    ? await allRows("itens do inventário", ({ from, to }) => supabaseAdmin.from("fiscal_inventario_item").select("id, valor_total", { count: "exact" }).eq("inventario_id", inventoryResult.data.id).order("id").range(from, to))
     : { data: [], error: null };
   throwIfSupabaseError(inventoryItems.error);
-  const inconsistencies = execution ? await supabaseAdmin.from("fiscal_sped_inconsistencia").select("*").eq("execucao_id", execution.id).order("id") : { data: [], error: null };
+  // Uma competência com milhares de itens pendentes passa de 1000 inconsistências.
+  const inconsistencies = execution
+    ? await allRows("inconsistências", ({ from, to }) => supabaseAdmin.from("fiscal_sped_inconsistencia").select("*", { count: "exact" }).eq("execucao_id", execution.id).order("id").range(from, to))
+    : { data: [], error: null };
   throwIfSupabaseError(inconsistencies.error);
   const company = (companyResult.data ?? {}) as Row;
   const cadastros = (cadastrosResult.data ?? []) as Row[];
