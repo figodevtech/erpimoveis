@@ -21,6 +21,7 @@ const BLOCKING_GATES: Array<{
   { key: "inventory", code: "INVENTARIO_PENDENTE", label: "Inventário/Bloco H" },
 ];
 
+import { validateEfdCrossReferences } from "./cross-validation";
 import { recalculateBlockClosures } from "./serializer";
 
 export function validateEfdRecords(records: readonly EfdRecord[], layout: EfdLayout): SpedDiagnostic[] {
@@ -170,6 +171,7 @@ export function validateSpedCandidate(
   }
 
   diagnostics.push(...validateEfdRecords(candidate.records ?? [], layout));
+  diagnostics.push(...validateEfdCrossReferences(candidate.records ?? []));
   return diagnostics;
 }
 

@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { lerAjustesValoresEntrada, registrarEntradaComValores } from "./entradaValoresService";
 import { dataDoCalendario } from "@/lib/data-calendario";
 import { entradaUsoConsumoSchema, zodMessage } from "@/lib/usoconsumo/schemas";
 import { parseEscopoDeEntrada } from "@/lib/usoconsumo/escopo";
@@ -46,6 +46,7 @@ function digits(value: unknown) {
  * gravado uma única vez pela RPC e aponta para as duas ao mesmo tempo.
  */
 export async function registrarEntradaFiscalMista(body: any, createdBy?: string | null) {
+  const ajustes = lerAjustesValoresEntrada(body?.ajustesValores);
   const itensProdutoRaw = Array.isArray(body?.itensProduto) ? body.itensProduto : [];
   const itensUsoRaw = Array.isArray(body?.itensUsoConsumo) ? body.itensUsoConsumo : [];
 
@@ -133,13 +134,13 @@ export async function registrarEntradaFiscalMista(body: any, createdBy?: string 
 
   const transacoes = montarTransacoes(body);
 
-  const { data, error } = await supabaseAdmin.rpc("registrar_entrada_fiscal_mista", {
+  const { data, error } = await registrarEntradaComValores("registrar_entrada_fiscal_mista", "MISTA", {
     p_entrada_produto: entradaProduto,
     p_itens_produto: itensProduto,
     p_entrada_usoconsumo: { ...entradaUsoConsumo, created_by: createdBy ?? null },
     p_itens_usoconsumo: itensUsoConsumo,
     p_transacoes: transacoes,
-  });
+  }, ajustes, createdBy);
   if (error) throw error;
   return data as { entrada_id: number; usoconsumo_entrada_id: number; valor_total: number };
 }

@@ -1575,6 +1575,7 @@ export default function HistoricoEstoquePage() {
       />
 
       <EntryDetailsDialog
+        onValuesSaved={() => void carregar()}
         open={detalhesMovimento?.kind === "entrada"}
         onOpenChange={(open) => !open && setDetalhesMovimento(null)}
         entryId={detalhesMovimento?.kind === "entrada" ? detalhesMovimento.id : null}

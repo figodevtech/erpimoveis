@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { requireFinanceiroCreate } from "@/app/api/_authz/perms";
 import { dataDoCalendario } from "@/lib/data-calendario";
-import { calcularTotalDocumentoEntrada, parcelasFechamTotalDocumento } from "@/lib/financeiro/entrada-fiscal";
+import { parcelasFechamTotalDocumento } from "@/lib/financeiro/entrada-fiscal";
 import { paraCentavos } from "@/lib/financeiro/rateio";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { carregarContextoValoresEntrada, transacoesDoContexto, erroValoresEntrada,
+  type ContextoValoresEntrada } from "@/services/estoque/entradaValoresService";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -42,6 +44,7 @@ type LadoEntradaFinanceira = {
 };
 
 type ContextoEntradaFinanceira = {
+  referencia: ContextoValoresEntrada;
   selecionada: LadoEntradaFinanceira;
   estoque: LadoEntradaFinanceira | null;
   usoconsumo: LadoEntradaFinanceira | null;
@@ -121,6 +124,7 @@ async function entradaEstoqueRelacionada(documentoId: number | null, chave: stri
       .select(CAMPOS_ENTRADA_ESTOQUE)
       .eq("fiscal_dfe_documento_id", documentoId)
       .neq("status", "CANCELADA")
+      .order("id").limit(1)
       .maybeSingle();
     if (error) throw error;
     if (data) return mapEntradaEstoque(data);
@@ -132,6 +136,7 @@ async function entradaEstoqueRelacionada(documentoId: number | null, chave: stri
     .select(CAMPOS_ENTRADA_ESTOQUE)
     .eq("notachave", chave)
     .neq("status", "CANCELADA")
+    .order("id").limit(1)
     .maybeSingle();
   if (error) throw error;
   return data ? mapEntradaEstoque(data) : null;
@@ -144,6 +149,7 @@ async function entradaUsoRelacionada(documentoId: number | null, chave: string |
       .select(CAMPOS_ENTRADA_USO)
       .eq("documento_fiscal_recebido_id", documentoId)
       .neq("status", "CANCELADA")
+      .order("id").limit(1)
       .maybeSingle();
     if (error) throw error;
     if (data) return mapEntradaUsoConsumo(data);
@@ -155,6 +161,7 @@ async function entradaUsoRelacionada(documentoId: number | null, chave: string |
     .select(CAMPOS_ENTRADA_USO)
     .eq("chave_nfe", chave)
     .neq("status", "CANCELADA")
+    .order("id").limit(1)
     .maybeSingle();
   if (error) throw error;
   return data ? mapEntradaUsoConsumo(data) : null;
@@ -174,12 +181,11 @@ async function carregarContextoEntrada(entryId: number, isUsoConsumo: boolean) {
   const usoconsumo = isUsoConsumo
     ? selecionada
     : await entradaUsoRelacionada(selecionada.documentoId, selecionada.chave);
-  const valorTotal = calcularTotalDocumentoEntrada(
-    estoque?.valorTotal,
-    usoconsumo?.valorTotal,
-  );
+  const referencia = await carregarContextoValoresEntrada(isUsoConsumo ? "usoconsumo" : "produto", entryId);
+  const valorTotal = Number(referencia.valor_total);
 
   return {
+    referencia,
     selecionada,
     estoque,
     usoconsumo,
@@ -190,26 +196,8 @@ async function carregarContextoEntrada(entryId: number, isUsoConsumo: boolean) {
 
 async function buscarTransacoesAtivas(
   contexto: ContextoEntradaFinanceira,
-  campos = "id,descricao,valor,data,pendente,is_deleted,entrada_id,usoconsumo_entrada_id",
 ) {
-  let query = supabaseAdmin
-    .from("transacao")
-    .select(campos)
-    .eq("is_deleted", false);
-
-  if (contexto.estoque && contexto.usoconsumo) {
-    query = query.or(
-      `entrada_id.eq.${contexto.estoque.id},usoconsumo_entrada_id.eq.${contexto.usoconsumo.id}`,
-    );
-  } else if (contexto.estoque) {
-    query = query.eq("entrada_id", contexto.estoque.id);
-  } else if (contexto.usoconsumo) {
-    query = query.eq("usoconsumo_entrada_id", contexto.usoconsumo.id);
-  }
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  return transacoesDoContexto(contexto.referencia, true);
 }
 
 export async function GET(req: Request, { params }: Params) {
@@ -232,9 +220,10 @@ export async function GET(req: Request, { params }: Params) {
         numero_nota: contexto.selecionada.numeroNota,
         fornecedor: contexto.selecionada.fornecedor,
         valor_total: contexto.valorTotal,
+        versao_financeiro: contexto.referencia.versao_financeiro,
         valor_total_parcial: contexto.selecionada.valorTotal,
-        valor_total_produtos: contexto.estoque?.valorTotal ?? 0,
-        valor_total_usoconsumo: contexto.usoconsumo?.valorTotal ?? 0,
+        valor_total_produtos: contexto.referencia.valor_total_produtos,
+        valor_total_usoconsumo: contexto.referencia.valor_total_usoconsumo,
         entrada_id: contexto.estoque?.id ?? null,
         usoconsumo_entrada_id: contexto.usoconsumo?.id ?? null,
         mista: contexto.mista,
@@ -260,10 +249,16 @@ export async function POST(req: Request, { params }: Params) {
     }
 
     const body = await req.json();
+    if (typeof body?.versaoEsperada !== "string" || !body.versaoEsperada) {
+      return NextResponse.json({ error: "Recarregue os dados da entrada antes de lançar o financeiro." }, { status: 409 });
+    }
     const inventory = String(body?.inventory ?? "produto").toLowerCase();
     const isUsoConsumo = inventory === "usoconsumo" || inventory === "uso-consumo";
     const contexto = await carregarContextoEntrada(entryId, isUsoConsumo);
     const entrada = contexto.selecionada;
+    if (body.versaoEsperada !== contexto.referencia.versao_financeiro) {
+      return NextResponse.json({ error: "O total da entrada foi alterado. Recarregue e revise o financeiro." }, { status: 409 });
+    }
 
     if (entrada.canceladaAt || entrada.status === "CANCELADA") {
       return NextResponse.json(
@@ -273,7 +268,7 @@ export async function POST(req: Request, { params }: Params) {
     }
 
     // Em uma NF-e mista, qualquer lançamento de um dos lados pertence ao documento inteiro.
-    const existingTx = await buscarTransacoesAtivas(contexto, "id");
+    const existingTx = await buscarTransacoesAtivas(contexto);
     if (existingTx.length > 0) {
       return NextResponse.json(
         { error: "Esta entrada já possui lançamentos financeiros registrados no sistema." },
@@ -327,7 +322,6 @@ export async function POST(req: Request, { params }: Params) {
     };
 
     let rowsToInsert: any[] = [];
-    let parcelamentoId: number | null = null;
 
     if (futuro) {
       if (!parcelas.length) {
@@ -346,7 +340,7 @@ export async function POST(req: Request, { params }: Params) {
       }
       if (!parcelasFechamTotalDocumento(contexto.valorTotal, valoresParcelas)) {
         return NextResponse.json(
-          { error: "A soma das parcelas deve ser igual ao valor total do documento fiscal." },
+          { error: "A soma das parcelas deve ser igual ao total de compra atualizado da entrada." },
           { status: 400 },
         );
       }
@@ -363,22 +357,11 @@ export async function POST(req: Request, { params }: Params) {
        * e a divisão da compra ficaria permanente. A descrição do grupo é a base,
        * sem o sufixo, porque é dela que a renumeração é montada.
        */
-      if (parcelas.length > 1) {
-        const { data: grupo, error: grupoError } = await supabaseAdmin
-          .from("transacao_parcelamento")
-          .insert({ descricao: descricaoBase })
-          .select("id")
-          .single();
-
-        if (grupoError) throw grupoError;
-        parcelamentoId = Number(grupo.id);
-      }
 
       rowsToInsert = parcelas.map((parcela: any, index: number) => {
         const valor = valoresParcelas[index];
         return {
           ...base,
-          ...(parcelamentoId != null ? { parcelamento_id: parcelamentoId } : {}),
           descricao: `${descricaoBase}${parcelas.length > 1 ? ` - Parcela ${index + 1}/${parcelas.length}` : ""}`,
           valor,
           valorLiquido: valor,
@@ -418,29 +401,17 @@ export async function POST(req: Request, { params }: Params) {
       ];
     }
 
-    const { data: inserted, error: insertErr } = await supabaseAdmin
-      .from("transacao")
-      .insert(rowsToInsert)
-      .select("id");
-
-    if (insertErr) {
-      // As parcelas não entraram: o grupo criado acima ficaria sem nenhuma linha
-      // apontando para ele. Mesmo cuidado do lançamento avulso.
-      if (parcelamentoId != null) {
-        await supabaseAdmin.from("transacao_parcelamento").delete().eq("id", parcelamentoId);
-      }
-      throw insertErr;
-    }
-
-    return NextResponse.json({
-      success: true,
-      count: inserted?.length ?? 0,
-      transacoes: inserted,
+    const { data, error } = await supabaseAdmin.rpc("registrar_financeiro_entrada", {
+      p_inventory: isUsoConsumo ? "usoconsumo" : "produto", p_id: entryId,
+      p_transacoes: rowsToInsert, p_versao_esperada: body.versaoEsperada,
+      p_created_by: criadoPor,
     });
+    if (error) throw error;
+    return NextResponse.json(data);
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message ?? "Erro ao lançar financeiro para a entrada." },
-      { status: error?.statusCode ?? 500 },
+      { status: erroValoresEntrada(error).status },
     );
   }
 }

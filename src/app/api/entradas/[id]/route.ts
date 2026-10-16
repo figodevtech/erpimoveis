@@ -3,18 +3,19 @@ import { requireEstoqueAccess, requireEstoqueEdit } from "@/app/api/_authz/perms
 import { anexarAutor } from "@/lib/movement-authors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { carregarPersonalizacaoFiscal } from "@/services/estoque/entradaFiscalPersonalizadaAuditService";
+import { carregarValoresCompra } from "@/services/estoque/entradaValoresService";
 
 type Params = { params: Promise<{ id: string }> };
 
 const SELECT_ENTRADA = `
   id, created_at, fornecedorid, fiscal, notachave, tipo, status, origem, observacao,
-  numero_nota, serie_nota, data_emissao, valor_total, fiscal_dfe_documento_id,
+  numero_nota, serie_nota, data_emissao, valor_total, valor_total_original, versao_valores, fiscal_dfe_documento_id,
   cancelada_at, created_by,
   cancelada_by, motivo_cancelamento,
   fornecedor:fornecedorid(id, cpfcnpj, nomerazaosocial, nomefantasia),
   itens:entradaitens(
     id, produto_id, unidade, quantidade, precovenda, valor_unitario_compra,
-    valor_desconto, valor_frete, outras_despesas, valor_total,
+    valor_desconto, valor_frete, outras_despesas, valor_total, valor_unitario_compra_original, valor_total_original,
     ncm, cest, csosn, referencia, titulo, "cClassTrib", "cstIbs", "cstCbs",
     cst, aliquotaicms, cfop, cst_pis, aliquota_pis, cst_cofins, aliquota_cofins,
     created_at, updated_at,
@@ -35,7 +36,7 @@ export async function GET(_req: Request, { params }: Params) {
     const { data, error } = await supabaseAdmin.from("entrada").select(SELECT_ENTRADA).eq("id", id).maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ error: "Entrada não encontrada." }, { status: 404 });
-    const [entrada, personalizacaoFiscal] = await Promise.all([
+    const [entrada, personalizacaoFiscal, valoresCompra] = await Promise.all([
       anexarAutor({
         ...data,
         itens: Array.isArray(data.itens) ? [...data.itens].sort((a, b) => Number(a.id) - Number(b.id)) : [],
@@ -44,9 +45,10 @@ export async function GET(_req: Request, { params }: Params) {
         documentoId: Number(data.fiscal_dfe_documento_id) || null,
         entradaCreatedAt: String(data.created_at),
       }),
+      carregarValoresCompra("produto", Number(id)),
     ]);
     return NextResponse.json({
-      entrada: { ...entrada, personalizacaoFiscal },
+      entrada: { ...entrada, personalizacaoFiscal, valoresCompra },
     });
   } catch (error: any) {
     return NextResponse.json(

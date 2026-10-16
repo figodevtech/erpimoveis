@@ -30,6 +30,8 @@
     "db:test:central-operacional": "tsx scripts/db/test-central-operacional-migration.ts",
     "db:test:entrada-fiscal-personalizada": "tsx scripts/db/test-entrada-fiscal-personalizada-migration.ts",
     "db:test:entrada-fiscal-hibrida": "tsx scripts/db/test-entrada-fiscal-hibrida-migration.ts",
+    "db:test:entrada-valores": "tsx scripts/db/test-entrada-valores-migration.ts",
+    "test:entrada-valores:ui": "node scripts/tests/entrada-valores-ui.mjs",
     "db:validar:os-finalizado": "tsx scripts/db/validar-os-finalizado-em.ts",
     "db:simular:comissao-criacao": "tsx scripts/db/simular-comissao-criacao.ts",
     "db:test:sql": "tsx scripts/db/test-sql.ts",

@@ -7,6 +7,7 @@ import type {
   SpedContabilista,
   SpedContabilistaForm,
   SpedEntradaDataFiscalPendente,
+  SpedGeracao,
 } from "./types";
 
 const API_ROOT = "/api/fiscal/sped";
@@ -263,3 +264,35 @@ export function recordSpedPvaValidation(
   );
 }
 
+
+export function requestSpedGeneration(competencia: string) {
+  return requestJson<{ data: SpedGeracao }>(`${API_ROOT}/geracao-automatica`, {
+    method: "POST",
+    body: JSON.stringify({ competencia }),
+  });
+}
+
+export function getSpedGeneration(id: string, signal?: AbortSignal) {
+  return requestJson<{ data: SpedGeracao }>(`${API_ROOT}/geracao-automatica/${encodeURIComponent(id)}`, { signal });
+}
+
+export function getLatestSpedGeneration(competencia: string, signal?: AbortSignal) {
+  return requestJson<{ data: SpedGeracao | null }>(
+    `${API_ROOT}/geracao-automatica?competencia=${encodeURIComponent(competencia)}`,
+    { signal },
+  );
+}
+
+/** Prévia para conferência: arquivo marcado como PREVIA, nunca entregue como final. */
+export async function generateAndDownloadSpedPreview(competenciaId: string, versao: number | null) {
+  await requestJson(`${API_ROOT}/competencias/${encodeURIComponent(competenciaId)}/gerar`, {
+    method: "POST",
+    body: JSON.stringify({ expectedVersion: versao, tipo: "PREVIA" }),
+  });
+  const detail = await getSpedCompetencia(competenciaId);
+  const preview = detail.arquivos
+    .filter((file) => file.tipo === "PREVIA")
+    .sort((left, right) => right.sequencia - left.sequencia)[0];
+  if (!preview) throw new SpedApiError("A prévia foi gerada, mas não foi localizada.", 500);
+  await downloadSpedFile(preview);
+}

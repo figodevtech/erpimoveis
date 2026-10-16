@@ -130,13 +130,23 @@ export function projectSpedAssessment(input: {
   const adjustments = input.adjustments ?? [];
   const ownAdjustments = adjustments.filter((item) => !item.uf);
   const diagnostics: SpedDiagnostic[] = [];
-  const outputDocuments = input.documents.filter((document) => document.operation === "SAIDA" && document.situationCode !== "02");
-  const inputDocuments = input.documents.filter((document) => document.operation === "ENTRADA" && document.situationCode !== "02");
+  const regular = (document: ProjectedFiscalDocument) => !["02", "04"].includes(document.situationCode);
+  const outputDocuments = input.documents.filter((document) => document.operation === "SAIDA" && regular(document));
+  const inputDocuments = input.documents.filter((document) => document.operation === "ENTRADA" && regular(document));
 
-  const totalDebits = cents(outputDocuments.reduce((sum, document) => sum + cents(document.payload.totais?.vICMS), 0));
-  const totalCredits = cents(inputDocuments.reduce((documentSum, document) => documentSum + document.items
-    .filter((item) => item.creditTreatment === "CREDITAVEL")
-    .reduce((itemSum, item) => itemSum + cents(item.payload.valor_icms), 0), 0));
+  // E110 soma o VL_ICMS dos C190: saídas viram débito e entradas viram crédito
+  // (incluindo a NF-e de entrada emitida pela própria empresa, como devolução).
+  // Documentos projetados antes dos totais por C190 seguem a regra anterior.
+  const totalDebits = cents(outputDocuments.reduce((sum, document) => sum + (
+    document.icmsTotals ? cents(document.icmsTotals.icms) : cents(document.payload.totais?.vICMS)
+  ), 0));
+  const totalCredits = cents(inputDocuments.reduce((documentSum, document) => documentSum + (
+    document.icmsTotals
+      ? cents(document.icmsTotals.icms)
+      : document.items
+        .filter((item) => item.creditTreatment === "CREDITAVEL")
+        .reduce((itemSum, item) => itemSum + cents(item.payload.valor_icms), 0)
+  ), 0));
   const previousCredit = previousOwnBalance(input.priorEfd);
   const adjustmentDebits = sumAdjustments(ownAdjustments, "DEBITO");
   const adjustmentCredits = sumAdjustments(ownAdjustments, "CREDITO");

@@ -60,6 +60,8 @@ export function LancarFinanceiroEntradaDialog({
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [entryData, setEntryData] = useState<any>(null);
+  const [revisaoDados, setRevisaoDados] = useState(0);
+  const [dadosDesatualizados, setDadosDesatualizados] = useState(false);
 
   const [pagamentoFuturo, setPagamentoFuturo] = useState(true);
   const [parcelas, setParcelas] = useState<Parcela[]>([]);
@@ -94,6 +96,7 @@ export function LancarFinanceiroEntradaDialog({
       .then((res) => {
         const data = res.data?.entrada ?? res.data?.data ?? res.data;
         setEntryData(data);
+        setDadosDesatualizados(false);
 
         const total = Number(data.valor_total ?? 0);
         const hoje = new Date().toISOString().split("T")[0];
@@ -117,7 +120,7 @@ export function LancarFinanceiroEntradaDialog({
       .finally(() => {
         setLoading(false);
       });
-  }, [open, entryId, apiEndpoint, onOpenChange]);
+  }, [open, entryId, apiEndpoint, onOpenChange, revisaoDados]);
 
   useEffect(() => {
     if (!open) return;
@@ -207,6 +210,7 @@ export function LancarFinanceiroEntradaDialog({
 
     const payload = {
       inventory,
+      versaoEsperada: entryData?.versao_financeiro,
       financeiro: {
         isPagamentoFuturo: pagamentoFuturo,
         bancoId: bancoId ? Number(bancoId) : null,
@@ -235,6 +239,7 @@ export function LancarFinanceiroEntradaDialog({
       onOpenChange(false);
       if (onSuccess) await onSuccess();
     } catch (err: any) {
+      if (err?.response?.status === 409) setDadosDesatualizados(true);
       toast.error("Não foi possível lançar no financeiro.", {
         description: err?.response?.data?.error ?? err.message,
       });
@@ -594,13 +599,15 @@ export function LancarFinanceiroEntradaDialog({
 
         {/* Footer com Ações (Sempre Visível) */}
         <DialogFooter className="shrink-0 p-4 border-t border-border/60 bg-muted/20 gap-2 flex-row justify-end">
+          {dadosDesatualizados ? <Button type="button" variant="outline" disabled={loading || submitting}
+            onClick={() => setRevisaoDados((current) => current + 1)}>Recarregar valores</Button> : null}
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="hover:cursor-pointer">
             Cancelar
           </Button>
           <Button
             type="button"
             onClick={handleConfirmar}
-            disabled={loading || submitting || (pagamentoFuturo && !parcelasValidas) || temLancamentoExistente}
+            disabled={loading || submitting || dadosDesatualizados || !entryData || (pagamentoFuturo && !parcelasValidas) || temLancamentoExistente}
             className={`hover:cursor-pointer font-semibold shadow-xs gap-2 ${
               temLancamentoExistente
                 ? "bg-amber-600/80 hover:bg-amber-600 text-white"

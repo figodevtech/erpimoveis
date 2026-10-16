@@ -70,3 +70,6 @@ next-env.d.ts
 /public/workbox-*.js
 /public/worker-*.js
 /public/fallback-*.js
+
+# Capturas e bundles temporários dos testes de valores de entrada
+/artifacts/entrada-valores-ui/

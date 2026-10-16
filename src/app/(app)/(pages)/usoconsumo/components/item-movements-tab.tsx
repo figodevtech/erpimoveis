@@ -112,6 +112,7 @@ export function ItemMovementsTab({ entradas = [], saidas = [], onAfterChange }: 
   return (
     <TabsContent value="Fluxo" className="h-full min-h-0 space-y-6 overflow-auto px-2 py-3 dark:bg-muted-foreground/5 md:px-6 md:py-6">
       <EntryDetailsDialog
+        onValuesSaved={() => void onAfterChange()}
         entryId={detailsEntradaId}
         inventory="usoconsumo"
         open={detailsEntradaId !== null}
