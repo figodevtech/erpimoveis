@@ -132,6 +132,14 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  // A maquina de build da Vercel tem 2 nucleos e 8GB. Com varios workers em
+  // paralelo, cada um com heap grande, a soma passa dos 8GB e o container mata
+  // o build por falta de memoria (SIGKILL). Menos workers e o modo de memoria
+  // do webpack trocam alguns segundos por um pico bem menor.
+  experimental: {
+    webpackMemoryOptimizations: true,
+    cpus: 1,
+  },
   async headers() {
     return [
       {
