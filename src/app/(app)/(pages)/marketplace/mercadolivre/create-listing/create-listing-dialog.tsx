@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- as URLs vêm dinamicamente do ERP e do Mercado Livre. */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ProductSelect from "@/app/(app)/components/productSelect";
 import type { Produto } from "@/app/(app)/(pages)/estoque/types";
 import { Badge } from "@/components/ui/badge";
@@ -370,6 +370,7 @@ export function MercadoLivreCreateListingDialog(props: Props) {
                   <Field label="Condição" required><Select value={form.condition} onValueChange={(value) => updateForm("condition", value as ListingForm["condition"])} disabled={creating}><SelectTrigger className={fieldClass}><SelectValue /></SelectTrigger><SelectContent>{conditionOptions.map((value) => <SelectItem key={value} value={value}>{value === "new" ? "Novo" : value === "used" ? "Usado" : "Não especificado"}</SelectItem>)}</SelectContent></Select></Field>
                 </div>
                 </FormSection>
+                <MercadoLivrePriceSuggestion title={form.title} onApply={(price) => updateForm("price", price.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))} disabled={creating} active={open && step === "offer"} />
                 <div className="space-y-3">
                   <RequiredLabel>Tipo de anúncio</RequiredLabel>
                   {loadingListingCommercialInfo ? <LoadingBox>Consultando condições comerciais no Mercado Livre...</LoadingBox> : null}
@@ -862,3 +863,85 @@ function formatCurrency(value: unknown) { return new Intl.NumberFormat("pt-BR", 
 function conditionLabel(value: string) { return value === "new" ? "Novo" : value === "used" ? "Usado" : "Não especificado"; }
 function shippingLogisticLabel(value: string) { const labels: Record<string, string> = { drop_off: "Postagem em agência", xd_drop_off: "Postagem em ponto parceiro", cross_docking: "Coleta do Mercado Livre", fulfillment: "Full", self_service: "Flex", custom: "Personalizada" }; return labels[value] || value || "Não definida"; }
 function formatAttributeValue(attribute: MlCategoryAttribute, values: Record<string, string>) { const value = values[attribute.id] ?? ""; if (!value) return ""; if (attribute.valueType === "number_unit") { const unit = values[`${attribute.id}__unit`] || attribute.defaultUnit || attribute.allowedUnits[0]?.id || ""; return `${value}${unit ? ` ${unit}` : ""}`; } if (attribute.valueType === "boolean") return value === "true" ? "Sim" : value === "false" ? "Não" : value; return value; }
+
+type SitePriceResult = { id: string; title: string; price: number; permalink: string };
+type SitePriceResponse = { data: SitePriceResult[]; averagePrice: number; searchUrl: string; count: number };
+
+function MercadoLivrePriceSuggestion({
+  title, onApply, disabled, active,
+}: {
+  title: string;
+  onApply: (price: number) => void;
+  disabled: boolean;
+  active: boolean;
+}) {
+  const [result, setResult] = useState<SitePriceResponse | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => {
+    if (!active || title.trim().length < 3) {
+      setResult(null);
+      setError("");
+      setLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      setError("");
+      setResult(null);
+      try {
+        const response = await fetch(
+          `/api/integracoes/mercadolivre/pricing/suggest?q=${encodeURIComponent(title.trim())}`,
+          { signal: controller.signal, cache: "no-store" },
+        );
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Não foi possível pesquisar preços.");
+        if (!Array.isArray(payload.data) || !payload.data.length) throw new Error("Nenhum anúncio válido encontrado.");
+        setResult(payload as SitePriceResponse);
+      } catch (err) {
+        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "Falha na pesquisa.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 650);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [active, title, refresh]);
+
+  return (
+    <FormSection title="Média de preços no Mercado Livre" description="Busca pública pelo título: até 5 primeiros anúncios com preço extraível.">
+      <div className="flex flex-wrap items-center gap-3">
+        {loading ? <span className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Pesquisando anúncios...</span> : null}
+        {result ? (
+          <>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Média aritmética de {result.count} anúncio(s)</p>
+              <p className="text-xl font-semibold">{result.averagePrice.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</p>
+            </div>
+            <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => onApply(result.averagePrice)}>Usar preço sugerido</Button>
+          </>
+        ) : null}
+        {!loading && !result && !error ? <p className="text-sm text-muted-foreground">Informe o título do anúncio para pesquisar.</p> : null}
+        {error ? <p className="text-sm text-amber-700 dark:text-amber-400">{error}</p> : null}
+        <Button type="button" variant="ghost" size="sm" disabled={loading || !active || title.trim().length < 3} onClick={() => setRefresh((n) => n + 1)}>Atualizar pesquisa</Button>
+      </div>
+      {result?.data?.length ? (
+        <ul className="space-y-1 text-xs">
+          {result.data.map((item, index) => (
+            <li key={item.permalink} className="flex gap-2">
+              <span className="font-medium">{index + 1}.</span>
+              <a href={item.permalink} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate underline underline-offset-2">{item.title}</a>
+              <span className="shrink-0 font-medium">{item.price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="text-xs text-muted-foreground">Preço de anúncio, não de venda concluída; anúncios distintos podem não ser produtos idênticos. A busca pode ser bloqueada ou mudar de estrutura. A sugestão não altera o preço do ERP.</p>
+    </FormSection>
+  );
+}
