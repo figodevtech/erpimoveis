@@ -35,7 +35,6 @@ import {
 } from "../listing-form-fields";
 import { Textarea } from "@/components/ui/textarea";
 import ValueInput from "@/components/ui/value-input";
-import { MercadoLivreSuggestedPrice } from "../suggested-price";
 import { isMercadoLivreListingTypeEnabled } from "@/lib/integrations/mercadolivre-listing-validation";
 import { ListingMediaManager } from "../listing-media/listing-media-manager";
 import {
@@ -366,7 +365,7 @@ export function MercadoLivreCreateListingDialog(props: Props) {
                 <SellerStatus info={listingCommercialInfo} loading={loadingListingCommercialInfo} />
                 <FormSection title="Preço e estoque">
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <div className="space-y-2"><RequiredLabel>Preço</RequiredLabel><ValueInput value={parseCurrency(form.price)} onValueChange={(value) => updateForm("price", formatCurrencyInput(value))} disabled={creating} className={withError(fieldErrors.price)} /><MaybeError value={fieldErrors.price} /><MercadoLivreSuggestedPrice title={form.title} active={open && step === "offer"} /></div>
+                  <div className="space-y-2"><RequiredLabel>Preço</RequiredLabel><ValueInput value={parseCurrency(form.price)} onValueChange={(value) => updateForm("price", formatCurrencyInput(value))} disabled={creating} className={withError(fieldErrors.price)} /><MaybeError value={fieldErrors.price} /></div>
                   <Field label="Estoque" required><Input type="number" min="0" step="1" value={form.availableQuantity} onChange={(event) => updateForm("availableQuantity", event.target.value)} disabled={creating} className={withError(fieldErrors.stock || (form.listingTypeId === "free" && Number(form.availableQuantity) > 1 ? "invalid" : undefined))} /><MaybeError value={fieldErrors.stock || (form.listingTypeId === "free" && Number(form.availableQuantity) > 1 ? "Anúncios grátis permitem estoque máximo de 1 unidade." : undefined)} /></Field>
                   <Field label="Condição" required><Select value={form.condition} onValueChange={(value) => updateForm("condition", value as ListingForm["condition"])} disabled={creating}><SelectTrigger className={fieldClass}><SelectValue /></SelectTrigger><SelectContent>{conditionOptions.map((value) => <SelectItem key={value} value={value}>{value === "new" ? "Novo" : value === "used" ? "Usado" : "Não especificado"}</SelectItem>)}</SelectContent></Select></Field>
                 </div>
@@ -863,4 +862,3 @@ function formatCurrency(value: unknown) { return new Intl.NumberFormat("pt-BR", 
 function conditionLabel(value: string) { return value === "new" ? "Novo" : value === "used" ? "Usado" : "Não especificado"; }
 function shippingLogisticLabel(value: string) { const labels: Record<string, string> = { drop_off: "Postagem em agência", xd_drop_off: "Postagem em ponto parceiro", cross_docking: "Coleta do Mercado Livre", fulfillment: "Full", self_service: "Flex", custom: "Personalizada" }; return labels[value] || value || "Não definida"; }
 function formatAttributeValue(attribute: MlCategoryAttribute, values: Record<string, string>) { const value = values[attribute.id] ?? ""; if (!value) return ""; if (attribute.valueType === "number_unit") { const unit = values[`${attribute.id}__unit`] || attribute.defaultUnit || attribute.allowedUnits[0]?.id || ""; return `${value}${unit ? ` ${unit}` : ""}`; } if (attribute.valueType === "boolean") return value === "true" ? "Sim" : value === "false" ? "Não" : value; return value; }
-

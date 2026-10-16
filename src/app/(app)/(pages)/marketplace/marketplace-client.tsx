@@ -103,7 +103,6 @@ import { ListingStepper, type ListingStepDefinition } from "./mercadolivre/listi
 import { AttributeCard, AttributeGroup, FormSection, StepHeading, listingFieldClass } from "./mercadolivre/listing-form-fields";
 import { ListingDialogContent } from "./mercadolivre/listing-dialog-content";
 import { MercadoLivreListingQuality } from "./mercadolivre/listing-quality";
-import { MercadoLivreSuggestedPrice } from "./mercadolivre/suggested-price";
 import {
   MercadoLivreCreateListingDialog,
   type CreateListingIssue,
@@ -6727,7 +6726,6 @@ export default function MarketplacePage() {
                     disabled={editingListing || loadingEditListing || !editCapabilities.price}
                     className={listingFieldClass}
                   />
-                  <MercadoLivreSuggestedPrice title={editForm.title} active={editDialogOpen && editStep === "offer" && !loadingEditListing} />
                 </div>
               </div>
               <div className="space-y-2">
