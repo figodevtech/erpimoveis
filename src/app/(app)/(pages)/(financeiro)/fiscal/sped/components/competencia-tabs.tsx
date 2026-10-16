@@ -34,6 +34,7 @@ import { AdjustmentPanel } from "./adjustment-panel";
 import { EmptyState } from "./empty-state";
 import { ImportPanel, type SpedImportKind } from "./import-panel";
 import { ConfigurationEditor } from "./configuration-editor";
+import { PolicyEditor } from "./policy-editor";
 import { ItemDecisionEditor } from "./item-decision-editor";
 import { DiagnosticBadge, GateStatusBadge, PvaStatusBadge } from "./status-badges";
 import { PvaValidationDialog } from "./pva-validation-dialog";
@@ -47,7 +48,9 @@ export function CompetenciaTabs({
   onDownload,
   onImport,
   onConfigSaved,
+  initialTab,
 }: {
+  initialTab?: string | null;
   competencia: SpedCompetenciaDetail;
   canDownload: boolean;
   canManage: boolean;
@@ -59,7 +62,7 @@ export function CompetenciaTabs({
   const timezone = competencia.configuracao.timezoneIana;
 
   return (
-    <Tabs defaultValue="geral" className="gap-4">
+    <Tabs defaultValue={initialTab || "geral"} className="gap-4">
       <div className="overflow-x-auto pb-1">
         <TabsList className="h-auto min-w-max justify-start">
           <TabsTrigger value="geral">Visão geral</TabsTrigger>
@@ -82,6 +85,7 @@ export function CompetenciaTabs({
       <TabsContent value="configuracao" className="space-y-4">
         <AccountantEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
         <ConfigurationEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
+        <PolicyEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
       </TabsContent>
       <TabsContent value="importacoes"><ImportPanel competencia={competencia} canManage={canManage} busy={busy} onImport={onImport} /></TabsContent>
       <TabsContent value="documentos"><DocumentsTab competencia={competencia} /></TabsContent>

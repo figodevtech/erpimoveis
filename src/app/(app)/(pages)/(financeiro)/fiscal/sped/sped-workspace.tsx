@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { FileCheck2, RefreshCw, ShieldAlert } from "lucide-react";
+import { ArrowLeft, FileCheck2, RefreshCw, ShieldAlert } from "lucide-react";
 
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -28,7 +29,13 @@ import { CompetenciaList } from "./components/competencia-list";
 import { EntryDatesPanel } from "./components/entry-dates-panel";
 import type { SpedImportKind } from "./components/import-panel";
 
-export function SpedWorkspace() {
+export function SpedWorkspace({
+  initialCompetenciaId = null,
+  initialTab = null,
+}: {
+  initialCompetenciaId?: string | null;
+  initialTab?: string | null;
+} = {}) {
   const { data: session } = useSession();
   const permissions = (session?.user as { permissoes?: unknown } | undefined)?.permissoes;
   const canView = permissionSetHas(permissions, PERMS.FISCAL_SPED);
@@ -38,7 +45,7 @@ export function SpedWorkspace() {
   );
 
   const [competencias, setCompetencias] = useState<SpedCompetenciaSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialCompetenciaId);
   const [detail, setDetail] = useState<SpedCompetenciaDetail | null>(null);
   const [listLoading, setListLoading] = useState(true);
   const [listRefreshing, setListRefreshing] = useState(false);
@@ -208,13 +215,18 @@ export function SpedWorkspace() {
         <div>
           <div className="flex items-center gap-2">
             <FileCheck2 className="size-5 text-muted-foreground" aria-hidden="true" />
-            <h1 className="text-2xl font-semibold tracking-tight">SPED Fiscal</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">SPED Fiscal · Área avançada</h1>
           </div>
           <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-            Diagnóstico, fechamento e geração da EFD ICMS/IPI com rastreabilidade das fontes fiscais.
+            Área avançada: configuração, diagnósticos, decisões por item, histórico, auditoria e retificação.
           </p>
         </div>
-        <p className="text-xs text-muted-foreground">O pré-validador do ERP não substitui o PVA oficial.</p>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <Button asChild size="sm" variant="outline">
+            <Link href="/fiscal/sped"><ArrowLeft aria-hidden="true" /> Geração em um clique</Link>
+          </Button>
+          <p className="text-xs text-muted-foreground">O pré-validador do ERP não substitui o PVA oficial.</p>
+        </div>
       </header>
 
       {listError ? (
@@ -264,6 +276,7 @@ export function SpedWorkspace() {
         onAction={setPendingAction}
         onImport={executeImport}
         onRefresh={refreshAll}
+        initialTab={initialTab}
       />
 
       {detail && pendingAction ? (

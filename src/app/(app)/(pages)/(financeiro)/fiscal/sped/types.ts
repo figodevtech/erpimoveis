@@ -339,3 +339,63 @@ export type SpedContabilista = {
 };
 
 export type SpedContabilistaForm = Omit<SpedContabilista, "id" | "vigenciaInicio" | "vigenciaFim">;
+
+export type SpedGeracaoStatus = "PENDENTE" | "PROCESSANDO" | "PENDENCIAS" | "CONCLUIDA" | "FALHOU";
+
+export type SpedPendenciaCategoria = "CADASTRO" | "DOCUMENTOS_FISCAIS" | "TRIBUTACAO" | "APURACAO" | "CONFIGURACAO_CONTABIL";
+
+export type SpedPendencia = {
+  id: string;
+  category: SpedPendenciaCategoria;
+  title: string;
+  description: string;
+  reason: string;
+  action: string;
+  record: string | null;
+  affected: string[];
+  occurrences: number;
+  blocking: boolean;
+  link: { href: string; label: string } | null;
+  codes: string[];
+};
+
+export type SpedGeracao = {
+  id: string;
+  competencia: string;
+  competenciaId: string | null;
+  status: SpedGeracaoStatus;
+  etapa: string;
+  etapas: Array<{ etapa: string; em: string }>;
+  tentativas: number;
+  criadoEm: string;
+  concluidoEm: string | null;
+  interrompida: boolean;
+  erro: { codigo: string | null; mensagem: string } | null;
+  resultado: {
+    empresa: string;
+    cnpj: string;
+    documentos: number;
+    entradas: number;
+    saidas: number;
+    registros: number;
+    leiaute: string;
+    versao: number | null;
+    finalidade: string;
+    statusCompetencia: string;
+    itensClassificados: number;
+    creditosDecididos: number;
+    arquivo: {
+      id: string;
+      nome: string;
+      sha256: string;
+      tamanhoBytes: number;
+      linhas: number;
+      geradoEm: string | null;
+    } | null;
+  } | null;
+  pendencias: {
+    groups: Array<{ category: SpedPendenciaCategoria; label: string; items: SpedPendencia[] }>;
+    blocking: number;
+    warnings: SpedPendencia[];
+  } | null;
+};

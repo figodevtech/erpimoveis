@@ -277,4 +277,124 @@ BEGIN
 END
 $$;
 
+
+-- Geracao em um clique: pedido unico por competencia, concessao exclusiva,
+-- retomada apos interrupcao, resolucao automatica idempotente e vigencia da
+-- configuracao.
+DO $$
+DECLARE
+  v_empresa_id integer;
+  v_usuario_id uuid;
+  v_produto_id integer;
+  v_competencia_id bigint;
+  v_job bigint;
+  v_job_again bigint;
+  v_token_a uuid := gen_random_uuid();
+  v_token_b uuid := gen_random_uuid();
+  v_row public.fiscal_sped_geracao%ROWTYPE;
+  v_resultado jsonb;
+  v_config public.fiscal_sped_config%ROWTYPE;
+BEGIN
+  SELECT id INTO v_empresa_id FROM public.empresa ORDER BY id LIMIT 1;
+  SELECT id INTO v_usuario_id FROM public.usuario ORDER BY id LIMIT 1;
+  IF v_empresa_id IS NULL OR v_usuario_id IS NULL THEN
+    RAISE NOTICE 'sem empresa ou usuario para testar a geracao automatica';
+    RETURN;
+  END IF;
+
+  v_job := public.fiscal_sped_geracao_solicitar(v_empresa_id, date '2099-09-01', v_usuario_id);
+  v_job_again := public.fiscal_sped_geracao_solicitar(v_empresa_id, date '2099-09-01', v_usuario_id);
+  IF v_job IS NULL OR v_job_again <> v_job THEN
+    RAISE EXCEPTION 'clique duplo criou dois pedidos ativos para a mesma competencia';
+  END IF;
+  BEGIN
+    INSERT INTO public.fiscal_sped_geracao(empresa_id, competencia, solicitado_por)
+    VALUES (v_empresa_id, date '2099-09-01', v_usuario_id);
+    RAISE EXCEPTION 'segundo pedido ativo foi aceito pelo indice';
+  EXCEPTION WHEN SQLSTATE '23505' THEN NULL;
+  END;
+
+  v_row := public.fiscal_sped_geracao_reivindicar(v_job, v_token_a, 60);
+  IF v_row.id IS NULL OR v_row.status <> 'PROCESSANDO' THEN
+    RAISE EXCEPTION 'primeiro executor nao recebeu a concessao';
+  END IF;
+  v_row := public.fiscal_sped_geracao_reivindicar(v_job, v_token_b, 60);
+  IF v_row.id IS NOT NULL THEN
+    RAISE EXCEPTION 'segundo executor recebeu concessao valida de outro';
+  END IF;
+  BEGIN
+    PERFORM public.fiscal_sped_geracao_avancar(v_job, v_token_b, 'VALIDANDO', NULL, 60);
+    RAISE EXCEPTION 'executor sem concessao avancou a etapa';
+  EXCEPTION WHEN SQLSTATE '40001' THEN NULL;
+  END;
+  PERFORM public.fiscal_sped_geracao_avancar(v_job, v_token_a, 'COLETANDO_DOCUMENTOS', NULL, 60);
+  IF NOT public.fiscal_sped_geracao_renovar(v_job, v_token_a, 60) THEN
+    RAISE EXCEPTION 'renovacao da concessao valida falhou';
+  END IF;
+
+  -- Interrupcao: a concessao vence e outro executor retoma.
+  UPDATE public.fiscal_sped_geracao SET lease_until = now() - interval '1 minute' WHERE id = v_job;
+  v_row := public.fiscal_sped_geracao_reivindicar(v_job, v_token_b, 60);
+  IF v_row.id IS NULL OR v_row.tentativas <> 2 THEN
+    RAISE EXCEPTION 'pedido interrompido nao foi retomado';
+  END IF;
+  BEGIN
+    PERFORM public.fiscal_sped_geracao_concluir(v_job, v_token_a, 'CONCLUIDA', '{}'::jsonb, NULL, NULL);
+    RAISE EXCEPTION 'executor antigo concluiu um pedido retomado por outro';
+  EXCEPTION WHEN SQLSTATE '40001' THEN NULL;
+  END;
+  PERFORM public.fiscal_sped_geracao_concluir(v_job, v_token_b, 'PENDENCIAS', '{}'::jsonb, NULL, NULL);
+  IF (SELECT status FROM public.fiscal_sped_geracao WHERE id = v_job) <> 'PENDENCIAS' THEN
+    RAISE EXCEPTION 'pedido nao foi concluido';
+  END IF;
+  IF public.fiscal_sped_geracao_solicitar(v_empresa_id, date '2099-09-01', v_usuario_id) = v_job THEN
+    RAISE EXCEPTION 'pedido concluido foi reaproveitado como ativo';
+  END IF;
+
+  -- Resolucao automatica: cria uma vez, ignora na repeticao, recusa DF-e alheio.
+  v_competencia_id := public.fiscal_sped_criar_competencia(v_empresa_id, date '2099-09-01', v_usuario_id);
+  SELECT p.id INTO v_produto_id
+    FROM public.produto p
+   WHERE NOT p.is_deleted
+     AND NOT EXISTS (SELECT 1 FROM public.fiscal_sped_item_config c WHERE c.produto_id = p.id)
+   ORDER BY p.id LIMIT 1;
+  IF v_produto_id IS NOT NULL THEN
+    v_resultado := public.fiscal_sped_aplicar_resolucao_automatica(v_competencia_id, jsonb_build_array(jsonb_build_object(
+      'produto_id', v_produto_id, 'codigo_item', 'TESTE-' || v_produto_id, 'tipo_item', '00',
+      'vigencia_inicio', '2099-09-01', 'vigencia_fim', NULL, 'evidencia', 'teste automatizado')), '[]'::jsonb, v_usuario_id);
+    IF (v_resultado->>'itensCriados')::integer <> 1 THEN
+      RAISE EXCEPTION 'resolucao automatica nao criou o item: %', v_resultado;
+    END IF;
+    v_resultado := public.fiscal_sped_aplicar_resolucao_automatica(v_competencia_id, jsonb_build_array(jsonb_build_object(
+      'produto_id', v_produto_id, 'codigo_item', 'TESTE-' || v_produto_id, 'tipo_item', '00',
+      'vigencia_inicio', '2099-09-01', 'vigencia_fim', NULL, 'evidencia', 'teste automatizado')), '[]'::jsonb, v_usuario_id);
+    IF (v_resultado->>'itensCriados')::integer <> 0 OR (v_resultado->>'itensIgnorados')::integer <> 1 THEN
+      RAISE EXCEPTION 'repetir a resolucao duplicou a configuracao: %', v_resultado;
+    END IF;
+  END IF;
+  BEGIN
+    PERFORM public.fiscal_sped_aplicar_resolucao_automatica(v_competencia_id, '[]'::jsonb, jsonb_build_array(jsonb_build_object(
+      'documento_id', -1, 'numero_item', 1, 'tratamento_credito', 'SEM_CREDITO', 'evidencia', 'teste')), v_usuario_id);
+    RAISE EXCEPTION 'decisao de credito em DF-e de outro estabelecimento foi aceita';
+  EXCEPTION WHEN SQLSTATE '23503' THEN NULL;
+  END;
+
+  -- Vigencia: cada competencia usa a configuracao do seu primeiro dia.
+  INSERT INTO public.fiscal_sped_config_vigencia(empresa_id, vigencia_inicio, payload)
+  VALUES (v_empresa_id, date '2099-01-01', jsonb_build_object('perfil_efd', 'A', 'perfil_efd_status', 'CONFIRMADO'))
+  ON CONFLICT (empresa_id, vigencia_inicio) DO UPDATE SET payload = excluded.payload;
+  INSERT INTO public.fiscal_sped_config_vigencia(empresa_id, vigencia_inicio, payload)
+  VALUES (v_empresa_id, date '2099-10-01', jsonb_build_object('perfil_efd', 'C', 'perfil_efd_status', 'CONFIRMADO'))
+  ON CONFLICT (empresa_id, vigencia_inicio) DO UPDATE SET payload = excluded.payload;
+  v_config := public.fiscal_sped_config_efetiva(v_empresa_id, date '2099-09-01');
+  IF v_config.perfil_efd IS DISTINCT FROM 'A' THEN
+    RAISE EXCEPTION 'configuracao vigente em 2099-09 deveria ser A, veio %', v_config.perfil_efd;
+  END IF;
+  v_config := public.fiscal_sped_config_efetiva(v_empresa_id, date '2099-11-01');
+  IF v_config.perfil_efd IS DISTINCT FROM 'C' THEN
+    RAISE EXCEPTION 'configuracao vigente em 2099-11 deveria ser C, veio %', v_config.perfil_efd;
+  END IF;
+END
+$$;
+
 ROLLBACK;

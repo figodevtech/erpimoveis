@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import ValueInput from "@/components/ui/value-input";
+import { MercadoLivreSuggestedPrice } from "../suggested-price";
 import { toast } from "@/lib/toast";
 import {
   getMercadoLivrePictureRequirement,
@@ -788,6 +789,7 @@ export function MercadoLivreEditListingDialog({
                     className={listingFieldClass}
                   />
                   <p className="text-[11px] text-muted-foreground">Exclusivo do anúncio (não altera o ERP).</p>
+                  <MercadoLivreSuggestedPrice title={form.title} active={open && step === "offer" && !loading} />
                 </div>
                 <div className="space-y-2">
                   <Label>Estoque disponível</Label>

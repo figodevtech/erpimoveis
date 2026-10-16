@@ -6,7 +6,7 @@ export function usoConsumoError(error: unknown, fallback: string) {
   const message = value?.message?.trim() || fallback;
   const status = Number.isInteger(value?.statusCode) ? Number(value.statusCode)
     : value?.code === "P0002" ? 404
-    : value?.code === "23505" ? 409
+    : ["23505", "40001", "55000"].includes(value?.code ?? "") ? 409
     : value?.code === "23514" || value?.code === "22023" || value?.code === "42501" ? 400
     : 500;
   return NextResponse.json({ error: message }, { status });

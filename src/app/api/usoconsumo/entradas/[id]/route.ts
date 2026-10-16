@@ -4,6 +4,7 @@ import { anexarAutor } from "@/lib/movement-authors";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { usoConsumoError } from "@/lib/usoconsumo/api";
 import { carregarPersonalizacaoFiscal } from "@/services/estoque/entradaFiscalPersonalizadaAuditService";
+import { carregarValoresCompra } from "@/services/estoque/entradaValoresService";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -15,14 +16,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       .eq("id",id).maybeSingle();
     if (error) throw error;
     if (!data) return NextResponse.json({ error: "Entrada não encontrada." }, { status: 404 });
-    const [entrada, personalizacaoFiscal] = await Promise.all([
+    const [entrada, personalizacaoFiscal, valoresCompra] = await Promise.all([
       anexarAutor(data),
       carregarPersonalizacaoFiscal("usoconsumo", id, {
         documentoId: Number(data.documento_fiscal_recebido_id) || null,
         entradaCreatedAt: String(data.created_at),
       }),
+      carregarValoresCompra("usoconsumo", id),
     ]);
-    return NextResponse.json({ data: { ...entrada, personalizacaoFiscal } });
+    return NextResponse.json({ data: { ...entrada, personalizacaoFiscal, valoresCompra } });
   } catch (error) { return usoConsumoError(error, "Erro ao buscar entrada."); }
 }
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ajustesValoresEntradaSchema } from "@/lib/estoque/entrada-valores";
 import { ESCOPOS_USOCONSUMO, ESCOPO_MISTO, ESCOPO_PADRAO } from "./escopo";
 
 // Qual dos dois estoques simples a requisicao endereca. O default preserva todo
@@ -129,6 +130,7 @@ export const tributoDreEntradaSchema = z.object({
 }).strict();
 
 export const entradaUsoConsumoSchema = z.object({
+  ajustesValores: ajustesValoresEntradaSchema.optional(),
   escopo: escopoDeEntradaSchema,
   fornecedor_id: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   fiscal: z.boolean().default(false), chave_nfe: createText, numero_nota: createText, serie_nota: createText,

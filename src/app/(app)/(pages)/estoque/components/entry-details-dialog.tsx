@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { permissionSetHas, PERMS } from "@/app/api/_authz/permission-constants";
+import { AjustarValoresEntrada } from "@/components/entrada-fiscal/ajustar-valores-entrada";
+import type { ValoresCompraEntrada } from "@/lib/estoque/entrada-valores";
 import { Building2, CalendarClock, Download, Eye, FileText, Loader2, PackageOpen, Receipt, TriangleAlert, UserRound, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +26,7 @@ type EntryItem = Record<string, unknown> & {
   unidade?: string | null;
   quantidade?: number;
   valor_unitario_compra?: number;
+  valor_unitario_compra_original?: number | null;
   precovenda?: number;
   valor_desconto?: number;
   valor_frete?: number;
@@ -85,6 +90,9 @@ type EntryDetails = Record<string, unknown> & {
   data_emissao?: string | null;
   valor_total?: number;
   created_at?: string;
+  valor_total_original?: number | null;
+  versao_valores?: number;
+  valoresCompra?: ValoresCompraEntrada;
   /** Só vem nas entradas dos estoques simples. */
   escopo?: UsoConsumoEscopo | null;
   cancelada_at?: string | null;
@@ -106,6 +114,7 @@ type Props = {
   inventory: Inventory;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onValuesSaved?: () => void;
 };
 
 const fiscalFields: Array<[string, string]> = [
@@ -179,7 +188,9 @@ function statusBadge(status?: string | null) {
   return <Badge variant="outline">{formatEnum(status)}</Badge>;
 }
 
-export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: Props) {
+export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange, onValuesSaved }: Props) {
+  const { data: session } = useSession();
+  const [revisao, setRevisao] = useState(0);
   const [entry, setEntry] = useState<EntryDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -217,7 +228,7 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
       });
 
     return () => controller.abort();
-  }, [entryId, inventory, open]);
+  }, [entryId, inventory, open, revisao]);
 
   // O escopo vem da propria entrada carregada: as duas metades da mesma tabela
   // usam o mesmo endpoint, e so a linha diz de qual estoque simples ela e.
@@ -231,7 +242,7 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
   const transactions = entry?.transacoes ?? [];
   const invoiceKey = (entry?.notachave || entry?.chave_nfe) ? String(entry?.notachave || entry?.chave_nfe) : null;
   const computedTotal = items.reduce((total, item) => total + numberValue(item.valor_total), 0);
-  const entryTotal = numberValue(entry?.valor_total) || computedTotal;
+  const entryTotal = entry?.valor_total == null ? computedTotal : numberValue(entry.valor_total);
   const totalUnits = items.reduce((total, item) => total + numberValue(item.quantidade), 0);
   const autor = entry?.criador?.nome;
   const customization = entry?.personalizacaoFiscal ?? null;
@@ -252,7 +263,7 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
   const customizedQuantity =
     customization?.quantidadePersonalizada ?? numberValue(customizedItem?.quantidade);
   const customizedFiscalValue =
-    customization?.valorFiscalDocumento ?? entryTotal;
+    customization?.valorFiscalDocumento ?? entry?.valor_total_original ?? entryTotal;
 
   function handleVerNfe() {
     onOpenChange(false);
@@ -398,13 +409,11 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
                     no {customizationDestinationLabel(customization.destino)}.
                   </p>
                   <p className="text-xs leading-relaxed text-amber-800 dark:text-amber-300">
-                    Custo incorporado ao estoque: {formatarEmReal(customization.custoTotalEstoque)}
+                    Custo original consolidado: {formatarEmReal(customization.custoTotalEstoque)}
                     {customization.custoUnitario != null
                       ? ` (${formatarEmReal(customization.custoUnitario)} por ${customizedUnit}).`
                       : "."}
-                    {transactions.length
-                      ? ` O financeiro permaneceu pelo valor fiscal integral de ${formatarEmReal(customizedFiscalValue)}.`
-                      : ` O valor fiscal da entrada permaneceu em ${formatarEmReal(customizedFiscalValue)}, sem lançamento financeiro.`}
+                    {` Valor fiscal preservado: ${formatarEmReal(customizedFiscalValue)}. Total de compra atualizado: ${formatarEmReal(entryTotal)}.`}
                   </p>
                 </div>
               </div>
@@ -441,23 +450,34 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
 
           <div className="grid gap-3 sm:grid-cols-3">
             <Metric
-              label="Valor total"
-              value={formatarEmReal(entryTotal)}
+              label="Total de compra atualizado"
+              value={formatarEmReal(entry.valoresCompra?.totalCompra ?? entryTotal)}
               emphasis
               tone="entrada"
               hint={entry.fiscal ? "Entrada fiscal" : "Entrada sem documento fiscal"}
             />
             <Metric
-              label="Itens"
-              value={items.length.toLocaleString("pt-BR")}
-              hint={`${totalUnits.toLocaleString("pt-BR")} unidade(s) recebida(s)`}
+              label={entry.fiscal ? "Valor da nota" : "Valor original da entrada"}
+              value={formatarEmReal(entry.valoresCompra?.valorNota ?? entry.valor_total_original ?? entryTotal)}
+              hint={`${items.length} item(ns) · ${totalUnits.toLocaleString("pt-BR")} unidade(s)`}
             />
             <Metric
-              label="Lançamentos"
-              value={transactions.length.toLocaleString("pt-BR")}
+              label="Total financeiro lançado"
+              value={formatarEmReal(entry.valoresCompra?.totalFinanceiro ?? 0)}
               hint={transactions.length ? "Impacto no financeiro" : "Sem impacto financeiro"}
             />
           </div>
+
+          {entry.fiscal ? <AjustarValoresEntrada
+            key={`${inventory}:${entry.id}:${entry.versao_valores ?? 0}`}
+            entryId={entry.id} inventory={inventory} itens={items} total={entryTotal}
+            versao={entry.versao_valores ?? 0} resumo={entry.valoresCompra}
+            podeAjustar={entry.status === "CONFIRMADA" && !entry.cancelada_at && permissionSetHas(
+              session?.user?.permissoes, inventory === "produto" ? PERMS.ESTOQUE_EDITAR : PERMS.USOCONSUMO_EDITAR,
+            )} onSaved={() => {
+              setRevisao((current) => current + 1);
+              onValuesSaved?.();
+            }} /> : null}
 
           <Section title="Dados da entrada" icon={Receipt}>
             <dl className="grid gap-4 rounded-lg border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -592,6 +612,11 @@ export function EntryDetailsDialog({ entryId, inventory, open, onOpenChange }: P
 
                     <dl className="grid gap-3 px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
                       <Field label="Valor unitário">{formatarEmReal(numberValue(item.valor_unitario_compra))}</Field>
+                      {item.valor_unitario_compra_original != null ? <Field label="Valor unitário original">
+                        {Number(item.valor_unitario_compra_original).toLocaleString("pt-BR", {
+                          style: "currency", currency: "BRL", maximumFractionDigits: 4,
+                        })}
+                      </Field> : null}
                       {hasValue(item.precovenda) ? (
                         <Field label="Preço de venda">{formatarEmReal(numberValue(item.precovenda))}</Field>
                       ) : null}
