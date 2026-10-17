@@ -1057,6 +1057,705 @@ $$;
 
 
 --
+-- Name: aluguel_baixar_item(bigint, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_baixar_item(p_item_id bigint, p_usuario uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_item public.aluguel_item%rowtype;
+  v_saida jsonb;
+  v_saida_id bigint;
+  v_rotulo text;
+begin
+  select * into v_item from public.aluguel_item where id = p_item_id for update;
+  if not found then
+    raise exception 'Item do aluguel nao encontrado.' using errcode = 'P0002';
+  end if;
+  if v_item.estoque_saida_id is not null or v_item.usoconsumo_saida_id is not null then
+    return;
+  end if;
+
+  v_rotulo := 'Aluguel #' || v_item.aluguel_id;
+
+  if v_item.tipo = 'PRODUTO' then
+    v_saida := public.registrar_saida_estoque(
+      v_item.produto_id, v_item.quantidade, 'ALUGUEL', v_rotulo, p_usuario
+    );
+    v_saida_id := (v_saida->>'saida_id')::bigint;
+    update public.estoque_saida set aluguel_id = v_item.aluguel_id where id = v_saida_id;
+    update public.aluguel_item set estoque_saida_id = v_saida_id, devolvido_em = null where id = p_item_id;
+  elsif v_item.tipo in ('USOCONSUMO', 'GERAL') then
+    v_saida := public.registrar_saida_usoconsumo(
+      jsonb_build_object(
+        'escopo', v_item.tipo,
+        'motivo', 'ALUGUEL',
+        'observacao', v_rotulo,
+        'created_by', p_usuario
+      ),
+      jsonb_build_array(jsonb_build_object('item_id', v_item.usoconsumo_item_id, 'quantidade', v_item.quantidade))
+    );
+    v_saida_id := (v_saida->>'saida_id')::bigint;
+    update public.usoconsumo_saida set aluguel_id = v_item.aluguel_id where id = v_saida_id;
+    update public.aluguel_item set usoconsumo_saida_id = v_saida_id, devolvido_em = null where id = p_item_id;
+  end if;
+end;
+$$;
+
+
+--
+-- Name: aluguel_devolver_item(bigint, text, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_devolver_item(p_item_id bigint, p_motivo text, p_usuario uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_item public.aluguel_item%rowtype;
+  v_status text;
+begin
+  select * into v_item from public.aluguel_item where id = p_item_id for update;
+  if not found then
+    raise exception 'Item do aluguel nao encontrado.' using errcode = 'P0002';
+  end if;
+
+  perform set_config('app.aluguel_estorno', 'permitido', true);
+
+  if v_item.estoque_saida_id is not null then
+    select status into v_status from public.estoque_saida where id = v_item.estoque_saida_id;
+    if v_status is distinct from 'CANCELADA' then
+      perform public.cancelar_saida_estoque(v_item.estoque_saida_id, p_motivo, p_usuario);
+    end if;
+  elsif v_item.usoconsumo_saida_id is not null then
+    select status into v_status from public.usoconsumo_saida where id = v_item.usoconsumo_saida_id;
+    if v_status is distinct from 'CANCELADA' then
+      perform public.cancelar_saida_usoconsumo(v_item.usoconsumo_saida_id, p_motivo, p_usuario);
+    end if;
+  end if;
+
+  perform set_config('app.aluguel_estorno', '', true);
+
+  update public.aluguel_item set devolvido_em = coalesce(devolvido_em, now()) where id = p_item_id;
+end;
+$$;
+
+
+--
+-- Name: aluguel_encerrar(bigint, timestamp with time zone, text, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_encerrar(p_id bigint, p_encerrado_em timestamp with time zone, p_observacao text, p_usuario uuid) RETURNS void
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select public.aluguel_encerrar(p_id, p_encerrado_em, p_observacao, null::jsonb, p_usuario);
+$$;
+
+
+--
+-- Name: aluguel_encerrar(bigint, timestamp with time zone, text, jsonb, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_encerrar(p_id bigint, p_encerrado_em timestamp with time zone, p_observacao text, p_itens jsonb, p_usuario uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_atual public.aluguel%rowtype;
+  v_linha public.aluguel_item%rowtype;
+  v_json jsonb;
+  v_devolvidos integer := 0;
+  v_voltou integer;
+  v_nao_retornados text[] := '{}';
+  v_retorno timestamptz := coalesce(p_encerrado_em, now());
+  v_dia_retorno date := (coalesce(p_encerrado_em, now()) at time zone 'America/Fortaleza')::date;
+  v_hoje date := public.aluguel_hoje();
+  v_retornos jsonb := '{}'::jsonb;
+begin
+  select * into v_atual from public.aluguel where id = p_id and not is_deleted for update;
+  if not found then raise exception 'Aluguel nao encontrado.' using errcode = 'P0002'; end if;
+  if v_atual.status = 'ENCERRADO' then
+    raise exception 'Este aluguel ja esta encerrado.' using errcode = '22023';
+  end if;
+  if v_dia_retorno > v_hoje then
+    raise exception 'A data de retorno nao pode estar no futuro.' using errcode = '22023';
+  end if;
+  -- Agendado (inicio no futuro) encerra hoje; os demais, a partir do inicio.
+  if v_dia_retorno < least(v_atual.data_inicio, v_hoje) then
+    raise exception 'A data de retorno (%) nao pode ser anterior ao inicio do aluguel (%).',
+      to_char(v_dia_retorno, 'DD/MM/YYYY'), to_char(v_atual.data_inicio, 'DD/MM/YYYY')
+      using errcode = '22023';
+  end if;
+
+  if p_itens is not null and jsonb_typeof(p_itens) <> 'array' then
+    raise exception 'Lista de itens do retorno invalida.' using errcode = '22023';
+  end if;
+  for v_json in select value from jsonb_array_elements(coalesce(p_itens, '[]'::jsonb)) loop
+    if not exists (
+      select 1 from public.aluguel_item
+       where id = nullif(v_json->>'id', '')::bigint and aluguel_id = p_id
+    ) then
+      raise exception 'Item % nao pertence a este aluguel.', v_json->>'id' using errcode = 'P0002';
+    end if;
+    v_retornos := v_retornos || jsonb_build_object(v_json->>'id', v_json->'quantidade_devolvida');
+  end loop;
+
+  for v_linha in select * from public.aluguel_item where aluguel_id = p_id order by id for update loop
+    v_voltou := coalesce(nullif(v_retornos->>(v_linha.id::text), '')::integer, v_linha.quantidade);
+    if v_voltou < 0 or v_voltou > v_linha.quantidade then
+      raise exception 'Retorno de "%": informe de 0 a %.', v_linha.descricao, v_linha.quantidade
+        using errcode = '22023';
+    end if;
+
+    perform public.aluguel_devolver_item(v_linha.id, 'Retorno do aluguel #' || p_id, p_usuario);
+    perform public.aluguel_reter_falta(v_linha.id, v_linha.quantidade - v_voltou, p_usuario);
+    update public.aluguel_item set quantidade_devolvida = v_voltou where id = v_linha.id;
+
+    v_devolvidos := v_devolvidos + 1;
+    if v_voltou < v_linha.quantidade then
+      v_nao_retornados := v_nao_retornados || ((v_linha.quantidade - v_voltou) || 'x ' || v_linha.descricao);
+    end if;
+  end loop;
+
+  update public.aluguel
+     set status = 'ENCERRADO',
+         encerrado_em = v_retorno,
+         encerrado_por = p_usuario,
+         observacao_encerramento = nullif(btrim(coalesce(p_observacao, '')), ''),
+         updated_by = p_usuario
+   where id = p_id;
+
+  insert into public.aluguel_evento (aluguel_id, tipo, dados, usuario_id)
+  values (p_id, 'ENCERRADO', jsonb_build_object(
+    'status_anterior', v_atual.status,
+    'encerrado_em', v_retorno,
+    'itens_devolvidos', v_devolvidos,
+    'nao_retornados', to_jsonb(v_nao_retornados),
+    'observacao', nullif(btrim(coalesce(p_observacao, '')), '')
+  ), p_usuario);
+end;
+$$;
+
+
+--
+-- Name: aluguel_excluir(bigint, text, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_excluir(p_id bigint, p_motivo text, p_usuario uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_atual public.aluguel%rowtype;
+  v_motivo text := nullif(btrim(coalesce(p_motivo, '')), '');
+  v_linha record;
+begin
+  if v_motivo is null then
+    raise exception 'Informe o motivo da exclusao.' using errcode = '22023';
+  end if;
+  select * into v_atual from public.aluguel where id = p_id and not is_deleted for update;
+  if not found then raise exception 'Aluguel nao encontrado.' using errcode = 'P0002'; end if;
+
+  for v_linha in select id from public.aluguel_item where aluguel_id = p_id order by id loop
+    perform public.aluguel_devolver_item(v_linha.id, 'Aluguel #' || p_id || ' excluido: ' || v_motivo, p_usuario);
+  end loop;
+
+  update public.aluguel
+     set is_deleted = true,
+         deleted_at = now(),
+         deleted_by = p_usuario,
+         motivo_exclusao = v_motivo,
+         updated_by = p_usuario
+   where id = p_id;
+
+  insert into public.aluguel_evento (aluguel_id, tipo, dados, usuario_id)
+  values (p_id, 'EXCLUIDO', jsonb_build_object('status_anterior', v_atual.status, 'motivo', v_motivo), p_usuario);
+end;
+$$;
+
+
+--
+-- Name: aluguel_hoje(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_hoje() RETURNS date
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  select (now() at time zone 'America/Fortaleza')::date;
+$$;
+
+
+--
+-- Name: aluguel_pausar(bigint, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_pausar(p_id bigint, p_usuario uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_atual public.aluguel%rowtype;
+begin
+  select * into v_atual from public.aluguel where id = p_id and not is_deleted for update;
+  if not found then raise exception 'Aluguel nao encontrado.' using errcode = 'P0002'; end if;
+  if v_atual.status <> 'ATIVO' then
+    raise exception 'So um aluguel ativo pode ser pausado.' using errcode = '22023';
+  end if;
+
+  update public.aluguel
+     set status = 'PAUSADO', pausado_em = now(), updated_by = p_usuario
+   where id = p_id;
+
+  insert into public.aluguel_evento (aluguel_id, tipo, dados, usuario_id)
+  values (p_id, 'PAUSADO', jsonb_build_object(
+    'dias_restantes', v_atual.data_limite - public.aluguel_hoje()
+  ), p_usuario);
+end;
+$$;
+
+
+--
+-- Name: aluguel_reiniciar(bigint, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_reiniciar(p_id bigint, p_usuario uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_atual public.aluguel%rowtype;
+  v_hoje date := public.aluguel_hoje();
+  v_duracao integer;
+begin
+  select * into v_atual from public.aluguel where id = p_id and not is_deleted for update;
+  if not found then raise exception 'Aluguel nao encontrado.' using errcode = 'P0002'; end if;
+  if v_atual.status not in ('ATIVO', 'PAUSADO') then
+    raise exception 'Aluguel encerrado nao pode ser reiniciado.' using errcode = '22023';
+  end if;
+
+  v_duracao := v_atual.data_limite - v_atual.data_inicio;
+
+  update public.aluguel
+     set status = 'ATIVO',
+         pausado_em = null,
+         data_inicio = v_hoje,
+         data_limite = v_hoje + v_duracao,
+         updated_by = p_usuario
+   where id = p_id;
+
+  insert into public.aluguel_evento (aluguel_id, tipo, dados, usuario_id)
+  values (p_id, 'REINICIADO', jsonb_build_object(
+    'status_anterior', v_atual.status,
+    'antes', jsonb_build_object('data_inicio', v_atual.data_inicio, 'data_limite', v_atual.data_limite),
+    'depois', jsonb_build_object('data_inicio', v_hoje, 'data_limite', v_hoje + v_duracao),
+    'duracao_dias', v_duracao
+  ), p_usuario);
+end;
+$$;
+
+
+--
+-- Name: aluguel_reter_falta(bigint, integer, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_reter_falta(p_item_id bigint, p_falta integer, p_usuario uuid) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_item public.aluguel_item%rowtype;
+  v_saida jsonb;
+  v_saida_id bigint;
+  v_rotulo text;
+begin
+  select * into v_item from public.aluguel_item where id = p_item_id for update;
+  if not found then
+    raise exception 'Item do aluguel nao encontrado.' using errcode = 'P0002';
+  end if;
+  if p_falta <= 0 or v_item.tipo not in ('PRODUTO', 'USOCONSUMO', 'GERAL') then
+    return;
+  end if;
+
+  v_rotulo := 'Aluguel #' || v_item.aluguel_id || ' - nao retornou';
+
+  if v_item.tipo = 'PRODUTO' then
+    v_saida := public.registrar_saida_estoque(v_item.produto_id, p_falta, 'ALUGUEL', v_rotulo, p_usuario);
+    v_saida_id := (v_saida->>'saida_id')::bigint;
+    update public.estoque_saida set aluguel_id = v_item.aluguel_id where id = v_saida_id;
+    update public.aluguel_item set estoque_saida_id = v_saida_id where id = p_item_id;
+  else
+    v_saida := public.registrar_saida_usoconsumo(
+      jsonb_build_object('escopo', v_item.tipo, 'motivo', 'ALUGUEL', 'observacao', v_rotulo, 'created_by', p_usuario),
+      jsonb_build_array(jsonb_build_object('item_id', v_item.usoconsumo_item_id, 'quantidade', p_falta))
+    );
+    v_saida_id := (v_saida->>'saida_id')::bigint;
+    update public.usoconsumo_saida set aluguel_id = v_item.aluguel_id where id = v_saida_id;
+    update public.aluguel_item set usoconsumo_saida_id = v_saida_id where id = p_item_id;
+  end if;
+end;
+$$;
+
+
+--
+-- Name: aluguel_salvar(jsonb, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_salvar(p_payload jsonb, p_usuario uuid) RETURNS bigint
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_id bigint := nullif(p_payload->>'id', '')::bigint;
+  v_atual public.aluguel%rowtype;
+  v_inicio date := nullif(p_payload->>'data_inicio', '')::date;
+  v_indeterminado boolean := coalesce(nullif(p_payload->>'indeterminado', '')::boolean, false);
+  v_limite date := case when coalesce(nullif(p_payload->>'indeterminado', '')::boolean, false)
+                        then null else nullif(p_payload->>'data_limite', '')::date end;
+  v_cliente_id integer := nullif(p_payload->>'cliente_id', '')::integer;
+  v_destinatario uuid := nullif(p_payload->>'usuario_id', '')::uuid;
+  v_avulso boolean;
+  v_cliente jsonb := coalesce(p_payload->'cliente', '{}'::jsonb);
+  v_cliente_nome text;
+  v_observacao text := nullif(btrim(coalesce(p_payload->>'observacao', '')), '');
+  v_itens jsonb := coalesce(p_payload->'itens', '[]'::jsonb);
+  v_json jsonb;
+  v_item_id bigint;
+  v_existente public.aluguel_item%rowtype;
+  v_tipo text;
+  v_produto integer;
+  v_usoconsumo integer;
+  v_veiculo integer;
+  v_descricao text;
+  v_identificacao text;
+  v_quantidade integer;
+  v_valor numeric(14,2);
+  v_mantidos bigint[] := '{}';
+  v_adicionados integer := 0;
+  v_removidos integer := 0;
+  v_desc_adicionados text[] := '{}';
+  v_desc_removidos text[] := '{}';
+  v_desc_trocados text[] := '{}';
+  v_linha record;
+  v_conflito bigint;
+begin
+  if v_inicio is null then
+    raise exception 'Informe a data de inicio.' using errcode = '22023';
+  end if;
+  if v_limite is null and not v_indeterminado then
+    raise exception 'Informe a data limite ou marque o prazo indeterminado.' using errcode = '22023';
+  end if;
+  if v_limite < v_inicio then
+    raise exception 'A data limite nao pode ser anterior a data de inicio.' using errcode = '22023';
+  end if;
+  if jsonb_typeof(v_itens) <> 'array' or jsonb_array_length(v_itens) = 0 then
+    raise exception 'Adicione ao menos um item ao aluguel.' using errcode = '22023';
+  end if;
+
+  -- Destinatario: cliente do cadastro, usuario do sistema ou avulso; so um.
+  if v_cliente_id is not null and v_destinatario is not null then
+    raise exception 'Escolha um cliente ou um usuario como destinatario, nao os dois.' using errcode = '22023';
+  end if;
+  v_avulso := v_cliente_id is null and v_destinatario is null;
+  if v_avulso then
+    v_cliente_nome := nullif(btrim(coalesce(v_cliente->>'nome', '')), '');
+    if v_cliente_nome is null then
+      raise exception 'Selecione um cliente, um usuario ou informe o nome do cliente avulso.' using errcode = '22023';
+    end if;
+  elsif v_cliente_id is not null and not exists (select 1 from public.cliente where id = v_cliente_id) then
+    raise exception 'Cliente nao encontrado.' using errcode = 'P0002';
+  elsif v_destinatario is not null and not exists (select 1 from public.usuario where id = v_destinatario) then
+    raise exception 'Usuario nao encontrado.' using errcode = 'P0002';
+  end if;
+
+  if v_id is null then
+    insert into public.aluguel (
+      status, data_inicio, data_limite, cliente_id, usuario_id,
+      cliente_nome, cliente_documento, cliente_telefone, cliente_email,
+      observacao, created_by, updated_by
+    ) values (
+      'ATIVO', v_inicio, v_limite, v_cliente_id, v_destinatario,
+      case when v_avulso then v_cliente_nome end,
+      case when v_avulso then nullif(upper(regexp_replace(coalesce(v_cliente->>'documento', ''), '[^0-9A-Za-z]', '', 'g')), '') end,
+      case when v_avulso then nullif(btrim(coalesce(v_cliente->>'telefone', '')), '') end,
+      case when v_avulso then nullif(btrim(coalesce(v_cliente->>'email', '')), '') end,
+      v_observacao, p_usuario, p_usuario
+    )
+    returning id into v_id;
+  else
+    select * into v_atual from public.aluguel where id = v_id and not is_deleted for update;
+    if not found then
+      raise exception 'Aluguel nao encontrado.' using errcode = 'P0002';
+    end if;
+    if v_atual.status = 'ENCERRADO' then
+      raise exception 'Aluguel encerrado nao pode ser editado.' using errcode = '22023';
+    end if;
+
+    update public.aluguel
+       set data_inicio = v_inicio,
+           data_limite = v_limite,
+           cliente_id = v_cliente_id,
+           usuario_id = v_destinatario,
+           cliente_nome = case when v_avulso then v_cliente_nome end,
+           cliente_documento = case when v_avulso then nullif(upper(regexp_replace(coalesce(v_cliente->>'documento', ''), '[^0-9A-Za-z]', '', 'g')), '') end,
+           cliente_telefone = case when v_avulso then nullif(btrim(coalesce(v_cliente->>'telefone', '')), '') end,
+           cliente_email = case when v_avulso then nullif(btrim(coalesce(v_cliente->>'email', '')), '') end,
+           observacao = v_observacao,
+           updated_by = p_usuario
+     where id = v_id;
+
+    -- Itens que sairam do payload: devolve e apaga. A descricao fica no evento.
+    for v_linha in
+      select ai.id, ai.descricao, ai.quantidade
+        from public.aluguel_item ai
+       where ai.aluguel_id = v_id
+         and ai.id not in (
+           select nullif(x->>'id', '')::bigint
+             from jsonb_array_elements(v_itens) x
+            where nullif(x->>'id', '') is not null
+         )
+       order by ai.id
+    loop
+      perform public.aluguel_devolver_item(v_linha.id, 'Item retirado do aluguel #' || v_id, p_usuario);
+      delete from public.aluguel_item where id = v_linha.id;
+      v_removidos := v_removidos + 1;
+      v_desc_removidos := v_desc_removidos || (v_linha.quantidade || 'x ' || v_linha.descricao);
+    end loop;
+  end if;
+
+  for v_json in select value from jsonb_array_elements(v_itens) loop
+    v_tipo := upper(btrim(coalesce(v_json->>'tipo', '')));
+    v_produto := null; v_usoconsumo := null; v_veiculo := null;
+    v_quantidade := coalesce(nullif(v_json->>'quantidade', '')::integer, 1);
+    v_valor := coalesce(nullif(v_json->>'valor', '')::numeric, 0);
+    v_descricao := nullif(btrim(coalesce(v_json->>'descricao', '')), '');
+    v_identificacao := nullif(btrim(coalesce(v_json->>'identificacao', '')), '');
+
+    if v_quantidade <= 0 then
+      raise exception 'A quantidade deve ser maior que zero.' using errcode = '22023';
+    end if;
+    if v_valor < 0 then
+      raise exception 'O valor do item nao pode ser negativo.' using errcode = '22023';
+    end if;
+
+    if v_tipo = 'PRODUTO' then
+      v_produto := nullif(v_json->>'produto_id', '')::integer;
+      select coalesce(v_descricao, p.titulo) into v_descricao from public.produto p where p.id = v_produto;
+      if not found then raise exception 'Produto nao encontrado.' using errcode = 'P0002'; end if;
+    elsif v_tipo in ('USOCONSUMO', 'GERAL') then
+      v_usoconsumo := nullif(v_json->>'usoconsumo_item_id', '')::integer;
+      select coalesce(v_descricao, i.titulo) into v_descricao
+        from public.usoconsumo_item i where i.id = v_usoconsumo and i.escopo = v_tipo;
+      if not found then raise exception 'Item nao encontrado neste estoque.' using errcode = 'P0002'; end if;
+    elsif v_tipo = 'VEICULO' then
+      v_veiculo := nullif(v_json->>'veiculo_id', '')::integer;
+      v_quantidade := 1;
+      select coalesce(v_descricao, nullif(btrim(concat_ws(' ', v.marca, v.modelo)), ''), 'Veiculo'),
+             coalesce(v_identificacao, v.placa)
+        into v_descricao, v_identificacao
+        from public.veiculo v where v.id = v_veiculo
+        for update;
+      if not found then raise exception 'Veiculo nao encontrado.' using errcode = 'P0002'; end if;
+
+      select a.id into v_conflito
+        from public.aluguel_item ai
+        join public.aluguel a on a.id = ai.aluguel_id
+       where ai.veiculo_id = v_veiculo
+         and a.id <> v_id
+         and a.status <> 'ENCERRADO'
+         and not a.is_deleted
+       limit 1;
+      if v_conflito is not null then
+        raise exception 'Este veiculo ja esta no aluguel #%, que nao foi encerrado.', v_conflito using errcode = '23505';
+      end if;
+    elsif v_tipo = 'AVULSO' then
+      if v_descricao is null then
+        raise exception 'Informe a descricao do item avulso.' using errcode = '22023';
+      end if;
+    else
+      raise exception 'Tipo de item invalido: %.', v_tipo using errcode = '22023';
+    end if;
+
+    v_item_id := nullif(v_json->>'id', '')::bigint;
+
+    if v_item_id is not null then
+      select * into v_existente from public.aluguel_item where id = v_item_id and aluguel_id = v_id for update;
+      if not found then
+        raise exception 'Item % nao pertence a este aluguel.', v_item_id using errcode = 'P0002';
+      end if;
+
+      if v_existente.tipo is distinct from v_tipo
+         or v_existente.produto_id is distinct from v_produto
+         or v_existente.usoconsumo_item_id is distinct from v_usoconsumo
+         or v_existente.veiculo_id is distinct from v_veiculo
+         or v_existente.quantidade is distinct from v_quantidade then
+        -- Troca de bem ou de quantidade: devolve o que saiu e baixa de novo.
+        perform public.aluguel_devolver_item(v_item_id, 'Item alterado no aluguel #' || v_id, p_usuario);
+        update public.aluguel_item
+           set tipo = v_tipo, produto_id = v_produto, usoconsumo_item_id = v_usoconsumo,
+               veiculo_id = v_veiculo, quantidade = v_quantidade, valor = v_valor,
+               descricao = v_descricao, identificacao = v_identificacao,
+               estoque_saida_id = null, usoconsumo_saida_id = null, devolvido_em = null
+         where id = v_item_id;
+        perform public.aluguel_baixar_item(v_item_id, p_usuario);
+        v_desc_trocados := v_desc_trocados || (
+          v_existente.quantidade || 'x ' || v_existente.descricao || ' -> ' || v_quantidade || 'x ' || v_descricao
+        );
+      else
+        update public.aluguel_item
+           set valor = v_valor, descricao = v_descricao, identificacao = v_identificacao
+         where id = v_item_id;
+      end if;
+      v_mantidos := v_mantidos || v_item_id;
+    else
+      insert into public.aluguel_item (
+        aluguel_id, tipo, produto_id, usoconsumo_item_id, veiculo_id,
+        descricao, identificacao, quantidade, valor
+      ) values (
+        v_id, v_tipo, v_produto, v_usoconsumo, v_veiculo,
+        v_descricao, v_identificacao, v_quantidade, v_valor
+      )
+      returning id into v_item_id;
+      perform public.aluguel_baixar_item(v_item_id, p_usuario);
+      v_mantidos := v_mantidos || v_item_id;
+      v_adicionados := v_adicionados + 1;
+      v_desc_adicionados := v_desc_adicionados || (v_quantidade || 'x ' || v_descricao);
+    end if;
+  end loop;
+
+  update public.aluguel
+     set valor_total = coalesce((
+           select sum(ai.valor * ai.quantidade) from public.aluguel_item ai where ai.aluguel_id = v_id
+         ), 0)
+   where id = v_id;
+
+  if v_atual.id is null then
+    insert into public.aluguel_evento (aluguel_id, tipo, dados, usuario_id)
+    values (v_id, 'CRIADO', jsonb_build_object(
+      'data_inicio', v_inicio, 'data_limite', v_limite, 'itens', jsonb_array_length(v_itens)
+    ), p_usuario);
+  else
+    insert into public.aluguel_evento (aluguel_id, tipo, dados, usuario_id)
+    values (v_id, 'EDITADO', jsonb_build_object(
+      'antes', jsonb_build_object('data_inicio', v_atual.data_inicio, 'data_limite', v_atual.data_limite),
+      'depois', jsonb_build_object('data_inicio', v_inicio, 'data_limite', v_limite),
+      'itens_adicionados', v_adicionados,
+      'itens_removidos', v_removidos,
+      'descricao_adicionados', to_jsonb(v_desc_adicionados),
+      'descricao_removidos', to_jsonb(v_desc_removidos),
+      'descricao_trocados', to_jsonb(v_desc_trocados)
+    ), p_usuario);
+  end if;
+
+  return v_id;
+end;
+$$;
+
+
+--
+-- Name: aluguel_salvar_checklist(bigint, text, jsonb, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.aluguel_salvar_checklist(p_aluguel_id bigint, p_tipo text, p_payload jsonb, p_usuario uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+declare
+  v_tipo text := upper(btrim(coalesce(p_tipo, '')));
+  v_itens jsonb := coalesce(p_payload->'itens', '[]'::jsonb);
+  v_status_aluguel text;
+  v_checklist_id bigint;
+  v_json jsonb;
+  v_titulo text;
+  v_status text;
+  v_ordem integer := 0;
+  v_existente bigint;
+begin
+  if v_tipo not in ('SAIDA', 'RETORNO') then
+    raise exception 'Tipo de checklist invalido: %.', p_tipo using errcode = '22023';
+  end if;
+  if jsonb_typeof(v_itens) <> 'array' or jsonb_array_length(v_itens) = 0 then
+    raise exception 'O checklist precisa de ao menos um item.' using errcode = '22023';
+  end if;
+  select status into v_status_aluguel from public.aluguel where id = p_aluguel_id and not is_deleted for update;
+  if not found then raise exception 'Aluguel nao encontrado.' using errcode = 'P0002'; end if;
+  if v_tipo = 'SAIDA' and v_status_aluguel = 'ENCERRADO' then
+    raise exception 'O checklist de saida nao muda depois do encerramento.' using errcode = '22023';
+  end if;
+  if v_tipo = 'RETORNO' and v_status_aluguel <> 'ENCERRADO' then
+    raise exception 'O checklist de retorno fica disponivel depois do encerramento do aluguel.' using errcode = '22023';
+  end if;
+
+  insert into public.aluguel_checklist (aluguel_id, tipo, checklist_modelo_id, observacao, realizado_em, realizado_por)
+  values (
+    p_aluguel_id, v_tipo, nullif(p_payload->>'modelo_id', '')::integer,
+    nullif(btrim(coalesce(p_payload->>'observacao', '')), ''), now(), p_usuario
+  )
+  on conflict (aluguel_id, tipo) do update
+    set checklist_modelo_id = excluded.checklist_modelo_id,
+        observacao = excluded.observacao,
+        realizado_em = now(),
+        realizado_por = excluded.realizado_por
+  returning id into v_checklist_id;
+
+  delete from public.aluguel_checklist_item
+   where checklist_id = v_checklist_id
+     and btrim(titulo) not in (
+       select btrim(coalesce(x->>'titulo', '')) from jsonb_array_elements(v_itens) x
+     );
+
+  for v_json in select value from jsonb_array_elements(v_itens) loop
+    v_titulo := nullif(btrim(coalesce(v_json->>'titulo', '')), '');
+    if v_titulo is null then
+      raise exception 'Item do checklist sem titulo.' using errcode = '22023';
+    end if;
+    v_status := nullif(upper(btrim(coalesce(v_json->>'status', ''))), '');
+    v_ordem := coalesce(nullif(v_json->>'ordem', '')::integer, v_ordem + 1);
+
+    select id into v_existente from public.aluguel_checklist_item
+     where checklist_id = v_checklist_id and btrim(titulo) = v_titulo
+     order by id limit 1;
+
+    if v_existente is null then
+      insert into public.aluguel_checklist_item (checklist_id, modelo_item_id, titulo, descricao, status, observacao, ordem)
+      values (
+        v_checklist_id, nullif(v_json->>'modelo_item_id', '')::integer, v_titulo,
+        nullif(btrim(coalesce(v_json->>'descricao', '')), ''), v_status,
+        nullif(btrim(coalesce(v_json->>'observacao', '')), ''), v_ordem
+      );
+    else
+      update public.aluguel_checklist_item
+         set modelo_item_id = nullif(v_json->>'modelo_item_id', '')::integer,
+             descricao = nullif(btrim(coalesce(v_json->>'descricao', '')), ''),
+             status = v_status,
+             observacao = nullif(btrim(coalesce(v_json->>'observacao', '')), ''),
+             ordem = v_ordem
+       where id = v_existente;
+    end if;
+  end loop;
+
+  insert into public.aluguel_evento (aluguel_id, tipo, dados, usuario_id)
+  values (p_aluguel_id, 'CHECKLIST_' || v_tipo, jsonb_build_object(
+    'itens', jsonb_array_length(v_itens),
+    'alertas', (select count(*) from public.aluguel_checklist_item where checklist_id = v_checklist_id and status = 'ALERTA'),
+    'falhas', (select count(*) from public.aluguel_checklist_item where checklist_id = v_checklist_id and status = 'FALHA')
+  ), p_usuario);
+
+  return jsonb_build_object(
+    'checklist_id', v_checklist_id,
+    'itens', coalesce((
+      select jsonb_agg(jsonb_build_object('id', i.id, 'titulo', i.titulo) order by i.ordem, i.id)
+        from public.aluguel_checklist_item i where i.checklist_id = v_checklist_id
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+
+
+--
 -- Name: aprovar_orcamento_venda(integer, jsonb, uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1405,22 +2104,23 @@ $$;
 
 CREATE FUNCTION public.auditoria_modulo_tabela(nome_tabela text) RETURNS text
     LANGUAGE sql IMMUTABLE
-    AS $$
-  select case
-    when nome_tabela ~* '^(mercadolivre|marketplace)' then 'marketplace'
-    when nome_tabela ~* '^desmanche' then 'desmanche'
-    when nome_tabela ~* '^(agendamento)' then 'agendamentos'
-    when nome_tabela ~* '^(ordemservico|os|checklist|imagemvistoria)' then 'ordens'
-    when nome_tabela ~* '^(venda|categoria_venda)' then 'vendas'
-    when nome_tabela ~* '^(produto|fornecedor|peca|unidademedida|produtogrupo)' then 'estoque'
-    when nome_tabela ~* '^(pagamento|transacao|bancoconta|categoriatransacao)' then 'financeiro'
-    when nome_tabela ~* '^(nfe|nfse|notafiscal|fiscal)' then 'fiscal'
-    when nome_tabela ~* '^(veiculo|transferencias_veiculos|cores_veiculos)' then 'veiculos'
-    when nome_tabela ~* '^cliente' then 'clientes'
-    when nome_tabela ~* '^(usuario|perfil|permissao|perfilpermissao|setor)' then 'usuarios'
-    when nome_tabela ~* '^(config|empresa|categoriaservico|tiposervico|servico)' then 'configuracoes'
-    else 'outros'
-  end;
+    AS $$
+  select case
+    when nome_tabela ~* '^(mercadolivre|marketplace)' then 'marketplace'
+    when nome_tabela ~* '^desmanche' then 'desmanche'
+    when nome_tabela ~* '^(agendamento)' then 'agendamentos'
+    when nome_tabela ~* '^aluguel' then 'alugueis'
+    when nome_tabela ~* '^(ordemservico|os|checklist|imagemvistoria)' then 'ordens'
+    when nome_tabela ~* '^(venda|categoria_venda)' then 'vendas'
+    when nome_tabela ~* '^(produto|fornecedor|peca|unidademedida|produtogrupo)' then 'estoque'
+    when nome_tabela ~* '^(pagamento|transacao|bancoconta|categoriatransacao)' then 'financeiro'
+    when nome_tabela ~* '^(nfe|nfse|notafiscal|fiscal)' then 'fiscal'
+    when nome_tabela ~* '^(veiculo|transferencias_veiculos|cores_veiculos)' then 'veiculos'
+    when nome_tabela ~* '^cliente' then 'clientes'
+    when nome_tabela ~* '^(usuario|perfil|permissao|perfilpermissao|setor)' then 'usuarios'
+    when nome_tabela ~* '^(config|empresa|categoriaservico|tiposervico|servico|documento_modelo)' then 'configuracoes'
+    else 'outros'
+  end;
 $$;
 
 
@@ -2764,22 +3464,28 @@ COMMENT ON FUNCTION public.cancelar_eventos_dre_entrada(p_source_type text, p_so
 CREATE FUNCTION public.cancelar_saida_estoque(p_saida_id bigint, p_motivo text, p_cancelada_by uuid DEFAULT NULL::uuid) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
-    AS $$
-DECLARE
-  v_os integer;
-BEGIN
-  SELECT ordemservicoid INTO v_os FROM public.estoque_saida WHERE id = p_saida_id;
-  IF v_os IS NOT NULL
-     AND coalesce(nullif(current_setting('app.consumo_os_estorno', true), ''), '') <> 'permitido' THEN
-    RAISE EXCEPTION 'Esta saida foi gerada pelo consumo registrado na OS #%. Cancele a despesa na ordem de servico para devolver o item ao estoque.',
-      v_os USING ERRCODE = 'P0001';
-  END IF;
-
-  PERFORM public.estoque_definir_contexto(
-    'SAIDA_MANUAL', p_saida_id, 'Saida #' || p_saida_id || ' - cancelada', p_cancelada_by
-  );
-  RETURN public.cancelar_saida_estoque_interna(p_saida_id, p_motivo, p_cancelada_by);
-END;
+    AS $$
+DECLARE
+  v_os integer;
+  v_aluguel bigint;
+BEGIN
+  SELECT ordemservicoid, aluguel_id INTO v_os, v_aluguel FROM public.estoque_saida WHERE id = p_saida_id;
+  IF v_os IS NOT NULL
+     AND coalesce(nullif(current_setting('app.consumo_os_estorno', true), ''), '') <> 'permitido' THEN
+    RAISE EXCEPTION 'Esta saida foi gerada pelo consumo registrado na OS #%. Cancele a despesa na ordem de servico para devolver o item ao estoque.',
+      v_os USING ERRCODE = 'P0001';
+  END IF;
+  IF v_aluguel IS NOT NULL
+     AND coalesce(nullif(current_setting('app.aluguel_estorno', true), ''), '') <> 'permitido' THEN
+    RAISE EXCEPTION 'Esta saida foi gerada pelo Aluguel #%. Encerre, edite ou exclua o aluguel para devolver o item ao estoque.',
+      v_aluguel USING ERRCODE = 'P0001';
+  END IF;
+
+  PERFORM public.estoque_definir_contexto(
+    'SAIDA_MANUAL', p_saida_id, 'Saida #' || p_saida_id || ' - cancelada', p_cancelada_by
+  );
+  RETURN public.cancelar_saida_estoque_interna(p_saida_id, p_motivo, p_cancelada_by);
+END;
 $$;
 
 
@@ -2843,29 +3549,34 @@ $$;
 CREATE FUNCTION public.cancelar_saida_usoconsumo(p_saida_id bigint, p_motivo text, p_cancelada_by uuid DEFAULT NULL::uuid) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
-    AS $$
-DECLARE
-  v_saida public.usoconsumo_saida%ROWTYPE; v_linha record;
-  v_motivo text := nullif(btrim(p_motivo), '');
-BEGIN
-  IF v_motivo IS NULL THEN RAISE EXCEPTION 'Informe o motivo do cancelamento.' USING ERRCODE='22023'; END IF;
-  SELECT * INTO v_saida FROM public.usoconsumo_saida WHERE id=p_saida_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'Saida nao encontrada.' USING ERRCODE='P0002'; END IF;
-  IF v_saida.status='CANCELADA' THEN RAISE EXCEPTION 'Saida ja cancelada.' USING ERRCODE='22023'; END IF;
-  IF v_saida.ordemservicoid IS NOT NULL
-     AND coalesce(nullif(current_setting('app.consumo_os_estorno', true), ''), '') <> 'permitido' THEN
-    RAISE EXCEPTION 'Esta saida foi gerada pelo consumo registrado na OS #%. Cancele a despesa na ordem de servico para devolver o item ao estoque.',
-      v_saida.ordemservicoid USING ERRCODE='P0001';
-  END IF;
-  FOR v_linha IN SELECT * FROM public.usoconsumo_saida_item WHERE saida_id=p_saida_id ORDER BY id FOR UPDATE LOOP
-    PERFORM 1 FROM public.usoconsumo_item WHERE id=v_linha.item_id FOR UPDATE;
-    PERFORM set_config('app.usoconsumo_movimento','permitido',true);
-    UPDATE public.usoconsumo_item SET estoque=estoque+v_linha.quantidade,updated_by=p_cancelada_by WHERE id=v_linha.item_id;
-  END LOOP;
-  UPDATE public.usoconsumo_saida
-    SET status='CANCELADA',cancelada_at=now(),cancelada_by=p_cancelada_by,motivo_cancelamento=v_motivo
-    WHERE id=p_saida_id;
-  RETURN jsonb_build_object('saida_id',p_saida_id,'status','CANCELADA');
+    AS $$
+DECLARE
+  v_saida public.usoconsumo_saida%ROWTYPE; v_linha record;
+  v_motivo text := nullif(btrim(p_motivo), '');
+BEGIN
+  IF v_motivo IS NULL THEN RAISE EXCEPTION 'Informe o motivo do cancelamento.' USING ERRCODE='22023'; END IF;
+  SELECT * INTO v_saida FROM public.usoconsumo_saida WHERE id=p_saida_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Saida nao encontrada.' USING ERRCODE='P0002'; END IF;
+  IF v_saida.status='CANCELADA' THEN RAISE EXCEPTION 'Saida ja cancelada.' USING ERRCODE='22023'; END IF;
+  IF v_saida.ordemservicoid IS NOT NULL
+     AND coalesce(nullif(current_setting('app.consumo_os_estorno', true), ''), '') <> 'permitido' THEN
+    RAISE EXCEPTION 'Esta saida foi gerada pelo consumo registrado na OS #%. Cancele a despesa na ordem de servico para devolver o item ao estoque.',
+      v_saida.ordemservicoid USING ERRCODE='P0001';
+  END IF;
+  IF v_saida.aluguel_id IS NOT NULL
+     AND coalesce(nullif(current_setting('app.aluguel_estorno', true), ''), '') <> 'permitido' THEN
+    RAISE EXCEPTION 'Esta saida foi gerada pelo Aluguel #%. Encerre, edite ou exclua o aluguel para devolver o item ao estoque.',
+      v_saida.aluguel_id USING ERRCODE='P0001';
+  END IF;
+  FOR v_linha IN SELECT * FROM public.usoconsumo_saida_item WHERE saida_id=p_saida_id ORDER BY id FOR UPDATE LOOP
+    PERFORM 1 FROM public.usoconsumo_item WHERE id=v_linha.item_id FOR UPDATE;
+    PERFORM set_config('app.usoconsumo_movimento','permitido',true);
+    UPDATE public.usoconsumo_item SET estoque=estoque+v_linha.quantidade,updated_by=p_cancelada_by WHERE id=v_linha.item_id;
+  END LOOP;
+  UPDATE public.usoconsumo_saida
+    SET status='CANCELADA',cancelada_at=now(),cancelada_by=p_cancelada_by,motivo_cancelamento=v_motivo
+    WHERE id=p_saida_id;
+  RETURN jsonb_build_object('saida_id',p_saida_id,'status','CANCELADA');
 END $$;
 
 
@@ -20902,6 +21613,21 @@ $$;
 
 
 --
+-- Name: set_aluguel_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_aluguel_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+
+--
 -- Name: set_checklist_modelo_updated_at(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -20912,6 +21638,21 @@ begin
   new.atualizado_em := now();
   return new;
 end $$;
+
+
+--
+-- Name: set_documento_modelo_updated_at(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.set_documento_modelo_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$;
 
 
 --
@@ -24469,6 +25210,291 @@ ALTER TABLE public.agendamento ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY 
 
 
 --
+-- Name: aluguel; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.aluguel (
+    id bigint NOT NULL,
+    status text DEFAULT 'ATIVO'::text NOT NULL,
+    data_inicio date NOT NULL,
+    data_limite date,
+    pausado_em timestamp with time zone,
+    encerrado_em timestamp with time zone,
+    encerrado_por uuid,
+    observacao_encerramento text,
+    cliente_id integer,
+    cliente_nome text,
+    cliente_documento text,
+    cliente_telefone text,
+    cliente_email text,
+    observacao text,
+    valor_total numeric(14,2) DEFAULT 0 NOT NULL,
+    motivo_exclusao text,
+    is_deleted boolean DEFAULT false NOT NULL,
+    created_by uuid,
+    updated_by uuid,
+    deleted_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_at timestamp with time zone,
+    usuario_id uuid,
+    CONSTRAINT aluguel_cliente_check CHECK (((num_nonnulls(cliente_id, usuario_id) <= 1) AND ((cliente_id IS NOT NULL) OR (usuario_id IS NOT NULL) OR (NULLIF(btrim(COALESCE(cliente_nome, ''::text)), ''::text) IS NOT NULL)))),
+    CONSTRAINT aluguel_encerramento_check CHECK (((status = 'ENCERRADO'::text) = (encerrado_em IS NOT NULL))),
+    CONSTRAINT aluguel_pausa_check CHECK (((status <> 'PAUSADO'::text) OR (pausado_em IS NOT NULL))),
+    CONSTRAINT aluguel_periodo_check CHECK ((data_limite >= data_inicio)),
+    CONSTRAINT aluguel_status_check CHECK ((status = ANY (ARRAY['ATIVO'::text, 'PAUSADO'::text, 'ENCERRADO'::text]))),
+    CONSTRAINT aluguel_valor_total_check CHECK ((valor_total >= (0)::numeric))
+);
+
+
+--
+-- Name: TABLE aluguel; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.aluguel IS 'Aluguel de bens: produto, item de uso e consumo, item do estoque geral, veiculo ou item avulso. Status ATIVO/PAUSADO/ENCERRADO; agendado e atrasado sao derivados das datas.';
+
+
+--
+-- Name: COLUMN aluguel.data_limite; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.aluguel.data_limite IS 'Ultimo dia combinado. Nulo: prazo indeterminado (sem atraso).';
+
+
+--
+-- Name: COLUMN aluguel.pausado_em; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.aluguel.pausado_em IS 'Momento da pausa. Enquanto pausado, a contagem de dias fica congelada nesta data.';
+
+
+--
+-- Name: COLUMN aluguel.cliente_nome; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.aluguel.cliente_nome IS 'Cliente avulso. Preenchido so quando cliente_id e nulo; nunca vira vinculo com o cadastro.';
+
+
+--
+-- Name: COLUMN aluguel.usuario_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.aluguel.usuario_id IS 'Usuario do sistema que recebeu o aluguel. Exclusivo com cliente_id e com o cliente avulso.';
+
+
+--
+-- Name: aluguel_checklist; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.aluguel_checklist (
+    id bigint NOT NULL,
+    aluguel_id bigint NOT NULL,
+    tipo text NOT NULL,
+    checklist_modelo_id integer,
+    observacao text,
+    realizado_em timestamp with time zone DEFAULT now() NOT NULL,
+    realizado_por uuid,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT aluguel_checklist_tipo_check CHECK ((tipo = ANY (ARRAY['SAIDA'::text, 'RETORNO'::text])))
+);
+
+
+--
+-- Name: TABLE aluguel_checklist; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.aluguel_checklist IS 'Checklist de saida (entrega ao cliente) e de retorno de um aluguel. Nenhum dos dois e obrigatorio.';
+
+
+--
+-- Name: aluguel_checklist_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_checklist ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.aluguel_checklist_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: aluguel_checklist_imagem; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.aluguel_checklist_imagem (
+    id bigint NOT NULL,
+    checklist_item_id bigint NOT NULL,
+    url text NOT NULL,
+    descricao text,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: aluguel_checklist_imagem_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_checklist_imagem ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.aluguel_checklist_imagem_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: aluguel_checklist_item; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.aluguel_checklist_item (
+    id bigint NOT NULL,
+    checklist_id bigint NOT NULL,
+    modelo_item_id integer,
+    titulo text NOT NULL,
+    descricao text,
+    status text,
+    observacao text,
+    ordem integer DEFAULT 0 NOT NULL,
+    CONSTRAINT aluguel_checklist_item_status_check CHECK (((status IS NULL) OR (status = ANY (ARRAY['OK'::text, 'ALERTA'::text, 'FALHA'::text])))),
+    CONSTRAINT aluguel_checklist_item_titulo_check CHECK (((length(btrim(titulo)) >= 1) AND (length(btrim(titulo)) <= 255)))
+);
+
+
+--
+-- Name: aluguel_checklist_item_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_checklist_item ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.aluguel_checklist_item_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: aluguel_evento; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.aluguel_evento (
+    id bigint NOT NULL,
+    aluguel_id bigint NOT NULL,
+    tipo text NOT NULL,
+    dados jsonb DEFAULT '{}'::jsonb NOT NULL,
+    usuario_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT aluguel_evento_tipo_check CHECK ((tipo = ANY (ARRAY['CRIADO'::text, 'EDITADO'::text, 'PAUSADO'::text, 'REINICIADO'::text, 'ENCERRADO'::text, 'EXCLUIDO'::text, 'CHECKLIST_SAIDA'::text, 'CHECKLIST_RETORNO'::text])))
+);
+
+
+--
+-- Name: aluguel_evento_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_evento ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.aluguel_evento_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: aluguel_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.aluguel_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: aluguel_item; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.aluguel_item (
+    id bigint NOT NULL,
+    aluguel_id bigint NOT NULL,
+    tipo text NOT NULL,
+    produto_id integer,
+    usoconsumo_item_id integer,
+    veiculo_id integer,
+    descricao text NOT NULL,
+    identificacao text,
+    quantidade integer DEFAULT 1 NOT NULL,
+    valor numeric(14,2) DEFAULT 0 NOT NULL,
+    estoque_saida_id bigint,
+    usoconsumo_saida_id bigint,
+    devolvido_em timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    quantidade_devolvida integer,
+    CONSTRAINT aluguel_item_bem_check CHECK (
+CASE tipo
+    WHEN 'PRODUTO'::text THEN ((produto_id IS NOT NULL) AND (usoconsumo_item_id IS NULL) AND (veiculo_id IS NULL))
+    WHEN 'USOCONSUMO'::text THEN ((usoconsumo_item_id IS NOT NULL) AND (produto_id IS NULL) AND (veiculo_id IS NULL))
+    WHEN 'GERAL'::text THEN ((usoconsumo_item_id IS NOT NULL) AND (produto_id IS NULL) AND (veiculo_id IS NULL))
+    WHEN 'VEICULO'::text THEN ((veiculo_id IS NOT NULL) AND (produto_id IS NULL) AND (usoconsumo_item_id IS NULL) AND (quantidade = 1))
+    ELSE ((produto_id IS NULL) AND (usoconsumo_item_id IS NULL) AND (veiculo_id IS NULL))
+END),
+    CONSTRAINT aluguel_item_descricao_check CHECK (((length(btrim(descricao)) >= 1) AND (length(btrim(descricao)) <= 255))),
+    CONSTRAINT aluguel_item_quantidade_check CHECK ((quantidade > 0)),
+    CONSTRAINT aluguel_item_quantidade_devolvida_check CHECK (((quantidade_devolvida IS NULL) OR ((quantidade_devolvida >= 0) AND (quantidade_devolvida <= quantidade)))),
+    CONSTRAINT aluguel_item_tipo_check CHECK ((tipo = ANY (ARRAY['PRODUTO'::text, 'USOCONSUMO'::text, 'GERAL'::text, 'VEICULO'::text, 'AVULSO'::text]))),
+    CONSTRAINT aluguel_item_valor_check CHECK ((valor >= (0)::numeric))
+);
+
+
+--
+-- Name: COLUMN aluguel_item.descricao; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.aluguel_item.descricao IS 'Nome do bem no momento do aluguel (snapshot do cadastro) ou o texto do item avulso.';
+
+
+--
+-- Name: COLUMN aluguel_item.devolvido_em; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.aluguel_item.devolvido_em IS 'Quando a saida de estoque do item foi estornada (encerramento, exclusao ou remocao na edicao).';
+
+
+--
+-- Name: COLUMN aluguel_item.quantidade_devolvida; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.aluguel_item.quantidade_devolvida IS 'Quanto voltou no encerramento. Menor que a quantidade: a falta segue fora do estoque na saida apontada pelo item.';
+
+
+--
+-- Name: aluguel_item_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_item ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.aluguel_item_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: auditoria_evento; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -25722,6 +26748,65 @@ ALTER TABLE public.cores_veiculos ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTI
 
 
 --
+-- Name: documento_modelo; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.documento_modelo (
+    id bigint NOT NULL,
+    codigo_padrao text,
+    modulo text NOT NULL,
+    nome text NOT NULL,
+    html text NOT NULL,
+    ativo boolean DEFAULT true NOT NULL,
+    ordem integer DEFAULT 0 NOT NULL,
+    is_deleted boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    updated_by uuid,
+    CONSTRAINT documento_modelo_html_check CHECK (((btrim(html) <> ''::text) AND (char_length(html) <= 200000))),
+    CONSTRAINT documento_modelo_modulo_check CHECK ((modulo = ANY (ARRAY['venda'::text, 'os'::text, 'aluguel'::text]))),
+    CONSTRAINT documento_modelo_nome_check CHECK (((btrim(nome) <> ''::text) AND (char_length(nome) <= 120))),
+    CONSTRAINT documento_modelo_ordem_check CHECK ((ordem >= 0))
+);
+
+
+--
+-- Name: TABLE documento_modelo; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.documento_modelo IS 'Modelos HTML de documentos emitidos a partir de venda, OS ou aluguel, com variáveis do registro.';
+
+
+--
+-- Name: COLUMN documento_modelo.codigo_padrao; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.documento_modelo.codigo_padrao IS 'Preenchido só nos modelos de fábrica; permite restaurar o texto original.';
+
+
+--
+-- Name: COLUMN documento_modelo.modulo; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.documento_modelo.modulo IS 'Onde o documento aparece para emissão: venda, os ou aluguel.';
+
+
+--
+-- Name: documento_modelo_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.documento_modelo ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.documento_modelo_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: dre_implantacao; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -26426,6 +27511,7 @@ CREATE TABLE public.estoque_saida (
     cancelada_at timestamp with time zone,
     cancelada_by uuid,
     ordemservicoid integer,
+    aluguel_id bigint,
     CONSTRAINT estoque_saida_motivo_cancelamento_check CHECK (((status <> 'CANCELADA'::text) OR (NULLIF(btrim(motivo_cancelamento), ''::text) IS NOT NULL))),
     CONSTRAINT estoque_saida_outro_observacao_check CHECK (((motivo <> 'OUTRO'::text) OR (NULLIF(btrim(observacao), ''::text) IS NOT NULL))),
     CONSTRAINT estoque_saida_status_check CHECK ((status = ANY (ARRAY['CONFIRMADA'::text, 'CANCELADA'::text])))
@@ -26437,6 +27523,13 @@ CREATE TABLE public.estoque_saida (
 --
 
 COMMENT ON COLUMN public.estoque_saida.ordemservicoid IS 'OS que consumiu o material. Preenchido por registrar_consumo_produto_os; trava o cancelamento pelo Estoque.';
+
+
+--
+-- Name: COLUMN estoque_saida.aluguel_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.estoque_saida.aluguel_id IS 'Aluguel que tirou o item. Preenchida, a saida so pode ser cancelada pelo modulo Alugueis.';
 
 
 --
@@ -33564,6 +34657,7 @@ CREATE TABLE public.usoconsumo_saida (
     motivo_cancelamento text,
     escopo text DEFAULT 'USOCONSUMO'::text NOT NULL,
     ordemservicoid integer,
+    aluguel_id bigint,
     CONSTRAINT usoconsumo_saida_escopo_check CHECK ((escopo = ANY (ARRAY['USOCONSUMO'::text, 'GERAL'::text]))),
     CONSTRAINT usoconsumo_saida_motivo_cancelamento_check CHECK (((status <> 'CANCELADA'::text) OR (NULLIF(btrim(motivo_cancelamento), ''::text) IS NOT NULL))),
     CONSTRAINT usoconsumo_saida_outro_check CHECK (((motivo <> 'OUTRO'::text) OR (NULLIF(btrim(observacao), ''::text) IS NOT NULL))),
@@ -33583,6 +34677,13 @@ COMMENT ON COLUMN public.usoconsumo_saida.escopo IS 'Estoque simples da saida. T
 --
 
 COMMENT ON COLUMN public.usoconsumo_saida.ordemservicoid IS 'OS que consumiu o material. Preenchido por registrar_consumo_produto_os; trava o cancelamento pelo Estoque.';
+
+
+--
+-- Name: COLUMN usoconsumo_saida.aluguel_id; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.usoconsumo_saida.aluguel_id IS 'Aluguel que tirou o item. Preenchida, a saida so pode ser cancelada pelo modulo Alugueis.';
 
 
 --
@@ -34286,6 +35387,62 @@ ALTER TABLE ONLY public.agendamento
 
 
 --
+-- Name: aluguel_checklist_imagem aluguel_checklist_imagem_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist_imagem
+    ADD CONSTRAINT aluguel_checklist_imagem_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: aluguel_checklist_item aluguel_checklist_item_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist_item
+    ADD CONSTRAINT aluguel_checklist_item_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: aluguel_checklist aluguel_checklist_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist
+    ADD CONSTRAINT aluguel_checklist_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: aluguel_checklist aluguel_checklist_unico; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist
+    ADD CONSTRAINT aluguel_checklist_unico UNIQUE (aluguel_id, tipo);
+
+
+--
+-- Name: aluguel_evento aluguel_evento_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_evento
+    ADD CONSTRAINT aluguel_evento_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: aluguel_item aluguel_item_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_item
+    ADD CONSTRAINT aluguel_item_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: aluguel aluguel_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel
+    ADD CONSTRAINT aluguel_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: auditoria_evento auditoria_evento_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -34771,6 +35928,22 @@ ALTER TABLE ONLY public.cores_veiculos
 
 ALTER TABLE ONLY public.cores_veiculos
     ADD CONSTRAINT cores_veiculos_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: documento_modelo documento_modelo_codigo_padrao_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documento_modelo
+    ADD CONSTRAINT documento_modelo_codigo_padrao_key UNIQUE (codigo_padrao);
+
+
+--
+-- Name: documento_modelo documento_modelo_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documento_modelo
+    ADD CONSTRAINT documento_modelo_pkey PRIMARY KEY (id);
 
 
 --
@@ -37092,6 +38265,76 @@ CREATE UNIQUE INDEX agendamento_inicio_ativo_unique ON public.agendamento USING 
 
 
 --
+-- Name: aluguel_checklist_imagem_item_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_checklist_imagem_item_idx ON public.aluguel_checklist_imagem USING btree (checklist_item_id);
+
+
+--
+-- Name: aluguel_checklist_item_checklist_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_checklist_item_checklist_idx ON public.aluguel_checklist_item USING btree (checklist_id);
+
+
+--
+-- Name: aluguel_cliente_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_cliente_idx ON public.aluguel USING btree (cliente_id) WHERE (cliente_id IS NOT NULL);
+
+
+--
+-- Name: aluguel_evento_aluguel_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_evento_aluguel_idx ON public.aluguel_evento USING btree (aluguel_id, created_at);
+
+
+--
+-- Name: aluguel_item_aluguel_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_item_aluguel_idx ON public.aluguel_item USING btree (aluguel_id);
+
+
+--
+-- Name: aluguel_item_produto_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_item_produto_idx ON public.aluguel_item USING btree (produto_id) WHERE (produto_id IS NOT NULL);
+
+
+--
+-- Name: aluguel_item_usoconsumo_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_item_usoconsumo_idx ON public.aluguel_item USING btree (usoconsumo_item_id) WHERE (usoconsumo_item_id IS NOT NULL);
+
+
+--
+-- Name: aluguel_item_veiculo_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_item_veiculo_idx ON public.aluguel_item USING btree (veiculo_id) WHERE (veiculo_id IS NOT NULL);
+
+
+--
+-- Name: aluguel_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_status_idx ON public.aluguel USING btree (status, data_limite) WHERE (NOT is_deleted);
+
+
+--
+-- Name: aluguel_usuario_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX aluguel_usuario_idx ON public.aluguel USING btree (usuario_id) WHERE (usuario_id IS NOT NULL);
+
+
+--
 -- Name: auditoria_evento_modulo_ocorrido_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -37337,6 +38580,20 @@ CREATE INDEX cliente_user_id_idx ON public.cliente USING btree (user_id);
 
 
 --
+-- Name: documento_modelo_emissao_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX documento_modelo_emissao_idx ON public.documento_modelo USING btree (modulo, ordem, nome) WHERE (ativo AND (NOT is_deleted));
+
+
+--
+-- Name: documento_modelo_nome_modulo_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX documento_modelo_nome_modulo_uidx ON public.documento_modelo USING btree (modulo, lower(btrim(nome))) WHERE (NOT is_deleted);
+
+
+--
 -- Name: dre_linha_parent_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -37516,6 +38773,13 @@ CREATE INDEX estoque_movimento_saida_idx ON public.estoque_movimento USING btree
 --
 
 CREATE INDEX estoque_movimento_venda_idx ON public.estoque_movimento USING btree (venda_id) WHERE (venda_id IS NOT NULL);
+
+
+--
+-- Name: estoque_saida_aluguel_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX estoque_saida_aluguel_idx ON public.estoque_saida USING btree (aluguel_id) WHERE (aluguel_id IS NOT NULL);
 
 
 --
@@ -39465,6 +40729,13 @@ CREATE INDEX usoconsumo_movimento_entrada_item_idx ON public.usoconsumo_moviment
 
 
 --
+-- Name: usoconsumo_saida_aluguel_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX usoconsumo_saida_aluguel_idx ON public.usoconsumo_saida USING btree (aluguel_id) WHERE (aluguel_id IS NOT NULL);
+
+
+--
 -- Name: usoconsumo_saida_created_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -39612,6 +40883,34 @@ CREATE TRIGGER auditoria_linha AFTER INSERT OR DELETE OR UPDATE ON public.agenda
 
 
 --
+-- Name: aluguel auditoria_linha; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER auditoria_linha AFTER INSERT OR DELETE OR UPDATE ON public.aluguel FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
+
+
+--
+-- Name: aluguel_checklist auditoria_linha; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER auditoria_linha AFTER INSERT OR DELETE OR UPDATE ON public.aluguel_checklist FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
+
+
+--
+-- Name: aluguel_checklist_item auditoria_linha; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER auditoria_linha AFTER INSERT OR DELETE OR UPDATE ON public.aluguel_checklist_item FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
+
+
+--
+-- Name: aluguel_item auditoria_linha; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER auditoria_linha AFTER INSERT OR DELETE OR UPDATE ON public.aluguel_item FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
+
+
+--
 -- Name: bancoconta auditoria_linha; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -39721,6 +41020,13 @@ CREATE TRIGGER auditoria_linha AFTER INSERT OR DELETE OR UPDATE ON public.config
 --
 
 CREATE TRIGGER auditoria_linha AFTER INSERT OR DELETE OR UPDATE ON public.cores_veiculos FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
+
+
+--
+-- Name: documento_modelo auditoria_linha; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER auditoria_linha AFTER INSERT OR DELETE OR UPDATE ON public.documento_modelo FOR EACH ROW EXECUTE FUNCTION public.registrar_auditoria();
 
 
 --
@@ -40921,6 +42227,20 @@ CREATE TRIGGER trg_ajustar_eventos_frete_os AFTER UPDATE OF status, orcamentotot
 
 
 --
+-- Name: aluguel_checklist trg_aluguel_checklist_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_aluguel_checklist_updated_at BEFORE UPDATE ON public.aluguel_checklist FOR EACH ROW EXECUTE FUNCTION public.set_aluguel_updated_at();
+
+
+--
+-- Name: aluguel trg_aluguel_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_aluguel_updated_at BEFORE UPDATE ON public.aluguel FOR EACH ROW EXECUTE FUNCTION public.set_aluguel_updated_at();
+
+
+--
 -- Name: venda trg_barrar_exclusao_venda_em_grupo; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -41016,6 +42336,13 @@ CREATE TRIGGER trg_desconciliar_transacao_inativada AFTER UPDATE OF is_deleted O
 --
 
 CREATE TRIGGER trg_disparar_processamento_notificacao_os AFTER INSERT ON public.os_notificacao_evento FOR EACH ROW EXECUTE FUNCTION public.fn_disparar_processamento_notificacao_os();
+
+
+--
+-- Name: documento_modelo trg_documento_modelo_updated_at; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_documento_modelo_updated_at BEFORE UPDATE ON public.documento_modelo FOR EACH ROW EXECUTE FUNCTION public.set_documento_modelo_updated_at();
 
 
 --
@@ -41737,6 +43064,174 @@ ALTER TABLE ONLY public.agendamento
 
 
 --
+-- Name: aluguel_checklist aluguel_checklist_aluguel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist
+    ADD CONSTRAINT aluguel_checklist_aluguel_id_fkey FOREIGN KEY (aluguel_id) REFERENCES public.aluguel(id) ON DELETE CASCADE;
+
+
+--
+-- Name: aluguel_checklist aluguel_checklist_checklist_modelo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist
+    ADD CONSTRAINT aluguel_checklist_checklist_modelo_id_fkey FOREIGN KEY (checklist_modelo_id) REFERENCES public.checklist_modelo(id) ON DELETE SET NULL;
+
+
+--
+-- Name: aluguel_checklist_imagem aluguel_checklist_imagem_checklist_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist_imagem
+    ADD CONSTRAINT aluguel_checklist_imagem_checklist_item_id_fkey FOREIGN KEY (checklist_item_id) REFERENCES public.aluguel_checklist_item(id) ON DELETE CASCADE;
+
+
+--
+-- Name: aluguel_checklist_imagem aluguel_checklist_imagem_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist_imagem
+    ADD CONSTRAINT aluguel_checklist_imagem_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.usuario(id);
+
+
+--
+-- Name: aluguel_checklist_item aluguel_checklist_item_checklist_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist_item
+    ADD CONSTRAINT aluguel_checklist_item_checklist_id_fkey FOREIGN KEY (checklist_id) REFERENCES public.aluguel_checklist(id) ON DELETE CASCADE;
+
+
+--
+-- Name: aluguel_checklist_item aluguel_checklist_item_modelo_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist_item
+    ADD CONSTRAINT aluguel_checklist_item_modelo_item_id_fkey FOREIGN KEY (modelo_item_id) REFERENCES public.checklist_modelo_item(id) ON DELETE SET NULL;
+
+
+--
+-- Name: aluguel_checklist aluguel_checklist_realizado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_checklist
+    ADD CONSTRAINT aluguel_checklist_realizado_por_fkey FOREIGN KEY (realizado_por) REFERENCES public.usuario(id);
+
+
+--
+-- Name: aluguel aluguel_cliente_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel
+    ADD CONSTRAINT aluguel_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES public.cliente(id);
+
+
+--
+-- Name: aluguel aluguel_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel
+    ADD CONSTRAINT aluguel_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.usuario(id);
+
+
+--
+-- Name: aluguel aluguel_deleted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel
+    ADD CONSTRAINT aluguel_deleted_by_fkey FOREIGN KEY (deleted_by) REFERENCES public.usuario(id);
+
+
+--
+-- Name: aluguel aluguel_encerrado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel
+    ADD CONSTRAINT aluguel_encerrado_por_fkey FOREIGN KEY (encerrado_por) REFERENCES public.usuario(id);
+
+
+--
+-- Name: aluguel_evento aluguel_evento_aluguel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_evento
+    ADD CONSTRAINT aluguel_evento_aluguel_id_fkey FOREIGN KEY (aluguel_id) REFERENCES public.aluguel(id) ON DELETE CASCADE;
+
+
+--
+-- Name: aluguel_evento aluguel_evento_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_evento
+    ADD CONSTRAINT aluguel_evento_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id);
+
+
+--
+-- Name: aluguel_item aluguel_item_aluguel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_item
+    ADD CONSTRAINT aluguel_item_aluguel_id_fkey FOREIGN KEY (aluguel_id) REFERENCES public.aluguel(id) ON DELETE CASCADE;
+
+
+--
+-- Name: aluguel_item aluguel_item_estoque_saida_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_item
+    ADD CONSTRAINT aluguel_item_estoque_saida_id_fkey FOREIGN KEY (estoque_saida_id) REFERENCES public.estoque_saida(id);
+
+
+--
+-- Name: aluguel_item aluguel_item_produto_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_item
+    ADD CONSTRAINT aluguel_item_produto_id_fkey FOREIGN KEY (produto_id) REFERENCES public.produto(id);
+
+
+--
+-- Name: aluguel_item aluguel_item_usoconsumo_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_item
+    ADD CONSTRAINT aluguel_item_usoconsumo_item_id_fkey FOREIGN KEY (usoconsumo_item_id) REFERENCES public.usoconsumo_item(id);
+
+
+--
+-- Name: aluguel_item aluguel_item_usoconsumo_saida_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_item
+    ADD CONSTRAINT aluguel_item_usoconsumo_saida_id_fkey FOREIGN KEY (usoconsumo_saida_id) REFERENCES public.usoconsumo_saida(id);
+
+
+--
+-- Name: aluguel_item aluguel_item_veiculo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel_item
+    ADD CONSTRAINT aluguel_item_veiculo_id_fkey FOREIGN KEY (veiculo_id) REFERENCES public.veiculo(id);
+
+
+--
+-- Name: aluguel aluguel_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel
+    ADD CONSTRAINT aluguel_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.usuario(id);
+
+
+--
+-- Name: aluguel aluguel_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.aluguel
+    ADD CONSTRAINT aluguel_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id);
+
+
+--
 -- Name: auditoria_evento auditoria_evento_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -42113,6 +43608,22 @@ ALTER TABLE ONLY public.cores_veiculos
 
 
 --
+-- Name: documento_modelo documento_modelo_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documento_modelo
+    ADD CONSTRAINT documento_modelo_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.usuario(id);
+
+
+--
+-- Name: documento_modelo documento_modelo_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.documento_modelo
+    ADD CONSTRAINT documento_modelo_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.usuario(id);
+
+
+--
 -- Name: dre_implantacao dre_implantacao_ativado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -42350,6 +43861,14 @@ ALTER TABLE ONLY public.estoque_movimento
 
 ALTER TABLE ONLY public.estoque_movimento
     ADD CONSTRAINT estoque_movimento_saida_id_fkey FOREIGN KEY (saida_id) REFERENCES public.estoque_saida(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: estoque_saida estoque_saida_aluguel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.estoque_saida
+    ADD CONSTRAINT estoque_saida_aluguel_id_fkey FOREIGN KEY (aluguel_id) REFERENCES public.aluguel(id);
 
 
 --
@@ -45113,6 +46632,14 @@ ALTER TABLE ONLY public.usoconsumo_movimento_entrada
 
 
 --
+-- Name: usoconsumo_saida usoconsumo_saida_aluguel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.usoconsumo_saida
+    ADD CONSTRAINT usoconsumo_saida_aluguel_id_fkey FOREIGN KEY (aluguel_id) REFERENCES public.aluguel(id);
+
+
+--
 -- Name: usoconsumo_saida usoconsumo_saida_centro_custo_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -45357,6 +46884,42 @@ CREATE POLICY "Pedidos: Ver seus próprios" ON public.pedido FOR SELECT USING ((
 --
 
 ALTER TABLE public.agendamento ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: aluguel; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: aluguel_checklist; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_checklist ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: aluguel_checklist_imagem; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_checklist_imagem ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: aluguel_checklist_item; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_checklist_item ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: aluguel_evento; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_evento ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: aluguel_item; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.aluguel_item ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: auditoria_evento; Type: ROW SECURITY; Schema: public; Owner: -
@@ -45626,6 +47189,12 @@ ALTER TABLE public.contato_lead ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.cores_veiculos ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: documento_modelo; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.documento_modelo ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: dre_implantacao; Type: ROW SECURITY; Schema: public; Owner: -
@@ -46818,6 +48387,10 @@ CREATE POLICY vendaproduto_select_own ON public.vendaproduto FOR SELECT TO authe
 SET search_path = public;
 CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_new_auth_user();
 CREATE TRIGGER on_auth_user_updated_email AFTER UPDATE OF email ON auth.users FOR EACH ROW EXECUTE FUNCTION handle_update_auth_user_email();
+CREATE POLICY central_operacional_realtime_receive ON realtime.messages AS PERMISSIVE FOR SELECT TO authenticated USING (((extension = 'broadcast'::text) AND central_realtime_topic_allowed(( SELECT realtime.topic() AS topic))));
+CREATE POLICY chat_realtime_presence_track ON realtime.messages AS PERMISSIVE FOR INSERT TO authenticated WITH CHECK (((extension = 'presence'::text) AND (( SELECT realtime.topic() AS topic) = 'chat:presence'::text) AND chat_realtime_topic_allowed(( SELECT realtime.topic() AS topic))));
+CREATE POLICY chat_realtime_receive ON realtime.messages AS PERMISSIVE FOR SELECT TO authenticated USING (((extension = ANY (ARRAY['broadcast'::text, 'presence'::text])) AND chat_realtime_topic_allowed(( SELECT realtime.topic() AS topic))));
+CREATE POLICY ordens_realtime_receive ON realtime.messages AS PERMISSIVE FOR SELECT TO authenticated USING (((extension = 'broadcast'::text) AND ordens_realtime_topic_allowed(( SELECT realtime.topic() AS topic))));
 CREATE POLICY "authenticated can upload vistoria" ON storage.objects AS PERMISSIVE FOR INSERT TO authenticated WITH CHECK ((bucket_id = 'vistoria'::text));
 ALTER PUBLICATION "supabase_realtime" ADD TABLE public."ordemservico";
 ALTER PUBLICATION "supabase_realtime" ADD TABLE public."osservico";
@@ -46831,20 +48404,23 @@ REVOKE ALL ON TABLE public.mercadolivre_return_inventory FROM PUBLIC, anon, auth
 REVOKE ALL ON TABLE public.transacao_anexo FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.transacao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.transacao_baixa_historico FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.ordemservico FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.chat_reacao FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.ordemservico FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.documento_modelo FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.os_termo_impressao FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.os_termo_impressao_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.cliente_saldo_movimento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.chat_mensagem_edicao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.chat_mensagem_oculta FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.chat_audio_pendente_remocao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.chat_push_subscription FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.documento_modelo_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.os_termo_impressao_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.cliente_saldo_movimento FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.cliente_saldo_movimento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.lote_imagem_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.bancoconta_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.categoriaservico_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.cliente_saldo_movimento FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.nfse_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.categoriatransacao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_claim_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.transacao_ajuste_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.nfe_numero_liberado_id_seq FROM PUBLIC, anon, authenticated, service_role;
@@ -46852,28 +48428,43 @@ REVOKE ALL ON SEQUENCE public.veiculo_imagem_id_seq FROM PUBLIC, anon, authentic
 REVOKE ALL ON SEQUENCE public.lotes_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.lote_pecas_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.transacao_transferencia_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.transacao_cliente FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.site_product_link FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.site_catalog_sync_queue FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.site_catalog_sync_run FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.os_comissao_criacao FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.nfe_config_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.os_notificacao_evento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.os_notificacao_entrega_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.planosdecontagrupos_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.cliente_telefone FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.bandeira_cartao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.bandeira_cartao_parcela_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.central_evento_operacional FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.telegram_processamento_execucao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.centrosdecusto_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.categoriatransacao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.osanexo_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.os_saida_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.agendamento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.os_saida_checklist_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.fiscal_sped_1601_linha FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.fiscal_sped_arquivo FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.site_catalog_export FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.categoriatransacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.checklist_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.checklist_modelo_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.config_geral_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.eventos_financeiros_fila FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.venda_comissao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.cores_veiculos_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.cliente_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.dre_template_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.fiscal_sped_arquivo_validacao_pva FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.fiscal_inventario_fechamento FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.empresa_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.fiscal_inventario_item FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.entradaitens_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.estoque_saida_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.estoque_saida_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
@@ -46882,45 +48473,54 @@ REVOKE ALL ON SEQUENCE public.dre_mapeamento_id_seq FROM PUBLIC, anon, authentic
 REVOKE ALL ON SEQUENCE public.os_saida_checklist_imagem_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.tipos_entrada_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.site_order_link FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.estoque_movimento_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.transacao_cliente FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.tipos_documento_transacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.osproduto_avulso_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.transacao_valor_historico_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.checklist_modelo_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.usoconsumo_grupo_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.nfe_config FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.telegram_financeiro_entrega FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.mercadolivre_listing_payload_log FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fornecedor_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.fiscal_difal_regra FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fornecedorprodutos_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.imagemvistoria_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.site_product_link FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.site_catalog_sync_queue FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.site_catalog_sync_run FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.nfe_config_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.nfe_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.os_comissao_criacao FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.mercadolivre_outbound_touch FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_dfe_controle_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.usoconsumo_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_dfe_documento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.nfe_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_account_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.notafiscal_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.transacao_transferencia FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.classificacoes_resultado FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.plano_contas_classificacao_regra FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.pagamento FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.ordemservico_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.cliente_telefone FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.site_product_link_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.fiscal_ncm FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.cliente_telefone_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_notification_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.tarefa_usuario FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.usoconsumo_item_imagem_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.pagamento_evento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.pagamento_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.central_evento_operacional FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_order_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.peca_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.perfil_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.nfe_origem_vinculo FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.chat_conversa FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.permissao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.produto_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.produto_imagem_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.entrada_fiscal_personalizada FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.produtoentrada_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.usoconsumo_entrada_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.chat_mensagem FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.chat_participante FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.produtogrupo_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.usoconsumo_movimento_entrada_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.venda_id_seq FROM PUBLIC, anon, authenticated, service_role;
@@ -46936,25 +48536,13 @@ REVOKE ALL ON SEQUENCE public.site_catalog_sync_run_id_seq FROM PUBLIC, anon, au
 REVOKE ALL ON SEQUENCE public.pagamento_multiplo_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.tipos_ajuste_transacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.checklist_documento_convite_assinatura_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.fiscal_sped_1601_linha FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.fiscal_sped_arquivo FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.site_catalog_export FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.eventos_financeiros_fila FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.venda_comissao FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.fiscal_sped_arquivo_validacao_pva FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.fiscal_inventario_fechamento FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.fiscal_inventario_item FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.site_order_link_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.site_order_link FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_difal_regra_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_documento_evento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_sped_contabilista_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.nfe_config FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.telegram_financeiro_entrega FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.nfse_os_servico_vinculo FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_listing_payload_log_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.telegram_financeiro_entrega_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.mercadolivre_listing_payload_log FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.fiscal_difal_regra FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_sped_item_config_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_sped_item_credito_decisao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_sped_item_correlacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
@@ -46973,23 +48561,12 @@ REVOKE ALL ON SEQUENCE public.fiscal_sped_1601_importacao_id_seq FROM PUBLIC, an
 REVOKE ALL ON SEQUENCE public.fiscal_sped_1601_linha_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_inventario_fechamento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_outbound_touch_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.ositem_historico FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_sped_arquivo_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_sped_arquivo_validacao_pva_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.fiscal_inventario_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.mercadolivre_outbound_touch FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.transacao_transferencia FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.classificacoes_resultado FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.plano_contas_classificacao_regra FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.pagamento FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.fiscal_ncm FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.tarefa_usuario FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.nfe_origem_vinculo FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.chat_conversa FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.contato_lead FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.entrada_fiscal_personalizada_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.entrada_fiscal_personalizada FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.chat_mensagem FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.chat_participante FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.nfse_os_servico_vinculo FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_return_inventory_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.pedido_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.vendaanexo_id_seq FROM PUBLIC, anon, authenticated, service_role;
@@ -47002,26 +48579,31 @@ REVOKE ALL ON SEQUENCE public.shopee_order_id_seq FROM PUBLIC, anon, authenticat
 REVOKE ALL ON SEQUENCE public.categoriavenda_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.favorito_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.ositem_historico_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.ositem_historico FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.cliente_endereco_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.contato_lead FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.contato_lead_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.checklist_documento_evento_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.dre_implantacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.nfe_inutilizacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.lancamento_de_eventos FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.lancamento_de_eventos_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.classificacoes_resultado_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.aluguel_item FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.eventos_financeiros FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.planosdecontagrupos FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.dre_mapeamento FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.plano_contas_classificacao_regra_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.eventos_financeiros_classificacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.dre_mapeamento FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.checklist_documento_assinatura FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.checklist_documento FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.checklist_documento_arquivo FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.checklist_documento_evento FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.eventos_financeiros_classificacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.osaprovacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.usoconsumo_saida FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.checklist_documento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.usoconsumo_item FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.planosdeconta FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.usoconsumo_saida FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.checklist_documento_assinatura_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.checklist_documento_arquivo_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.usoconsumo_entrada FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.vendaproduto_baixa FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.mercadolivre_price_sync_log FROM PUBLIC, anon, authenticated, service_role;
@@ -47038,11 +48620,6 @@ REVOKE ALL ON TABLE public.usoconsumo_saida_item FROM PUBLIC, anon, authenticate
 REVOKE ALL ON TABLE public.fiscal_dfe_item_apropriacao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.shopee_product_link FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.shopee_order FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.checklist_documento_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.checklist_documento_assinatura_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.checklist_documento_arquivo_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.checklist_documento_evento_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.dre_implantacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.mercadolivre_claim FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.transacao_ajuste FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.nfe_numero_liberado FROM PUBLIC, anon, authenticated, service_role;
@@ -47148,21 +48725,24 @@ REVOKE ALL ON TABLE public.item_pedido FROM PUBLIC, anon, authenticated, service
 REVOKE ALL ON TABLE public.vendaanexo FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.estoque_conferencia FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.recebimento_por_documento FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.shopee_account_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.orcamento_produto_avulso FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.estoque_movimento_autor FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.shopee_account_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.shopee_product_link_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.auditoria_evento_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.nfe_inutilizacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.cliente_endereco FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.favorito FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.venda FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.nfe_ciencia_aviso FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.config_geral FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_product_link_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.aluguel_checklist FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.aluguel_checklist_item FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.aluguel_checklist_imagem FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.aluguel_evento FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.nfe_item FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.usoconsumo_entrada_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.checklist_documento_convite_assinatura FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.usoconsumo_entrada_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.servico_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.mercadolivre_sync_run_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.setor_id_seq FROM PUBLIC, anon, authenticated, service_role;
@@ -47170,23 +48750,28 @@ REVOKE ALL ON SEQUENCE public.tiposervico_id_seq FROM PUBLIC, anon, authenticate
 REVOKE ALL ON SEQUENCE public.transacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.transferencias_veiculos_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.unidademedida_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.veiculo_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.eventos_financeiros_classificacao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.dre_implantacao FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.veiculo_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.entrada FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fornecedor FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.usoconsumo_movimento_autor FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.cliente FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.telegram_fiscal_entrega_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.telegram_usuario_preferencia FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.telegram_fiscal_entrega_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.telegram_fiscal_entrega FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.aluguel_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.aluguel_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.aluguel_checklist_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.system_notification_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.system_notification FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.aluguel_checklist_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.aluguel_checklist_imagem_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.checklist_video FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.plano_contas_lote_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.plano_contas_lote_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.plano_contas_lote FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.plano_contas_lote_item FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.plano_contas_lote_item_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.entity_video FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_documento_evento FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.estoque_movimento_historico FROM PUBLIC, anon, authenticated, service_role;
@@ -47201,6 +48786,7 @@ REVOKE ALL ON TABLE public.fiscal_sped_item_correlacao FROM PUBLIC, anon, authen
 REVOKE ALL ON SEQUENCE public.ofx_importacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.ofx_movimento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_sped_validacao_execucao FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.aluguel_evento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_sped_inconsistencia FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.ofx_importacao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.ofx_movimento FROM PUBLIC, anon, authenticated, service_role;
@@ -47208,21 +48794,22 @@ REVOKE ALL ON TABLE public.fiscal_sped_unidade_conversao FROM PUBLIC, anon, auth
 REVOKE ALL ON TABLE public.fiscal_sped_competencia FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_sped_versao FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_sped_documento_snapshot FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.aluguel FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.tipos_motivo_saida_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.pagamento_multiplo_rateio_id_seq FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TABLE public.fiscal_sped_item_snapshot FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.orcamento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON SEQUENCE public.orcamento_produto_avulso_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.estoque_saida_item_fiscal_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.transacao_parcelamento_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.telegram_estoque_entrega_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.vendaaprovacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON SEQUENCE public.transacao_contraparte_historico_id_seq FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON TABLE public.fiscal_sped_item_snapshot FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_sped_cadastro_snapshot FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.estoque_saida_item_fiscal_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_sped_ajuste_apuracao FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.transacao_parcelamento_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_sped_efd_anterior_importacao FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.telegram_estoque_entrega_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_sped_apuracao_snapshot FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.vendaaprovacao_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON TABLE public.fiscal_sped_1601_importacao FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON SEQUENCE public.transacao_contraparte_historico_id_seq FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.strict_word_similarity_commutator_op(text, text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.strict_word_similarity_dist_op(text, text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.strict_word_similarity_dist_commutator_op(text, text) FROM PUBLIC, anon, authenticated, service_role;
@@ -47425,8 +49012,7 @@ REVOKE ALL ON FUNCTION public.tg_eventos_financeiros_venda() FROM PUBLIC, anon, 
 REVOKE ALL ON FUNCTION public.cancelar_consumo_produto_os(p_evento_id bigint, p_motivo text, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.estornar_consumos_os(p_os_id integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.dashboard_estoque_resumo() FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON FUNCTION public.cancelar_saida_estoque(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON FUNCTION public.cancelar_saida_usoconsumo(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.set_aluguel_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.registrar_entrada_comercial_apropriada(p_entrada jsonb, p_itens jsonb, p_transacoes jsonb) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.reconciliar_eventos_financeiros_os(p_ordemservicoid integer, p_incluir_comissoes boolean) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.dre_somar_por_linha(p_template_id integer, p_de timestamp with time zone, p_ate timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role;
@@ -47440,6 +49026,7 @@ REVOKE ALL ON FUNCTION public.fn_criar_pedido_site(p_cliente_id integer, p_ender
 REVOKE ALL ON FUNCTION public.cancelar_venda_marketplace_sem_repor_estoque(p_venda_id integer, p_motivo text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.processar_devolucao_mercadolivre_estoque(p_empresa_id integer, p_request_key uuid, p_ml_claim_id text, p_produto_id integer, p_disposition text, p_quantity integer, p_note text, p_processed_by uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.abonar_transacao_pendente(p_transacao_id bigint, p_abonado_por uuid, p_motivo text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_hoje() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.set_lote_pecas_updatedat() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.recalcular_documentos_da_transacao(p_transacao_id bigint) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.tg_cliente_saldo_movimento_imutavel() FROM PUBLIC, anon, authenticated, service_role;
@@ -47467,6 +49054,7 @@ REVOKE ALL ON FUNCTION public.tg_recalc_comissao_criacao_por_item() FROM PUBLIC,
 REVOKE ALL ON FUNCTION public.tg_recalc_comissao_criacao_os_total() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.tg_congelar_comissao_criacao() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.recalcular_comissao_criacao_os(p_ordemservicoid integer, p_forcar boolean) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_baixar_item(p_item_id bigint, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.dre_gravar_classificacao_evento(p_evento_id bigint, p_template_id integer, p_usuario uuid, p_origem_forcada text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.dre_congelar_classificacao_legado(p_template_id integer, p_lote integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.dre_previa_da_conta(p_conta_id integer, p_natureza text, p_competencia date, p_template_id integer) FROM PUBLIC, anon, authenticated, service_role;
@@ -47480,8 +49068,13 @@ REVOKE ALL ON FUNCTION public.tg_venda_comissao_exclusao() FROM PUBLIC, anon, au
 REVOKE ALL ON FUNCTION public.faturamento_os_habilitado() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.invalidar_aprovacoes_venda(p_venda_id integer, p_motivo text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.excluir_movimento_saldo_cliente(p_cliente_id integer, p_movimento_id bigint, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_devolver_item(p_item_id bigint, p_motivo text, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_salvar(p_payload jsonb, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.travar_fluxo_faturamento_os() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_pausar(p_id bigint, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_reiniciar(p_id bigint, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.tg_espelhar_comissao_ajustada() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_excluir(p_id bigint, p_motivo text, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.devolver_os_ao_desativar_faturamento() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_site_product_link_changed() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_site_product_changed() FROM PUBLIC, anon, authenticated, service_role;
@@ -47491,8 +49084,12 @@ REVOKE ALL ON FUNCTION public.fn_enfileirar_site_product_link(p_product_link_id 
 REVOKE ALL ON FUNCTION public.fn_reservar_sincronizacao_site(p_limit integer, p_empresa_id integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_concluir_sincronizacao_site(p_queue_id bigint, p_desired_version bigint, p_success boolean, p_error text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_importar_pedido_site(p_empresa_id integer, p_pedido jsonb) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_salvar_checklist(p_aluguel_id bigint, p_tipo text, p_payload jsonb, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_sync_site_order_delivery_snapshot() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.cancelar_saida_estoque(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.cancelar_saida_usoconsumo(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_publicar_produto_novo_no_site() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_encerrar(p_id bigint, p_encerrado_em timestamp with time zone, p_observacao text, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.tg_transacao_valor_base_padrao() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_registrar_evento_notificacao_os() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.validar_status_faturamento_os() FROM PUBLIC, anon, authenticated, service_role;
@@ -47647,9 +49244,11 @@ REVOKE ALL ON FUNCTION public.dre_destino_da_classificacao(p_template_id integer
 REVOKE ALL ON FUNCTION public.dre_resolver_evento(p_evento_id bigint, p_template_id integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.transacao_valor_liquido_efetivo(p_transacao transacao) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_proteger_itens_venda_site() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_reter_falta(p_item_id bigint, p_falta integer, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_proteger_venda_site() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.registrar_importacao_ofx(p_banco_id bigint, p_arquivo_nome text, p_arquivo_hash text, p_cabecalho jsonb, p_movimentos jsonb, p_created_by uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.fn_preservar_vinculo_pedido_site() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.aluguel_encerrar(p_id bigint, p_encerrado_em timestamp with time zone, p_observacao text, p_itens jsonb, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.conciliar_movimento_ofx(p_movimento_id bigint, p_acao text, p_transacao_id bigint, p_valor numeric, p_metodopagamento text, p_plano_de_conta_id integer, p_centro_custo_id integer, p_nova jsonb, p_usuario uuid, p_observacao text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.plano_contas_uso_da_conta(p_conta_id integer) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.plano_contas_grupos_visao(p_competencia date) FROM PUBLIC, anon, authenticated, service_role;
@@ -47658,6 +49257,7 @@ REVOKE ALL ON FUNCTION public.plano_contas_instalar_padrao(p_definicao jsonb, p_
 REVOKE ALL ON FUNCTION public.dre_pendencias(p_de timestamp with time zone, p_ate timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.central_realtime_topic_allowed(p_topic text) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.set_tarefa_usuario_updated_at() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.set_documento_modelo_updated_at() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.tg_espelhar_comissao_ajustada_venda() FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.editar_evento_financeiro_venda(p_venda_id bigint, p_evento_id bigint, p_payload jsonb, p_usuario uuid) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.plano_contas_excecao_compativel(p_grupo_id integer, p_classificacao_id integer) FROM PUBLIC, anon, authenticated, service_role;
@@ -47764,22 +49364,6 @@ GRANT TRUNCATE ON TABLE public.transacao_baixa_historico TO service_role;
 GRANT REFERENCES ON TABLE public.transacao_baixa_historico TO service_role;
 GRANT TRIGGER ON TABLE public.transacao_baixa_historico TO service_role;
 GRANT MAINTAIN ON TABLE public.transacao_baixa_historico TO service_role;
-GRANT INSERT ON TABLE public.ordemservico TO postgres;
-GRANT SELECT ON TABLE public.ordemservico TO postgres;
-GRANT UPDATE ON TABLE public.ordemservico TO postgres;
-GRANT DELETE ON TABLE public.ordemservico TO postgres;
-GRANT TRUNCATE ON TABLE public.ordemservico TO postgres;
-GRANT REFERENCES ON TABLE public.ordemservico TO postgres;
-GRANT TRIGGER ON TABLE public.ordemservico TO postgres;
-GRANT MAINTAIN ON TABLE public.ordemservico TO postgres;
-GRANT INSERT ON TABLE public.ordemservico TO service_role;
-GRANT SELECT ON TABLE public.ordemservico TO service_role;
-GRANT UPDATE ON TABLE public.ordemservico TO service_role;
-GRANT DELETE ON TABLE public.ordemservico TO service_role;
-GRANT TRUNCATE ON TABLE public.ordemservico TO service_role;
-GRANT REFERENCES ON TABLE public.ordemservico TO service_role;
-GRANT TRIGGER ON TABLE public.ordemservico TO service_role;
-GRANT MAINTAIN ON TABLE public.ordemservico TO service_role;
 GRANT INSERT ON TABLE public.chat_reacao TO postgres;
 GRANT SELECT ON TABLE public.chat_reacao TO postgres;
 GRANT UPDATE ON TABLE public.chat_reacao TO postgres;
@@ -47796,6 +49380,38 @@ GRANT TRUNCATE ON TABLE public.chat_reacao TO service_role;
 GRANT REFERENCES ON TABLE public.chat_reacao TO service_role;
 GRANT TRIGGER ON TABLE public.chat_reacao TO service_role;
 GRANT MAINTAIN ON TABLE public.chat_reacao TO service_role;
+GRANT INSERT ON TABLE public.ordemservico TO postgres;
+GRANT SELECT ON TABLE public.ordemservico TO postgres;
+GRANT UPDATE ON TABLE public.ordemservico TO postgres;
+GRANT DELETE ON TABLE public.ordemservico TO postgres;
+GRANT TRUNCATE ON TABLE public.ordemservico TO postgres;
+GRANT REFERENCES ON TABLE public.ordemservico TO postgres;
+GRANT TRIGGER ON TABLE public.ordemservico TO postgres;
+GRANT MAINTAIN ON TABLE public.ordemservico TO postgres;
+GRANT INSERT ON TABLE public.ordemservico TO service_role;
+GRANT SELECT ON TABLE public.ordemservico TO service_role;
+GRANT UPDATE ON TABLE public.ordemservico TO service_role;
+GRANT DELETE ON TABLE public.ordemservico TO service_role;
+GRANT TRUNCATE ON TABLE public.ordemservico TO service_role;
+GRANT REFERENCES ON TABLE public.ordemservico TO service_role;
+GRANT TRIGGER ON TABLE public.ordemservico TO service_role;
+GRANT MAINTAIN ON TABLE public.ordemservico TO service_role;
+GRANT INSERT ON TABLE public.documento_modelo TO postgres;
+GRANT SELECT ON TABLE public.documento_modelo TO postgres;
+GRANT UPDATE ON TABLE public.documento_modelo TO postgres;
+GRANT DELETE ON TABLE public.documento_modelo TO postgres;
+GRANT TRUNCATE ON TABLE public.documento_modelo TO postgres;
+GRANT REFERENCES ON TABLE public.documento_modelo TO postgres;
+GRANT TRIGGER ON TABLE public.documento_modelo TO postgres;
+GRANT MAINTAIN ON TABLE public.documento_modelo TO postgres;
+GRANT INSERT ON TABLE public.documento_modelo TO service_role;
+GRANT SELECT ON TABLE public.documento_modelo TO service_role;
+GRANT UPDATE ON TABLE public.documento_modelo TO service_role;
+GRANT DELETE ON TABLE public.documento_modelo TO service_role;
+GRANT TRUNCATE ON TABLE public.documento_modelo TO service_role;
+GRANT REFERENCES ON TABLE public.documento_modelo TO service_role;
+GRANT TRIGGER ON TABLE public.documento_modelo TO service_role;
+GRANT MAINTAIN ON TABLE public.documento_modelo TO service_role;
 GRANT INSERT ON TABLE public.os_termo_impressao TO postgres;
 GRANT SELECT ON TABLE public.os_termo_impressao TO postgres;
 GRANT UPDATE ON TABLE public.os_termo_impressao TO postgres;
@@ -47812,18 +49428,6 @@ GRANT TRUNCATE ON TABLE public.os_termo_impressao TO service_role;
 GRANT REFERENCES ON TABLE public.os_termo_impressao TO service_role;
 GRANT TRIGGER ON TABLE public.os_termo_impressao TO service_role;
 GRANT MAINTAIN ON TABLE public.os_termo_impressao TO service_role;
-GRANT SELECT ON SEQUENCE public.os_termo_impressao_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.os_termo_impressao_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.os_termo_impressao_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.os_termo_impressao_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.os_termo_impressao_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.os_termo_impressao_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.cliente_saldo_movimento_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.cliente_saldo_movimento_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.cliente_saldo_movimento_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.cliente_saldo_movimento_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.cliente_saldo_movimento_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.cliente_saldo_movimento_id_seq TO service_role;
 GRANT INSERT ON TABLE public.chat_mensagem_edicao TO postgres;
 GRANT SELECT ON TABLE public.chat_mensagem_edicao TO postgres;
 GRANT UPDATE ON TABLE public.chat_mensagem_edicao TO postgres;
@@ -47888,6 +49492,40 @@ GRANT TRUNCATE ON TABLE public.chat_push_subscription TO service_role;
 GRANT REFERENCES ON TABLE public.chat_push_subscription TO service_role;
 GRANT TRIGGER ON TABLE public.chat_push_subscription TO service_role;
 GRANT MAINTAIN ON TABLE public.chat_push_subscription TO service_role;
+GRANT SELECT ON SEQUENCE public.documento_modelo_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.documento_modelo_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.documento_modelo_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.documento_modelo_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.documento_modelo_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.documento_modelo_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.os_termo_impressao_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.os_termo_impressao_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.os_termo_impressao_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.os_termo_impressao_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.os_termo_impressao_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.os_termo_impressao_id_seq TO service_role;
+GRANT INSERT ON TABLE public.cliente_saldo_movimento TO postgres;
+GRANT SELECT ON TABLE public.cliente_saldo_movimento TO postgres;
+GRANT UPDATE ON TABLE public.cliente_saldo_movimento TO postgres;
+GRANT DELETE ON TABLE public.cliente_saldo_movimento TO postgres;
+GRANT TRUNCATE ON TABLE public.cliente_saldo_movimento TO postgres;
+GRANT REFERENCES ON TABLE public.cliente_saldo_movimento TO postgres;
+GRANT TRIGGER ON TABLE public.cliente_saldo_movimento TO postgres;
+GRANT MAINTAIN ON TABLE public.cliente_saldo_movimento TO postgres;
+GRANT INSERT ON TABLE public.cliente_saldo_movimento TO service_role;
+GRANT SELECT ON TABLE public.cliente_saldo_movimento TO service_role;
+GRANT UPDATE ON TABLE public.cliente_saldo_movimento TO service_role;
+GRANT DELETE ON TABLE public.cliente_saldo_movimento TO service_role;
+GRANT TRUNCATE ON TABLE public.cliente_saldo_movimento TO service_role;
+GRANT REFERENCES ON TABLE public.cliente_saldo_movimento TO service_role;
+GRANT TRIGGER ON TABLE public.cliente_saldo_movimento TO service_role;
+GRANT MAINTAIN ON TABLE public.cliente_saldo_movimento TO service_role;
+GRANT SELECT ON SEQUENCE public.cliente_saldo_movimento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.cliente_saldo_movimento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.cliente_saldo_movimento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.cliente_saldo_movimento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.cliente_saldo_movimento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.cliente_saldo_movimento_id_seq TO service_role;
 GRANT SELECT ON SEQUENCE public.lote_imagem_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.lote_imagem_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.lote_imagem_id_seq TO postgres;
@@ -47906,28 +49544,28 @@ GRANT USAGE ON SEQUENCE public.categoriaservico_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.categoriaservico_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.categoriaservico_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.categoriaservico_id_seq TO service_role;
-GRANT INSERT ON TABLE public.cliente_saldo_movimento TO postgres;
-GRANT SELECT ON TABLE public.cliente_saldo_movimento TO postgres;
-GRANT UPDATE ON TABLE public.cliente_saldo_movimento TO postgres;
-GRANT DELETE ON TABLE public.cliente_saldo_movimento TO postgres;
-GRANT TRUNCATE ON TABLE public.cliente_saldo_movimento TO postgres;
-GRANT REFERENCES ON TABLE public.cliente_saldo_movimento TO postgres;
-GRANT TRIGGER ON TABLE public.cliente_saldo_movimento TO postgres;
-GRANT MAINTAIN ON TABLE public.cliente_saldo_movimento TO postgres;
-GRANT INSERT ON TABLE public.cliente_saldo_movimento TO service_role;
-GRANT SELECT ON TABLE public.cliente_saldo_movimento TO service_role;
-GRANT UPDATE ON TABLE public.cliente_saldo_movimento TO service_role;
-GRANT DELETE ON TABLE public.cliente_saldo_movimento TO service_role;
-GRANT TRUNCATE ON TABLE public.cliente_saldo_movimento TO service_role;
-GRANT REFERENCES ON TABLE public.cliente_saldo_movimento TO service_role;
-GRANT TRIGGER ON TABLE public.cliente_saldo_movimento TO service_role;
-GRANT MAINTAIN ON TABLE public.cliente_saldo_movimento TO service_role;
 GRANT SELECT ON SEQUENCE public.nfse_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.nfse_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.nfse_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.nfse_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.nfse_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.nfse_id_seq TO service_role;
+GRANT INSERT ON TABLE public.categoriatransacao TO postgres;
+GRANT SELECT ON TABLE public.categoriatransacao TO postgres;
+GRANT UPDATE ON TABLE public.categoriatransacao TO postgres;
+GRANT DELETE ON TABLE public.categoriatransacao TO postgres;
+GRANT TRUNCATE ON TABLE public.categoriatransacao TO postgres;
+GRANT REFERENCES ON TABLE public.categoriatransacao TO postgres;
+GRANT TRIGGER ON TABLE public.categoriatransacao TO postgres;
+GRANT MAINTAIN ON TABLE public.categoriatransacao TO postgres;
+GRANT INSERT ON TABLE public.categoriatransacao TO service_role;
+GRANT SELECT ON TABLE public.categoriatransacao TO service_role;
+GRANT UPDATE ON TABLE public.categoriatransacao TO service_role;
+GRANT DELETE ON TABLE public.categoriatransacao TO service_role;
+GRANT TRUNCATE ON TABLE public.categoriatransacao TO service_role;
+GRANT REFERENCES ON TABLE public.categoriatransacao TO service_role;
+GRANT TRIGGER ON TABLE public.categoriatransacao TO service_role;
+GRANT MAINTAIN ON TABLE public.categoriatransacao TO service_role;
 GRANT SELECT ON SEQUENCE public.mercadolivre_claim_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.mercadolivre_claim_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.mercadolivre_claim_id_seq TO postgres;
@@ -47970,204 +49608,6 @@ GRANT USAGE ON SEQUENCE public.transacao_transferencia_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.transacao_transferencia_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.transacao_transferencia_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.transacao_transferencia_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.os_notificacao_evento_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.os_notificacao_evento_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.os_notificacao_evento_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.os_notificacao_evento_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.os_notificacao_evento_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.os_notificacao_evento_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.os_notificacao_entrega_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.os_notificacao_entrega_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.os_notificacao_entrega_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.os_notificacao_entrega_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.os_notificacao_entrega_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.os_notificacao_entrega_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.planosdecontagrupos_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.planosdecontagrupos_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.planosdecontagrupos_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.planosdecontagrupos_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.planosdecontagrupos_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.planosdecontagrupos_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.bandeira_cartao_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.bandeira_cartao_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.bandeira_cartao_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.bandeira_cartao_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.bandeira_cartao_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.bandeira_cartao_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.telegram_processamento_execucao_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.telegram_processamento_execucao_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.telegram_processamento_execucao_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.telegram_processamento_execucao_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.telegram_processamento_execucao_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.telegram_processamento_execucao_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.centrosdecusto_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.centrosdecusto_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.centrosdecusto_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.centrosdecusto_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.centrosdecusto_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.centrosdecusto_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO service_role;
-GRANT INSERT ON TABLE public.categoriatransacao TO postgres;
-GRANT SELECT ON TABLE public.categoriatransacao TO postgres;
-GRANT UPDATE ON TABLE public.categoriatransacao TO postgres;
-GRANT DELETE ON TABLE public.categoriatransacao TO postgres;
-GRANT TRUNCATE ON TABLE public.categoriatransacao TO postgres;
-GRANT REFERENCES ON TABLE public.categoriatransacao TO postgres;
-GRANT TRIGGER ON TABLE public.categoriatransacao TO postgres;
-GRANT MAINTAIN ON TABLE public.categoriatransacao TO postgres;
-GRANT INSERT ON TABLE public.categoriatransacao TO service_role;
-GRANT SELECT ON TABLE public.categoriatransacao TO service_role;
-GRANT UPDATE ON TABLE public.categoriatransacao TO service_role;
-GRANT DELETE ON TABLE public.categoriatransacao TO service_role;
-GRANT TRUNCATE ON TABLE public.categoriatransacao TO service_role;
-GRANT REFERENCES ON TABLE public.categoriatransacao TO service_role;
-GRANT TRIGGER ON TABLE public.categoriatransacao TO service_role;
-GRANT MAINTAIN ON TABLE public.categoriatransacao TO service_role;
-GRANT SELECT ON SEQUENCE public.osanexo_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.osanexo_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.osanexo_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.osanexo_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.osanexo_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.osanexo_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.os_saida_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.os_saida_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.os_saida_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.os_saida_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.os_saida_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.os_saida_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.agendamento_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.agendamento_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.agendamento_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.agendamento_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.agendamento_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.agendamento_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.os_saida_checklist_item_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.os_saida_checklist_item_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.os_saida_checklist_item_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.os_saida_checklist_item_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.os_saida_checklist_item_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.os_saida_checklist_item_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.categoriatransacao_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.categoriatransacao_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.categoriatransacao_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.categoriatransacao_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.categoriatransacao_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.categoriatransacao_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.checklist_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.checklist_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.checklist_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.checklist_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.checklist_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.checklist_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.checklist_modelo_item_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.checklist_modelo_item_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.checklist_modelo_item_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.checklist_modelo_item_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.checklist_modelo_item_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.checklist_modelo_item_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.config_geral_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.config_geral_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.config_geral_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.config_geral_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.config_geral_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.config_geral_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.cores_veiculos_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.cores_veiculos_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.cores_veiculos_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.cores_veiculos_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.cores_veiculos_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.cores_veiculos_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.cliente_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.cliente_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.cliente_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.cliente_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.cliente_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.cliente_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.cliente_id_seq TO authenticated;
-GRANT USAGE ON SEQUENCE public.cliente_id_seq TO authenticated;
-GRANT SELECT ON SEQUENCE public.dre_template_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.dre_template_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.dre_template_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.dre_template_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.dre_template_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.dre_template_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.empresa_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.empresa_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.empresa_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.empresa_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.empresa_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.empresa_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.entradaitens_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.entradaitens_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.entradaitens_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.entradaitens_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.entradaitens_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.entradaitens_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.estoque_saida_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.estoque_saida_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.estoque_saida_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.estoque_saida_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.estoque_saida_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.estoque_saida_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.estoque_saida_item_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.estoque_saida_item_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.estoque_saida_item_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.estoque_saida_item_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.estoque_saida_item_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.estoque_saida_item_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.dre_linha_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.dre_linha_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.dre_linha_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.dre_linha_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.dre_linha_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.dre_linha_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.dre_mapeamento_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.dre_mapeamento_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.dre_mapeamento_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.dre_mapeamento_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.dre_mapeamento_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.dre_mapeamento_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.tipos_entrada_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.tipos_entrada_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.tipos_entrada_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.tipos_entrada_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.tipos_entrada_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.tipos_entrada_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.estoque_movimento_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.estoque_movimento_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.estoque_movimento_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.estoque_movimento_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.estoque_movimento_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.estoque_movimento_id_seq TO service_role;
 GRANT INSERT ON TABLE public.transacao_cliente TO postgres;
 GRANT SELECT ON TABLE public.transacao_cliente TO postgres;
 GRANT UPDATE ON TABLE public.transacao_cliente TO postgres;
@@ -48184,54 +49624,6 @@ GRANT TRUNCATE ON TABLE public.transacao_cliente TO service_role;
 GRANT REFERENCES ON TABLE public.transacao_cliente TO service_role;
 GRANT TRIGGER ON TABLE public.transacao_cliente TO service_role;
 GRANT MAINTAIN ON TABLE public.transacao_cliente TO service_role;
-GRANT SELECT ON SEQUENCE public.tipos_documento_transacao_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.tipos_documento_transacao_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.tipos_documento_transacao_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.tipos_documento_transacao_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.tipos_documento_transacao_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.tipos_documento_transacao_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.osproduto_avulso_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.osproduto_avulso_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.osproduto_avulso_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.osproduto_avulso_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.osproduto_avulso_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.osproduto_avulso_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.transacao_valor_historico_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.transacao_valor_historico_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.transacao_valor_historico_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.transacao_valor_historico_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.transacao_valor_historico_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.transacao_valor_historico_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.checklist_modelo_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.checklist_modelo_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.checklist_modelo_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.checklist_modelo_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.checklist_modelo_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.checklist_modelo_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.usoconsumo_grupo_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.usoconsumo_grupo_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.usoconsumo_grupo_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.usoconsumo_grupo_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.usoconsumo_grupo_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.usoconsumo_grupo_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.fornecedor_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.fornecedor_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.fornecedor_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.fornecedor_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.fornecedor_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.fornecedor_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.fornecedorprodutos_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.fornecedorprodutos_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.fornecedorprodutos_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.fornecedorprodutos_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.fornecedorprodutos_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.fornecedorprodutos_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.imagemvistoria_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.imagemvistoria_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.imagemvistoria_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.imagemvistoria_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.imagemvistoria_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.imagemvistoria_id_seq TO service_role;
 GRANT INSERT ON TABLE public.site_product_link TO postgres;
 GRANT SELECT ON TABLE public.site_product_link TO postgres;
 GRANT UPDATE ON TABLE public.site_product_link TO postgres;
@@ -48280,18 +49672,6 @@ GRANT TRUNCATE ON TABLE public.site_catalog_sync_run TO service_role;
 GRANT REFERENCES ON TABLE public.site_catalog_sync_run TO service_role;
 GRANT TRIGGER ON TABLE public.site_catalog_sync_run TO service_role;
 GRANT MAINTAIN ON TABLE public.site_catalog_sync_run TO service_role;
-GRANT SELECT ON SEQUENCE public.nfe_config_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.nfe_config_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.nfe_config_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.nfe_config_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.nfe_config_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.nfe_config_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.nfe_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.nfe_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.nfe_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.nfe_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.nfe_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.nfe_id_seq TO service_role;
 GRANT INSERT ON TABLE public.os_comissao_criacao TO postgres;
 GRANT SELECT ON TABLE public.os_comissao_criacao TO postgres;
 GRANT UPDATE ON TABLE public.os_comissao_criacao TO postgres;
@@ -48308,6 +49688,504 @@ GRANT TRUNCATE ON TABLE public.os_comissao_criacao TO service_role;
 GRANT REFERENCES ON TABLE public.os_comissao_criacao TO service_role;
 GRANT TRIGGER ON TABLE public.os_comissao_criacao TO service_role;
 GRANT MAINTAIN ON TABLE public.os_comissao_criacao TO service_role;
+GRANT SELECT ON SEQUENCE public.nfe_config_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.nfe_config_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.nfe_config_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.nfe_config_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.nfe_config_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.nfe_config_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.os_notificacao_evento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.os_notificacao_evento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.os_notificacao_evento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.os_notificacao_evento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.os_notificacao_evento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.os_notificacao_evento_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.os_notificacao_entrega_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.os_notificacao_entrega_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.os_notificacao_entrega_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.os_notificacao_entrega_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.os_notificacao_entrega_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.os_notificacao_entrega_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.planosdecontagrupos_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.planosdecontagrupos_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.planosdecontagrupos_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.planosdecontagrupos_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.planosdecontagrupos_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.planosdecontagrupos_id_seq TO service_role;
+GRANT INSERT ON TABLE public.cliente_telefone TO postgres;
+GRANT SELECT ON TABLE public.cliente_telefone TO postgres;
+GRANT UPDATE ON TABLE public.cliente_telefone TO postgres;
+GRANT DELETE ON TABLE public.cliente_telefone TO postgres;
+GRANT TRUNCATE ON TABLE public.cliente_telefone TO postgres;
+GRANT REFERENCES ON TABLE public.cliente_telefone TO postgres;
+GRANT TRIGGER ON TABLE public.cliente_telefone TO postgres;
+GRANT MAINTAIN ON TABLE public.cliente_telefone TO postgres;
+GRANT INSERT ON TABLE public.cliente_telefone TO service_role;
+GRANT SELECT ON TABLE public.cliente_telefone TO service_role;
+GRANT UPDATE ON TABLE public.cliente_telefone TO service_role;
+GRANT DELETE ON TABLE public.cliente_telefone TO service_role;
+GRANT TRUNCATE ON TABLE public.cliente_telefone TO service_role;
+GRANT REFERENCES ON TABLE public.cliente_telefone TO service_role;
+GRANT TRIGGER ON TABLE public.cliente_telefone TO service_role;
+GRANT MAINTAIN ON TABLE public.cliente_telefone TO service_role;
+GRANT SELECT ON SEQUENCE public.bandeira_cartao_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.bandeira_cartao_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.bandeira_cartao_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.bandeira_cartao_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.bandeira_cartao_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.bandeira_cartao_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.bandeira_cartao_parcela_id_seq TO service_role;
+GRANT INSERT ON TABLE public.central_evento_operacional TO postgres;
+GRANT SELECT ON TABLE public.central_evento_operacional TO postgres;
+GRANT UPDATE ON TABLE public.central_evento_operacional TO postgres;
+GRANT DELETE ON TABLE public.central_evento_operacional TO postgres;
+GRANT TRUNCATE ON TABLE public.central_evento_operacional TO postgres;
+GRANT REFERENCES ON TABLE public.central_evento_operacional TO postgres;
+GRANT TRIGGER ON TABLE public.central_evento_operacional TO postgres;
+GRANT MAINTAIN ON TABLE public.central_evento_operacional TO postgres;
+GRANT INSERT ON TABLE public.central_evento_operacional TO service_role;
+GRANT SELECT ON TABLE public.central_evento_operacional TO service_role;
+GRANT UPDATE ON TABLE public.central_evento_operacional TO service_role;
+GRANT DELETE ON TABLE public.central_evento_operacional TO service_role;
+GRANT TRUNCATE ON TABLE public.central_evento_operacional TO service_role;
+GRANT REFERENCES ON TABLE public.central_evento_operacional TO service_role;
+GRANT TRIGGER ON TABLE public.central_evento_operacional TO service_role;
+GRANT MAINTAIN ON TABLE public.central_evento_operacional TO service_role;
+GRANT SELECT ON SEQUENCE public.telegram_processamento_execucao_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.telegram_processamento_execucao_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.telegram_processamento_execucao_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.telegram_processamento_execucao_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.telegram_processamento_execucao_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.telegram_processamento_execucao_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.centrosdecusto_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.centrosdecusto_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.centrosdecusto_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.centrosdecusto_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.centrosdecusto_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.centrosdecusto_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.mercadolivre_stock_sync_queue_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.osanexo_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.osanexo_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.osanexo_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.osanexo_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.osanexo_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.osanexo_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.os_saida_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.os_saida_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.os_saida_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.os_saida_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.os_saida_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.os_saida_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.agendamento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.agendamento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.agendamento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.agendamento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.agendamento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.agendamento_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.os_saida_checklist_item_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.os_saida_checklist_item_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.os_saida_checklist_item_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.os_saida_checklist_item_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.os_saida_checklist_item_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.os_saida_checklist_item_id_seq TO service_role;
+GRANT INSERT ON TABLE public.fiscal_sped_1601_linha TO postgres;
+GRANT SELECT ON TABLE public.fiscal_sped_1601_linha TO postgres;
+GRANT UPDATE ON TABLE public.fiscal_sped_1601_linha TO postgres;
+GRANT DELETE ON TABLE public.fiscal_sped_1601_linha TO postgres;
+GRANT TRUNCATE ON TABLE public.fiscal_sped_1601_linha TO postgres;
+GRANT REFERENCES ON TABLE public.fiscal_sped_1601_linha TO postgres;
+GRANT TRIGGER ON TABLE public.fiscal_sped_1601_linha TO postgres;
+GRANT MAINTAIN ON TABLE public.fiscal_sped_1601_linha TO postgres;
+GRANT INSERT ON TABLE public.fiscal_sped_1601_linha TO service_role;
+GRANT SELECT ON TABLE public.fiscal_sped_1601_linha TO service_role;
+GRANT UPDATE ON TABLE public.fiscal_sped_1601_linha TO service_role;
+GRANT DELETE ON TABLE public.fiscal_sped_1601_linha TO service_role;
+GRANT TRUNCATE ON TABLE public.fiscal_sped_1601_linha TO service_role;
+GRANT REFERENCES ON TABLE public.fiscal_sped_1601_linha TO service_role;
+GRANT TRIGGER ON TABLE public.fiscal_sped_1601_linha TO service_role;
+GRANT MAINTAIN ON TABLE public.fiscal_sped_1601_linha TO service_role;
+GRANT INSERT ON TABLE public.fiscal_sped_arquivo TO postgres;
+GRANT SELECT ON TABLE public.fiscal_sped_arquivo TO postgres;
+GRANT UPDATE ON TABLE public.fiscal_sped_arquivo TO postgres;
+GRANT DELETE ON TABLE public.fiscal_sped_arquivo TO postgres;
+GRANT TRUNCATE ON TABLE public.fiscal_sped_arquivo TO postgres;
+GRANT REFERENCES ON TABLE public.fiscal_sped_arquivo TO postgres;
+GRANT TRIGGER ON TABLE public.fiscal_sped_arquivo TO postgres;
+GRANT MAINTAIN ON TABLE public.fiscal_sped_arquivo TO postgres;
+GRANT INSERT ON TABLE public.fiscal_sped_arquivo TO service_role;
+GRANT SELECT ON TABLE public.fiscal_sped_arquivo TO service_role;
+GRANT UPDATE ON TABLE public.fiscal_sped_arquivo TO service_role;
+GRANT DELETE ON TABLE public.fiscal_sped_arquivo TO service_role;
+GRANT TRUNCATE ON TABLE public.fiscal_sped_arquivo TO service_role;
+GRANT REFERENCES ON TABLE public.fiscal_sped_arquivo TO service_role;
+GRANT TRIGGER ON TABLE public.fiscal_sped_arquivo TO service_role;
+GRANT MAINTAIN ON TABLE public.fiscal_sped_arquivo TO service_role;
+GRANT SELECT ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.mercadolivre_listing_metric_daily_id_seq TO service_role;
+GRANT INSERT ON TABLE public.site_catalog_export TO postgres;
+GRANT SELECT ON TABLE public.site_catalog_export TO postgres;
+GRANT UPDATE ON TABLE public.site_catalog_export TO postgres;
+GRANT DELETE ON TABLE public.site_catalog_export TO postgres;
+GRANT TRUNCATE ON TABLE public.site_catalog_export TO postgres;
+GRANT REFERENCES ON TABLE public.site_catalog_export TO postgres;
+GRANT TRIGGER ON TABLE public.site_catalog_export TO postgres;
+GRANT MAINTAIN ON TABLE public.site_catalog_export TO postgres;
+GRANT INSERT ON TABLE public.site_catalog_export TO service_role;
+GRANT SELECT ON TABLE public.site_catalog_export TO service_role;
+GRANT UPDATE ON TABLE public.site_catalog_export TO service_role;
+GRANT DELETE ON TABLE public.site_catalog_export TO service_role;
+GRANT TRUNCATE ON TABLE public.site_catalog_export TO service_role;
+GRANT REFERENCES ON TABLE public.site_catalog_export TO service_role;
+GRANT TRIGGER ON TABLE public.site_catalog_export TO service_role;
+GRANT MAINTAIN ON TABLE public.site_catalog_export TO service_role;
+GRANT SELECT ON SEQUENCE public.categoriatransacao_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.categoriatransacao_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.categoriatransacao_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.categoriatransacao_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.categoriatransacao_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.categoriatransacao_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.checklist_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.checklist_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.checklist_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.checklist_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.checklist_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.checklist_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.checklist_modelo_item_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.checklist_modelo_item_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.checklist_modelo_item_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.checklist_modelo_item_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.checklist_modelo_item_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.checklist_modelo_item_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.config_geral_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.config_geral_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.config_geral_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.config_geral_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.config_geral_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.config_geral_id_seq TO service_role;
+GRANT INSERT ON TABLE public.eventos_financeiros_fila TO postgres;
+GRANT SELECT ON TABLE public.eventos_financeiros_fila TO postgres;
+GRANT UPDATE ON TABLE public.eventos_financeiros_fila TO postgres;
+GRANT DELETE ON TABLE public.eventos_financeiros_fila TO postgres;
+GRANT TRUNCATE ON TABLE public.eventos_financeiros_fila TO postgres;
+GRANT REFERENCES ON TABLE public.eventos_financeiros_fila TO postgres;
+GRANT TRIGGER ON TABLE public.eventos_financeiros_fila TO postgres;
+GRANT MAINTAIN ON TABLE public.eventos_financeiros_fila TO postgres;
+GRANT INSERT ON TABLE public.eventos_financeiros_fila TO service_role;
+GRANT SELECT ON TABLE public.eventos_financeiros_fila TO service_role;
+GRANT UPDATE ON TABLE public.eventos_financeiros_fila TO service_role;
+GRANT DELETE ON TABLE public.eventos_financeiros_fila TO service_role;
+GRANT TRUNCATE ON TABLE public.eventos_financeiros_fila TO service_role;
+GRANT REFERENCES ON TABLE public.eventos_financeiros_fila TO service_role;
+GRANT TRIGGER ON TABLE public.eventos_financeiros_fila TO service_role;
+GRANT MAINTAIN ON TABLE public.eventos_financeiros_fila TO service_role;
+GRANT INSERT ON TABLE public.venda_comissao TO postgres;
+GRANT SELECT ON TABLE public.venda_comissao TO postgres;
+GRANT UPDATE ON TABLE public.venda_comissao TO postgres;
+GRANT DELETE ON TABLE public.venda_comissao TO postgres;
+GRANT TRUNCATE ON TABLE public.venda_comissao TO postgres;
+GRANT REFERENCES ON TABLE public.venda_comissao TO postgres;
+GRANT TRIGGER ON TABLE public.venda_comissao TO postgres;
+GRANT MAINTAIN ON TABLE public.venda_comissao TO postgres;
+GRANT INSERT ON TABLE public.venda_comissao TO service_role;
+GRANT SELECT ON TABLE public.venda_comissao TO service_role;
+GRANT UPDATE ON TABLE public.venda_comissao TO service_role;
+GRANT DELETE ON TABLE public.venda_comissao TO service_role;
+GRANT TRUNCATE ON TABLE public.venda_comissao TO service_role;
+GRANT REFERENCES ON TABLE public.venda_comissao TO service_role;
+GRANT TRIGGER ON TABLE public.venda_comissao TO service_role;
+GRANT MAINTAIN ON TABLE public.venda_comissao TO service_role;
+GRANT SELECT ON SEQUENCE public.cores_veiculos_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.cores_veiculos_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.cores_veiculos_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.cores_veiculos_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.cores_veiculos_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.cores_veiculos_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.cliente_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.cliente_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.cliente_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.cliente_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.cliente_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.cliente_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.cliente_id_seq TO authenticated;
+GRANT USAGE ON SEQUENCE public.cliente_id_seq TO authenticated;
+GRANT SELECT ON SEQUENCE public.dre_template_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.dre_template_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.dre_template_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.dre_template_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.dre_template_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.dre_template_id_seq TO service_role;
+GRANT INSERT ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
+GRANT SELECT ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
+GRANT UPDATE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
+GRANT DELETE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
+GRANT TRUNCATE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
+GRANT REFERENCES ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
+GRANT TRIGGER ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
+GRANT MAINTAIN ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
+GRANT INSERT ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
+GRANT SELECT ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
+GRANT UPDATE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
+GRANT DELETE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
+GRANT TRUNCATE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
+GRANT REFERENCES ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
+GRANT TRIGGER ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
+GRANT MAINTAIN ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
+GRANT INSERT ON TABLE public.fiscal_inventario_fechamento TO postgres;
+GRANT SELECT ON TABLE public.fiscal_inventario_fechamento TO postgres;
+GRANT UPDATE ON TABLE public.fiscal_inventario_fechamento TO postgres;
+GRANT DELETE ON TABLE public.fiscal_inventario_fechamento TO postgres;
+GRANT TRUNCATE ON TABLE public.fiscal_inventario_fechamento TO postgres;
+GRANT REFERENCES ON TABLE public.fiscal_inventario_fechamento TO postgres;
+GRANT TRIGGER ON TABLE public.fiscal_inventario_fechamento TO postgres;
+GRANT MAINTAIN ON TABLE public.fiscal_inventario_fechamento TO postgres;
+GRANT INSERT ON TABLE public.fiscal_inventario_fechamento TO service_role;
+GRANT SELECT ON TABLE public.fiscal_inventario_fechamento TO service_role;
+GRANT UPDATE ON TABLE public.fiscal_inventario_fechamento TO service_role;
+GRANT DELETE ON TABLE public.fiscal_inventario_fechamento TO service_role;
+GRANT TRUNCATE ON TABLE public.fiscal_inventario_fechamento TO service_role;
+GRANT REFERENCES ON TABLE public.fiscal_inventario_fechamento TO service_role;
+GRANT TRIGGER ON TABLE public.fiscal_inventario_fechamento TO service_role;
+GRANT MAINTAIN ON TABLE public.fiscal_inventario_fechamento TO service_role;
+GRANT SELECT ON SEQUENCE public.empresa_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.empresa_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.empresa_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.empresa_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.empresa_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.empresa_id_seq TO service_role;
+GRANT INSERT ON TABLE public.fiscal_inventario_item TO postgres;
+GRANT SELECT ON TABLE public.fiscal_inventario_item TO postgres;
+GRANT UPDATE ON TABLE public.fiscal_inventario_item TO postgres;
+GRANT DELETE ON TABLE public.fiscal_inventario_item TO postgres;
+GRANT TRUNCATE ON TABLE public.fiscal_inventario_item TO postgres;
+GRANT REFERENCES ON TABLE public.fiscal_inventario_item TO postgres;
+GRANT TRIGGER ON TABLE public.fiscal_inventario_item TO postgres;
+GRANT MAINTAIN ON TABLE public.fiscal_inventario_item TO postgres;
+GRANT INSERT ON TABLE public.fiscal_inventario_item TO service_role;
+GRANT SELECT ON TABLE public.fiscal_inventario_item TO service_role;
+GRANT UPDATE ON TABLE public.fiscal_inventario_item TO service_role;
+GRANT DELETE ON TABLE public.fiscal_inventario_item TO service_role;
+GRANT TRUNCATE ON TABLE public.fiscal_inventario_item TO service_role;
+GRANT REFERENCES ON TABLE public.fiscal_inventario_item TO service_role;
+GRANT TRIGGER ON TABLE public.fiscal_inventario_item TO service_role;
+GRANT MAINTAIN ON TABLE public.fiscal_inventario_item TO service_role;
+GRANT SELECT ON SEQUENCE public.entradaitens_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.entradaitens_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.entradaitens_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.entradaitens_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.entradaitens_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.entradaitens_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.estoque_saida_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.estoque_saida_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.estoque_saida_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.estoque_saida_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.estoque_saida_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.estoque_saida_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.estoque_saida_item_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.estoque_saida_item_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.estoque_saida_item_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.estoque_saida_item_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.estoque_saida_item_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.estoque_saida_item_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.dre_linha_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.dre_linha_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.dre_linha_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.dre_linha_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.dre_linha_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.dre_linha_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.dre_mapeamento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.dre_mapeamento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.dre_mapeamento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.dre_mapeamento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.dre_mapeamento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.dre_mapeamento_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.os_saida_checklist_imagem_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.telegram_resumo_financeiro_envio_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.tipos_entrada_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.tipos_entrada_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.tipos_entrada_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.tipos_entrada_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.tipos_entrada_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.tipos_entrada_id_seq TO service_role;
+GRANT INSERT ON TABLE public.site_order_link TO postgres;
+GRANT SELECT ON TABLE public.site_order_link TO postgres;
+GRANT UPDATE ON TABLE public.site_order_link TO postgres;
+GRANT DELETE ON TABLE public.site_order_link TO postgres;
+GRANT TRUNCATE ON TABLE public.site_order_link TO postgres;
+GRANT REFERENCES ON TABLE public.site_order_link TO postgres;
+GRANT TRIGGER ON TABLE public.site_order_link TO postgres;
+GRANT MAINTAIN ON TABLE public.site_order_link TO postgres;
+GRANT INSERT ON TABLE public.site_order_link TO service_role;
+GRANT SELECT ON TABLE public.site_order_link TO service_role;
+GRANT UPDATE ON TABLE public.site_order_link TO service_role;
+GRANT DELETE ON TABLE public.site_order_link TO service_role;
+GRANT TRUNCATE ON TABLE public.site_order_link TO service_role;
+GRANT REFERENCES ON TABLE public.site_order_link TO service_role;
+GRANT TRIGGER ON TABLE public.site_order_link TO service_role;
+GRANT MAINTAIN ON TABLE public.site_order_link TO service_role;
+GRANT SELECT ON SEQUENCE public.estoque_movimento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.estoque_movimento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.estoque_movimento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.estoque_movimento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.estoque_movimento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.estoque_movimento_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.tipos_documento_transacao_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.tipos_documento_transacao_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.tipos_documento_transacao_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.tipos_documento_transacao_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.tipos_documento_transacao_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.tipos_documento_transacao_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.osproduto_avulso_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.osproduto_avulso_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.osproduto_avulso_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.osproduto_avulso_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.osproduto_avulso_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.osproduto_avulso_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.transacao_valor_historico_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.transacao_valor_historico_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.transacao_valor_historico_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.transacao_valor_historico_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.transacao_valor_historico_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.transacao_valor_historico_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.checklist_modelo_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.checklist_modelo_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.checklist_modelo_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.checklist_modelo_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.checklist_modelo_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.checklist_modelo_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.usoconsumo_grupo_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.usoconsumo_grupo_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.usoconsumo_grupo_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.usoconsumo_grupo_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.usoconsumo_grupo_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.usoconsumo_grupo_id_seq TO service_role;
+GRANT INSERT ON TABLE public.nfe_config TO postgres;
+GRANT SELECT ON TABLE public.nfe_config TO postgres;
+GRANT UPDATE ON TABLE public.nfe_config TO postgres;
+GRANT DELETE ON TABLE public.nfe_config TO postgres;
+GRANT TRUNCATE ON TABLE public.nfe_config TO postgres;
+GRANT REFERENCES ON TABLE public.nfe_config TO postgres;
+GRANT TRIGGER ON TABLE public.nfe_config TO postgres;
+GRANT MAINTAIN ON TABLE public.nfe_config TO postgres;
+GRANT INSERT ON TABLE public.nfe_config TO service_role;
+GRANT SELECT ON TABLE public.nfe_config TO service_role;
+GRANT UPDATE ON TABLE public.nfe_config TO service_role;
+GRANT DELETE ON TABLE public.nfe_config TO service_role;
+GRANT TRUNCATE ON TABLE public.nfe_config TO service_role;
+GRANT REFERENCES ON TABLE public.nfe_config TO service_role;
+GRANT TRIGGER ON TABLE public.nfe_config TO service_role;
+GRANT MAINTAIN ON TABLE public.nfe_config TO service_role;
+GRANT INSERT ON TABLE public.telegram_financeiro_entrega TO postgres;
+GRANT SELECT ON TABLE public.telegram_financeiro_entrega TO postgres;
+GRANT UPDATE ON TABLE public.telegram_financeiro_entrega TO postgres;
+GRANT DELETE ON TABLE public.telegram_financeiro_entrega TO postgres;
+GRANT TRUNCATE ON TABLE public.telegram_financeiro_entrega TO postgres;
+GRANT REFERENCES ON TABLE public.telegram_financeiro_entrega TO postgres;
+GRANT TRIGGER ON TABLE public.telegram_financeiro_entrega TO postgres;
+GRANT MAINTAIN ON TABLE public.telegram_financeiro_entrega TO postgres;
+GRANT INSERT ON TABLE public.telegram_financeiro_entrega TO service_role;
+GRANT SELECT ON TABLE public.telegram_financeiro_entrega TO service_role;
+GRANT UPDATE ON TABLE public.telegram_financeiro_entrega TO service_role;
+GRANT DELETE ON TABLE public.telegram_financeiro_entrega TO service_role;
+GRANT TRUNCATE ON TABLE public.telegram_financeiro_entrega TO service_role;
+GRANT REFERENCES ON TABLE public.telegram_financeiro_entrega TO service_role;
+GRANT TRIGGER ON TABLE public.telegram_financeiro_entrega TO service_role;
+GRANT MAINTAIN ON TABLE public.telegram_financeiro_entrega TO service_role;
+GRANT INSERT ON TABLE public.mercadolivre_listing_payload_log TO postgres;
+GRANT SELECT ON TABLE public.mercadolivre_listing_payload_log TO postgres;
+GRANT UPDATE ON TABLE public.mercadolivre_listing_payload_log TO postgres;
+GRANT DELETE ON TABLE public.mercadolivre_listing_payload_log TO postgres;
+GRANT TRUNCATE ON TABLE public.mercadolivre_listing_payload_log TO postgres;
+GRANT REFERENCES ON TABLE public.mercadolivre_listing_payload_log TO postgres;
+GRANT TRIGGER ON TABLE public.mercadolivre_listing_payload_log TO postgres;
+GRANT MAINTAIN ON TABLE public.mercadolivre_listing_payload_log TO postgres;
+GRANT INSERT ON TABLE public.mercadolivre_listing_payload_log TO service_role;
+GRANT SELECT ON TABLE public.mercadolivre_listing_payload_log TO service_role;
+GRANT UPDATE ON TABLE public.mercadolivre_listing_payload_log TO service_role;
+GRANT DELETE ON TABLE public.mercadolivre_listing_payload_log TO service_role;
+GRANT TRUNCATE ON TABLE public.mercadolivre_listing_payload_log TO service_role;
+GRANT REFERENCES ON TABLE public.mercadolivre_listing_payload_log TO service_role;
+GRANT TRIGGER ON TABLE public.mercadolivre_listing_payload_log TO service_role;
+GRANT MAINTAIN ON TABLE public.mercadolivre_listing_payload_log TO service_role;
+GRANT SELECT ON SEQUENCE public.fornecedor_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.fornecedor_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.fornecedor_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.fornecedor_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.fornecedor_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.fornecedor_id_seq TO service_role;
+GRANT INSERT ON TABLE public.fiscal_difal_regra TO postgres;
+GRANT SELECT ON TABLE public.fiscal_difal_regra TO postgres;
+GRANT UPDATE ON TABLE public.fiscal_difal_regra TO postgres;
+GRANT DELETE ON TABLE public.fiscal_difal_regra TO postgres;
+GRANT TRUNCATE ON TABLE public.fiscal_difal_regra TO postgres;
+GRANT REFERENCES ON TABLE public.fiscal_difal_regra TO postgres;
+GRANT TRIGGER ON TABLE public.fiscal_difal_regra TO postgres;
+GRANT MAINTAIN ON TABLE public.fiscal_difal_regra TO postgres;
+GRANT INSERT ON TABLE public.fiscal_difal_regra TO service_role;
+GRANT SELECT ON TABLE public.fiscal_difal_regra TO service_role;
+GRANT UPDATE ON TABLE public.fiscal_difal_regra TO service_role;
+GRANT DELETE ON TABLE public.fiscal_difal_regra TO service_role;
+GRANT TRUNCATE ON TABLE public.fiscal_difal_regra TO service_role;
+GRANT REFERENCES ON TABLE public.fiscal_difal_regra TO service_role;
+GRANT TRIGGER ON TABLE public.fiscal_difal_regra TO service_role;
+GRANT MAINTAIN ON TABLE public.fiscal_difal_regra TO service_role;
+GRANT SELECT ON SEQUENCE public.fornecedorprodutos_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.fornecedorprodutos_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.fornecedorprodutos_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.fornecedorprodutos_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.fornecedorprodutos_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.fornecedorprodutos_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.imagemvistoria_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.imagemvistoria_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.imagemvistoria_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.imagemvistoria_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.imagemvistoria_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.imagemvistoria_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.nfe_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.nfe_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.nfe_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.nfe_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.nfe_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.nfe_id_seq TO service_role;
+GRANT INSERT ON TABLE public.mercadolivre_outbound_touch TO postgres;
+GRANT SELECT ON TABLE public.mercadolivre_outbound_touch TO postgres;
+GRANT UPDATE ON TABLE public.mercadolivre_outbound_touch TO postgres;
+GRANT DELETE ON TABLE public.mercadolivre_outbound_touch TO postgres;
+GRANT TRUNCATE ON TABLE public.mercadolivre_outbound_touch TO postgres;
+GRANT REFERENCES ON TABLE public.mercadolivre_outbound_touch TO postgres;
+GRANT TRIGGER ON TABLE public.mercadolivre_outbound_touch TO postgres;
+GRANT MAINTAIN ON TABLE public.mercadolivre_outbound_touch TO postgres;
+GRANT INSERT ON TABLE public.mercadolivre_outbound_touch TO service_role;
+GRANT SELECT ON TABLE public.mercadolivre_outbound_touch TO service_role;
+GRANT UPDATE ON TABLE public.mercadolivre_outbound_touch TO service_role;
+GRANT DELETE ON TABLE public.mercadolivre_outbound_touch TO service_role;
+GRANT TRUNCATE ON TABLE public.mercadolivre_outbound_touch TO service_role;
+GRANT REFERENCES ON TABLE public.mercadolivre_outbound_touch TO service_role;
+GRANT TRIGGER ON TABLE public.mercadolivre_outbound_touch TO service_role;
+GRANT MAINTAIN ON TABLE public.mercadolivre_outbound_touch TO service_role;
 GRANT SELECT ON SEQUENCE public.fiscal_dfe_controle_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.fiscal_dfe_controle_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.fiscal_dfe_controle_id_seq TO postgres;
@@ -48344,34 +50222,98 @@ GRANT USAGE ON SEQUENCE public.notafiscal_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.notafiscal_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.notafiscal_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.notafiscal_id_seq TO service_role;
+GRANT INSERT ON TABLE public.transacao_transferencia TO postgres;
+GRANT SELECT ON TABLE public.transacao_transferencia TO postgres;
+GRANT UPDATE ON TABLE public.transacao_transferencia TO postgres;
+GRANT DELETE ON TABLE public.transacao_transferencia TO postgres;
+GRANT TRUNCATE ON TABLE public.transacao_transferencia TO postgres;
+GRANT REFERENCES ON TABLE public.transacao_transferencia TO postgres;
+GRANT TRIGGER ON TABLE public.transacao_transferencia TO postgres;
+GRANT MAINTAIN ON TABLE public.transacao_transferencia TO postgres;
+GRANT INSERT ON TABLE public.transacao_transferencia TO service_role;
+GRANT SELECT ON TABLE public.transacao_transferencia TO service_role;
+GRANT UPDATE ON TABLE public.transacao_transferencia TO service_role;
+GRANT DELETE ON TABLE public.transacao_transferencia TO service_role;
+GRANT TRUNCATE ON TABLE public.transacao_transferencia TO service_role;
+GRANT REFERENCES ON TABLE public.transacao_transferencia TO service_role;
+GRANT TRIGGER ON TABLE public.transacao_transferencia TO service_role;
+GRANT MAINTAIN ON TABLE public.transacao_transferencia TO service_role;
+GRANT INSERT ON TABLE public.classificacoes_resultado TO postgres;
+GRANT SELECT ON TABLE public.classificacoes_resultado TO postgres;
+GRANT UPDATE ON TABLE public.classificacoes_resultado TO postgres;
+GRANT DELETE ON TABLE public.classificacoes_resultado TO postgres;
+GRANT TRUNCATE ON TABLE public.classificacoes_resultado TO postgres;
+GRANT REFERENCES ON TABLE public.classificacoes_resultado TO postgres;
+GRANT TRIGGER ON TABLE public.classificacoes_resultado TO postgres;
+GRANT MAINTAIN ON TABLE public.classificacoes_resultado TO postgres;
+GRANT INSERT ON TABLE public.classificacoes_resultado TO service_role;
+GRANT SELECT ON TABLE public.classificacoes_resultado TO service_role;
+GRANT UPDATE ON TABLE public.classificacoes_resultado TO service_role;
+GRANT DELETE ON TABLE public.classificacoes_resultado TO service_role;
+GRANT TRUNCATE ON TABLE public.classificacoes_resultado TO service_role;
+GRANT REFERENCES ON TABLE public.classificacoes_resultado TO service_role;
+GRANT TRIGGER ON TABLE public.classificacoes_resultado TO service_role;
+GRANT MAINTAIN ON TABLE public.classificacoes_resultado TO service_role;
+GRANT INSERT ON TABLE public.plano_contas_classificacao_regra TO postgres;
+GRANT SELECT ON TABLE public.plano_contas_classificacao_regra TO postgres;
+GRANT UPDATE ON TABLE public.plano_contas_classificacao_regra TO postgres;
+GRANT DELETE ON TABLE public.plano_contas_classificacao_regra TO postgres;
+GRANT TRUNCATE ON TABLE public.plano_contas_classificacao_regra TO postgres;
+GRANT REFERENCES ON TABLE public.plano_contas_classificacao_regra TO postgres;
+GRANT TRIGGER ON TABLE public.plano_contas_classificacao_regra TO postgres;
+GRANT MAINTAIN ON TABLE public.plano_contas_classificacao_regra TO postgres;
+GRANT INSERT ON TABLE public.plano_contas_classificacao_regra TO service_role;
+GRANT SELECT ON TABLE public.plano_contas_classificacao_regra TO service_role;
+GRANT UPDATE ON TABLE public.plano_contas_classificacao_regra TO service_role;
+GRANT DELETE ON TABLE public.plano_contas_classificacao_regra TO service_role;
+GRANT TRUNCATE ON TABLE public.plano_contas_classificacao_regra TO service_role;
+GRANT REFERENCES ON TABLE public.plano_contas_classificacao_regra TO service_role;
+GRANT TRIGGER ON TABLE public.plano_contas_classificacao_regra TO service_role;
+GRANT MAINTAIN ON TABLE public.plano_contas_classificacao_regra TO service_role;
+GRANT INSERT ON TABLE public.pagamento TO postgres;
+GRANT SELECT ON TABLE public.pagamento TO postgres;
+GRANT UPDATE ON TABLE public.pagamento TO postgres;
+GRANT DELETE ON TABLE public.pagamento TO postgres;
+GRANT TRUNCATE ON TABLE public.pagamento TO postgres;
+GRANT REFERENCES ON TABLE public.pagamento TO postgres;
+GRANT TRIGGER ON TABLE public.pagamento TO postgres;
+GRANT MAINTAIN ON TABLE public.pagamento TO postgres;
+GRANT INSERT ON TABLE public.pagamento TO service_role;
+GRANT SELECT ON TABLE public.pagamento TO service_role;
+GRANT UPDATE ON TABLE public.pagamento TO service_role;
+GRANT DELETE ON TABLE public.pagamento TO service_role;
+GRANT TRUNCATE ON TABLE public.pagamento TO service_role;
+GRANT REFERENCES ON TABLE public.pagamento TO service_role;
+GRANT TRIGGER ON TABLE public.pagamento TO service_role;
+GRANT MAINTAIN ON TABLE public.pagamento TO service_role;
 GRANT SELECT ON SEQUENCE public.ordemservico_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.ordemservico_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.ordemservico_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.ordemservico_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.ordemservico_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.ordemservico_id_seq TO service_role;
-GRANT INSERT ON TABLE public.cliente_telefone TO postgres;
-GRANT SELECT ON TABLE public.cliente_telefone TO postgres;
-GRANT UPDATE ON TABLE public.cliente_telefone TO postgres;
-GRANT DELETE ON TABLE public.cliente_telefone TO postgres;
-GRANT TRUNCATE ON TABLE public.cliente_telefone TO postgres;
-GRANT REFERENCES ON TABLE public.cliente_telefone TO postgres;
-GRANT TRIGGER ON TABLE public.cliente_telefone TO postgres;
-GRANT MAINTAIN ON TABLE public.cliente_telefone TO postgres;
-GRANT INSERT ON TABLE public.cliente_telefone TO service_role;
-GRANT SELECT ON TABLE public.cliente_telefone TO service_role;
-GRANT UPDATE ON TABLE public.cliente_telefone TO service_role;
-GRANT DELETE ON TABLE public.cliente_telefone TO service_role;
-GRANT TRUNCATE ON TABLE public.cliente_telefone TO service_role;
-GRANT REFERENCES ON TABLE public.cliente_telefone TO service_role;
-GRANT TRIGGER ON TABLE public.cliente_telefone TO service_role;
-GRANT MAINTAIN ON TABLE public.cliente_telefone TO service_role;
 GRANT SELECT ON SEQUENCE public.site_product_link_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.site_product_link_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.site_product_link_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.site_product_link_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.site_product_link_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.site_product_link_id_seq TO service_role;
+GRANT INSERT ON TABLE public.fiscal_ncm TO postgres;
+GRANT SELECT ON TABLE public.fiscal_ncm TO postgres;
+GRANT UPDATE ON TABLE public.fiscal_ncm TO postgres;
+GRANT DELETE ON TABLE public.fiscal_ncm TO postgres;
+GRANT TRUNCATE ON TABLE public.fiscal_ncm TO postgres;
+GRANT REFERENCES ON TABLE public.fiscal_ncm TO postgres;
+GRANT TRIGGER ON TABLE public.fiscal_ncm TO postgres;
+GRANT MAINTAIN ON TABLE public.fiscal_ncm TO postgres;
+GRANT INSERT ON TABLE public.fiscal_ncm TO service_role;
+GRANT SELECT ON TABLE public.fiscal_ncm TO service_role;
+GRANT UPDATE ON TABLE public.fiscal_ncm TO service_role;
+GRANT DELETE ON TABLE public.fiscal_ncm TO service_role;
+GRANT TRUNCATE ON TABLE public.fiscal_ncm TO service_role;
+GRANT REFERENCES ON TABLE public.fiscal_ncm TO service_role;
+GRANT TRIGGER ON TABLE public.fiscal_ncm TO service_role;
+GRANT MAINTAIN ON TABLE public.fiscal_ncm TO service_role;
 GRANT SELECT ON SEQUENCE public.cliente_telefone_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.cliente_telefone_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.cliente_telefone_id_seq TO postgres;
@@ -48384,6 +50326,26 @@ GRANT USAGE ON SEQUENCE public.mercadolivre_notification_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.mercadolivre_notification_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.mercadolivre_notification_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.mercadolivre_notification_id_seq TO service_role;
+GRANT INSERT ON TABLE public.tarefa_usuario TO postgres;
+GRANT SELECT ON TABLE public.tarefa_usuario TO postgres;
+GRANT UPDATE ON TABLE public.tarefa_usuario TO postgres;
+GRANT DELETE ON TABLE public.tarefa_usuario TO postgres;
+GRANT TRUNCATE ON TABLE public.tarefa_usuario TO postgres;
+GRANT REFERENCES ON TABLE public.tarefa_usuario TO postgres;
+GRANT TRIGGER ON TABLE public.tarefa_usuario TO postgres;
+GRANT MAINTAIN ON TABLE public.tarefa_usuario TO postgres;
+GRANT INSERT ON TABLE public.tarefa_usuario TO service_role;
+GRANT SELECT ON TABLE public.tarefa_usuario TO service_role;
+GRANT UPDATE ON TABLE public.tarefa_usuario TO service_role;
+GRANT DELETE ON TABLE public.tarefa_usuario TO service_role;
+GRANT TRUNCATE ON TABLE public.tarefa_usuario TO service_role;
+GRANT REFERENCES ON TABLE public.tarefa_usuario TO service_role;
+GRANT TRIGGER ON TABLE public.tarefa_usuario TO service_role;
+GRANT MAINTAIN ON TABLE public.tarefa_usuario TO service_role;
+GRANT INSERT ON TABLE public.tarefa_usuario TO authenticated;
+GRANT SELECT ON TABLE public.tarefa_usuario TO authenticated;
+GRANT UPDATE ON TABLE public.tarefa_usuario TO authenticated;
+GRANT DELETE ON TABLE public.tarefa_usuario TO authenticated;
 GRANT SELECT ON SEQUENCE public.usoconsumo_item_imagem_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.usoconsumo_item_imagem_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.usoconsumo_item_imagem_id_seq TO postgres;
@@ -48402,22 +50364,6 @@ GRANT USAGE ON SEQUENCE public.pagamento_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.pagamento_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.pagamento_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.pagamento_id_seq TO service_role;
-GRANT INSERT ON TABLE public.central_evento_operacional TO postgres;
-GRANT SELECT ON TABLE public.central_evento_operacional TO postgres;
-GRANT UPDATE ON TABLE public.central_evento_operacional TO postgres;
-GRANT DELETE ON TABLE public.central_evento_operacional TO postgres;
-GRANT TRUNCATE ON TABLE public.central_evento_operacional TO postgres;
-GRANT REFERENCES ON TABLE public.central_evento_operacional TO postgres;
-GRANT TRIGGER ON TABLE public.central_evento_operacional TO postgres;
-GRANT MAINTAIN ON TABLE public.central_evento_operacional TO postgres;
-GRANT INSERT ON TABLE public.central_evento_operacional TO service_role;
-GRANT SELECT ON TABLE public.central_evento_operacional TO service_role;
-GRANT UPDATE ON TABLE public.central_evento_operacional TO service_role;
-GRANT DELETE ON TABLE public.central_evento_operacional TO service_role;
-GRANT TRUNCATE ON TABLE public.central_evento_operacional TO service_role;
-GRANT REFERENCES ON TABLE public.central_evento_operacional TO service_role;
-GRANT TRIGGER ON TABLE public.central_evento_operacional TO service_role;
-GRANT MAINTAIN ON TABLE public.central_evento_operacional TO service_role;
 GRANT SELECT ON SEQUENCE public.mercadolivre_order_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.mercadolivre_order_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.mercadolivre_order_id_seq TO postgres;
@@ -48436,6 +50382,38 @@ GRANT USAGE ON SEQUENCE public.perfil_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.perfil_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.perfil_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.perfil_id_seq TO service_role;
+GRANT INSERT ON TABLE public.nfe_origem_vinculo TO postgres;
+GRANT SELECT ON TABLE public.nfe_origem_vinculo TO postgres;
+GRANT UPDATE ON TABLE public.nfe_origem_vinculo TO postgres;
+GRANT DELETE ON TABLE public.nfe_origem_vinculo TO postgres;
+GRANT TRUNCATE ON TABLE public.nfe_origem_vinculo TO postgres;
+GRANT REFERENCES ON TABLE public.nfe_origem_vinculo TO postgres;
+GRANT TRIGGER ON TABLE public.nfe_origem_vinculo TO postgres;
+GRANT MAINTAIN ON TABLE public.nfe_origem_vinculo TO postgres;
+GRANT INSERT ON TABLE public.nfe_origem_vinculo TO service_role;
+GRANT SELECT ON TABLE public.nfe_origem_vinculo TO service_role;
+GRANT UPDATE ON TABLE public.nfe_origem_vinculo TO service_role;
+GRANT DELETE ON TABLE public.nfe_origem_vinculo TO service_role;
+GRANT TRUNCATE ON TABLE public.nfe_origem_vinculo TO service_role;
+GRANT REFERENCES ON TABLE public.nfe_origem_vinculo TO service_role;
+GRANT TRIGGER ON TABLE public.nfe_origem_vinculo TO service_role;
+GRANT MAINTAIN ON TABLE public.nfe_origem_vinculo TO service_role;
+GRANT INSERT ON TABLE public.chat_conversa TO postgres;
+GRANT SELECT ON TABLE public.chat_conversa TO postgres;
+GRANT UPDATE ON TABLE public.chat_conversa TO postgres;
+GRANT DELETE ON TABLE public.chat_conversa TO postgres;
+GRANT TRUNCATE ON TABLE public.chat_conversa TO postgres;
+GRANT REFERENCES ON TABLE public.chat_conversa TO postgres;
+GRANT TRIGGER ON TABLE public.chat_conversa TO postgres;
+GRANT MAINTAIN ON TABLE public.chat_conversa TO postgres;
+GRANT INSERT ON TABLE public.chat_conversa TO service_role;
+GRANT SELECT ON TABLE public.chat_conversa TO service_role;
+GRANT UPDATE ON TABLE public.chat_conversa TO service_role;
+GRANT DELETE ON TABLE public.chat_conversa TO service_role;
+GRANT TRUNCATE ON TABLE public.chat_conversa TO service_role;
+GRANT REFERENCES ON TABLE public.chat_conversa TO service_role;
+GRANT TRIGGER ON TABLE public.chat_conversa TO service_role;
+GRANT MAINTAIN ON TABLE public.chat_conversa TO service_role;
 GRANT SELECT ON SEQUENCE public.permissao_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.permissao_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.permissao_id_seq TO postgres;
@@ -48454,6 +50432,22 @@ GRANT USAGE ON SEQUENCE public.produto_imagem_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.produto_imagem_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.produto_imagem_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.produto_imagem_id_seq TO service_role;
+GRANT INSERT ON TABLE public.entrada_fiscal_personalizada TO postgres;
+GRANT SELECT ON TABLE public.entrada_fiscal_personalizada TO postgres;
+GRANT UPDATE ON TABLE public.entrada_fiscal_personalizada TO postgres;
+GRANT DELETE ON TABLE public.entrada_fiscal_personalizada TO postgres;
+GRANT TRUNCATE ON TABLE public.entrada_fiscal_personalizada TO postgres;
+GRANT REFERENCES ON TABLE public.entrada_fiscal_personalizada TO postgres;
+GRANT TRIGGER ON TABLE public.entrada_fiscal_personalizada TO postgres;
+GRANT MAINTAIN ON TABLE public.entrada_fiscal_personalizada TO postgres;
+GRANT INSERT ON TABLE public.entrada_fiscal_personalizada TO service_role;
+GRANT SELECT ON TABLE public.entrada_fiscal_personalizada TO service_role;
+GRANT UPDATE ON TABLE public.entrada_fiscal_personalizada TO service_role;
+GRANT DELETE ON TABLE public.entrada_fiscal_personalizada TO service_role;
+GRANT TRUNCATE ON TABLE public.entrada_fiscal_personalizada TO service_role;
+GRANT REFERENCES ON TABLE public.entrada_fiscal_personalizada TO service_role;
+GRANT TRIGGER ON TABLE public.entrada_fiscal_personalizada TO service_role;
+GRANT MAINTAIN ON TABLE public.entrada_fiscal_personalizada TO service_role;
 GRANT SELECT ON SEQUENCE public.produtoentrada_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.produtoentrada_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.produtoentrada_id_seq TO postgres;
@@ -48466,6 +50460,38 @@ GRANT USAGE ON SEQUENCE public.usoconsumo_entrada_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.usoconsumo_entrada_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.usoconsumo_entrada_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.usoconsumo_entrada_id_seq TO service_role;
+GRANT INSERT ON TABLE public.chat_mensagem TO postgres;
+GRANT SELECT ON TABLE public.chat_mensagem TO postgres;
+GRANT UPDATE ON TABLE public.chat_mensagem TO postgres;
+GRANT DELETE ON TABLE public.chat_mensagem TO postgres;
+GRANT TRUNCATE ON TABLE public.chat_mensagem TO postgres;
+GRANT REFERENCES ON TABLE public.chat_mensagem TO postgres;
+GRANT TRIGGER ON TABLE public.chat_mensagem TO postgres;
+GRANT MAINTAIN ON TABLE public.chat_mensagem TO postgres;
+GRANT INSERT ON TABLE public.chat_mensagem TO service_role;
+GRANT SELECT ON TABLE public.chat_mensagem TO service_role;
+GRANT UPDATE ON TABLE public.chat_mensagem TO service_role;
+GRANT DELETE ON TABLE public.chat_mensagem TO service_role;
+GRANT TRUNCATE ON TABLE public.chat_mensagem TO service_role;
+GRANT REFERENCES ON TABLE public.chat_mensagem TO service_role;
+GRANT TRIGGER ON TABLE public.chat_mensagem TO service_role;
+GRANT MAINTAIN ON TABLE public.chat_mensagem TO service_role;
+GRANT INSERT ON TABLE public.chat_participante TO postgres;
+GRANT SELECT ON TABLE public.chat_participante TO postgres;
+GRANT UPDATE ON TABLE public.chat_participante TO postgres;
+GRANT DELETE ON TABLE public.chat_participante TO postgres;
+GRANT TRUNCATE ON TABLE public.chat_participante TO postgres;
+GRANT REFERENCES ON TABLE public.chat_participante TO postgres;
+GRANT TRIGGER ON TABLE public.chat_participante TO postgres;
+GRANT MAINTAIN ON TABLE public.chat_participante TO postgres;
+GRANT INSERT ON TABLE public.chat_participante TO service_role;
+GRANT SELECT ON TABLE public.chat_participante TO service_role;
+GRANT UPDATE ON TABLE public.chat_participante TO service_role;
+GRANT DELETE ON TABLE public.chat_participante TO service_role;
+GRANT TRUNCATE ON TABLE public.chat_participante TO service_role;
+GRANT REFERENCES ON TABLE public.chat_participante TO service_role;
+GRANT TRIGGER ON TABLE public.chat_participante TO service_role;
+GRANT MAINTAIN ON TABLE public.chat_participante TO service_role;
 GRANT SELECT ON SEQUENCE public.produtogrupo_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.produtogrupo_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.produtogrupo_id_seq TO postgres;
@@ -48556,156 +50582,12 @@ GRANT USAGE ON SEQUENCE public.checklist_documento_convite_assinatura_id_seq TO 
 GRANT SELECT ON SEQUENCE public.checklist_documento_convite_assinatura_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.checklist_documento_convite_assinatura_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.checklist_documento_convite_assinatura_id_seq TO service_role;
-GRANT INSERT ON TABLE public.fiscal_sped_1601_linha TO postgres;
-GRANT SELECT ON TABLE public.fiscal_sped_1601_linha TO postgres;
-GRANT UPDATE ON TABLE public.fiscal_sped_1601_linha TO postgres;
-GRANT DELETE ON TABLE public.fiscal_sped_1601_linha TO postgres;
-GRANT TRUNCATE ON TABLE public.fiscal_sped_1601_linha TO postgres;
-GRANT REFERENCES ON TABLE public.fiscal_sped_1601_linha TO postgres;
-GRANT TRIGGER ON TABLE public.fiscal_sped_1601_linha TO postgres;
-GRANT MAINTAIN ON TABLE public.fiscal_sped_1601_linha TO postgres;
-GRANT INSERT ON TABLE public.fiscal_sped_1601_linha TO service_role;
-GRANT SELECT ON TABLE public.fiscal_sped_1601_linha TO service_role;
-GRANT UPDATE ON TABLE public.fiscal_sped_1601_linha TO service_role;
-GRANT DELETE ON TABLE public.fiscal_sped_1601_linha TO service_role;
-GRANT TRUNCATE ON TABLE public.fiscal_sped_1601_linha TO service_role;
-GRANT REFERENCES ON TABLE public.fiscal_sped_1601_linha TO service_role;
-GRANT TRIGGER ON TABLE public.fiscal_sped_1601_linha TO service_role;
-GRANT MAINTAIN ON TABLE public.fiscal_sped_1601_linha TO service_role;
-GRANT INSERT ON TABLE public.fiscal_sped_arquivo TO postgres;
-GRANT SELECT ON TABLE public.fiscal_sped_arquivo TO postgres;
-GRANT UPDATE ON TABLE public.fiscal_sped_arquivo TO postgres;
-GRANT DELETE ON TABLE public.fiscal_sped_arquivo TO postgres;
-GRANT TRUNCATE ON TABLE public.fiscal_sped_arquivo TO postgres;
-GRANT REFERENCES ON TABLE public.fiscal_sped_arquivo TO postgres;
-GRANT TRIGGER ON TABLE public.fiscal_sped_arquivo TO postgres;
-GRANT MAINTAIN ON TABLE public.fiscal_sped_arquivo TO postgres;
-GRANT INSERT ON TABLE public.fiscal_sped_arquivo TO service_role;
-GRANT SELECT ON TABLE public.fiscal_sped_arquivo TO service_role;
-GRANT UPDATE ON TABLE public.fiscal_sped_arquivo TO service_role;
-GRANT DELETE ON TABLE public.fiscal_sped_arquivo TO service_role;
-GRANT TRUNCATE ON TABLE public.fiscal_sped_arquivo TO service_role;
-GRANT REFERENCES ON TABLE public.fiscal_sped_arquivo TO service_role;
-GRANT TRIGGER ON TABLE public.fiscal_sped_arquivo TO service_role;
-GRANT MAINTAIN ON TABLE public.fiscal_sped_arquivo TO service_role;
-GRANT INSERT ON TABLE public.site_catalog_export TO postgres;
-GRANT SELECT ON TABLE public.site_catalog_export TO postgres;
-GRANT UPDATE ON TABLE public.site_catalog_export TO postgres;
-GRANT DELETE ON TABLE public.site_catalog_export TO postgres;
-GRANT TRUNCATE ON TABLE public.site_catalog_export TO postgres;
-GRANT REFERENCES ON TABLE public.site_catalog_export TO postgres;
-GRANT TRIGGER ON TABLE public.site_catalog_export TO postgres;
-GRANT MAINTAIN ON TABLE public.site_catalog_export TO postgres;
-GRANT INSERT ON TABLE public.site_catalog_export TO service_role;
-GRANT SELECT ON TABLE public.site_catalog_export TO service_role;
-GRANT UPDATE ON TABLE public.site_catalog_export TO service_role;
-GRANT DELETE ON TABLE public.site_catalog_export TO service_role;
-GRANT TRUNCATE ON TABLE public.site_catalog_export TO service_role;
-GRANT REFERENCES ON TABLE public.site_catalog_export TO service_role;
-GRANT TRIGGER ON TABLE public.site_catalog_export TO service_role;
-GRANT MAINTAIN ON TABLE public.site_catalog_export TO service_role;
-GRANT INSERT ON TABLE public.eventos_financeiros_fila TO postgres;
-GRANT SELECT ON TABLE public.eventos_financeiros_fila TO postgres;
-GRANT UPDATE ON TABLE public.eventos_financeiros_fila TO postgres;
-GRANT DELETE ON TABLE public.eventos_financeiros_fila TO postgres;
-GRANT TRUNCATE ON TABLE public.eventos_financeiros_fila TO postgres;
-GRANT REFERENCES ON TABLE public.eventos_financeiros_fila TO postgres;
-GRANT TRIGGER ON TABLE public.eventos_financeiros_fila TO postgres;
-GRANT MAINTAIN ON TABLE public.eventos_financeiros_fila TO postgres;
-GRANT INSERT ON TABLE public.eventos_financeiros_fila TO service_role;
-GRANT SELECT ON TABLE public.eventos_financeiros_fila TO service_role;
-GRANT UPDATE ON TABLE public.eventos_financeiros_fila TO service_role;
-GRANT DELETE ON TABLE public.eventos_financeiros_fila TO service_role;
-GRANT TRUNCATE ON TABLE public.eventos_financeiros_fila TO service_role;
-GRANT REFERENCES ON TABLE public.eventos_financeiros_fila TO service_role;
-GRANT TRIGGER ON TABLE public.eventos_financeiros_fila TO service_role;
-GRANT MAINTAIN ON TABLE public.eventos_financeiros_fila TO service_role;
-GRANT INSERT ON TABLE public.venda_comissao TO postgres;
-GRANT SELECT ON TABLE public.venda_comissao TO postgres;
-GRANT UPDATE ON TABLE public.venda_comissao TO postgres;
-GRANT DELETE ON TABLE public.venda_comissao TO postgres;
-GRANT TRUNCATE ON TABLE public.venda_comissao TO postgres;
-GRANT REFERENCES ON TABLE public.venda_comissao TO postgres;
-GRANT TRIGGER ON TABLE public.venda_comissao TO postgres;
-GRANT MAINTAIN ON TABLE public.venda_comissao TO postgres;
-GRANT INSERT ON TABLE public.venda_comissao TO service_role;
-GRANT SELECT ON TABLE public.venda_comissao TO service_role;
-GRANT UPDATE ON TABLE public.venda_comissao TO service_role;
-GRANT DELETE ON TABLE public.venda_comissao TO service_role;
-GRANT TRUNCATE ON TABLE public.venda_comissao TO service_role;
-GRANT REFERENCES ON TABLE public.venda_comissao TO service_role;
-GRANT TRIGGER ON TABLE public.venda_comissao TO service_role;
-GRANT MAINTAIN ON TABLE public.venda_comissao TO service_role;
-GRANT INSERT ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
-GRANT SELECT ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
-GRANT UPDATE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
-GRANT DELETE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
-GRANT TRUNCATE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
-GRANT REFERENCES ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
-GRANT TRIGGER ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
-GRANT MAINTAIN ON TABLE public.fiscal_sped_arquivo_validacao_pva TO postgres;
-GRANT INSERT ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
-GRANT SELECT ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
-GRANT UPDATE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
-GRANT DELETE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
-GRANT TRUNCATE ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
-GRANT REFERENCES ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
-GRANT TRIGGER ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
-GRANT MAINTAIN ON TABLE public.fiscal_sped_arquivo_validacao_pva TO service_role;
-GRANT INSERT ON TABLE public.fiscal_inventario_fechamento TO postgres;
-GRANT SELECT ON TABLE public.fiscal_inventario_fechamento TO postgres;
-GRANT UPDATE ON TABLE public.fiscal_inventario_fechamento TO postgres;
-GRANT DELETE ON TABLE public.fiscal_inventario_fechamento TO postgres;
-GRANT TRUNCATE ON TABLE public.fiscal_inventario_fechamento TO postgres;
-GRANT REFERENCES ON TABLE public.fiscal_inventario_fechamento TO postgres;
-GRANT TRIGGER ON TABLE public.fiscal_inventario_fechamento TO postgres;
-GRANT MAINTAIN ON TABLE public.fiscal_inventario_fechamento TO postgres;
-GRANT INSERT ON TABLE public.fiscal_inventario_fechamento TO service_role;
-GRANT SELECT ON TABLE public.fiscal_inventario_fechamento TO service_role;
-GRANT UPDATE ON TABLE public.fiscal_inventario_fechamento TO service_role;
-GRANT DELETE ON TABLE public.fiscal_inventario_fechamento TO service_role;
-GRANT TRUNCATE ON TABLE public.fiscal_inventario_fechamento TO service_role;
-GRANT REFERENCES ON TABLE public.fiscal_inventario_fechamento TO service_role;
-GRANT TRIGGER ON TABLE public.fiscal_inventario_fechamento TO service_role;
-GRANT MAINTAIN ON TABLE public.fiscal_inventario_fechamento TO service_role;
-GRANT INSERT ON TABLE public.fiscal_inventario_item TO postgres;
-GRANT SELECT ON TABLE public.fiscal_inventario_item TO postgres;
-GRANT UPDATE ON TABLE public.fiscal_inventario_item TO postgres;
-GRANT DELETE ON TABLE public.fiscal_inventario_item TO postgres;
-GRANT TRUNCATE ON TABLE public.fiscal_inventario_item TO postgres;
-GRANT REFERENCES ON TABLE public.fiscal_inventario_item TO postgres;
-GRANT TRIGGER ON TABLE public.fiscal_inventario_item TO postgres;
-GRANT MAINTAIN ON TABLE public.fiscal_inventario_item TO postgres;
-GRANT INSERT ON TABLE public.fiscal_inventario_item TO service_role;
-GRANT SELECT ON TABLE public.fiscal_inventario_item TO service_role;
-GRANT UPDATE ON TABLE public.fiscal_inventario_item TO service_role;
-GRANT DELETE ON TABLE public.fiscal_inventario_item TO service_role;
-GRANT TRUNCATE ON TABLE public.fiscal_inventario_item TO service_role;
-GRANT REFERENCES ON TABLE public.fiscal_inventario_item TO service_role;
-GRANT TRIGGER ON TABLE public.fiscal_inventario_item TO service_role;
-GRANT MAINTAIN ON TABLE public.fiscal_inventario_item TO service_role;
 GRANT SELECT ON SEQUENCE public.site_order_link_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.site_order_link_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.site_order_link_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.site_order_link_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.site_order_link_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.site_order_link_id_seq TO service_role;
-GRANT INSERT ON TABLE public.site_order_link TO postgres;
-GRANT SELECT ON TABLE public.site_order_link TO postgres;
-GRANT UPDATE ON TABLE public.site_order_link TO postgres;
-GRANT DELETE ON TABLE public.site_order_link TO postgres;
-GRANT TRUNCATE ON TABLE public.site_order_link TO postgres;
-GRANT REFERENCES ON TABLE public.site_order_link TO postgres;
-GRANT TRIGGER ON TABLE public.site_order_link TO postgres;
-GRANT MAINTAIN ON TABLE public.site_order_link TO postgres;
-GRANT INSERT ON TABLE public.site_order_link TO service_role;
-GRANT SELECT ON TABLE public.site_order_link TO service_role;
-GRANT UPDATE ON TABLE public.site_order_link TO service_role;
-GRANT DELETE ON TABLE public.site_order_link TO service_role;
-GRANT TRUNCATE ON TABLE public.site_order_link TO service_role;
-GRANT REFERENCES ON TABLE public.site_order_link TO service_role;
-GRANT TRIGGER ON TABLE public.site_order_link TO service_role;
-GRANT MAINTAIN ON TABLE public.site_order_link TO service_role;
 GRANT SELECT ON SEQUENCE public.fiscal_difal_regra_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.fiscal_difal_regra_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.fiscal_difal_regra_id_seq TO postgres;
@@ -48724,38 +50606,22 @@ GRANT USAGE ON SEQUENCE public.fiscal_sped_contabilista_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.fiscal_sped_contabilista_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.fiscal_sped_contabilista_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.fiscal_sped_contabilista_id_seq TO service_role;
-GRANT INSERT ON TABLE public.nfe_config TO postgres;
-GRANT SELECT ON TABLE public.nfe_config TO postgres;
-GRANT UPDATE ON TABLE public.nfe_config TO postgres;
-GRANT DELETE ON TABLE public.nfe_config TO postgres;
-GRANT TRUNCATE ON TABLE public.nfe_config TO postgres;
-GRANT REFERENCES ON TABLE public.nfe_config TO postgres;
-GRANT TRIGGER ON TABLE public.nfe_config TO postgres;
-GRANT MAINTAIN ON TABLE public.nfe_config TO postgres;
-GRANT INSERT ON TABLE public.nfe_config TO service_role;
-GRANT SELECT ON TABLE public.nfe_config TO service_role;
-GRANT UPDATE ON TABLE public.nfe_config TO service_role;
-GRANT DELETE ON TABLE public.nfe_config TO service_role;
-GRANT TRUNCATE ON TABLE public.nfe_config TO service_role;
-GRANT REFERENCES ON TABLE public.nfe_config TO service_role;
-GRANT TRIGGER ON TABLE public.nfe_config TO service_role;
-GRANT MAINTAIN ON TABLE public.nfe_config TO service_role;
-GRANT INSERT ON TABLE public.telegram_financeiro_entrega TO postgres;
-GRANT SELECT ON TABLE public.telegram_financeiro_entrega TO postgres;
-GRANT UPDATE ON TABLE public.telegram_financeiro_entrega TO postgres;
-GRANT DELETE ON TABLE public.telegram_financeiro_entrega TO postgres;
-GRANT TRUNCATE ON TABLE public.telegram_financeiro_entrega TO postgres;
-GRANT REFERENCES ON TABLE public.telegram_financeiro_entrega TO postgres;
-GRANT TRIGGER ON TABLE public.telegram_financeiro_entrega TO postgres;
-GRANT MAINTAIN ON TABLE public.telegram_financeiro_entrega TO postgres;
-GRANT INSERT ON TABLE public.telegram_financeiro_entrega TO service_role;
-GRANT SELECT ON TABLE public.telegram_financeiro_entrega TO service_role;
-GRANT UPDATE ON TABLE public.telegram_financeiro_entrega TO service_role;
-GRANT DELETE ON TABLE public.telegram_financeiro_entrega TO service_role;
-GRANT TRUNCATE ON TABLE public.telegram_financeiro_entrega TO service_role;
-GRANT REFERENCES ON TABLE public.telegram_financeiro_entrega TO service_role;
-GRANT TRIGGER ON TABLE public.telegram_financeiro_entrega TO service_role;
-GRANT MAINTAIN ON TABLE public.telegram_financeiro_entrega TO service_role;
+GRANT INSERT ON TABLE public.nfse_os_servico_vinculo TO postgres;
+GRANT SELECT ON TABLE public.nfse_os_servico_vinculo TO postgres;
+GRANT UPDATE ON TABLE public.nfse_os_servico_vinculo TO postgres;
+GRANT DELETE ON TABLE public.nfse_os_servico_vinculo TO postgres;
+GRANT TRUNCATE ON TABLE public.nfse_os_servico_vinculo TO postgres;
+GRANT REFERENCES ON TABLE public.nfse_os_servico_vinculo TO postgres;
+GRANT TRIGGER ON TABLE public.nfse_os_servico_vinculo TO postgres;
+GRANT MAINTAIN ON TABLE public.nfse_os_servico_vinculo TO postgres;
+GRANT INSERT ON TABLE public.nfse_os_servico_vinculo TO service_role;
+GRANT SELECT ON TABLE public.nfse_os_servico_vinculo TO service_role;
+GRANT UPDATE ON TABLE public.nfse_os_servico_vinculo TO service_role;
+GRANT DELETE ON TABLE public.nfse_os_servico_vinculo TO service_role;
+GRANT TRUNCATE ON TABLE public.nfse_os_servico_vinculo TO service_role;
+GRANT REFERENCES ON TABLE public.nfse_os_servico_vinculo TO service_role;
+GRANT TRIGGER ON TABLE public.nfse_os_servico_vinculo TO service_role;
+GRANT MAINTAIN ON TABLE public.nfse_os_servico_vinculo TO service_role;
 GRANT SELECT ON SEQUENCE public.mercadolivre_listing_payload_log_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.mercadolivre_listing_payload_log_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.mercadolivre_listing_payload_log_id_seq TO postgres;
@@ -48768,38 +50634,6 @@ GRANT USAGE ON SEQUENCE public.telegram_financeiro_entrega_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.telegram_financeiro_entrega_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.telegram_financeiro_entrega_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.telegram_financeiro_entrega_id_seq TO service_role;
-GRANT INSERT ON TABLE public.mercadolivre_listing_payload_log TO postgres;
-GRANT SELECT ON TABLE public.mercadolivre_listing_payload_log TO postgres;
-GRANT UPDATE ON TABLE public.mercadolivre_listing_payload_log TO postgres;
-GRANT DELETE ON TABLE public.mercadolivre_listing_payload_log TO postgres;
-GRANT TRUNCATE ON TABLE public.mercadolivre_listing_payload_log TO postgres;
-GRANT REFERENCES ON TABLE public.mercadolivre_listing_payload_log TO postgres;
-GRANT TRIGGER ON TABLE public.mercadolivre_listing_payload_log TO postgres;
-GRANT MAINTAIN ON TABLE public.mercadolivre_listing_payload_log TO postgres;
-GRANT INSERT ON TABLE public.mercadolivre_listing_payload_log TO service_role;
-GRANT SELECT ON TABLE public.mercadolivre_listing_payload_log TO service_role;
-GRANT UPDATE ON TABLE public.mercadolivre_listing_payload_log TO service_role;
-GRANT DELETE ON TABLE public.mercadolivre_listing_payload_log TO service_role;
-GRANT TRUNCATE ON TABLE public.mercadolivre_listing_payload_log TO service_role;
-GRANT REFERENCES ON TABLE public.mercadolivre_listing_payload_log TO service_role;
-GRANT TRIGGER ON TABLE public.mercadolivre_listing_payload_log TO service_role;
-GRANT MAINTAIN ON TABLE public.mercadolivre_listing_payload_log TO service_role;
-GRANT INSERT ON TABLE public.fiscal_difal_regra TO postgres;
-GRANT SELECT ON TABLE public.fiscal_difal_regra TO postgres;
-GRANT UPDATE ON TABLE public.fiscal_difal_regra TO postgres;
-GRANT DELETE ON TABLE public.fiscal_difal_regra TO postgres;
-GRANT TRUNCATE ON TABLE public.fiscal_difal_regra TO postgres;
-GRANT REFERENCES ON TABLE public.fiscal_difal_regra TO postgres;
-GRANT TRIGGER ON TABLE public.fiscal_difal_regra TO postgres;
-GRANT MAINTAIN ON TABLE public.fiscal_difal_regra TO postgres;
-GRANT INSERT ON TABLE public.fiscal_difal_regra TO service_role;
-GRANT SELECT ON TABLE public.fiscal_difal_regra TO service_role;
-GRANT UPDATE ON TABLE public.fiscal_difal_regra TO service_role;
-GRANT DELETE ON TABLE public.fiscal_difal_regra TO service_role;
-GRANT TRUNCATE ON TABLE public.fiscal_difal_regra TO service_role;
-GRANT REFERENCES ON TABLE public.fiscal_difal_regra TO service_role;
-GRANT TRIGGER ON TABLE public.fiscal_difal_regra TO service_role;
-GRANT MAINTAIN ON TABLE public.fiscal_difal_regra TO service_role;
 GRANT SELECT ON SEQUENCE public.fiscal_sped_item_config_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.fiscal_sped_item_config_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.fiscal_sped_item_config_id_seq TO postgres;
@@ -48908,6 +50742,22 @@ GRANT USAGE ON SEQUENCE public.mercadolivre_outbound_touch_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.mercadolivre_outbound_touch_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.mercadolivre_outbound_touch_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.mercadolivre_outbound_touch_id_seq TO service_role;
+GRANT INSERT ON TABLE public.ositem_historico TO postgres;
+GRANT SELECT ON TABLE public.ositem_historico TO postgres;
+GRANT UPDATE ON TABLE public.ositem_historico TO postgres;
+GRANT DELETE ON TABLE public.ositem_historico TO postgres;
+GRANT TRUNCATE ON TABLE public.ositem_historico TO postgres;
+GRANT REFERENCES ON TABLE public.ositem_historico TO postgres;
+GRANT TRIGGER ON TABLE public.ositem_historico TO postgres;
+GRANT MAINTAIN ON TABLE public.ositem_historico TO postgres;
+GRANT INSERT ON TABLE public.ositem_historico TO service_role;
+GRANT SELECT ON TABLE public.ositem_historico TO service_role;
+GRANT UPDATE ON TABLE public.ositem_historico TO service_role;
+GRANT DELETE ON TABLE public.ositem_historico TO service_role;
+GRANT TRUNCATE ON TABLE public.ositem_historico TO service_role;
+GRANT REFERENCES ON TABLE public.ositem_historico TO service_role;
+GRANT TRIGGER ON TABLE public.ositem_historico TO service_role;
+GRANT MAINTAIN ON TABLE public.ositem_historico TO service_role;
 GRANT SELECT ON SEQUENCE public.fiscal_sped_arquivo_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.fiscal_sped_arquivo_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.fiscal_sped_arquivo_id_seq TO postgres;
@@ -48926,224 +50776,28 @@ GRANT USAGE ON SEQUENCE public.fiscal_inventario_item_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.fiscal_inventario_item_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.fiscal_inventario_item_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.fiscal_inventario_item_id_seq TO service_role;
-GRANT INSERT ON TABLE public.mercadolivre_outbound_touch TO postgres;
-GRANT SELECT ON TABLE public.mercadolivre_outbound_touch TO postgres;
-GRANT UPDATE ON TABLE public.mercadolivre_outbound_touch TO postgres;
-GRANT DELETE ON TABLE public.mercadolivre_outbound_touch TO postgres;
-GRANT TRUNCATE ON TABLE public.mercadolivre_outbound_touch TO postgres;
-GRANT REFERENCES ON TABLE public.mercadolivre_outbound_touch TO postgres;
-GRANT TRIGGER ON TABLE public.mercadolivre_outbound_touch TO postgres;
-GRANT MAINTAIN ON TABLE public.mercadolivre_outbound_touch TO postgres;
-GRANT INSERT ON TABLE public.mercadolivre_outbound_touch TO service_role;
-GRANT SELECT ON TABLE public.mercadolivre_outbound_touch TO service_role;
-GRANT UPDATE ON TABLE public.mercadolivre_outbound_touch TO service_role;
-GRANT DELETE ON TABLE public.mercadolivre_outbound_touch TO service_role;
-GRANT TRUNCATE ON TABLE public.mercadolivre_outbound_touch TO service_role;
-GRANT REFERENCES ON TABLE public.mercadolivre_outbound_touch TO service_role;
-GRANT TRIGGER ON TABLE public.mercadolivre_outbound_touch TO service_role;
-GRANT MAINTAIN ON TABLE public.mercadolivre_outbound_touch TO service_role;
-GRANT INSERT ON TABLE public.transacao_transferencia TO postgres;
-GRANT SELECT ON TABLE public.transacao_transferencia TO postgres;
-GRANT UPDATE ON TABLE public.transacao_transferencia TO postgres;
-GRANT DELETE ON TABLE public.transacao_transferencia TO postgres;
-GRANT TRUNCATE ON TABLE public.transacao_transferencia TO postgres;
-GRANT REFERENCES ON TABLE public.transacao_transferencia TO postgres;
-GRANT TRIGGER ON TABLE public.transacao_transferencia TO postgres;
-GRANT MAINTAIN ON TABLE public.transacao_transferencia TO postgres;
-GRANT INSERT ON TABLE public.transacao_transferencia TO service_role;
-GRANT SELECT ON TABLE public.transacao_transferencia TO service_role;
-GRANT UPDATE ON TABLE public.transacao_transferencia TO service_role;
-GRANT DELETE ON TABLE public.transacao_transferencia TO service_role;
-GRANT TRUNCATE ON TABLE public.transacao_transferencia TO service_role;
-GRANT REFERENCES ON TABLE public.transacao_transferencia TO service_role;
-GRANT TRIGGER ON TABLE public.transacao_transferencia TO service_role;
-GRANT MAINTAIN ON TABLE public.transacao_transferencia TO service_role;
-GRANT INSERT ON TABLE public.classificacoes_resultado TO postgres;
-GRANT SELECT ON TABLE public.classificacoes_resultado TO postgres;
-GRANT UPDATE ON TABLE public.classificacoes_resultado TO postgres;
-GRANT DELETE ON TABLE public.classificacoes_resultado TO postgres;
-GRANT TRUNCATE ON TABLE public.classificacoes_resultado TO postgres;
-GRANT REFERENCES ON TABLE public.classificacoes_resultado TO postgres;
-GRANT TRIGGER ON TABLE public.classificacoes_resultado TO postgres;
-GRANT MAINTAIN ON TABLE public.classificacoes_resultado TO postgres;
-GRANT INSERT ON TABLE public.classificacoes_resultado TO service_role;
-GRANT SELECT ON TABLE public.classificacoes_resultado TO service_role;
-GRANT UPDATE ON TABLE public.classificacoes_resultado TO service_role;
-GRANT DELETE ON TABLE public.classificacoes_resultado TO service_role;
-GRANT TRUNCATE ON TABLE public.classificacoes_resultado TO service_role;
-GRANT REFERENCES ON TABLE public.classificacoes_resultado TO service_role;
-GRANT TRIGGER ON TABLE public.classificacoes_resultado TO service_role;
-GRANT MAINTAIN ON TABLE public.classificacoes_resultado TO service_role;
-GRANT INSERT ON TABLE public.plano_contas_classificacao_regra TO postgres;
-GRANT SELECT ON TABLE public.plano_contas_classificacao_regra TO postgres;
-GRANT UPDATE ON TABLE public.plano_contas_classificacao_regra TO postgres;
-GRANT DELETE ON TABLE public.plano_contas_classificacao_regra TO postgres;
-GRANT TRUNCATE ON TABLE public.plano_contas_classificacao_regra TO postgres;
-GRANT REFERENCES ON TABLE public.plano_contas_classificacao_regra TO postgres;
-GRANT TRIGGER ON TABLE public.plano_contas_classificacao_regra TO postgres;
-GRANT MAINTAIN ON TABLE public.plano_contas_classificacao_regra TO postgres;
-GRANT INSERT ON TABLE public.plano_contas_classificacao_regra TO service_role;
-GRANT SELECT ON TABLE public.plano_contas_classificacao_regra TO service_role;
-GRANT UPDATE ON TABLE public.plano_contas_classificacao_regra TO service_role;
-GRANT DELETE ON TABLE public.plano_contas_classificacao_regra TO service_role;
-GRANT TRUNCATE ON TABLE public.plano_contas_classificacao_regra TO service_role;
-GRANT REFERENCES ON TABLE public.plano_contas_classificacao_regra TO service_role;
-GRANT TRIGGER ON TABLE public.plano_contas_classificacao_regra TO service_role;
-GRANT MAINTAIN ON TABLE public.plano_contas_classificacao_regra TO service_role;
-GRANT INSERT ON TABLE public.pagamento TO postgres;
-GRANT SELECT ON TABLE public.pagamento TO postgres;
-GRANT UPDATE ON TABLE public.pagamento TO postgres;
-GRANT DELETE ON TABLE public.pagamento TO postgres;
-GRANT TRUNCATE ON TABLE public.pagamento TO postgres;
-GRANT REFERENCES ON TABLE public.pagamento TO postgres;
-GRANT TRIGGER ON TABLE public.pagamento TO postgres;
-GRANT MAINTAIN ON TABLE public.pagamento TO postgres;
-GRANT INSERT ON TABLE public.pagamento TO service_role;
-GRANT SELECT ON TABLE public.pagamento TO service_role;
-GRANT UPDATE ON TABLE public.pagamento TO service_role;
-GRANT DELETE ON TABLE public.pagamento TO service_role;
-GRANT TRUNCATE ON TABLE public.pagamento TO service_role;
-GRANT REFERENCES ON TABLE public.pagamento TO service_role;
-GRANT TRIGGER ON TABLE public.pagamento TO service_role;
-GRANT MAINTAIN ON TABLE public.pagamento TO service_role;
-GRANT INSERT ON TABLE public.fiscal_ncm TO postgres;
-GRANT SELECT ON TABLE public.fiscal_ncm TO postgres;
-GRANT UPDATE ON TABLE public.fiscal_ncm TO postgres;
-GRANT DELETE ON TABLE public.fiscal_ncm TO postgres;
-GRANT TRUNCATE ON TABLE public.fiscal_ncm TO postgres;
-GRANT REFERENCES ON TABLE public.fiscal_ncm TO postgres;
-GRANT TRIGGER ON TABLE public.fiscal_ncm TO postgres;
-GRANT MAINTAIN ON TABLE public.fiscal_ncm TO postgres;
-GRANT INSERT ON TABLE public.fiscal_ncm TO service_role;
-GRANT SELECT ON TABLE public.fiscal_ncm TO service_role;
-GRANT UPDATE ON TABLE public.fiscal_ncm TO service_role;
-GRANT DELETE ON TABLE public.fiscal_ncm TO service_role;
-GRANT TRUNCATE ON TABLE public.fiscal_ncm TO service_role;
-GRANT REFERENCES ON TABLE public.fiscal_ncm TO service_role;
-GRANT TRIGGER ON TABLE public.fiscal_ncm TO service_role;
-GRANT MAINTAIN ON TABLE public.fiscal_ncm TO service_role;
-GRANT INSERT ON TABLE public.tarefa_usuario TO postgres;
-GRANT SELECT ON TABLE public.tarefa_usuario TO postgres;
-GRANT UPDATE ON TABLE public.tarefa_usuario TO postgres;
-GRANT DELETE ON TABLE public.tarefa_usuario TO postgres;
-GRANT TRUNCATE ON TABLE public.tarefa_usuario TO postgres;
-GRANT REFERENCES ON TABLE public.tarefa_usuario TO postgres;
-GRANT TRIGGER ON TABLE public.tarefa_usuario TO postgres;
-GRANT MAINTAIN ON TABLE public.tarefa_usuario TO postgres;
-GRANT INSERT ON TABLE public.tarefa_usuario TO service_role;
-GRANT SELECT ON TABLE public.tarefa_usuario TO service_role;
-GRANT UPDATE ON TABLE public.tarefa_usuario TO service_role;
-GRANT DELETE ON TABLE public.tarefa_usuario TO service_role;
-GRANT TRUNCATE ON TABLE public.tarefa_usuario TO service_role;
-GRANT REFERENCES ON TABLE public.tarefa_usuario TO service_role;
-GRANT TRIGGER ON TABLE public.tarefa_usuario TO service_role;
-GRANT MAINTAIN ON TABLE public.tarefa_usuario TO service_role;
-GRANT INSERT ON TABLE public.tarefa_usuario TO authenticated;
-GRANT SELECT ON TABLE public.tarefa_usuario TO authenticated;
-GRANT UPDATE ON TABLE public.tarefa_usuario TO authenticated;
-GRANT DELETE ON TABLE public.tarefa_usuario TO authenticated;
-GRANT INSERT ON TABLE public.nfe_origem_vinculo TO postgres;
-GRANT SELECT ON TABLE public.nfe_origem_vinculo TO postgres;
-GRANT UPDATE ON TABLE public.nfe_origem_vinculo TO postgres;
-GRANT DELETE ON TABLE public.nfe_origem_vinculo TO postgres;
-GRANT TRUNCATE ON TABLE public.nfe_origem_vinculo TO postgres;
-GRANT REFERENCES ON TABLE public.nfe_origem_vinculo TO postgres;
-GRANT TRIGGER ON TABLE public.nfe_origem_vinculo TO postgres;
-GRANT MAINTAIN ON TABLE public.nfe_origem_vinculo TO postgres;
-GRANT INSERT ON TABLE public.nfe_origem_vinculo TO service_role;
-GRANT SELECT ON TABLE public.nfe_origem_vinculo TO service_role;
-GRANT UPDATE ON TABLE public.nfe_origem_vinculo TO service_role;
-GRANT DELETE ON TABLE public.nfe_origem_vinculo TO service_role;
-GRANT TRUNCATE ON TABLE public.nfe_origem_vinculo TO service_role;
-GRANT REFERENCES ON TABLE public.nfe_origem_vinculo TO service_role;
-GRANT TRIGGER ON TABLE public.nfe_origem_vinculo TO service_role;
-GRANT MAINTAIN ON TABLE public.nfe_origem_vinculo TO service_role;
-GRANT INSERT ON TABLE public.chat_conversa TO postgres;
-GRANT SELECT ON TABLE public.chat_conversa TO postgres;
-GRANT UPDATE ON TABLE public.chat_conversa TO postgres;
-GRANT DELETE ON TABLE public.chat_conversa TO postgres;
-GRANT TRUNCATE ON TABLE public.chat_conversa TO postgres;
-GRANT REFERENCES ON TABLE public.chat_conversa TO postgres;
-GRANT TRIGGER ON TABLE public.chat_conversa TO postgres;
-GRANT MAINTAIN ON TABLE public.chat_conversa TO postgres;
-GRANT INSERT ON TABLE public.chat_conversa TO service_role;
-GRANT SELECT ON TABLE public.chat_conversa TO service_role;
-GRANT UPDATE ON TABLE public.chat_conversa TO service_role;
-GRANT DELETE ON TABLE public.chat_conversa TO service_role;
-GRANT TRUNCATE ON TABLE public.chat_conversa TO service_role;
-GRANT REFERENCES ON TABLE public.chat_conversa TO service_role;
-GRANT TRIGGER ON TABLE public.chat_conversa TO service_role;
-GRANT MAINTAIN ON TABLE public.chat_conversa TO service_role;
+GRANT INSERT ON TABLE public.contato_lead TO postgres;
+GRANT SELECT ON TABLE public.contato_lead TO postgres;
+GRANT UPDATE ON TABLE public.contato_lead TO postgres;
+GRANT DELETE ON TABLE public.contato_lead TO postgres;
+GRANT TRUNCATE ON TABLE public.contato_lead TO postgres;
+GRANT REFERENCES ON TABLE public.contato_lead TO postgres;
+GRANT TRIGGER ON TABLE public.contato_lead TO postgres;
+GRANT MAINTAIN ON TABLE public.contato_lead TO postgres;
+GRANT INSERT ON TABLE public.contato_lead TO service_role;
+GRANT SELECT ON TABLE public.contato_lead TO service_role;
+GRANT UPDATE ON TABLE public.contato_lead TO service_role;
+GRANT DELETE ON TABLE public.contato_lead TO service_role;
+GRANT TRUNCATE ON TABLE public.contato_lead TO service_role;
+GRANT REFERENCES ON TABLE public.contato_lead TO service_role;
+GRANT TRIGGER ON TABLE public.contato_lead TO service_role;
+GRANT MAINTAIN ON TABLE public.contato_lead TO service_role;
 GRANT SELECT ON SEQUENCE public.entrada_fiscal_personalizada_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.entrada_fiscal_personalizada_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.entrada_fiscal_personalizada_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.entrada_fiscal_personalizada_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.entrada_fiscal_personalizada_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.entrada_fiscal_personalizada_id_seq TO service_role;
-GRANT INSERT ON TABLE public.entrada_fiscal_personalizada TO postgres;
-GRANT SELECT ON TABLE public.entrada_fiscal_personalizada TO postgres;
-GRANT UPDATE ON TABLE public.entrada_fiscal_personalizada TO postgres;
-GRANT DELETE ON TABLE public.entrada_fiscal_personalizada TO postgres;
-GRANT TRUNCATE ON TABLE public.entrada_fiscal_personalizada TO postgres;
-GRANT REFERENCES ON TABLE public.entrada_fiscal_personalizada TO postgres;
-GRANT TRIGGER ON TABLE public.entrada_fiscal_personalizada TO postgres;
-GRANT MAINTAIN ON TABLE public.entrada_fiscal_personalizada TO postgres;
-GRANT INSERT ON TABLE public.entrada_fiscal_personalizada TO service_role;
-GRANT SELECT ON TABLE public.entrada_fiscal_personalizada TO service_role;
-GRANT UPDATE ON TABLE public.entrada_fiscal_personalizada TO service_role;
-GRANT DELETE ON TABLE public.entrada_fiscal_personalizada TO service_role;
-GRANT TRUNCATE ON TABLE public.entrada_fiscal_personalizada TO service_role;
-GRANT REFERENCES ON TABLE public.entrada_fiscal_personalizada TO service_role;
-GRANT TRIGGER ON TABLE public.entrada_fiscal_personalizada TO service_role;
-GRANT MAINTAIN ON TABLE public.entrada_fiscal_personalizada TO service_role;
-GRANT INSERT ON TABLE public.chat_mensagem TO postgres;
-GRANT SELECT ON TABLE public.chat_mensagem TO postgres;
-GRANT UPDATE ON TABLE public.chat_mensagem TO postgres;
-GRANT DELETE ON TABLE public.chat_mensagem TO postgres;
-GRANT TRUNCATE ON TABLE public.chat_mensagem TO postgres;
-GRANT REFERENCES ON TABLE public.chat_mensagem TO postgres;
-GRANT TRIGGER ON TABLE public.chat_mensagem TO postgres;
-GRANT MAINTAIN ON TABLE public.chat_mensagem TO postgres;
-GRANT INSERT ON TABLE public.chat_mensagem TO service_role;
-GRANT SELECT ON TABLE public.chat_mensagem TO service_role;
-GRANT UPDATE ON TABLE public.chat_mensagem TO service_role;
-GRANT DELETE ON TABLE public.chat_mensagem TO service_role;
-GRANT TRUNCATE ON TABLE public.chat_mensagem TO service_role;
-GRANT REFERENCES ON TABLE public.chat_mensagem TO service_role;
-GRANT TRIGGER ON TABLE public.chat_mensagem TO service_role;
-GRANT MAINTAIN ON TABLE public.chat_mensagem TO service_role;
-GRANT INSERT ON TABLE public.chat_participante TO postgres;
-GRANT SELECT ON TABLE public.chat_participante TO postgres;
-GRANT UPDATE ON TABLE public.chat_participante TO postgres;
-GRANT DELETE ON TABLE public.chat_participante TO postgres;
-GRANT TRUNCATE ON TABLE public.chat_participante TO postgres;
-GRANT REFERENCES ON TABLE public.chat_participante TO postgres;
-GRANT TRIGGER ON TABLE public.chat_participante TO postgres;
-GRANT MAINTAIN ON TABLE public.chat_participante TO postgres;
-GRANT INSERT ON TABLE public.chat_participante TO service_role;
-GRANT SELECT ON TABLE public.chat_participante TO service_role;
-GRANT UPDATE ON TABLE public.chat_participante TO service_role;
-GRANT DELETE ON TABLE public.chat_participante TO service_role;
-GRANT TRUNCATE ON TABLE public.chat_participante TO service_role;
-GRANT REFERENCES ON TABLE public.chat_participante TO service_role;
-GRANT TRIGGER ON TABLE public.chat_participante TO service_role;
-GRANT MAINTAIN ON TABLE public.chat_participante TO service_role;
-GRANT INSERT ON TABLE public.nfse_os_servico_vinculo TO postgres;
-GRANT SELECT ON TABLE public.nfse_os_servico_vinculo TO postgres;
-GRANT UPDATE ON TABLE public.nfse_os_servico_vinculo TO postgres;
-GRANT DELETE ON TABLE public.nfse_os_servico_vinculo TO postgres;
-GRANT TRUNCATE ON TABLE public.nfse_os_servico_vinculo TO postgres;
-GRANT REFERENCES ON TABLE public.nfse_os_servico_vinculo TO postgres;
-GRANT TRIGGER ON TABLE public.nfse_os_servico_vinculo TO postgres;
-GRANT MAINTAIN ON TABLE public.nfse_os_servico_vinculo TO postgres;
-GRANT INSERT ON TABLE public.nfse_os_servico_vinculo TO service_role;
-GRANT SELECT ON TABLE public.nfse_os_servico_vinculo TO service_role;
-GRANT UPDATE ON TABLE public.nfse_os_servico_vinculo TO service_role;
-GRANT DELETE ON TABLE public.nfse_os_servico_vinculo TO service_role;
-GRANT TRUNCATE ON TABLE public.nfse_os_servico_vinculo TO service_role;
-GRANT REFERENCES ON TABLE public.nfse_os_servico_vinculo TO service_role;
-GRANT TRIGGER ON TABLE public.nfse_os_servico_vinculo TO service_role;
-GRANT MAINTAIN ON TABLE public.nfse_os_servico_vinculo TO service_role;
 GRANT SELECT ON SEQUENCE public.mercadolivre_return_inventory_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.mercadolivre_return_inventory_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.mercadolivre_return_inventory_id_seq TO postgres;
@@ -49218,22 +50872,6 @@ GRANT USAGE ON SEQUENCE public.ositem_historico_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.ositem_historico_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.ositem_historico_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.ositem_historico_id_seq TO service_role;
-GRANT INSERT ON TABLE public.ositem_historico TO postgres;
-GRANT SELECT ON TABLE public.ositem_historico TO postgres;
-GRANT UPDATE ON TABLE public.ositem_historico TO postgres;
-GRANT DELETE ON TABLE public.ositem_historico TO postgres;
-GRANT TRUNCATE ON TABLE public.ositem_historico TO postgres;
-GRANT REFERENCES ON TABLE public.ositem_historico TO postgres;
-GRANT TRIGGER ON TABLE public.ositem_historico TO postgres;
-GRANT MAINTAIN ON TABLE public.ositem_historico TO postgres;
-GRANT INSERT ON TABLE public.ositem_historico TO service_role;
-GRANT SELECT ON TABLE public.ositem_historico TO service_role;
-GRANT UPDATE ON TABLE public.ositem_historico TO service_role;
-GRANT DELETE ON TABLE public.ositem_historico TO service_role;
-GRANT TRUNCATE ON TABLE public.ositem_historico TO service_role;
-GRANT REFERENCES ON TABLE public.ositem_historico TO service_role;
-GRANT TRIGGER ON TABLE public.ositem_historico TO service_role;
-GRANT MAINTAIN ON TABLE public.ositem_historico TO service_role;
 GRANT SELECT ON SEQUENCE public.cliente_endereco_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.cliente_endereco_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.cliente_endereco_id_seq TO postgres;
@@ -49242,28 +50880,30 @@ GRANT UPDATE ON SEQUENCE public.cliente_endereco_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.cliente_endereco_id_seq TO service_role;
 GRANT SELECT ON SEQUENCE public.cliente_endereco_id_seq TO authenticated;
 GRANT USAGE ON SEQUENCE public.cliente_endereco_id_seq TO authenticated;
-GRANT INSERT ON TABLE public.contato_lead TO postgres;
-GRANT SELECT ON TABLE public.contato_lead TO postgres;
-GRANT UPDATE ON TABLE public.contato_lead TO postgres;
-GRANT DELETE ON TABLE public.contato_lead TO postgres;
-GRANT TRUNCATE ON TABLE public.contato_lead TO postgres;
-GRANT REFERENCES ON TABLE public.contato_lead TO postgres;
-GRANT TRIGGER ON TABLE public.contato_lead TO postgres;
-GRANT MAINTAIN ON TABLE public.contato_lead TO postgres;
-GRANT INSERT ON TABLE public.contato_lead TO service_role;
-GRANT SELECT ON TABLE public.contato_lead TO service_role;
-GRANT UPDATE ON TABLE public.contato_lead TO service_role;
-GRANT DELETE ON TABLE public.contato_lead TO service_role;
-GRANT TRUNCATE ON TABLE public.contato_lead TO service_role;
-GRANT REFERENCES ON TABLE public.contato_lead TO service_role;
-GRANT TRIGGER ON TABLE public.contato_lead TO service_role;
-GRANT MAINTAIN ON TABLE public.contato_lead TO service_role;
 GRANT SELECT ON SEQUENCE public.contato_lead_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.contato_lead_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.contato_lead_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.contato_lead_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.contato_lead_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.contato_lead_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.checklist_documento_evento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.checklist_documento_evento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.checklist_documento_evento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.checklist_documento_evento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.checklist_documento_evento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.checklist_documento_evento_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.dre_implantacao_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.dre_implantacao_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.dre_implantacao_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.dre_implantacao_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.dre_implantacao_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.dre_implantacao_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.nfe_inutilizacao_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.nfe_inutilizacao_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.nfe_inutilizacao_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.nfe_inutilizacao_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.nfe_inutilizacao_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.nfe_inutilizacao_id_seq TO service_role;
 GRANT INSERT ON TABLE public.lancamento_de_eventos TO postgres;
 GRANT SELECT ON TABLE public.lancamento_de_eventos TO postgres;
 GRANT UPDATE ON TABLE public.lancamento_de_eventos TO postgres;
@@ -49292,6 +50932,22 @@ GRANT USAGE ON SEQUENCE public.classificacoes_resultado_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.classificacoes_resultado_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.classificacoes_resultado_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.classificacoes_resultado_id_seq TO service_role;
+GRANT INSERT ON TABLE public.aluguel_item TO postgres;
+GRANT SELECT ON TABLE public.aluguel_item TO postgres;
+GRANT UPDATE ON TABLE public.aluguel_item TO postgres;
+GRANT DELETE ON TABLE public.aluguel_item TO postgres;
+GRANT TRUNCATE ON TABLE public.aluguel_item TO postgres;
+GRANT REFERENCES ON TABLE public.aluguel_item TO postgres;
+GRANT TRIGGER ON TABLE public.aluguel_item TO postgres;
+GRANT MAINTAIN ON TABLE public.aluguel_item TO postgres;
+GRANT INSERT ON TABLE public.aluguel_item TO service_role;
+GRANT SELECT ON TABLE public.aluguel_item TO service_role;
+GRANT UPDATE ON TABLE public.aluguel_item TO service_role;
+GRANT DELETE ON TABLE public.aluguel_item TO service_role;
+GRANT TRUNCATE ON TABLE public.aluguel_item TO service_role;
+GRANT REFERENCES ON TABLE public.aluguel_item TO service_role;
+GRANT TRIGGER ON TABLE public.aluguel_item TO service_role;
+GRANT MAINTAIN ON TABLE public.aluguel_item TO service_role;
 GRANT INSERT ON TABLE public.eventos_financeiros TO postgres;
 GRANT SELECT ON TABLE public.eventos_financeiros TO postgres;
 GRANT UPDATE ON TABLE public.eventos_financeiros TO postgres;
@@ -49324,6 +50980,12 @@ GRANT TRUNCATE ON TABLE public.planosdecontagrupos TO service_role;
 GRANT REFERENCES ON TABLE public.planosdecontagrupos TO service_role;
 GRANT TRIGGER ON TABLE public.planosdecontagrupos TO service_role;
 GRANT MAINTAIN ON TABLE public.planosdecontagrupos TO service_role;
+GRANT SELECT ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO service_role;
 GRANT INSERT ON TABLE public.dre_mapeamento TO postgres;
 GRANT SELECT ON TABLE public.dre_mapeamento TO postgres;
 GRANT UPDATE ON TABLE public.dre_mapeamento TO postgres;
@@ -49340,18 +51002,6 @@ GRANT TRUNCATE ON TABLE public.dre_mapeamento TO service_role;
 GRANT REFERENCES ON TABLE public.dre_mapeamento TO service_role;
 GRANT TRIGGER ON TABLE public.dre_mapeamento TO service_role;
 GRANT MAINTAIN ON TABLE public.dre_mapeamento TO service_role;
-GRANT SELECT ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.plano_contas_classificacao_regra_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO service_role;
 GRANT INSERT ON TABLE public.checklist_documento_assinatura TO postgres;
 GRANT SELECT ON TABLE public.checklist_documento_assinatura TO postgres;
 GRANT UPDATE ON TABLE public.checklist_documento_assinatura TO postgres;
@@ -49416,28 +51066,24 @@ GRANT TRUNCATE ON TABLE public.checklist_documento_evento TO service_role;
 GRANT REFERENCES ON TABLE public.checklist_documento_evento TO service_role;
 GRANT TRIGGER ON TABLE public.checklist_documento_evento TO service_role;
 GRANT MAINTAIN ON TABLE public.checklist_documento_evento TO service_role;
+GRANT SELECT ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.eventos_financeiros_classificacao_id_seq TO service_role;
 GRANT SELECT ON SEQUENCE public.osaprovacao_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.osaprovacao_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.osaprovacao_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.osaprovacao_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.osaprovacao_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.osaprovacao_id_seq TO service_role;
-GRANT INSERT ON TABLE public.usoconsumo_saida TO postgres;
-GRANT SELECT ON TABLE public.usoconsumo_saida TO postgres;
-GRANT UPDATE ON TABLE public.usoconsumo_saida TO postgres;
-GRANT DELETE ON TABLE public.usoconsumo_saida TO postgres;
-GRANT TRUNCATE ON TABLE public.usoconsumo_saida TO postgres;
-GRANT REFERENCES ON TABLE public.usoconsumo_saida TO postgres;
-GRANT TRIGGER ON TABLE public.usoconsumo_saida TO postgres;
-GRANT MAINTAIN ON TABLE public.usoconsumo_saida TO postgres;
-GRANT INSERT ON TABLE public.usoconsumo_saida TO service_role;
-GRANT SELECT ON TABLE public.usoconsumo_saida TO service_role;
-GRANT UPDATE ON TABLE public.usoconsumo_saida TO service_role;
-GRANT DELETE ON TABLE public.usoconsumo_saida TO service_role;
-GRANT TRUNCATE ON TABLE public.usoconsumo_saida TO service_role;
-GRANT REFERENCES ON TABLE public.usoconsumo_saida TO service_role;
-GRANT TRIGGER ON TABLE public.usoconsumo_saida TO service_role;
-GRANT MAINTAIN ON TABLE public.usoconsumo_saida TO service_role;
+GRANT SELECT ON SEQUENCE public.checklist_documento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.checklist_documento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.checklist_documento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.checklist_documento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.checklist_documento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.checklist_documento_id_seq TO service_role;
 GRANT INSERT ON TABLE public.usoconsumo_item TO postgres;
 GRANT SELECT ON TABLE public.usoconsumo_item TO postgres;
 GRANT UPDATE ON TABLE public.usoconsumo_item TO postgres;
@@ -49470,6 +51116,34 @@ GRANT TRUNCATE ON TABLE public.planosdeconta TO service_role;
 GRANT REFERENCES ON TABLE public.planosdeconta TO service_role;
 GRANT TRIGGER ON TABLE public.planosdeconta TO service_role;
 GRANT MAINTAIN ON TABLE public.planosdeconta TO service_role;
+GRANT INSERT ON TABLE public.usoconsumo_saida TO postgres;
+GRANT SELECT ON TABLE public.usoconsumo_saida TO postgres;
+GRANT UPDATE ON TABLE public.usoconsumo_saida TO postgres;
+GRANT DELETE ON TABLE public.usoconsumo_saida TO postgres;
+GRANT TRUNCATE ON TABLE public.usoconsumo_saida TO postgres;
+GRANT REFERENCES ON TABLE public.usoconsumo_saida TO postgres;
+GRANT TRIGGER ON TABLE public.usoconsumo_saida TO postgres;
+GRANT MAINTAIN ON TABLE public.usoconsumo_saida TO postgres;
+GRANT INSERT ON TABLE public.usoconsumo_saida TO service_role;
+GRANT SELECT ON TABLE public.usoconsumo_saida TO service_role;
+GRANT UPDATE ON TABLE public.usoconsumo_saida TO service_role;
+GRANT DELETE ON TABLE public.usoconsumo_saida TO service_role;
+GRANT TRUNCATE ON TABLE public.usoconsumo_saida TO service_role;
+GRANT REFERENCES ON TABLE public.usoconsumo_saida TO service_role;
+GRANT TRIGGER ON TABLE public.usoconsumo_saida TO service_role;
+GRANT MAINTAIN ON TABLE public.usoconsumo_saida TO service_role;
+GRANT SELECT ON SEQUENCE public.checklist_documento_assinatura_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.checklist_documento_assinatura_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.checklist_documento_assinatura_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.checklist_documento_assinatura_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.checklist_documento_assinatura_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.checklist_documento_assinatura_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.checklist_documento_arquivo_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.checklist_documento_arquivo_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.checklist_documento_arquivo_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.checklist_documento_arquivo_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.checklist_documento_arquivo_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.checklist_documento_arquivo_id_seq TO service_role;
 GRANT INSERT ON TABLE public.usoconsumo_entrada TO postgres;
 GRANT SELECT ON TABLE public.usoconsumo_entrada TO postgres;
 GRANT UPDATE ON TABLE public.usoconsumo_entrada TO postgres;
@@ -49726,36 +51400,6 @@ GRANT TRUNCATE ON TABLE public.shopee_order TO service_role;
 GRANT REFERENCES ON TABLE public.shopee_order TO service_role;
 GRANT TRIGGER ON TABLE public.shopee_order TO service_role;
 GRANT MAINTAIN ON TABLE public.shopee_order TO service_role;
-GRANT SELECT ON SEQUENCE public.checklist_documento_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.checklist_documento_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.checklist_documento_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.checklist_documento_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.checklist_documento_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.checklist_documento_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.checklist_documento_assinatura_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.checklist_documento_assinatura_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.checklist_documento_assinatura_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.checklist_documento_assinatura_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.checklist_documento_assinatura_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.checklist_documento_assinatura_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.checklist_documento_arquivo_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.checklist_documento_arquivo_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.checklist_documento_arquivo_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.checklist_documento_arquivo_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.checklist_documento_arquivo_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.checklist_documento_arquivo_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.checklist_documento_evento_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.checklist_documento_evento_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.checklist_documento_evento_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.checklist_documento_evento_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.checklist_documento_evento_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.checklist_documento_evento_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.dre_implantacao_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.dre_implantacao_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.dre_implantacao_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.dre_implantacao_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.dre_implantacao_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.dre_implantacao_id_seq TO service_role;
 GRANT INSERT ON TABLE public.mercadolivre_claim TO postgres;
 GRANT SELECT ON TABLE public.mercadolivre_claim TO postgres;
 GRANT UPDATE ON TABLE public.mercadolivre_claim TO postgres;
@@ -51427,6 +53071,12 @@ GRANT TRUNCATE ON TABLE public.recebimento_por_documento TO service_role;
 GRANT REFERENCES ON TABLE public.recebimento_por_documento TO service_role;
 GRANT TRIGGER ON TABLE public.recebimento_por_documento TO service_role;
 GRANT MAINTAIN ON TABLE public.recebimento_por_documento TO service_role;
+GRANT SELECT ON SEQUENCE public.shopee_account_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.shopee_account_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.shopee_account_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.shopee_account_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.shopee_account_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.shopee_account_id_seq TO service_role;
 GRANT INSERT ON TABLE public.orcamento_produto_avulso TO postgres;
 GRANT SELECT ON TABLE public.orcamento_produto_avulso TO postgres;
 GRANT UPDATE ON TABLE public.orcamento_produto_avulso TO postgres;
@@ -51459,12 +53109,6 @@ GRANT TRUNCATE ON TABLE public.estoque_movimento_autor TO service_role;
 GRANT REFERENCES ON TABLE public.estoque_movimento_autor TO service_role;
 GRANT TRIGGER ON TABLE public.estoque_movimento_autor TO service_role;
 GRANT MAINTAIN ON TABLE public.estoque_movimento_autor TO service_role;
-GRANT SELECT ON SEQUENCE public.shopee_account_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.shopee_account_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.shopee_account_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.shopee_account_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.shopee_account_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.shopee_account_id_seq TO service_role;
 GRANT SELECT ON SEQUENCE public.shopee_product_link_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.shopee_product_link_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.shopee_product_link_id_seq TO postgres;
@@ -51477,12 +53121,6 @@ GRANT USAGE ON SEQUENCE public.auditoria_evento_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.auditoria_evento_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.auditoria_evento_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.auditoria_evento_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.nfe_inutilizacao_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.nfe_inutilizacao_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.nfe_inutilizacao_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.nfe_inutilizacao_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.nfe_inutilizacao_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.nfe_inutilizacao_id_seq TO service_role;
 GRANT INSERT ON TABLE public.cliente_endereco TO postgres;
 GRANT SELECT ON TABLE public.cliente_endereco TO postgres;
 GRANT UPDATE ON TABLE public.cliente_endereco TO postgres;
@@ -51575,6 +53213,70 @@ GRANT USAGE ON SEQUENCE public.mercadolivre_product_link_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.mercadolivre_product_link_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.mercadolivre_product_link_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.mercadolivre_product_link_id_seq TO service_role;
+GRANT INSERT ON TABLE public.aluguel_checklist TO postgres;
+GRANT SELECT ON TABLE public.aluguel_checklist TO postgres;
+GRANT UPDATE ON TABLE public.aluguel_checklist TO postgres;
+GRANT DELETE ON TABLE public.aluguel_checklist TO postgres;
+GRANT TRUNCATE ON TABLE public.aluguel_checklist TO postgres;
+GRANT REFERENCES ON TABLE public.aluguel_checklist TO postgres;
+GRANT TRIGGER ON TABLE public.aluguel_checklist TO postgres;
+GRANT MAINTAIN ON TABLE public.aluguel_checklist TO postgres;
+GRANT INSERT ON TABLE public.aluguel_checklist TO service_role;
+GRANT SELECT ON TABLE public.aluguel_checklist TO service_role;
+GRANT UPDATE ON TABLE public.aluguel_checklist TO service_role;
+GRANT DELETE ON TABLE public.aluguel_checklist TO service_role;
+GRANT TRUNCATE ON TABLE public.aluguel_checklist TO service_role;
+GRANT REFERENCES ON TABLE public.aluguel_checklist TO service_role;
+GRANT TRIGGER ON TABLE public.aluguel_checklist TO service_role;
+GRANT MAINTAIN ON TABLE public.aluguel_checklist TO service_role;
+GRANT INSERT ON TABLE public.aluguel_checklist_item TO postgres;
+GRANT SELECT ON TABLE public.aluguel_checklist_item TO postgres;
+GRANT UPDATE ON TABLE public.aluguel_checklist_item TO postgres;
+GRANT DELETE ON TABLE public.aluguel_checklist_item TO postgres;
+GRANT TRUNCATE ON TABLE public.aluguel_checklist_item TO postgres;
+GRANT REFERENCES ON TABLE public.aluguel_checklist_item TO postgres;
+GRANT TRIGGER ON TABLE public.aluguel_checklist_item TO postgres;
+GRANT MAINTAIN ON TABLE public.aluguel_checklist_item TO postgres;
+GRANT INSERT ON TABLE public.aluguel_checklist_item TO service_role;
+GRANT SELECT ON TABLE public.aluguel_checklist_item TO service_role;
+GRANT UPDATE ON TABLE public.aluguel_checklist_item TO service_role;
+GRANT DELETE ON TABLE public.aluguel_checklist_item TO service_role;
+GRANT TRUNCATE ON TABLE public.aluguel_checklist_item TO service_role;
+GRANT REFERENCES ON TABLE public.aluguel_checklist_item TO service_role;
+GRANT TRIGGER ON TABLE public.aluguel_checklist_item TO service_role;
+GRANT MAINTAIN ON TABLE public.aluguel_checklist_item TO service_role;
+GRANT INSERT ON TABLE public.aluguel_checklist_imagem TO postgres;
+GRANT SELECT ON TABLE public.aluguel_checklist_imagem TO postgres;
+GRANT UPDATE ON TABLE public.aluguel_checklist_imagem TO postgres;
+GRANT DELETE ON TABLE public.aluguel_checklist_imagem TO postgres;
+GRANT TRUNCATE ON TABLE public.aluguel_checklist_imagem TO postgres;
+GRANT REFERENCES ON TABLE public.aluguel_checklist_imagem TO postgres;
+GRANT TRIGGER ON TABLE public.aluguel_checklist_imagem TO postgres;
+GRANT MAINTAIN ON TABLE public.aluguel_checklist_imagem TO postgres;
+GRANT INSERT ON TABLE public.aluguel_checklist_imagem TO service_role;
+GRANT SELECT ON TABLE public.aluguel_checklist_imagem TO service_role;
+GRANT UPDATE ON TABLE public.aluguel_checklist_imagem TO service_role;
+GRANT DELETE ON TABLE public.aluguel_checklist_imagem TO service_role;
+GRANT TRUNCATE ON TABLE public.aluguel_checklist_imagem TO service_role;
+GRANT REFERENCES ON TABLE public.aluguel_checklist_imagem TO service_role;
+GRANT TRIGGER ON TABLE public.aluguel_checklist_imagem TO service_role;
+GRANT MAINTAIN ON TABLE public.aluguel_checklist_imagem TO service_role;
+GRANT INSERT ON TABLE public.aluguel_evento TO postgres;
+GRANT SELECT ON TABLE public.aluguel_evento TO postgres;
+GRANT UPDATE ON TABLE public.aluguel_evento TO postgres;
+GRANT DELETE ON TABLE public.aluguel_evento TO postgres;
+GRANT TRUNCATE ON TABLE public.aluguel_evento TO postgres;
+GRANT REFERENCES ON TABLE public.aluguel_evento TO postgres;
+GRANT TRIGGER ON TABLE public.aluguel_evento TO postgres;
+GRANT MAINTAIN ON TABLE public.aluguel_evento TO postgres;
+GRANT INSERT ON TABLE public.aluguel_evento TO service_role;
+GRANT SELECT ON TABLE public.aluguel_evento TO service_role;
+GRANT UPDATE ON TABLE public.aluguel_evento TO service_role;
+GRANT DELETE ON TABLE public.aluguel_evento TO service_role;
+GRANT TRUNCATE ON TABLE public.aluguel_evento TO service_role;
+GRANT REFERENCES ON TABLE public.aluguel_evento TO service_role;
+GRANT TRIGGER ON TABLE public.aluguel_evento TO service_role;
+GRANT MAINTAIN ON TABLE public.aluguel_evento TO service_role;
 GRANT INSERT ON TABLE public.nfe_item TO postgres;
 GRANT SELECT ON TABLE public.nfe_item TO postgres;
 GRANT UPDATE ON TABLE public.nfe_item TO postgres;
@@ -51591,12 +53293,6 @@ GRANT TRUNCATE ON TABLE public.nfe_item TO service_role;
 GRANT REFERENCES ON TABLE public.nfe_item TO service_role;
 GRANT TRIGGER ON TABLE public.nfe_item TO service_role;
 GRANT MAINTAIN ON TABLE public.nfe_item TO service_role;
-GRANT SELECT ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO service_role;
 GRANT INSERT ON TABLE public.checklist_documento_convite_assinatura TO postgres;
 GRANT SELECT ON TABLE public.checklist_documento_convite_assinatura TO postgres;
 GRANT UPDATE ON TABLE public.checklist_documento_convite_assinatura TO postgres;
@@ -51613,6 +53309,12 @@ GRANT TRUNCATE ON TABLE public.checklist_documento_convite_assinatura TO service
 GRANT REFERENCES ON TABLE public.checklist_documento_convite_assinatura TO service_role;
 GRANT TRIGGER ON TABLE public.checklist_documento_convite_assinatura TO service_role;
 GRANT MAINTAIN ON TABLE public.checklist_documento_convite_assinatura TO service_role;
+GRANT SELECT ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.usoconsumo_entrada_item_id_seq TO service_role;
 GRANT SELECT ON SEQUENCE public.servico_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.servico_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.servico_id_seq TO postgres;
@@ -51655,12 +53357,6 @@ GRANT USAGE ON SEQUENCE public.unidademedida_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.unidademedida_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.unidademedida_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.unidademedida_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.veiculo_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.veiculo_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.veiculo_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.veiculo_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.veiculo_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.veiculo_id_seq TO service_role;
 GRANT INSERT ON TABLE public.eventos_financeiros_classificacao TO postgres;
 GRANT SELECT ON TABLE public.eventos_financeiros_classificacao TO postgres;
 GRANT UPDATE ON TABLE public.eventos_financeiros_classificacao TO postgres;
@@ -51693,6 +53389,12 @@ GRANT TRUNCATE ON TABLE public.dre_implantacao TO service_role;
 GRANT REFERENCES ON TABLE public.dre_implantacao TO service_role;
 GRANT TRIGGER ON TABLE public.dre_implantacao TO service_role;
 GRANT MAINTAIN ON TABLE public.dre_implantacao TO service_role;
+GRANT SELECT ON SEQUENCE public.veiculo_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.veiculo_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.veiculo_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.veiculo_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.veiculo_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.veiculo_id_seq TO service_role;
 GRANT INSERT ON TABLE public.entrada TO postgres;
 GRANT SELECT ON TABLE public.entrada TO postgres;
 GRANT UPDATE ON TABLE public.entrada TO postgres;
@@ -51760,12 +53462,6 @@ GRANT MAINTAIN ON TABLE public.cliente TO service_role;
 GRANT INSERT ON TABLE public.cliente TO authenticated;
 GRANT SELECT ON TABLE public.cliente TO authenticated;
 GRANT UPDATE ON TABLE public.cliente TO authenticated;
-GRANT SELECT ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO service_role;
 GRANT INSERT ON TABLE public.telegram_usuario_preferencia TO postgres;
 GRANT SELECT ON TABLE public.telegram_usuario_preferencia TO postgres;
 GRANT UPDATE ON TABLE public.telegram_usuario_preferencia TO postgres;
@@ -51782,6 +53478,12 @@ GRANT TRUNCATE ON TABLE public.telegram_usuario_preferencia TO service_role;
 GRANT REFERENCES ON TABLE public.telegram_usuario_preferencia TO service_role;
 GRANT TRIGGER ON TABLE public.telegram_usuario_preferencia TO service_role;
 GRANT MAINTAIN ON TABLE public.telegram_usuario_preferencia TO service_role;
+GRANT SELECT ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.telegram_fiscal_entrega_id_seq TO service_role;
 GRANT INSERT ON TABLE public.telegram_fiscal_entrega TO postgres;
 GRANT SELECT ON TABLE public.telegram_fiscal_entrega TO postgres;
 GRANT UPDATE ON TABLE public.telegram_fiscal_entrega TO postgres;
@@ -51798,6 +53500,24 @@ GRANT TRUNCATE ON TABLE public.telegram_fiscal_entrega TO service_role;
 GRANT REFERENCES ON TABLE public.telegram_fiscal_entrega TO service_role;
 GRANT TRIGGER ON TABLE public.telegram_fiscal_entrega TO service_role;
 GRANT MAINTAIN ON TABLE public.telegram_fiscal_entrega TO service_role;
+GRANT SELECT ON SEQUENCE public.aluguel_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.aluguel_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.aluguel_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.aluguel_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.aluguel_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.aluguel_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.aluguel_item_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.aluguel_item_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.aluguel_item_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.aluguel_item_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.aluguel_item_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.aluguel_item_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.aluguel_checklist_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.aluguel_checklist_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.aluguel_checklist_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.aluguel_checklist_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.aluguel_checklist_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.aluguel_checklist_id_seq TO service_role;
 GRANT SELECT ON SEQUENCE public.system_notification_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.system_notification_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.system_notification_id_seq TO postgres;
@@ -51821,6 +53541,18 @@ GRANT REFERENCES ON TABLE public.system_notification TO service_role;
 GRANT TRIGGER ON TABLE public.system_notification TO service_role;
 GRANT MAINTAIN ON TABLE public.system_notification TO service_role;
 GRANT SELECT ON TABLE public.system_notification TO authenticated;
+GRANT SELECT ON SEQUENCE public.aluguel_checklist_item_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.aluguel_checklist_item_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.aluguel_checklist_item_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.aluguel_checklist_item_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.aluguel_checklist_item_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.aluguel_checklist_item_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.aluguel_checklist_imagem_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.aluguel_checklist_imagem_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.aluguel_checklist_imagem_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.aluguel_checklist_imagem_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.aluguel_checklist_imagem_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.aluguel_checklist_imagem_id_seq TO service_role;
 GRANT INSERT ON TABLE public.checklist_video TO postgres;
 GRANT SELECT ON TABLE public.checklist_video TO postgres;
 GRANT UPDATE ON TABLE public.checklist_video TO postgres;
@@ -51843,12 +53575,6 @@ GRANT USAGE ON SEQUENCE public.plano_contas_lote_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.plano_contas_lote_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.plano_contas_lote_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.plano_contas_lote_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.plano_contas_lote_item_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.plano_contas_lote_item_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.plano_contas_lote_item_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.plano_contas_lote_item_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.plano_contas_lote_item_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.plano_contas_lote_item_id_seq TO service_role;
 GRANT INSERT ON TABLE public.plano_contas_lote TO postgres;
 GRANT SELECT ON TABLE public.plano_contas_lote TO postgres;
 GRANT UPDATE ON TABLE public.plano_contas_lote TO postgres;
@@ -51881,6 +53607,12 @@ GRANT TRUNCATE ON TABLE public.plano_contas_lote_item TO service_role;
 GRANT REFERENCES ON TABLE public.plano_contas_lote_item TO service_role;
 GRANT TRIGGER ON TABLE public.plano_contas_lote_item TO service_role;
 GRANT MAINTAIN ON TABLE public.plano_contas_lote_item TO service_role;
+GRANT SELECT ON SEQUENCE public.plano_contas_lote_item_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.plano_contas_lote_item_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.plano_contas_lote_item_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.plano_contas_lote_item_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.plano_contas_lote_item_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.plano_contas_lote_item_id_seq TO service_role;
 GRANT INSERT ON TABLE public.entity_video TO postgres;
 GRANT SELECT ON TABLE public.entity_video TO postgres;
 GRANT UPDATE ON TABLE public.entity_video TO postgres;
@@ -52085,6 +53817,12 @@ GRANT TRUNCATE ON TABLE public.fiscal_sped_validacao_execucao TO service_role;
 GRANT REFERENCES ON TABLE public.fiscal_sped_validacao_execucao TO service_role;
 GRANT TRIGGER ON TABLE public.fiscal_sped_validacao_execucao TO service_role;
 GRANT MAINTAIN ON TABLE public.fiscal_sped_validacao_execucao TO service_role;
+GRANT SELECT ON SEQUENCE public.aluguel_evento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.aluguel_evento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.aluguel_evento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.aluguel_evento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.aluguel_evento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.aluguel_evento_id_seq TO service_role;
 GRANT INSERT ON TABLE public.fiscal_sped_inconsistencia TO postgres;
 GRANT SELECT ON TABLE public.fiscal_sped_inconsistencia TO postgres;
 GRANT UPDATE ON TABLE public.fiscal_sped_inconsistencia TO postgres;
@@ -52197,6 +53935,22 @@ GRANT TRUNCATE ON TABLE public.fiscal_sped_documento_snapshot TO service_role;
 GRANT REFERENCES ON TABLE public.fiscal_sped_documento_snapshot TO service_role;
 GRANT TRIGGER ON TABLE public.fiscal_sped_documento_snapshot TO service_role;
 GRANT MAINTAIN ON TABLE public.fiscal_sped_documento_snapshot TO service_role;
+GRANT INSERT ON TABLE public.aluguel TO postgres;
+GRANT SELECT ON TABLE public.aluguel TO postgres;
+GRANT UPDATE ON TABLE public.aluguel TO postgres;
+GRANT DELETE ON TABLE public.aluguel TO postgres;
+GRANT TRUNCATE ON TABLE public.aluguel TO postgres;
+GRANT REFERENCES ON TABLE public.aluguel TO postgres;
+GRANT TRIGGER ON TABLE public.aluguel TO postgres;
+GRANT MAINTAIN ON TABLE public.aluguel TO postgres;
+GRANT INSERT ON TABLE public.aluguel TO service_role;
+GRANT SELECT ON TABLE public.aluguel TO service_role;
+GRANT UPDATE ON TABLE public.aluguel TO service_role;
+GRANT DELETE ON TABLE public.aluguel TO service_role;
+GRANT TRUNCATE ON TABLE public.aluguel TO service_role;
+GRANT REFERENCES ON TABLE public.aluguel TO service_role;
+GRANT TRIGGER ON TABLE public.aluguel TO service_role;
+GRANT MAINTAIN ON TABLE public.aluguel TO service_role;
 GRANT SELECT ON SEQUENCE public.tipos_motivo_saida_id_seq TO postgres;
 GRANT UPDATE ON SEQUENCE public.tipos_motivo_saida_id_seq TO postgres;
 GRANT USAGE ON SEQUENCE public.tipos_motivo_saida_id_seq TO postgres;
@@ -52209,48 +53963,6 @@ GRANT USAGE ON SEQUENCE public.pagamento_multiplo_rateio_id_seq TO postgres;
 GRANT SELECT ON SEQUENCE public.pagamento_multiplo_rateio_id_seq TO service_role;
 GRANT UPDATE ON SEQUENCE public.pagamento_multiplo_rateio_id_seq TO service_role;
 GRANT USAGE ON SEQUENCE public.pagamento_multiplo_rateio_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.orcamento_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.orcamento_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.orcamento_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.orcamento_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.orcamento_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.orcamento_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.orcamento_produto_avulso_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.orcamento_produto_avulso_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.orcamento_produto_avulso_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.orcamento_produto_avulso_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.orcamento_produto_avulso_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.orcamento_produto_avulso_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.transacao_parcelamento_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.transacao_parcelamento_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.transacao_parcelamento_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.transacao_parcelamento_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.transacao_parcelamento_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.transacao_parcelamento_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.telegram_estoque_entrega_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.telegram_estoque_entrega_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.telegram_estoque_entrega_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.telegram_estoque_entrega_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.telegram_estoque_entrega_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.telegram_estoque_entrega_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.vendaaprovacao_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.vendaaprovacao_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.vendaaprovacao_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.vendaaprovacao_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.vendaaprovacao_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.vendaaprovacao_id_seq TO service_role;
-GRANT SELECT ON SEQUENCE public.transacao_contraparte_historico_id_seq TO postgres;
-GRANT UPDATE ON SEQUENCE public.transacao_contraparte_historico_id_seq TO postgres;
-GRANT USAGE ON SEQUENCE public.transacao_contraparte_historico_id_seq TO postgres;
-GRANT SELECT ON SEQUENCE public.transacao_contraparte_historico_id_seq TO service_role;
-GRANT UPDATE ON SEQUENCE public.transacao_contraparte_historico_id_seq TO service_role;
-GRANT USAGE ON SEQUENCE public.transacao_contraparte_historico_id_seq TO service_role;
 GRANT INSERT ON TABLE public.fiscal_sped_item_snapshot TO postgres;
 GRANT SELECT ON TABLE public.fiscal_sped_item_snapshot TO postgres;
 GRANT UPDATE ON TABLE public.fiscal_sped_item_snapshot TO postgres;
@@ -52267,6 +53979,18 @@ GRANT TRUNCATE ON TABLE public.fiscal_sped_item_snapshot TO service_role;
 GRANT REFERENCES ON TABLE public.fiscal_sped_item_snapshot TO service_role;
 GRANT TRIGGER ON TABLE public.fiscal_sped_item_snapshot TO service_role;
 GRANT MAINTAIN ON TABLE public.fiscal_sped_item_snapshot TO service_role;
+GRANT SELECT ON SEQUENCE public.orcamento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.orcamento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.orcamento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.orcamento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.orcamento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.orcamento_id_seq TO service_role;
+GRANT SELECT ON SEQUENCE public.orcamento_produto_avulso_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.orcamento_produto_avulso_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.orcamento_produto_avulso_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.orcamento_produto_avulso_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.orcamento_produto_avulso_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.orcamento_produto_avulso_id_seq TO service_role;
 GRANT INSERT ON TABLE public.fiscal_sped_cadastro_snapshot TO postgres;
 GRANT SELECT ON TABLE public.fiscal_sped_cadastro_snapshot TO postgres;
 GRANT UPDATE ON TABLE public.fiscal_sped_cadastro_snapshot TO postgres;
@@ -52283,6 +54007,12 @@ GRANT TRUNCATE ON TABLE public.fiscal_sped_cadastro_snapshot TO service_role;
 GRANT REFERENCES ON TABLE public.fiscal_sped_cadastro_snapshot TO service_role;
 GRANT TRIGGER ON TABLE public.fiscal_sped_cadastro_snapshot TO service_role;
 GRANT MAINTAIN ON TABLE public.fiscal_sped_cadastro_snapshot TO service_role;
+GRANT SELECT ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.estoque_saida_item_fiscal_id_seq TO service_role;
 GRANT INSERT ON TABLE public.fiscal_sped_ajuste_apuracao TO postgres;
 GRANT SELECT ON TABLE public.fiscal_sped_ajuste_apuracao TO postgres;
 GRANT UPDATE ON TABLE public.fiscal_sped_ajuste_apuracao TO postgres;
@@ -52299,6 +54029,12 @@ GRANT TRUNCATE ON TABLE public.fiscal_sped_ajuste_apuracao TO service_role;
 GRANT REFERENCES ON TABLE public.fiscal_sped_ajuste_apuracao TO service_role;
 GRANT TRIGGER ON TABLE public.fiscal_sped_ajuste_apuracao TO service_role;
 GRANT MAINTAIN ON TABLE public.fiscal_sped_ajuste_apuracao TO service_role;
+GRANT SELECT ON SEQUENCE public.transacao_parcelamento_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.transacao_parcelamento_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.transacao_parcelamento_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.transacao_parcelamento_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.transacao_parcelamento_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.transacao_parcelamento_id_seq TO service_role;
 GRANT INSERT ON TABLE public.fiscal_sped_efd_anterior_importacao TO postgres;
 GRANT SELECT ON TABLE public.fiscal_sped_efd_anterior_importacao TO postgres;
 GRANT UPDATE ON TABLE public.fiscal_sped_efd_anterior_importacao TO postgres;
@@ -52315,6 +54051,12 @@ GRANT TRUNCATE ON TABLE public.fiscal_sped_efd_anterior_importacao TO service_ro
 GRANT REFERENCES ON TABLE public.fiscal_sped_efd_anterior_importacao TO service_role;
 GRANT TRIGGER ON TABLE public.fiscal_sped_efd_anterior_importacao TO service_role;
 GRANT MAINTAIN ON TABLE public.fiscal_sped_efd_anterior_importacao TO service_role;
+GRANT SELECT ON SEQUENCE public.telegram_estoque_entrega_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.telegram_estoque_entrega_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.telegram_estoque_entrega_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.telegram_estoque_entrega_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.telegram_estoque_entrega_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.telegram_estoque_entrega_id_seq TO service_role;
 GRANT INSERT ON TABLE public.fiscal_sped_apuracao_snapshot TO postgres;
 GRANT SELECT ON TABLE public.fiscal_sped_apuracao_snapshot TO postgres;
 GRANT UPDATE ON TABLE public.fiscal_sped_apuracao_snapshot TO postgres;
@@ -52331,6 +54073,12 @@ GRANT TRUNCATE ON TABLE public.fiscal_sped_apuracao_snapshot TO service_role;
 GRANT REFERENCES ON TABLE public.fiscal_sped_apuracao_snapshot TO service_role;
 GRANT TRIGGER ON TABLE public.fiscal_sped_apuracao_snapshot TO service_role;
 GRANT MAINTAIN ON TABLE public.fiscal_sped_apuracao_snapshot TO service_role;
+GRANT SELECT ON SEQUENCE public.vendaaprovacao_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.vendaaprovacao_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.vendaaprovacao_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.vendaaprovacao_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.vendaaprovacao_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.vendaaprovacao_id_seq TO service_role;
 GRANT INSERT ON TABLE public.fiscal_sped_1601_importacao TO postgres;
 GRANT SELECT ON TABLE public.fiscal_sped_1601_importacao TO postgres;
 GRANT UPDATE ON TABLE public.fiscal_sped_1601_importacao TO postgres;
@@ -52347,6 +54095,12 @@ GRANT TRUNCATE ON TABLE public.fiscal_sped_1601_importacao TO service_role;
 GRANT REFERENCES ON TABLE public.fiscal_sped_1601_importacao TO service_role;
 GRANT TRIGGER ON TABLE public.fiscal_sped_1601_importacao TO service_role;
 GRANT MAINTAIN ON TABLE public.fiscal_sped_1601_importacao TO service_role;
+GRANT SELECT ON SEQUENCE public.transacao_contraparte_historico_id_seq TO postgres;
+GRANT UPDATE ON SEQUENCE public.transacao_contraparte_historico_id_seq TO postgres;
+GRANT USAGE ON SEQUENCE public.transacao_contraparte_historico_id_seq TO postgres;
+GRANT SELECT ON SEQUENCE public.transacao_contraparte_historico_id_seq TO service_role;
+GRANT UPDATE ON SEQUENCE public.transacao_contraparte_historico_id_seq TO service_role;
+GRANT USAGE ON SEQUENCE public.transacao_contraparte_historico_id_seq TO service_role;
 GRANT EXECUTE ON FUNCTION public.strict_word_similarity_commutator_op(text, text) TO PUBLIC;
 GRANT EXECUTE ON FUNCTION public.strict_word_similarity_commutator_op(text, text) TO supabase_admin;
 GRANT EXECUTE ON FUNCTION public.strict_word_similarity_commutator_op(text, text) TO postgres;
@@ -52876,10 +54630,8 @@ GRANT EXECUTE ON FUNCTION public.estornar_consumos_os(p_os_id integer) TO postgr
 GRANT EXECUTE ON FUNCTION public.estornar_consumos_os(p_os_id integer) TO service_role;
 GRANT EXECUTE ON FUNCTION public.dashboard_estoque_resumo() TO postgres;
 GRANT EXECUTE ON FUNCTION public.dashboard_estoque_resumo() TO service_role;
-GRANT EXECUTE ON FUNCTION public.cancelar_saida_estoque(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) TO postgres;
-GRANT EXECUTE ON FUNCTION public.cancelar_saida_estoque(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) TO service_role;
-GRANT EXECUTE ON FUNCTION public.cancelar_saida_usoconsumo(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) TO postgres;
-GRANT EXECUTE ON FUNCTION public.cancelar_saida_usoconsumo(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.set_aluguel_updated_at() TO postgres;
+GRANT EXECUTE ON FUNCTION public.set_aluguel_updated_at() TO service_role;
 GRANT EXECUTE ON FUNCTION public.registrar_entrada_comercial_apropriada(p_entrada jsonb, p_itens jsonb, p_transacoes jsonb) TO postgres;
 GRANT EXECUTE ON FUNCTION public.registrar_entrada_comercial_apropriada(p_entrada jsonb, p_itens jsonb, p_transacoes jsonb) TO service_role;
 GRANT EXECUTE ON FUNCTION public.reconciliar_eventos_financeiros_os(p_ordemservicoid integer, p_incluir_comissoes boolean) TO postgres;
@@ -52906,6 +54658,8 @@ GRANT EXECUTE ON FUNCTION public.processar_devolucao_mercadolivre_estoque(p_empr
 GRANT EXECUTE ON FUNCTION public.processar_devolucao_mercadolivre_estoque(p_empresa_id integer, p_request_key uuid, p_ml_claim_id text, p_produto_id integer, p_disposition text, p_quantity integer, p_note text, p_processed_by uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.abonar_transacao_pendente(p_transacao_id bigint, p_abonado_por uuid, p_motivo text) TO postgres;
 GRANT EXECUTE ON FUNCTION public.abonar_transacao_pendente(p_transacao_id bigint, p_abonado_por uuid, p_motivo text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_hoje() TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_hoje() TO service_role;
 GRANT EXECUTE ON FUNCTION public.set_lote_pecas_updatedat() TO postgres;
 GRANT EXECUTE ON FUNCTION public.set_lote_pecas_updatedat() TO service_role;
 GRANT EXECUTE ON FUNCTION public.recalcular_documentos_da_transacao(p_transacao_id bigint) TO postgres;
@@ -52960,6 +54714,8 @@ GRANT EXECUTE ON FUNCTION public.tg_congelar_comissao_criacao() TO postgres;
 GRANT EXECUTE ON FUNCTION public.tg_congelar_comissao_criacao() TO service_role;
 GRANT EXECUTE ON FUNCTION public.recalcular_comissao_criacao_os(p_ordemservicoid integer, p_forcar boolean) TO postgres;
 GRANT EXECUTE ON FUNCTION public.recalcular_comissao_criacao_os(p_ordemservicoid integer, p_forcar boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_baixar_item(p_item_id bigint, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_baixar_item(p_item_id bigint, p_usuario uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.dre_gravar_classificacao_evento(p_evento_id bigint, p_template_id integer, p_usuario uuid, p_origem_forcada text) TO postgres;
 GRANT EXECUTE ON FUNCTION public.dre_gravar_classificacao_evento(p_evento_id bigint, p_template_id integer, p_usuario uuid, p_origem_forcada text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.dre_congelar_classificacao_legado(p_template_id integer, p_lote integer) TO postgres;
@@ -52986,10 +54742,20 @@ GRANT EXECUTE ON FUNCTION public.invalidar_aprovacoes_venda(p_venda_id integer, 
 GRANT EXECUTE ON FUNCTION public.invalidar_aprovacoes_venda(p_venda_id integer, p_motivo text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.excluir_movimento_saldo_cliente(p_cliente_id integer, p_movimento_id bigint, p_usuario uuid) TO postgres;
 GRANT EXECUTE ON FUNCTION public.excluir_movimento_saldo_cliente(p_cliente_id integer, p_movimento_id bigint, p_usuario uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_devolver_item(p_item_id bigint, p_motivo text, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_devolver_item(p_item_id bigint, p_motivo text, p_usuario uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_salvar(p_payload jsonb, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_salvar(p_payload jsonb, p_usuario uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.travar_fluxo_faturamento_os() TO postgres;
 GRANT EXECUTE ON FUNCTION public.travar_fluxo_faturamento_os() TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_pausar(p_id bigint, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_pausar(p_id bigint, p_usuario uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_reiniciar(p_id bigint, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_reiniciar(p_id bigint, p_usuario uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.tg_espelhar_comissao_ajustada() TO postgres;
 GRANT EXECUTE ON FUNCTION public.tg_espelhar_comissao_ajustada() TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_excluir(p_id bigint, p_motivo text, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_excluir(p_id bigint, p_motivo text, p_usuario uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.devolver_os_ao_desativar_faturamento() TO postgres;
 GRANT EXECUTE ON FUNCTION public.devolver_os_ao_desativar_faturamento() TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_site_product_link_changed() TO postgres;
@@ -53008,10 +54774,18 @@ GRANT EXECUTE ON FUNCTION public.fn_concluir_sincronizacao_site(p_queue_id bigin
 GRANT EXECUTE ON FUNCTION public.fn_concluir_sincronizacao_site(p_queue_id bigint, p_desired_version bigint, p_success boolean, p_error text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_importar_pedido_site(p_empresa_id integer, p_pedido jsonb) TO postgres;
 GRANT EXECUTE ON FUNCTION public.fn_importar_pedido_site(p_empresa_id integer, p_pedido jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_salvar_checklist(p_aluguel_id bigint, p_tipo text, p_payload jsonb, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_salvar_checklist(p_aluguel_id bigint, p_tipo text, p_payload jsonb, p_usuario uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_sync_site_order_delivery_snapshot() TO postgres;
 GRANT EXECUTE ON FUNCTION public.fn_sync_site_order_delivery_snapshot() TO service_role;
+GRANT EXECUTE ON FUNCTION public.cancelar_saida_estoque(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.cancelar_saida_estoque(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.cancelar_saida_usoconsumo(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.cancelar_saida_usoconsumo(p_saida_id bigint, p_motivo text, p_cancelada_by uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_publicar_produto_novo_no_site() TO postgres;
 GRANT EXECUTE ON FUNCTION public.fn_publicar_produto_novo_no_site() TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_encerrar(p_id bigint, p_encerrado_em timestamp with time zone, p_observacao text, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_encerrar(p_id bigint, p_encerrado_em timestamp with time zone, p_observacao text, p_usuario uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.tg_transacao_valor_base_padrao() TO postgres;
 GRANT EXECUTE ON FUNCTION public.tg_transacao_valor_base_padrao() TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_registrar_evento_notificacao_os() TO postgres;
@@ -53320,12 +55094,16 @@ GRANT EXECUTE ON FUNCTION public.transacao_valor_liquido_efetivo(p_transacao tra
 GRANT EXECUTE ON FUNCTION public.transacao_valor_liquido_efetivo(p_transacao transacao) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_proteger_itens_venda_site() TO postgres;
 GRANT EXECUTE ON FUNCTION public.fn_proteger_itens_venda_site() TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_reter_falta(p_item_id bigint, p_falta integer, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_reter_falta(p_item_id bigint, p_falta integer, p_usuario uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_proteger_venda_site() TO postgres;
 GRANT EXECUTE ON FUNCTION public.fn_proteger_venda_site() TO service_role;
 GRANT EXECUTE ON FUNCTION public.registrar_importacao_ofx(p_banco_id bigint, p_arquivo_nome text, p_arquivo_hash text, p_cabecalho jsonb, p_movimentos jsonb, p_created_by uuid) TO postgres;
 GRANT EXECUTE ON FUNCTION public.registrar_importacao_ofx(p_banco_id bigint, p_arquivo_nome text, p_arquivo_hash text, p_cabecalho jsonb, p_movimentos jsonb, p_created_by uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.fn_preservar_vinculo_pedido_site() TO postgres;
 GRANT EXECUTE ON FUNCTION public.fn_preservar_vinculo_pedido_site() TO service_role;
+GRANT EXECUTE ON FUNCTION public.aluguel_encerrar(p_id bigint, p_encerrado_em timestamp with time zone, p_observacao text, p_itens jsonb, p_usuario uuid) TO postgres;
+GRANT EXECUTE ON FUNCTION public.aluguel_encerrar(p_id bigint, p_encerrado_em timestamp with time zone, p_observacao text, p_itens jsonb, p_usuario uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.conciliar_movimento_ofx(p_movimento_id bigint, p_acao text, p_transacao_id bigint, p_valor numeric, p_metodopagamento text, p_plano_de_conta_id integer, p_centro_custo_id integer, p_nova jsonb, p_usuario uuid, p_observacao text) TO postgres;
 GRANT EXECUTE ON FUNCTION public.conciliar_movimento_ofx(p_movimento_id bigint, p_acao text, p_transacao_id bigint, p_valor numeric, p_metodopagamento text, p_plano_de_conta_id integer, p_centro_custo_id integer, p_nova jsonb, p_usuario uuid, p_observacao text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.plano_contas_uso_da_conta(p_conta_id integer) TO postgres;
@@ -53343,6 +55121,8 @@ GRANT EXECUTE ON FUNCTION public.central_realtime_topic_allowed(p_topic text) TO
 GRANT EXECUTE ON FUNCTION public.central_realtime_topic_allowed(p_topic text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.set_tarefa_usuario_updated_at() TO postgres;
 GRANT EXECUTE ON FUNCTION public.set_tarefa_usuario_updated_at() TO service_role;
+GRANT EXECUTE ON FUNCTION public.set_documento_modelo_updated_at() TO postgres;
+GRANT EXECUTE ON FUNCTION public.set_documento_modelo_updated_at() TO service_role;
 GRANT EXECUTE ON FUNCTION public.tg_espelhar_comissao_ajustada_venda() TO postgres;
 GRANT EXECUTE ON FUNCTION public.tg_espelhar_comissao_ajustada_venda() TO service_role;
 GRANT EXECUTE ON FUNCTION public.editar_evento_financeiro_venda(p_venda_id bigint, p_evento_id bigint, p_payload jsonb, p_usuario uuid) TO postgres;

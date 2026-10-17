@@ -10,7 +10,10 @@ export const dynamic = "force-dynamic";
 // "Exibir no site" do produto e o status de site_product_link: PUBLICADO exibe,
 // PAUSADO esconde. Esta rota muda so o status, preservando titulo, preco, slug e
 // demais ajustes da publicacao. O trigger do link enfileira a sincronizacao.
-const visibilitySchema = z.object({ visible: z.boolean() });
+const visibilitySchema = z.object({
+  visible: z.boolean().optional(),
+  sitePrice: z.number().finite().min(0).max(999999999999.99).optional(),
+}).refine((value) => value.visible !== undefined || value.sitePrice !== undefined);
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -23,17 +26,23 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
     const { data, error } = await supabaseAdmin
       .from("site_product_link")
-      .select("status,sync_status")
+      .select("status,sync_status,preco_site")
       .eq("empresa_id", empresaId)
       .eq("produto_id", productId)
       .maybeSingle();
     if (error) throw error;
+
+    const { data: product, error: productError } = await supabaseAdmin
+      .from("produto").select("precovenda").eq("id", productId).eq("is_deleted", false).maybeSingle();
+    if (productError) throw productError;
+    if (!product) return NextResponse.json({ error: "Produto inexistente." }, { status: 404 });
 
     return NextResponse.json({
       data: {
         visible: data?.status === "PUBLICADO",
         status: data?.status ?? "RASCUNHO",
         sync_status: data?.sync_status ?? "NAO_SINCRONIZADO",
+        sitePrice: data?.preco_site ?? product.precovenda ?? 0,
       },
     });
   } catch (error: unknown) {
@@ -53,7 +62,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const parsed = visibilitySchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
-      return NextResponse.json({ error: "Campo 'visible' deve ser booleano." }, { status: 400 });
+      return NextResponse.json({ error: "Informe uma visibilidade ou um preço válido para o site." }, { status: 400 });
     }
 
     const { data: product, error: productError } = await supabaseAdmin
@@ -74,12 +83,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         {
           empresa_id: empresaId,
           produto_id: productId,
-          status: parsed.data.visible ? "PUBLICADO" : "PAUSADO",
+          ...(parsed.data.visible !== undefined
+            ? { status: parsed.data.visible ? "PUBLICADO" : "PAUSADO" } : {}),
+          ...(parsed.data.sitePrice !== undefined
+            ? { usar_preco_erp: false, preco_site: parsed.data.sitePrice } : {}),
           updated_at: new Date().toISOString(),
         },
         { onConflict: "empresa_id,produto_id" },
       )
-      .select("status,sync_status")
+      .select("status,sync_status,preco_site")
       .single();
     if (error) throw error;
 
@@ -88,6 +100,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         visible: data.status === "PUBLICADO",
         status: data.status,
         sync_status: data.sync_status,
+        sitePrice: data.preco_site,
       },
     });
   } catch (error: unknown) {

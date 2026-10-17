@@ -1,9 +1,9 @@
 {
   "format": 1,
-  "generatedAt": "2026-10-12T20:12:45.249Z",
+  "generatedAt": "2026-10-14T13:54:17.674Z",
   "sourceRef": "ozluphhwktyvqfrypjin",
-  "sqlHash": "3e1a4c110c94958ea37653402665fb4561679384c7c729de9cc6bca43aac45ab",
-  "packageHash": "b2f9b3c3725976b1664e92eae5dc9f03ab9bdb61ec0d5d5596910dbc4cbf99ed",
+  "sqlHash": "1d0ecb823064099c0fe9f9134fedf39d399097288d929988f64f84f72e5bbc32",
+  "packageHash": "82348571d8031b0816d995e48e8e14d0933fb0b1dfb9c1a130298d780a1f245b",
   "baseData": {
     "permissao": [
       {
@@ -364,7 +364,7 @@
       {
         "id": 215,
         "nome": "financeiro:ver_todas_transacoes",
-        "descricao": "Ver no fluxo de caixa as transacoes criadas por outras pessoas"
+        "descricao": "Caixa administrativo: permite consultar todas as transações no Fluxo de Caixa e em Bancos. Os lançamentos de quem possui esta permissão ficam ocultos nessas telas para usuários sem ela. A classificação acompanha o perfil atual do criador; registros sem autor continuam compartilhados."
       },
       {
         "id": 216,
@@ -730,6 +730,26 @@
         "id": 295,
         "nome": "tipos:motivos_saida:excluir",
         "descricao": "Excluir motivos de saida"
+      },
+      {
+        "id": 312,
+        "nome": "alugueis:visualizar",
+        "descricao": "Visualizar alugueis"
+      },
+      {
+        "id": 313,
+        "nome": "alugueis:criar",
+        "descricao": "Criar alugueis"
+      },
+      {
+        "id": 314,
+        "nome": "alugueis:editar",
+        "descricao": "Editar, pausar, reiniciar e encerrar alugueis"
+      },
+      {
+        "id": 315,
+        "nome": "alugueis:excluir",
+        "descricao": "Excluir alugueis"
       }
     ],
     "tipos_ajuste_transacao": [
@@ -122976,27 +122996,59 @@
       "name": "site_refund_denial_reason"
     },
     {
+      "version": "20261008010735",
+      "name": "caixa_administrativo_compartilhado"
+    },
+    {
       "version": "20261009020312",
       "name": "enable_ordens_realtime"
     },
     {
       "version": "20261009130000",
       "name": "site_return_receipt"
+    },
+    {
+      "version": "20261013120000",
+      "name": "alinhar_bancos_clonados"
+    },
+    {
+      "version": "20261013150000",
+      "name": "modulo_alugueis"
+    },
+    {
+      "version": "20261013180000",
+      "name": "alugueis_ajustes"
+    },
+    {
+      "version": "20261013190000",
+      "name": "alugueis_retorno_parcial_prazo_indeterminado"
+    },
+    {
+      "version": "20261013200000",
+      "name": "aluguel_destinatario_usuario"
+    },
+    {
+      "version": "20261014120000",
+      "name": "recria_policies_realtime_messages"
+    },
+    {
+      "version": "20261014150000",
+      "name": "documento_modelo"
     }
   ],
   "schema": {
-    "relations": "310c12d1a8e073890c394a36587a76b09af5bfbfe5419e9648aa72cca9ab9827",
-    "columns": "553d6f7519ba53cf24d752e89803608f12f96fddf2b5c2b46430055337dcfb05",
-    "constraints": "d8bb8269d72b5873433b854c4db6892740a56035e5115237a73b6e3e11e3b66f",
-    "indexes": "4cd5b03f0d68f872f76de275b0c811bca42d0b9685782d62cb204b01d269f4c8",
-    "triggers": "c216feb16224eec78fb11c1389959d6ceb905fb5f15d51b45e6c7d664b0e7ded",
+    "relations": "94ddecc87e6bc571eac36a3f6c6fb037c421fb28f457035114c930a67ea38c24",
+    "columns": "18c18e70321874f93a22e2a70026aaae131b086db3af60ea2e1f7c6264322572",
+    "constraints": "11e44c8f74778a4bbbb07701b6d5bc0298f50b2eecb2686ccfe070e8bb53ccc8",
+    "indexes": "66a58d03b222cdc25e2af485f58396f4b823b8129fbbdd63af0783611f2eacef",
+    "triggers": "0df31894b0809e6462094c2234e9bffbbe7bc26089bc88a6d1b300a323c1d471",
     "policies": "fdfc459a07d7ccdec730a72493bfad6e3288c902b47f0cc7ab915d00df335518",
-    "enums": "f13e643d65646fe74966a823e5d5bce21f1ea6c8a94c67ad9fefdfc95f9bff09",
-    "sequences": "6bd3b363ddeca10f57a3ddbe48d47a19810953d0809dfdf7f7d602ddb7a7a13f",
+    "enums": "ca4302ce8981aa2c653d49dddbe8971c5a6d0c27b76164edd30649551ee360c1",
+    "sequences": "db8e5def5828f6a0660c14ede05d7c056ba00d5e6d900d57c9e63c16885f578a",
     "realtime": "b8051dd7b6cd3564fdc1c49ed432d16dfa3954153e444b304b6d90dbb2b446eb",
     "authTriggers": "1917bb337f8d338961e1d97d53679ac2e22f9a6f9b454e4728e8f62473642f9b",
     "extensions": "4409c5ce46ab2a926cc7e858e5a011ac8ac938ae3dc1f0eb4ccdbb48e3008f5c",
-    "functions": "108e125792ac042c17601bb9179e005bd2d3bebd35a18775adec3bc56f93d2fc"
+    "functions": "fd6d63cc2e4f7e240dfbe2c67ecef7370e96ce3b7c14c4fe490093ffa959d579"
   },
   "buckets": [
     {

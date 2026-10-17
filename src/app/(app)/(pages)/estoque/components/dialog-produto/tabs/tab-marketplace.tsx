@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ValueInput } from "@/components/ui/value-input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { TabsContent } from "@/components/ui/tabs";
@@ -73,6 +74,8 @@ export function TabMarketplace({ produto, onChange, onSiteVisibilityChange }: Pr
   // um campo de produto: por isso grava na hora, fora do botao Salvar.
   const [siteVisible, setSiteVisible] = useState<boolean | null>(null);
   const [savingSiteVisible, setSavingSiteVisible] = useState(false);
+  const [sitePrice, setSitePrice] = useState(0);
+  const [savingSitePrice, setSavingSitePrice] = useState(false);
 
   useEffect(() => {
     if (!produtoId) return;
@@ -82,7 +85,10 @@ export function TabMarketplace({ produto, onChange, onSiteVisibilityChange }: Pr
       .then(async (response) => {
         const json = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(json?.error || "Falha ao consultar a publicação no site.");
-        if (!cancelled) setSiteVisible(Boolean(json?.data?.visible));
+        if (!cancelled) {
+          setSiteVisible(Boolean(json?.data?.visible));
+          setSitePrice(Number(json?.data?.sitePrice ?? 0));
+        }
       })
       .catch((error) => {
         if (!cancelled) toast.error(error?.message || "Falha ao consultar a publicação no site.");
@@ -117,6 +123,38 @@ export function TabMarketplace({ produto, onChange, onSiteVisibilityChange }: Pr
       toast.error(error?.message || "Falha ao alterar a exibição no site.");
     } finally {
       setSavingSiteVisible(false);
+    }
+  }
+
+  async function saveSitePrice() {
+    const price = sitePrice;
+    if (!Number.isFinite(price) || price < 0) {
+      toast.error("Informe um preço válido para o site.");
+      return;
+    }
+    setSavingSitePrice(true);
+    try {
+      const response = await fetch(`/api/integracoes/site/products/${produtoId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sitePrice: price }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json?.error || "Falha ao salvar o preço do site.");
+      setSitePrice(Number(json.data.sitePrice));
+      onSiteVisibilityChange?.();
+      const sync = await fetch("/api/integracoes/site/catalog/sync", { method: "POST" });
+      if (!sync.ok) {
+        toast.warning("Preço salvo, mas a sincronização com o site falhou.", {
+          description: "Sincronize o catálogo no módulo Marketplace.",
+        });
+      } else {
+        toast.success("Preço salvo e sincronizado com o site.");
+      }
+    } catch (error: any) {
+      toast.error(error?.message || "Falha ao atualizar o preço do site.");
+    } finally {
+      setSavingSitePrice(false);
     }
   }
 
@@ -168,6 +206,29 @@ export function TabMarketplace({ produto, onChange, onSiteVisibilityChange }: Pr
             <p className="text-xs text-muted-foreground">Dados usados nos canais de venda online.</p>
           </div>
         </div>
+
+        <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
+        <Label htmlFor="precoSite">Preço de venda no site (R$)</Label>
+        <p className="text-xs text-muted-foreground">
+          Começa com o valor de venda do ERP. Depois, só muda neste campo.
+          Salvar preço envia a alteração ao site imediatamente.
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <ValueInput
+            id="precoSite"
+            decimals={2}
+            allowNegative={false}
+            value={produtoId ? sitePrice : (produto.precovenda ?? 0)}
+            onValueChange={setSitePrice}
+            disabled={!produtoId || siteVisible === null || savingSitePrice}
+            className="bg-background text-right tabular-nums sm:max-w-56"
+          />
+          <Button type="button" onClick={saveSitePrice} disabled={!produtoId || siteVisible === null || savingSitePrice}>
+            {savingSitePrice ? "Sincronizando..." : "Salvar preço"}
+          </Button>
+        </div>
+        {!produtoId && <p className="text-xs text-muted-foreground">Salve o produto para ajustar o preço do site.</p>}
+      </div>
 
         <div className="grid gap-4">
           <div className="space-y-2">
