@@ -57,3 +57,7 @@ UI /fiscal/sped
 - Perfil EFD, Bloco K, 1400 e C176/C179 usam estados `PENDENTE`, `CONFIRMADO` ou `NAO_APLICAVEL`.
 - Gate pendente ou aplicabilidade detectada sem dados suficientes gera diagnóstico bloqueante.
 - Se C176/C179 ou Bloco K forem confirmados como obrigatórios, seus registros entram no piloto antes do fechamento.
+
+## Geração em um clique
+
+`/fiscal/sped` dispara um pedido persistente (`fiscal_sped_geracao`) que coordena configuração inteligente, resolução automática de itens e créditos, validação, fechamento e geração do FINAL, com concessão renovável para retomada. A operação manual fica em `/fiscal/sped/avancado`. Detalhes, regras de resolução e limitações em `IMPLEMENTACAO_ONE_CLICK.md`.

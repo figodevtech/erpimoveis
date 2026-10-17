@@ -248,9 +248,32 @@ export function isMercadoLivreNotFound(error: unknown) {
   return /falhou \(404\)/.test(String((error as { message?: unknown })?.message ?? ""));
 }
 
+const RATE_LIMIT_RETRY_DELAYS_MS = [1_000, 2_000];
+const RATE_LIMIT_MAX_WAIT_MS = 5_000;
+
+/**
+ * O gateway do Mercado Livre devolve `429 local_rate_limited` em rajadas curtas,
+ * mesmo com poucas chamadas da conta -- a mesma validacao passa um minuto depois.
+ * O 429 sai do gateway antes de a requisicao chegar a API, entao repetir nao
+ * duplica nada. Respeita `Retry-After` quando vier, com teto, para nao estourar
+ * o tempo da rota.
+ */
+export async function fetchMercadoLivre(url: string, init: RequestInit = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(url, { signal: AbortSignal.timeout(20_000), ...init });
+    if (response.status !== 429 || attempt >= RATE_LIMIT_RETRY_DELAYS_MS.length) return response;
+
+    const retryAfterSeconds = Number(response.headers?.get?.("retry-after"));
+    const wait = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      ? Math.min(retryAfterSeconds * 1000, RATE_LIMIT_MAX_WAIT_MS)
+      : RATE_LIMIT_RETRY_DELAYS_MS[attempt];
+    await response.body?.cancel().catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+}
+
 export async function mercadoLivreApiGet<T>(accessToken: string, path: string, extraHeaders?: HeadersInit) {
-  const response = await fetch(`${ML_API_BASE_URL}${path}`, {
-    signal: AbortSignal.timeout(20_000),
+  const response = await fetchMercadoLivre(`${ML_API_BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${accessToken}`, ...extraHeaders },
     cache: "no-store",
   });
@@ -264,8 +287,7 @@ export async function mercadoLivreApiGet<T>(accessToken: string, path: string, e
 }
 
 export async function mercadoLivreApiPut<T>(accessToken: string, path: string, body: unknown) {
-  const response = await fetch(`${ML_API_BASE_URL}${path}`, {
-    signal: AbortSignal.timeout(20_000),
+  const response = await fetchMercadoLivre(`${ML_API_BASE_URL}${path}`, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -285,8 +307,7 @@ export async function mercadoLivreApiPut<T>(accessToken: string, path: string, b
 }
 
 export async function mercadoLivreApiPost<T>(accessToken: string, path: string, body: unknown, extraHeaders?: HeadersInit) {
-  const response = await fetch(`${ML_API_BASE_URL}${path}`, {
-    signal: AbortSignal.timeout(20_000),
+  const response = await fetchMercadoLivre(`${ML_API_BASE_URL}${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -307,8 +328,7 @@ export async function mercadoLivreApiPost<T>(accessToken: string, path: string, 
 }
 
 export async function mercadoLivreApiDelete<T>(accessToken: string, path: string, body?: unknown) {
-  const response = await fetch(`${ML_API_BASE_URL}${path}`, {
-    signal: AbortSignal.timeout(20_000),
+  const response = await fetchMercadoLivre(`${ML_API_BASE_URL}${path}`, {
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${accessToken}`,

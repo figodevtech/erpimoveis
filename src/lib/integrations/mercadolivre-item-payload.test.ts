@@ -185,6 +185,35 @@ test("204 No Content e validacao bem-sucedida e nao le JSON", async () => {
   assert.deepEqual(result.errors, []);
 });
 
+test("429 local_rate_limited repete a validacao em vez de recusar", async () => {
+  let calls = 0;
+  const stub = (async () => {
+    calls += 1;
+    return (calls === 1
+      ? { ok: false, status: 429, async text() { return JSON.stringify({ message: "local_rate_limited", status: 429 }); } }
+      : { ok: true, status: 204, async text() { return ""; } }) as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  const result = await withFetch(stub, () => runMercadoLivreItemValidation("token", {}));
+  assert.equal(calls, 2);
+  assert.equal(result.valid, true);
+});
+
+test("429 persistente explica o limite sem chamar de recusa", async () => {
+  let calls = 0;
+  const stub = (async () => {
+    calls += 1;
+    return { ok: false, status: 429, async text() { return JSON.stringify({ message: "local_rate_limited", status: 429 }); } } as unknown as Response;
+  }) as unknown as typeof fetch;
+
+  const result = await withFetch(stub, () => runMercadoLivreItemValidation("token", {}));
+  assert.equal(calls, 3);
+  assert.equal(result.valid, false);
+  assert.equal(result.status, 429);
+  assert.match(result.errors.join(" "), /limitou as requisições/);
+  assert.doesNotMatch(result.errors.join(" "), /recusou/);
+});
+
 test("400 com causas de erro invalida a publicacao e mapeia o campo", async () => {
   const body = JSON.stringify({
     message: "body.invalid_fields",

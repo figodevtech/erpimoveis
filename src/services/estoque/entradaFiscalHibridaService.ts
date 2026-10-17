@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { ajustesValoresEntradaSchema } from "@/lib/estoque/entrada-valores";
+import { registrarEntradaComValores } from "./entradaValoresService";
 
 import { classificarLinhasEntradaHibrida } from "@/lib/nfe/entrada-fiscal-hibrida";
 import { ratearCustoPersonalizado } from "@/lib/nfe/entrada-fiscal-personalizada";
@@ -49,6 +51,7 @@ export const entradaFiscalHibridaSchema = z
       })
       .strict(),
     financeiro: financeiroEntradaFiscalSchema.nullable(),
+    ajustesValores: ajustesValoresEntradaSchema.optional(),
   })
   .strict();
 
@@ -367,6 +370,7 @@ export async function registrarEntradaFiscalHibrida(
     totais.totalNota,
     fornecedor,
     numeroNota,
+    Boolean(input.ajustesValores),
   );
   const entradaComum = {
     fiscal: true,
@@ -425,7 +429,7 @@ export async function registrarEntradaFiscalHibrida(
     };
   });
 
-  const { data, error } = await supabaseAdmin.rpc("registrar_entrada_fiscal_hibrida", {
+  const { data, error } = await registrarEntradaComValores("registrar_entrada_fiscal_hibrida", "HIBRIDA", {
     p_entrada_produto: entradaProduto,
     p_itens_produto: itensProduto,
     p_entrada_usoconsumo: entradaSimples,
@@ -450,7 +454,7 @@ export async function registrarEntradaFiscalHibrida(
     p_custo_personalizado: rateio.custoTotal,
     p_total_documento: totais.totalNota,
     p_transacoes: transacoes,
-  });
+  }, input.ajustesValores, createdBy);
   if (error) throw error;
 
   return data as {

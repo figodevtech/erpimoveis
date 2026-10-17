@@ -97,8 +97,12 @@ function databaseDefinitions(): Omit<DatabaseConfig, "url">[] {
     ? JSON.parse(fs.readFileSync(registryFile, "utf8")) : [];
   const definitions = [...DATABASES, ...clients];
   for (const field of ["key", "projectRef", "envName"] as const) {
-    if (new Set(definitions.map((item) => item[field])).size !== definitions.length) {
-      throw new Error(`Cadastro de bancos duplicado: ${field}.`);
+    const values = definitions.map((item) => item[field]);
+    const duplicate = values.find((value, index) => values.indexOf(value) !== index);
+    if (duplicate !== undefined) {
+      throw new Error(
+        `Cadastro de bancos duplicado: ${field} "${duplicate}". Banco fixo em lib.ts não pode constar também em scripts/db/clientes.json.`,
+      );
     }
   }
   return definitions;

@@ -1,5 +1,5 @@
 import { endOfCompetence, parseCompetence } from "@/lib/fiscal-date";
-import type { EfdRecord, SpedDiagnostic, SpedGateStatus } from "@/lib/sped/efd-icms-ipi";
+import { resolveSpedLayout, type EfdRecord, type SpedDiagnostic, type SpedGateStatus } from "@/lib/sped/efd-icms-ipi";
 import { resolve1010Indicators } from "./indicators1010";
 
 type Company = Record<string, unknown>;
@@ -53,6 +53,10 @@ function movement(opening: string, closing: string): EfdRecord[] {
  */
 export function buildFoundationRecords(input: {
   competence: string;
+  /** Código do leiaute da versão; sem ele, vale o leiaute vigente na competência. */
+  layoutCode?: string;
+  /** Uma versão retificadora substitui o arquivo já entregue (COD_FIN = 1). */
+  finalidade?: "ORIGINAL" | "RETIFICADORA";
   company: Company;
   config: Config;
   accountant: Accountant;
@@ -76,8 +80,8 @@ export function buildFoundationRecords(input: {
     {
       code: "0000",
       values: {
-        COD_VER: "020",
-        COD_FIN: "0",
+        COD_VER: input.layoutCode ?? resolveSpedLayout(input.competence).code,
+        COD_FIN: input.finalidade === "RETIFICADORA" ? "1" : "0",
         DT_INI: start,
         DT_FIN: end,
         NOME: text(company.razaosocial),

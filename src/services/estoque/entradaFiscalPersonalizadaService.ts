@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { ajustesValoresEntradaSchema } from "@/lib/estoque/entrada-valores";
+import { registrarEntradaComValores } from "./entradaValoresService";
 
 import { dataDoCalendario } from "@/lib/data-calendario";
 import { paraCentavos } from "@/lib/financeiro/rateio";
@@ -50,6 +52,7 @@ const entradaFiscalPersonalizadaSchema = z
     itemReferenciaId: z.number().int().positive(),
     quantidade: z.number().int().positive(),
     financeiro: financeiroEntradaFiscalSchema.nullable(),
+    ajustesValores: ajustesValoresEntradaSchema.optional(),
   })
   .strict();
 
@@ -111,6 +114,7 @@ export function montarTransacoesEntradaFiscal(
     nomefantasia: string | null;
   },
   numeroNota: string | null,
+  permitirTotalAjustado = false,
 ) {
   if (!financeiro) return [];
 
@@ -118,7 +122,9 @@ export function montarTransacoesEntradaFiscal(
     (total, parcela) => total + paraCentavos(parcela.valor),
     0,
   );
-  if (soma !== paraCentavos(totalNota)) {
+  // Com ajuste, a comparação definitiva ocorre no banco após recalcular os itens,
+  // na mesma transação que cria a entrada e as parcelas.
+  if (!permitirTotalAjustado && soma !== paraCentavos(totalNota)) {
     throw Object.assign(
       new Error("A soma das parcelas deve corresponder ao valor integral da NF-e."),
       { statusCode: 400 },
@@ -230,6 +236,7 @@ export async function registrarEntradaFiscalPersonalizada(
     totalNota,
     fornecedor,
     numeroNota,
+    Boolean(input.ajustesValores),
   );
 
   const entradaComum = {
@@ -290,14 +297,14 @@ export async function registrarEntradaFiscalPersonalizada(
     custo_estoque: custoPorNumeroItem.get(itemFiscal.numeroItem) ?? 0,
   }));
 
-  const { data, error } = await supabaseAdmin.rpc("registrar_entrada_fiscal_personalizada", {
+  const { data, error } = await registrarEntradaComValores("registrar_entrada_fiscal_personalizada", "PERSONALIZADA", {
     p_destino: input.destino,
     p_entrada: entrada,
     p_item: item,
     p_itens_fiscais: itensOriginais,
     p_custo_total: rateio.custoTotal,
     p_transacoes: transacoes,
-  });
+  }, input.ajustesValores, createdBy);
   if (error) throw error;
 
   return data as {

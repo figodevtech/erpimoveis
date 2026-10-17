@@ -236,6 +236,7 @@ export function TabFluxo({ produto, onAfterChange }: { produto: Produto; onAfter
         entradaId={nfeDialogEntradaId}
       />
       <EntryDetailsDialog
+        onValuesSaved={() => void aposMudanca()}
         entryId={detailsEntradaId}
         inventory="produto"
         open={detailsEntradaId !== null}

@@ -1,4 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { lerAjustesValoresEntrada, registrarEntradaComValores } from "./entradaValoresService";
+import { totalEntradaAjustado, totalItemEntrada } from "@/lib/estoque/entrada-valores";
 import { dataDoCalendario } from "@/lib/data-calendario";
 
 function positiveInt(value: unknown, field: string) {
@@ -106,7 +108,8 @@ export async function registrarEntradaConfirmada(
   origem: OrigemEntrada,
   createdBy?: string | null,
 ) {
-  const rawItems = Array.isArray(body?.itens)
+  const ajustes = lerAjustesValoresEntrada(body?.ajustesValores);
+  const rawItems: any[] = Array.isArray(body?.itens)
     ? body.itens
     : [{
         produto_id: body?.produto_id ?? body?.produtoid ?? body?.produtoId,
@@ -161,9 +164,15 @@ export async function registrarEntradaConfirmada(
       .select("nome, exige_valor")
       .eq("codigo", tipo)
       .maybeSingle();
+    // O trigger da tabela entrada recusaria de qualquer jeito. Sem esta checagem,
+    // tipo ausente virava "exige valor" — banco sem o catálogo de tipos parecia
+    // problema de preço (BR Peças, out/2026).
+    if (!tipoCadastrado) {
+      throw new Error(`O tipo de entrada "${tipo}" não está cadastrado neste banco.`);
+    }
     const semValor = itens.some((item: (typeof itens)[number]) => item.valor_unitario_compra <= 0);
-    if (tipoCadastrado?.exige_valor !== false && semValor) {
-      throw new Error(`O tipo "${tipoCadastrado?.nome ?? tipo}" exige valor unitário maior que zero.`);
+    if (tipoCadastrado.exige_valor !== false && semValor) {
+      throw new Error(`O tipo "${tipoCadastrado.nome}" exige valor unitário maior que zero.`);
     }
   }
 
@@ -175,6 +184,14 @@ export async function registrarEntradaConfirmada(
     (sum: number, item: (typeof itens)[number]) => sum + item.quantidade * item.valor_unitario_compra - item.valor_desconto + item.valor_frete + item.outras_despesas,
     0,
   );
+  const totalCompra = ajustes ? totalEntradaAjustado(Number(body?.valorTotalDocumento ?? totalEntrada),
+    ajustes.itens.map((ajuste) => {
+      const item = itens.find((linha) => linha.numero_item_fiscal === ajuste.numeroItemFiscal);
+      if (ajuste.inventory !== "produto" || ajuste.consolidado || !item) {
+        throw Object.assign(new Error("O ajuste não corresponde aos itens desta entrada."), { statusCode: 400 });
+      }
+      return totalItemEntrada(item, ajuste.valorUnitarioCompra) - totalItemEntrada(item);
+    })) : totalEntrada;
 
   const financeiro = body?.financeiro;
   const lancarFinanceiro = Boolean(financeiro?.lancar ?? body?.isPagamentoFuturo);
@@ -213,7 +230,7 @@ export async function registrarEntradaConfirmada(
       transacoes = [{
         ...base,
         descricao: text(financeiro?.descricao ?? body?.descricaoTransacao) ?? "Compra de mercadorias",
-        valor: Number(totalEntrada.toFixed(2)),
+        valor: Number(totalCompra.toFixed(2)),
         data: dataDoCalendario(financeiro?.dataPagamento) ?? new Date().toISOString(),
         pendente: false,
       }];
@@ -249,11 +266,11 @@ export async function registrarEntradaConfirmada(
   const rpcName = entrada.fiscal_dfe_documento_id
     ? "registrar_entrada_comercial_apropriada"
     : "registrar_entrada_confirmada";
-  const { data, error } = await supabaseAdmin.rpc(rpcName, {
+  const { data, error } = await registrarEntradaComValores(rpcName, "PRODUTO", {
     p_entrada: entrada,
     p_itens: itens,
     p_transacoes: transacoes,
-  });
+  }, ajustes, createdBy);
   if (error) throw error;
   return data as { entrada_id: number; valor_total: number };
 }
@@ -281,7 +298,7 @@ export function entradaErrorResponse(error: any) {
   }
 
   if (Number.isInteger(error?.statusCode)) return { message, status: Number(error.statusCode) };
-  const conflict = error?.code === "23505";
+  const conflict = ["23505", "40001", "55000"].includes(error?.code);
   const notFound = error?.code === "P0002";
   const invalid = Boolean(enumError) || error?.code === "22P02" || error?.code === "22023" || /inválid|informe|exige|difere|obrigat/i.test(message);
   return { message, status: conflict ? 409 : notFound ? 404 : invalid ? 400 : 500 };

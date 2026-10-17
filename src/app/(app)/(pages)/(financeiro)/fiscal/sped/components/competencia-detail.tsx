@@ -32,7 +32,9 @@ export function CompetenciaDetail({
   onAction,
   onImport,
   onRefresh,
+  initialTab,
 }: {
+  initialTab?: string | null;
   competencia: SpedCompetenciaDetail | null;
   loading: boolean;
   canDownload: boolean;
@@ -163,6 +165,7 @@ export function CompetenciaDetail({
         onDownload={(file: SpedArquivo) => onAction({ type: "BAIXAR", file })}
         onImport={onImport}
         onConfigSaved={onRefresh}
+        initialTab={initialTab}
       />
     </section>
   );

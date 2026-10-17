@@ -1,31 +1,25 @@
 import "server-only";
 
 import {
-  endOfCompetence,
-  isCivilDateInCompetence,
   isValidCivilDate,
   isValidIanaTimezone,
   parseCompetence,
-  parseFiscalDate,
 } from "@/lib/fiscal-date";
 import {
   hasBlockingDiagnostics,
   resolveSpedLayout,
+  resolveSpedLayoutForVersion,
   serializeEfd,
+  SpedLayoutNotConfiguredError,
   validateSpedCandidate,
+  type EfdLayout,
   type EfdRecord,
   type SpedDiagnostic,
   type SpedGateStatus,
-  type SpedConditionalEvidence,
 } from "@/lib/sped/efd-icms-ipi";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 import { toSpedContabilista } from "./accountantService";
-import {
-  isSpedFiscalEntryCandidate,
-  isPendingFiscalDateCandidateForCompetence,
-  isConfirmedFiscalDateInCompetence,
-} from "./entryScope";
 import { SpedServiceError, throwIfSupabaseError } from "./errors";
 import { singleCompanyId } from "./guards";
 import {
@@ -34,6 +28,16 @@ import {
   validateSpedFileGenerationPreconditions,
 } from "./fileGenerationGuards";
 import { projectSpedAssessment, type SpedAssessmentProjection } from "./assessmentProjection";
+import {
+  planSpedCreditResolution,
+  planSpedItemResolution,
+  type SpedCreditCandidate,
+  type SpedExistingItemConfig,
+  type SpedAutoProduct,
+  type SpedProductUsage,
+} from "./autoResolution";
+import { detectC176C179Evidence } from "./conditionalEvidence";
+import { deriveTimezoneFromAddress, normalizePolicyPatch, readSpedPolicies } from "./configPolicies";
 import { hashStableJson, sha256Hex } from "./hash";
 import { projectSpedInventory } from "./inventoryProjection";
 import { buildFoundationRecords, buildGateConfiguration, validateFoundation } from "./projection";
@@ -43,11 +47,16 @@ import {
   type ProjectedFiscalDocument,
   type SpedItemAssignment,
 } from "./documentProjection";
+import { projectSpedCatalog } from "./catalogProjection";
 import {
-  projectSpedCatalog,
-  type SpedItemCorrelation,
-  type SpedUnitConversion,
-} from "./catalogProjection";
+  collectSpedSources,
+  fiscalEmissionCivilDate,
+  loadEffectiveConfig,
+  productMaster,
+  type SpedSourceContext,
+} from "./sourceContext";
+import { reconcileDocuments } from "./reconciliation";
+import { fetchAllPages, type SpedCollectionReport } from "./sourcePagination";
 import type {
   SpedCompetenciaDetail,
   SpedCompetenciaSummary,
@@ -56,13 +65,9 @@ import type {
   SpedPvaValidacao,
 } from "./types";
 
-const ENGINE_VERSION = "0.1.0";
+const ENGINE_VERSION = "0.2.0";
 const PRACTICAL_GUIDE = "3.2.4";
 const STORAGE_BUCKET = "fiscal-sped";
-/** Valores de enum_status_nfe que o motor escritura a partir do XML. */
-const SETTLED_NOTE_STATUSES = ["AUTORIZADA", "CANCELADA"] as const;
-/** Existem na SEFAZ ou podem existir, mas o motor ainda não escritura: bloqueiam em vez de sumir do arquivo. */
-const UNSETTLED_NOTE_STATUSES = ["DENEGADA", "ENVIADA", "CONTINGENCIA", "RESULTADO_INCERTO"] as const;
 
 type Row = Record<string, any>;
 
@@ -123,289 +128,12 @@ async function getConfig(companyId: number): Promise<Row | null> {
   return result.data ?? null;
 }
 
-function shiftCivilDate(value: string, days: number): string {
-  const [year, monthValue, day] = value.split("-").map(Number);
-  const shifted = new Date(Date.UTC(year, monthValue - 1, day + days));
-  return shifted.toISOString().slice(0, 10);
-}
-
-function fiscalEmissionCivilDate(row: Row): string | null {
-  const xml = text(row.xml_autorizado || row.xml_assinado);
-  const lexical = /<(?:\w+:)?(?:dhEmi|dEmi)>\s*([^<]+)\s*<\/(?:\w+:)?(?:dhEmi|dEmi)>/i.exec(xml)?.[1];
-  return parseFiscalDate(lexical)?.civilDate ?? null;
-}
-
-async function sourceContext(competence: Row) {
-  const competenceText = month(competence.competencia);
-  const { start } = parseCompetence(competenceText);
-  const end = endOfCompetence(competenceText);
-  const noteQueryStart = shiftCivilDate(start, -2);
-  const noteQueryEnd = shiftCivilDate(end, 2);
-  const companyId = number(competence.empresa_id);
-  const [companyResult, config, accountantResult, notesResult, entriesResult, undatedEntriesResult, priorEfdResult, paymentImportsResult, adjustmentsResult] = await Promise.all([
-    supabaseAdmin.from("empresa").select("id, cnpj, razaosocial, nomefantasia, inscricaoestadual, inscricaomunicipal, endereco, codigomunicipio, bairro, numero, complemento, cep, uf, telefone").eq("id", companyId).maybeSingle(),
-    getConfig(companyId),
-    supabaseAdmin.from("fiscal_sped_contabilista").select("*").eq("empresa_id", companyId).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false }).limit(1).maybeSingle(),
-    supabaseAdmin.from("nfe").select("id, chave_acesso, status, modelo, dataemissao, xml_autorizado, xml_assinado", { count: "exact" }).eq("empresaid", companyId).eq("is_deleted", false).eq("ambiente", "PRODUCAO").gte("dataemissao", `${noteQueryStart}T00:00:00`).lte("dataemissao", `${noteQueryEnd}T23:59:59.999`).in("status", [...SETTLED_NOTE_STATUSES, ...UNSETTLED_NOTE_STATUSES]),
-    supabaseAdmin.from("entrada").select("id, status, data_entrada_fiscal, fiscal_dfe_documento_id, notachave, fiscal, origem, tipo", { count: "exact" }).eq("status", "CONFIRMADA").gte("data_entrada_fiscal", start).lte("data_entrada_fiscal", end),
-    supabaseAdmin.from("entrada").select(`
-      id, status, fiscal, origem, tipo, notachave, fiscal_dfe_documento_id,
-      created_at, data_emissao, data_entrada_fiscal,
-      dfe:fiscal_dfe_documento_id(data_emissao)
-    `).eq("status", "CONFIRMADA").is("data_entrada_fiscal", null).limit(2000),
-    supabaseAdmin.from("fiscal_sped_efd_anterior_importacao").select("id, competencia_arquivo, arquivo_sha256, status, cabecalho, saldos_apuracao").eq("competencia_id", competence.id).eq("status", "VALIDADA").order("imported_at", { ascending: false }).limit(1).maybeSingle(),
-    supabaseAdmin.from("fiscal_sped_1601_importacao").select("id, arquivo_sha256, imported_at").eq("competencia_id", competence.id).eq("status", "VALIDADA").order("imported_at", { ascending: false }),
-    supabaseAdmin.from("fiscal_sped_ajuste_apuracao").select("*").eq("competencia_id", competence.id).eq("ativo", true).order("id"),
-  ]);
-  throwIfSupabaseError(companyResult.error);
-  throwIfSupabaseError(accountantResult.error);
-  throwIfSupabaseError(notesResult.error);
-  throwIfSupabaseError(entriesResult.error);
-  throwIfSupabaseError(undatedEntriesResult.error);
-  throwIfSupabaseError(priorEfdResult.error);
-  throwIfSupabaseError(paymentImportsResult.error);
-  throwIfSupabaseError(adjustmentsResult.error);
-  const periodNoteRows = ((notesResult.data ?? []) as Row[]).filter((row) => {
-    const civilDate = fiscalEmissionCivilDate(row);
-    if (civilDate) return isCivilDateInCompetence(civilDate, competenceText);
-    return month(row.dataemissao) === competenceText;
-  });
-  const isSettled = (row: Row) => (SETTLED_NOTE_STATUSES as readonly string[]).includes(text(row.status));
-  const noteRows = periodNoteRows.filter(isSettled);
-  const unsettledNoteRows = periodNoteRows.filter((row) => !isSettled(row));
-  const rawEntryRows = (entriesResult.data ?? []) as Row[];
-  const entryRows = rawEntryRows.filter((row) =>
-    isSpedFiscalEntryCandidate(row) && isConfirmedFiscalDateInCompetence(row, { start, end })
-  );
-  const directDfeIds = Array.from(new Set(entryRows.map((row) => number(row.fiscal_dfe_documento_id)).filter(Boolean)));
-  const missingDfeKeyRows = entryRows.filter((row) => !row.fiscal_dfe_documento_id && text(row.notachave).length === 44);
-  const missingDfeKeys = Array.from(new Set(missingDfeKeyRows.map((row) => text(row.notachave))));
-
-  const [directDfeResult, recoveredDfeResult] = await Promise.all([
-    directDfeIds.length
-      ? supabaseAdmin.from("fiscal_dfe_documento").select("id, empresa_id, chave_acesso, schema, xml, status, data_emissao").in("id", directDfeIds)
-      : Promise.resolve({ data: [], error: null }),
-    missingDfeKeys.length
-      ? supabaseAdmin.from("fiscal_dfe_documento").select("id, empresa_id, chave_acesso, schema, xml, status, data_emissao").in("chave_acesso", missingDfeKeys)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-  throwIfSupabaseError(directDfeResult.error);
-  throwIfSupabaseError(recoveredDfeResult.error);
-  const dfeRows = [
-    ...((directDfeResult.data ?? []) as Row[]),
-    ...((recoveredDfeResult.data ?? []) as Row[]),
-  ];
-  const foreignDfeRows = dfeRows.filter((row) => number(row.empresa_id) !== companyId);
-  const dfeById = new Map(dfeRows
-    .filter((row) => number(row.empresa_id) === companyId)
-    .map((row) => [number(row.id), row]));
-  const dfeByKey = new Map(dfeRows
-    .filter((row) => number(row.empresa_id) === companyId && text(row.chave_acesso))
-    .map((row) => [text(row.chave_acesso), row]));
-
-  for (const row of entryRows) {
-    if (!row.fiscal_dfe_documento_id && text(row.notachave)) {
-      const recovered = dfeByKey.get(text(row.notachave));
-      if (recovered) {
-        row.fiscal_dfe_documento_id = recovered.id;
-      }
-    }
-  }
-
-  const dfeIds = Array.from(new Set(entryRows.map((row) => number(row.fiscal_dfe_documento_id)).filter(Boolean)));
-  const noteIds = noteRows.map((row) => number(row.id)).filter(Boolean);
-  const entryIds = entryRows.map((row) => number(row.id)).filter(Boolean);
-  const [noteItemsResult, entryItemsResult, itemConfigsResult, creditDecisionsResult, unitConversionsResult, itemCorrelationsResult] = await Promise.all([
-    noteIds.length
-      ? supabaseAdmin.from("nfe_item").select("nfe_id, n_item, produtoid").in("nfe_id", noteIds).order("n_item")
-      : Promise.resolve({ data: [], error: null }),
-    entryIds.length
-      ? supabaseAdmin.from("entradaitens").select("entrada_id, numero_item_fiscal, produto_id").in("entrada_id", entryIds).not("numero_item_fiscal", "is", null).order("id")
-      : Promise.resolve({ data: [], error: null }),
-    supabaseAdmin.from("fiscal_sped_item_config").select("*").eq("empresa_id", companyId).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false }),
-    dfeIds.length
-      ? supabaseAdmin.from("fiscal_sped_item_credito_decisao").select("*").eq("empresa_id", companyId).in("documento_id", dfeIds).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
-    supabaseAdmin.from("fiscal_sped_unidade_conversao").select("*").eq("empresa_id", companyId).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false }),
-    supabaseAdmin.from("fiscal_sped_item_correlacao").select("*").eq("empresa_id", companyId).lte("vigencia_inicio", end).or(`vigencia_fim.is.null,vigencia_fim.gte.${start}`).order("vigencia_inicio", { ascending: false }),
-  ]);
-  throwIfSupabaseError(noteItemsResult.error);
-  throwIfSupabaseError(entryItemsResult.error);
-  throwIfSupabaseError(itemConfigsResult.error);
-  throwIfSupabaseError(creditDecisionsResult.error);
-  throwIfSupabaseError(unitConversionsResult.error);
-  throwIfSupabaseError(itemCorrelationsResult.error);
-
-  const itemConfigById = new Map<number, Row>();
-  const itemConfigsByProduct = new Map<number, Row[]>();
-  const mappingDiagnostics: SpedDiagnostic[] = [];
-  for (const row of foreignDfeRows) mappingDiagnostics.push({
-    code: "DFE_ESTABELECIMENTO_DIVERGENTE",
-    severity: "BLOQUEIO",
-    message: `O DFe ${row.id} vinculado à entrada pertence a outro estabelecimento.`,
-    source: { source: "BANCO", table: "fiscal_dfe_documento", id: row.id, documentKey: text(row.chave_acesso) },
-  });
-  for (const row of entryRows) {
-    const dfe = dfeById.get(number(row.fiscal_dfe_documento_id)) ?? (text(row.notachave) ? dfeByKey.get(text(row.notachave)) : null);
-    if (!dfe) {
-      mappingDiagnostics.push({
-        code: "DFE_ENTRADA_AUSENTE",
-        severity: "BLOQUEIO",
-        message: `A entrada ${row.id} (${documentKey(row)}) é documental mas não possui documento DFe/XML no sistema.`,
-        source: { source: "BANCO", table: "entrada", id: row.id, documentKey: documentKey(row) },
-      });
-    }
-  }
-  for (const configRow of (itemConfigsResult.data ?? []) as Row[]) {
-    const configId = number(configRow.id);
-    if (configId) itemConfigById.set(configId, configRow);
-    const productId = number(configRow.produto_id);
-    if (!productId) continue;
-    itemConfigsByProduct.set(productId, [...(itemConfigsByProduct.get(productId) ?? []), configRow]);
-  }
-
-  const missingConfigIds = Array.from(new Set(
-    ((itemCorrelationsResult.data ?? []) as Row[])
-      .flatMap((row) => [number(row.item_principal_id), number(row.item_atomico_id)])
-      .filter((id) => id && !itemConfigById.has(id)),
-  ));
-  if (missingConfigIds.length > 0) {
-    const extraConfigs = await supabaseAdmin.from("fiscal_sped_item_config").select("*").in("id", missingConfigIds);
-    throwIfSupabaseError(extraConfigs.error);
-    for (const configRow of (extraConfigs.data ?? []) as Row[]) {
-      const configId = number(configRow.id);
-      if (configId) itemConfigById.set(configId, configRow);
-    }
-  }
-
-  const unitConversions: SpedUnitConversion[] = ((unitConversionsResult.data ?? []) as Row[]).map((row) => ({
-    id: row.id,
-    codigoItem: row.codigo_item ? text(row.codigo_item) : null,
-    unidadeOrigem: text(row.unidade_origem),
-    unidadeDestino: text(row.unidade_destino),
-    fatorConversao: number(row.fator_conversao),
-    vigenciaInicio: text(row.vigencia_inicio),
-    vigenciaFim: row.vigencia_fim ? text(row.vigencia_fim) : null,
-  }));
-
-  const itemCorrelations: SpedItemCorrelation[] = ((itemCorrelationsResult.data ?? []) as Row[]).map((row) => {
-    const principal = itemConfigById.get(number(row.item_principal_id));
-    const atomico = itemConfigById.get(number(row.item_atomico_id));
-    return {
-      id: row.id,
-      codigoItemPrincipal: text(principal?.codigo_item),
-      codigoItemAtomico: text(atomico?.codigo_item),
-      quantidade: number(row.quantidade),
-      vigenciaInicio: text(row.vigencia_inicio),
-      vigenciaFim: row.vigencia_fim ? text(row.vigencia_fim) : null,
-    };
-  });
-
-  const noteItemsByDocument = new Map<number, Row[]>();
-  for (const item of (noteItemsResult.data ?? []) as Row[]) {
-    const documentId = number(item.nfe_id);
-    noteItemsByDocument.set(documentId, [...(noteItemsByDocument.get(documentId) ?? []), item]);
-  }
-  const entryItemsByDocument = new Map<number, Row[]>();
-  for (const item of (entryItemsResult.data ?? []) as Row[]) {
-    const documentId = number(item.entrada_id);
-    entryItemsByDocument.set(documentId, [...(entryItemsByDocument.get(documentId) ?? []), item]);
-  }
-  const creditDecisionsByItem = new Map<string, Row[]>();
-  for (const decision of (creditDecisionsResult.data ?? []) as Row[]) {
-    const key = `${number(decision.documento_id)}:${number(decision.numero_item)}`;
-    creditDecisionsByItem.set(key, [...(creditDecisionsByItem.get(key) ?? []), decision]);
-  }
-  const paymentImportIds = ((paymentImportsResult.data ?? []) as Row[]).map((row) => number(row.id)).filter(Boolean);
-  const paymentLinesResult = paymentImportIds.length
-    ? await supabaseAdmin.from("fiscal_sped_1601_linha").select("*").in("importacao_id", paymentImportIds).order("importacao_id").order("numero_linha")
-    : { data: [], error: null };
-  throwIfSupabaseError(paymentLinesResult.error);
-  const inventoryId = number(config?.inventario_fechamento_id);
-  const inventoryResult = inventoryId
-    ? await supabaseAdmin.from("fiscal_inventario_fechamento").select("*").eq("id", inventoryId).eq("empresa_id", companyId).eq("status", "APROVADO").maybeSingle()
-    : { data: null, error: null };
-  throwIfSupabaseError(inventoryResult.error);
-  const inventoryItemsResult = inventoryResult.data
-    ? await supabaseAdmin.from("fiscal_inventario_item").select("*, config:fiscal_sped_item_config(tipo_item)").eq("inventario_id", inventoryId).order("codigo_item").order("id")
-    : { data: [], error: null };
-  throwIfSupabaseError(inventoryItemsResult.error);
-
-  return {
-    competence: competenceText,
-    start,
-    end,
-    company: companyResult.data as Row | null,
-    config,
-    accountant: accountantResult.data as Row | null,
-    noteRows,
-    unsettledNoteRows,
-    entryRows: entryRows.map((row) => ({
-      ...row,
-      dfe: dfeById.get(number(row.fiscal_dfe_documento_id)) ?? (text(row.notachave) ? dfeByKey.get(text(row.notachave)) : null) ?? null,
-    })) as Row[],
-    noteItemsByDocument,
-    entryItemsByDocument,
-    itemConfigsByProduct,
-    creditDecisionsByItem,
-    unitConversions,
-    itemCorrelations,
-    mappingDiagnostics,
-    unconfirmedEntryIds: ((undatedEntriesResult.data ?? []) as Row[])
-      .filter((row) => isPendingFiscalDateCandidateForCompetence(row, { start, end }, text(config?.timezone_iana) || null))
-      .map((row) => number(row.id)),
-    priorEfd: priorEfdResult.data as Row | null,
-    payments1601: (paymentLinesResult.data ?? []) as Row[],
-    adjustments: ((adjustmentsResult.data ?? []) as Row[]).map((row) => ({
-      id: row.id,
-      destination: row.registro_destino,
-      nature: row.natureza,
-      code: row.codigo_ajuste,
-      uf: row.uf,
-      value: number(row.valor),
-      description: text(row.descricao),
-      documentNumber: row.numero_documento,
-      reference: row.referencia ?? {},
-    })),
-    inventory: inventoryResult.data as Row | null,
-    inventoryItems: (inventoryItemsResult.data ?? []) as Row[],
-  };
-}
-
 function documentXml(row: Row): string {
   return text(row.xml_autorizado || row.xml_assinado || row.dfe?.xml);
 }
 
 function documentKey(row: Row): string {
   return text(row.chave_acesso || row.notachave || row.dfe?.chave_acesso) || `SEM-CHAVE-${row.id}`;
-}
-
-function hasPositiveXmlValue(xml: string, tags: readonly string[]): boolean {
-  return tags.some((tag) => Array.from(xml.matchAll(new RegExp(`<${tag}>\\s*([^<]+)\\s*</${tag}>`, "gi")))
-    .some((match) => {
-      const value = Number(String(match[1]).trim().replace(",", "."));
-      return Number.isFinite(value) && value > 0;
-    }));
-}
-
-/** Detector deliberadamente amplo: um falso positivo gera revisao, nunca omissao fiscal. */
-function conditionalEvidence(context: Awaited<ReturnType<typeof sourceContext>>): SpedConditionalEvidence {
-  const keys = [...context.noteRows, ...context.entryRows]
-    .filter((row) => {
-      const xml = documentXml(row);
-      if (!xml) return false;
-      return /<CST>\s*60\s*<\/CST>/i.test(xml)
-        || /<CSOSN>\s*500\s*<\/CSOSN>/i.test(xml)
-        || hasPositiveXmlValue(xml, ["vICMSST", "vICMSSTRet", "vBCSTRet"])
-        || /<finNFe>\s*4\s*<\/finNFe>/i.test(xml)
-        || /<CFOP>\s*[26]\d{3}\s*<\/CFOP>/i.test(xml);
-    })
-    .map(documentKey);
-
-  return {
-    hasC176C179Evidence: keys.length > 0,
-    c176C179DocumentKeys: Array.from(new Set(keys)).sort(),
-  };
 }
 
 function effectiveRows(rows: Row[] | undefined, civilDate: string): Row[] {
@@ -417,7 +145,7 @@ function effectiveRows(rows: Row[] | undefined, civilDate: string): Row[] {
 }
 
 function assignmentFromProduct(
-  context: Awaited<ReturnType<typeof sourceContext>>,
+  context: SpedSourceContext,
   productId: number,
   civilDate: string,
 ): { assignment: SpedItemAssignment | null; diagnostics: SpedDiagnostic[] } {
@@ -432,20 +160,24 @@ function assignmentFromProduct(
     }],
   };
   const config = configs[0];
-  if (!config) return { assignment: null, diagnostics: [] };
+  const master = productMaster(context.productsById.get(productId));
+  // Sem configuração vigente o item segue identificado pelo produto: a
+  // projeção acusa o 0200 pendente e a resolução automática sabe quem é.
+  if (!config) return { assignment: { code: "", productId, itemConfigId: null, master }, diagnostics: [] };
   return {
     assignment: {
       code: text(config.codigo_item),
       productId,
       itemConfigId: number(config.id),
       itemType: text(config.tipo_item) || null,
+      master,
     },
     diagnostics: [],
   };
 }
 
 function documentAssignments(
-  context: Awaited<ReturnType<typeof sourceContext>>,
+  context: SpedSourceContext,
   row: Row,
   operation: "ENTRADA" | "SAIDA",
   civilDate: string,
@@ -489,9 +221,13 @@ function documentAssignments(
     if (resolved.assignment) assignments.set(itemNumber, resolved.assignment);
   }
 
+  // A decisão de crédito é do item fiscal do DF-e, com ou sem produto vinculado.
   const dfeId = number(row.fiscal_dfe_documento_id);
-  for (const [itemNumber, assignment] of assignments) {
-    const decisions = effectiveRows(context.creditDecisionsByItem.get(`${dfeId}:${itemNumber}`), civilDate);
+  const prefix = `${dfeId}:`;
+  for (const [key, rows] of context.creditDecisionsByItem) {
+    if (!key.startsWith(prefix)) continue;
+    const itemNumber = number(key.slice(prefix.length));
+    const decisions = effectiveRows(rows, civilDate);
     if (decisions.length > 1) {
       diagnostics.push({
         code: "DECISAO_CREDITO_VIGENCIA_SOBREPOSTA",
@@ -501,7 +237,10 @@ function documentAssignments(
       });
       continue;
     }
-    if (decisions[0]) assignment.creditTreatment = text(decisions[0].tratamento_credito);
+    if (!decisions[0]) continue;
+    const assignment = assignments.get(itemNumber) ?? { code: "", productId: null, itemConfigId: null };
+    assignment.creditTreatment = text(decisions[0].tratamento_credito);
+    assignments.set(itemNumber, assignment);
   }
   return { assignments, diagnostics };
 }
@@ -513,27 +252,35 @@ function catalogIdentity(record: EfdRecord): string | null {
   return null;
 }
 
-function projectDocuments(context: Awaited<ReturnType<typeof sourceContext>>) {
+function projectDocuments(context: SpedSourceContext) {
   const documents: ProjectedFiscalDocument[] = [];
   const diagnostics: SpedDiagnostic[] = [...context.mappingDiagnostics];
+  const rejected = new Set<string>();
+  const policies = readSpedPolicies(context.config);
   for (const row of context.noteRows) {
     const xml = documentXml(row);
-    if (!xml) continue;
+    if (!xml) {
+      rejected.add(`nfe:${row.id}`);
+      continue;
+    }
     const civilDate = fiscalEmissionCivilDate(row) ?? context.start;
     const mapped = documentAssignments(context, row, "SAIDA", civilDate);
     diagnostics.push(...mapped.diagnostics);
+    const model = text(row.modelo).toUpperCase();
     try {
       documents.push(projectFiscalDocument({
-        sourceType: ["65", "NFCE"].includes(text(row.modelo).toUpperCase()) ? "NFC_E" : "NFE_EMITIDA",
+        sourceType: ["65", "NFCE", "NFC_E", "NFC-E"].includes(model) ? "NFC_E" : "NFE_EMITIDA",
         sourceTable: "nfe",
         sourceId: row.id,
         operation: "SAIDA",
+        ownIssued: true,
         status: text(row.status),
         xml,
         xmlSha256: sha256Hex(xml),
         itemAssignments: mapped.assignments,
       }));
     } catch (error) {
+      rejected.add(`nfe:${row.id}`);
       diagnostics.push({
         code: "XML_FISCAL_INVALIDO",
         severity: "BLOQUEIO",
@@ -544,7 +291,20 @@ function projectDocuments(context: Awaited<ReturnType<typeof sourceContext>>) {
   }
   for (const row of context.entryRows) {
     const xml = documentXml(row);
-    if (!xml) continue;
+    if (!xml) {
+      rejected.add(`entrada:${row.id}`);
+      continue;
+    }
+    if (/CANCEL|DENEG/i.test(text(row.dfe?.status))) {
+      rejected.add(`entrada:${row.id}`);
+      diagnostics.push({
+        code: "ENTRADA_NFE_CANCELADA",
+        severity: "BLOQUEIO",
+        message: `A entrada ${row.id} usa a NF-e ${documentKey(row)}, que está ${text(row.dfe?.status).toLowerCase()} na SEFAZ. Documento cancelado ou denegado do fornecedor não é escriturado: cancele a entrada ou vincule a nota correta.`,
+        source: { source: "BANCO", table: "entrada", id: row.id, documentKey: documentKey(row) },
+      });
+      continue;
+    }
     const civilDate = text(row.data_entrada_fiscal).slice(0, 10);
     const mapped = documentAssignments(context, row, "ENTRADA", civilDate);
     diagnostics.push(...mapped.diagnostics);
@@ -554,14 +314,17 @@ function projectDocuments(context: Awaited<ReturnType<typeof sourceContext>>) {
         sourceTable: "entrada",
         sourceId: row.id,
         operation: "ENTRADA",
+        ownIssued: false,
         status: text(row.dfe?.status || row.status),
         xml,
         xmlSha256: sha256Hex(xml),
         receivedDocumentId: number(row.fiscal_dfe_documento_id) || null,
         bookkeepingDate: civilDate,
         itemAssignments: mapped.assignments,
+        csosnToCst: policies.csosnToCst,
       }));
     } catch (error) {
+      rejected.add(`entrada:${row.id}`);
       diagnostics.push({
         code: "XML_FISCAL_INVALIDO",
         severity: "BLOQUEIO",
@@ -613,11 +376,21 @@ function projectDocuments(context: Awaited<ReturnType<typeof sourceContext>>) {
       if (!previous) catalogs.set(identity, record);
     }
   }
+  const reconciliation = reconcileDocuments({
+    sourceNotes: context.noteRows.length,
+    sourceEntries: context.entryRows.length,
+    projected: uniqueDocuments.length,
+    rejected: rejected.size,
+    duplicates: documents.length - uniqueDocuments.length,
+    c100: blockCRecords.filter((record) => record.code === "C100").length,
+  });
+  diagnostics.push(...reconciliation.diagnostics);
   return {
     documents: uniqueDocuments,
     catalogRecords: Array.from(catalogs.values()),
     blockCRecords,
     diagnostics,
+    reconciliation: reconciliation.summary,
   };
 }
 
@@ -635,7 +408,7 @@ async function readStoredRecords(versionId: number): Promise<EfdRecord[]> {
 }
 
 function sourceDiagnostics(
-  context: Awaited<ReturnType<typeof sourceContext>>,
+  context: SpedSourceContext,
   projectionDiagnostics: SpedDiagnostic[],
 ): SpedDiagnostic[] {
   const diagnostics = [...validateFoundation(context), ...projectionDiagnostics];
@@ -648,9 +421,7 @@ function sourceDiagnostics(
   for (const row of context.unsettledNoteRows) diagnostics.push({
     code: "NFE_SITUACAO_NAO_ESCRITURAVEL",
     severity: "BLOQUEIO",
-    message: text(row.status) === "DENEGADA"
-      ? `A NF-e ${documentKey(row)} foi denegada e exige C100 com COD_SIT 04, que o motor ainda não gera.`
-      : `A NF-e ${documentKey(row)} está com situação ${text(row.status)} e precisa ser resolvida na SEFAZ antes do fechamento.`,
+    message: `A NF-e ${documentKey(row)} está com situação ${text(row.status)} e precisa ser resolvida na SEFAZ antes do fechamento.`,
     source: { source: "BANCO", table: "nfe", id: row.id, documentKey: documentKey(row) },
   });
   for (const row of [...context.noteRows, ...context.entryRows]) {
@@ -670,7 +441,7 @@ function sourceDiagnostics(
 }
 
 function contextHash(
-  context: Awaited<ReturnType<typeof sourceContext>>,
+  context: SpedSourceContext,
   records: EfdRecord[],
   documents: ProjectedFiscalDocument[],
 ): string {
@@ -708,11 +479,11 @@ function contextHash(
   });
 }
 
-async function openVersion(competence: Row, actorId: string, hash: string): Promise<Row> {
+async function openVersion(competence: Row, actorId: string, hash: string, layout: EfdLayout): Promise<Row> {
   const result = await supabaseAdmin.rpc("fiscal_sped_abrir_versao", {
     p_competencia_id: number(competence.id),
     p_finalidade: "ORIGINAL",
-    p_leiaute: "020",
+    p_leiaute: layout.code,
     p_guia_pratico: PRACTICAL_GUIDE,
     p_motor_versao: ENGINE_VERSION,
     p_git_commit: gitCommit(),
@@ -894,7 +665,13 @@ async function storeDocumentSnapshots(
 }
 
 async function replaceDiagnostics(executionId: number, diagnostics: SpedDiagnostic[]) {
-  if (diagnostics.length === 0) return;
+  // Lotes de 500: uma competência grande pode ter milhares de diagnósticos.
+  for (let index = 0; index < diagnostics.length; index += 500) {
+    await insertDiagnostics(executionId, diagnostics.slice(index, index + 500));
+  }
+}
+
+async function insertDiagnostics(executionId: number, diagnostics: SpedDiagnostic[]) {
   const result = await supabaseAdmin.from("fiscal_sped_inconsistencia").insert(diagnostics.map((diagnostic) => ({
     execucao_id: executionId,
     severidade: diagnostic.severity,
@@ -909,7 +686,7 @@ async function replaceDiagnostics(executionId: number, diagnostics: SpedDiagnost
   throwIfSupabaseError(result.error);
 }
 
-async function resolveCompanyId(companyId: number | null | undefined): Promise<number> {
+export async function resolveCompanyId(companyId: number | null | undefined): Promise<number> {
   if (companyId != null) return companyId;
   const result = await supabaseAdmin.from("empresa").select("id").order("id").limit(2);
   throwIfSupabaseError(result.error);
@@ -918,6 +695,23 @@ async function resolveCompanyId(companyId: number | null | undefined): Promise<n
   throw chosen.error === "NENHUMA"
     ? new SpedServiceError("Cadastre a empresa antes de abrir uma competência SPED.", 422, "COMPANY_REQUIRED")
     : new SpedServiceError("Há mais de uma empresa cadastrada: informe a empresa da competência.", 400, "COMPANY_AMBIGUOUS");
+}
+
+/** Cria (ou reaproveita) a competência e devolve só o estado, sem o detalhe completo. */
+export async function ensureSpedCompetenceState(input: { companyId: number; competence: string; actorId: string }) {
+  let start: string;
+  try {
+    start = parseCompetence(input.competence).start;
+  } catch (error) {
+    throw new SpedServiceError(error instanceof Error ? error.message : "Competência inválida.", 400, "INVALID_COMPETENCE");
+  }
+  const result = await supabaseAdmin.rpc("fiscal_sped_criar_competencia", {
+    p_empresa_id: input.companyId,
+    p_competencia: start,
+    p_usuario_id: input.actorId,
+  });
+  throwIfSupabaseError(result.error);
+  return getSpedCompetenceState(String(result.data));
 }
 
 export async function createSpedCompetence(input: { companyId?: number | null; competence: string; actorId: string }) {
@@ -937,14 +731,28 @@ export async function createSpedCompetence(input: { companyId?: number | null; c
   return getSpedCompetenceDetail(String(result.data));
 }
 
-export async function validateSpedCompetence(id: string, expectedVersion: unknown, actorId: string) {
-  let competence = await getCompetence(id);
-  let version = await getVersion(competence.versao_atual_id);
-  assertExpectedVersion(version, expectedVersion);
-  if (version && !["RASCUNHO", "VALIDADA"].includes(text(version.status))) {
-    throw new SpedServiceError("A competência está fechada. Reabra para validar novamente.", 409, "COMPETENCE_CLOSED");
+/** Etapas reais do processamento, reportadas conforme acontecem. */
+export type SpedProgressStage =
+  | "COLETANDO_DOCUMENTOS"
+  | "RESOLVENDO_CADASTROS"
+  | "CALCULANDO_APURACAO"
+  | "MONTANDO_REGISTROS"
+  | "VALIDANDO";
+export type SpedProgress = (stage: SpedProgressStage) => Promise<void> | void;
+
+function layoutFor(competence: string, versionLayoutCode?: string | null): EfdLayout {
+  try {
+    return versionLayoutCode ? resolveSpedLayoutForVersion(competence, versionLayoutCode) : resolveSpedLayout(competence);
+  } catch (error) {
+    if (error instanceof SpedLayoutNotConfiguredError) throw new SpedServiceError(error.message, 422, error.code);
+    throw new SpedServiceError(error instanceof Error ? error.message : "Leiaute inválido.", 422, "LEIAUTE_INVALIDO");
   }
-  const context = await sourceContext(competence);
+}
+
+async function buildCompetenceProjection(
+  context: SpedSourceContext,
+  options: { layout: EfdLayout; finalidade: "ORIGINAL" | "RETIFICADORA"; progress?: SpedProgress },
+) {
   const projection = projectDocuments(context);
   const inventory = projectSpedInventory({
     applicable: context.config?.inventario_aplicavel === true,
@@ -952,12 +760,14 @@ export async function validateSpedCompetence(id: string, expectedVersion: unknow
     items: context.inventoryItems,
     competenceEnd: context.end,
   });
+  await options.progress?.("CALCULANDO_APURACAO");
   const assessment = projectSpedAssessment({
     competence: context.competence,
     documents: projection.documents,
     priorEfd: context.priorEfd,
     adjustments: context.adjustments,
   });
+  await options.progress?.("MONTANDO_REGISTROS");
   const catalog = projectSpedCatalog({
     baseCatalogRecords: [...projection.catalogRecords, ...inventory.catalogRecords],
     unitConversions: context.unitConversions,
@@ -967,6 +777,8 @@ export async function validateSpedCompetence(id: string, expectedVersion: unknow
   });
   const records = context.company ? buildFoundationRecords({
     competence: context.competence,
+    layoutCode: options.layout.code,
+    finalidade: options.finalidade,
     company: context.company,
     config: context.config,
     accountant: context.accountant,
@@ -976,8 +788,220 @@ export async function validateSpedCompetence(id: string, expectedVersion: unknow
     blockERecords: assessment.blockERecords,
     blockHRecords: inventory.records,
   }) : [];
+  return { projection, inventory, assessment, catalog, records };
+}
+
+async function loadAllItemConfigs(companyId: number): Promise<SpedExistingItemConfig[]> {
+  const { rows } = await fetchAllPages<Row>("configurações de item (todas as vigências)", ({ from, to }) => supabaseAdmin
+    .from("fiscal_sped_item_config").select("id, produto_id, codigo_item, tipo_item, vigencia_inicio, vigencia_fim", { count: "exact" })
+    .eq("empresa_id", companyId).order("id").range(from, to));
+  return rows.map((row) => ({
+    id: number(row.id),
+    productId: number(row.produto_id) || null,
+    code: text(row.codigo_item),
+    itemType: text(row.tipo_item),
+    start: text(row.vigencia_inicio).slice(0, 10),
+    end: row.vigencia_fim ? text(row.vigencia_fim).slice(0, 10) : null,
+  }));
+}
+
+function autoProducts(context: SpedSourceContext): Map<number, SpedAutoProduct> {
+  return new Map(Array.from(context.productsById.entries()).map(([id, row]) => {
+    const master = productMaster(row);
+    const price = Number(row.precovenda);
+    return [id, {
+      id,
+      description: master?.description ?? null,
+      unit: master?.unit ?? null,
+      ncm: master?.ncm ?? null,
+      cest: master?.cest ?? null,
+      barcode: master?.barcode ?? null,
+      internalIcmsRate: master?.internalIcmsRate ?? null,
+      salePrice: Number.isFinite(price) ? price : null,
+      deleted: row.is_deleted === true,
+    }];
+  }));
+}
+
+function productUsages(documents: ProjectedFiscalDocument[]): SpedProductUsage[] {
+  return documents
+    .filter((document) => !["02", "04"].includes(document.situationCode))
+    .flatMap((document) => document.items
+      .filter((item) => item.productId)
+      .map((item) => ({
+        productId: number(item.productId),
+        operation: document.operation,
+        ownIssued: document.ownIssued ?? document.sourceTable === "nfe",
+        cfop: text(item.payload?.cfop),
+        documentKey: document.key,
+        itemNumber: item.number,
+      })));
+}
+
+function xmlItemNumber(xml: string, itemNumber: number, tag: string): number {
+  const det = new RegExp(`<(?:\\w+:)?det\\b[^>]*nItem="${itemNumber}"[^>]*>([\\s\\S]*?)</(?:\\w+:)?det>`, "i").exec(xml)?.[1] ?? "";
+  const raw = new RegExp(`<(?:\\w+:)?${tag}>\\s*([^<]+?)\\s*</(?:\\w+:)?${tag}>`, "i").exec(det)?.[1];
+  const parsed = Number(String(raw ?? "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function creditCandidates(context: SpedSourceContext, documents: ProjectedFiscalDocument[]): SpedCreditCandidate[] {
+  const xmlByEntry = new Map(context.entryRows.map((row) => [String(row.id), documentXml(row)]));
+  return documents
+    .filter((document) => !(document.ownIssued ?? document.sourceTable === "nfe") && document.situationCode === "00")
+    .flatMap((document) => {
+      const dfeId = number(document.payload.fiscalDfeDocumentoId);
+      if (!dfeId) return [];
+      const xml = xmlByEntry.get(document.sourceId) ?? "";
+      return document.items
+        .filter((item) => item.creditTreatment === "PENDENTE")
+        .map((item) => {
+          const origin = text(item.payload?.origem);
+          const cst = text(item.payload?.cst_icms);
+          return {
+            dfeId,
+            itemNumber: item.number,
+            documentKey: document.key,
+            itemType: text(item.payload?.assignment?.itemType) || null,
+            xmlIcms: Number(item.payload?.valor_icms) || 0,
+            xmlSimplesCredit: xmlItemNumber(xml, item.number, "vCredICMSSN"),
+            cst: origin && cst ? `${origin}${cst}` : null,
+          };
+        });
+    });
+}
+
+/** Pendências de cadastro por produto (uma por produto, não uma por nota). */
+const PLAN_DIAGNOSTIC_CODES = new Set([
+  "TIPO_ITEM_NAO_DERIVAVEL",
+  "CODIGO_ITEM_COMPARTILHADO",
+  "CONFIG_ITEM_ENCERRADA",
+  "PRODUTO_DOCUMENTO_INEXISTENTE",
+  "CODIGO_ITEM_INDISPONIVEL",
+  "POLITICA_CREDITO_REVENDA_PENDENTE",
+]);
+
+async function resolutionDiagnostics(context: SpedSourceContext, documents: ProjectedFiscalDocument[]): Promise<SpedDiagnostic[]> {
+  const itemPlan = planSpedItemResolution({
+    competenceStart: context.start,
+    competenceEnd: context.end,
+    products: autoProducts(context),
+    usages: productUsages(documents),
+    configs: await loadAllItemConfigs(context.companyId),
+  });
+  const creditPlan = planSpedCreditResolution({
+    candidates: creditCandidates(context, documents),
+    policy: readSpedPolicies(context.config),
+  });
+  return [...itemPlan.diagnostics, ...creditPlan.diagnostics].filter((diagnostic) => PLAN_DIAGNOSTIC_CODES.has(diagnostic.code));
+}
+
+export type SpedAutomaticResolutionResult = {
+  itensCriados: number;
+  itensIgnorados: number;
+  creditosCriados: number;
+  creditosIgnorados: number;
+  pendencias: number;
+};
+
+/**
+ * Aplica o que o ERP resolve sozinho: configuração 0200 dos produtos
+ * movimentados e decisões de crédito determinísticas. Tudo numa transação que
+ * revalida contra o banco; o que depende de decisão fiscal vira pendência.
+ */
+export async function resolveSpedCompetenceAutomatically(
+  id: string,
+  actorId: string,
+  options: { progress?: SpedProgress } = {},
+): Promise<SpedAutomaticResolutionResult> {
+  const competence = await getCompetence(id);
+  if (competence.status === "FECHADA") {
+    return { itensCriados: 0, itensIgnorados: 0, creditosCriados: 0, creditosIgnorados: 0, pendencias: 0 };
+  }
+  let context = await collectSpedSources(competence);
+  await options.progress?.("RESOLVENDO_CADASTROS");
+  let documents = projectDocuments(context).documents;
+  const itemPlan = planSpedItemResolution({
+    competenceStart: context.start,
+    competenceEnd: context.end,
+    products: autoProducts(context),
+    usages: productUsages(documents),
+    configs: await loadAllItemConfigs(context.companyId),
+  });
+  const totals = { itensCriados: 0, itensIgnorados: 0, creditosCriados: 0, creditosIgnorados: 0 };
+  const apply = async (items: Row[], credits: Row[]) => {
+    if (!items.length && !credits.length) return;
+    const result = await supabaseAdmin.rpc("fiscal_sped_aplicar_resolucao_automatica", {
+      p_competencia_id: number(competence.id),
+      p_itens: items,
+      p_creditos: credits,
+      p_usuario_id: actorId,
+    });
+    throwIfSupabaseError(result.error);
+    const data = (result.data ?? {}) as Row;
+    totals.itensCriados += number(data.itensCriados);
+    totals.itensIgnorados += number(data.itensIgnorados);
+    totals.creditosCriados += number(data.creditosCriados);
+    totals.creditosIgnorados += number(data.creditosIgnorados);
+  };
+  await apply(itemPlan.create.map((item) => ({
+    produto_id: item.productId,
+    codigo_item: item.code,
+    tipo_item: item.itemType,
+    vigencia_inicio: item.start,
+    vigencia_fim: item.end,
+    evidencia: item.evidence,
+  })), []);
+  if (totals.itensCriados > 0) {
+    // O tipo do item recém-configurado define a destinação usada no crédito.
+    context = await collectSpedSources(competence);
+    documents = projectDocuments(context).documents;
+  }
+  const creditPlan = planSpedCreditResolution({
+    candidates: creditCandidates(context, documents),
+    policy: readSpedPolicies(context.config),
+  });
+  await apply([], creditPlan.create.map((decision) => ({
+    documento_id: decision.dfeId,
+    numero_item: decision.itemNumber,
+    tratamento_credito: decision.treatment,
+    evidencia: decision.evidence,
+  })));
+  return { ...totals, pendencias: itemPlan.diagnostics.length + creditPlan.diagnostics.length };
+}
+
+export async function validateSpedCompetence(
+  id: string,
+  expectedVersion: unknown,
+  actorId: string,
+  options: { progress?: SpedProgress } = {},
+) {
+  const result = await runSpedValidation(id, expectedVersion, actorId, options);
+  return { ...result, data: await getSpedCompetenceDetail(id) };
+}
+
+/** Validação sem montar o detalhe completo (documentos e itens) na resposta. */
+export async function runSpedValidation(
+  id: string,
+  expectedVersion: unknown,
+  actorId: string,
+  options: { progress?: SpedProgress } = {},
+) {
+  const competence = await getCompetence(id);
+  let version = await getVersion(competence.versao_atual_id);
+  assertExpectedVersion(version, expectedVersion);
+  if (version && !["RASCUNHO", "VALIDADA"].includes(text(version.status))) {
+    throw new SpedServiceError("A competência está fechada. Reabra para validar novamente.", 409, "COMPETENCE_CLOSED");
+  }
+  const competenceText = month(competence.competencia);
+  const layout = layoutFor(competenceText, version ? text(version.leiaute) : null);
+  await options.progress?.("COLETANDO_DOCUMENTOS");
+  const context = await collectSpedSources(competence);
+  const finalidade = version?.finalidade === "RETIFICADORA" ? "RETIFICADORA" : "ORIGINAL";
+  const built = await buildCompetenceProjection(context, { layout, finalidade, progress: options.progress });
+  const { projection, inventory, assessment, catalog, records } = built;
   const hash = contextHash(context, records, projection.documents);
-  if (!version) version = await openVersion(competence, actorId, hash);
+  if (!version) version = await openVersion(competence, actorId, hash, layout);
   if (version.status === "VALIDADA" && version.context_hash !== hash) {
     // Uma decisão de item ou importação mudou as fontes depois da validação. Reabrir
     // só vale para competência fechada; a versão ainda editável volta a rascunho.
@@ -1003,11 +1027,17 @@ export async function validateSpedCompetence(id: string, expectedVersion: unknow
   } else if (version.context_hash !== hash) {
     throw new SpedServiceError("As fontes mudaram após a validação. Reabra a versão antes de validar novamente.", 409, "SOURCE_CHANGED");
   }
+  await options.progress?.("VALIDANDO");
   const candidate = {
     competence: context.competence,
     timezoneIana: text(context.config?.timezone_iana),
     gates: buildGateConfiguration(context.config),
-    conditionalEvidence: conditionalEvidence(context),
+    conditionalEvidence: detectC176C179Evidence(context.noteRows.map((row) => ({
+      key: documentKey(row),
+      xml: documentXml(row),
+      ownIssued: true,
+      status: text(row.status),
+    }))),
     records,
     unconfirmedEntryIds: context.unconfirmedEntryIds,
   };
@@ -1017,20 +1047,26 @@ export async function validateSpedCompetence(id: string, expectedVersion: unknow
       ...catalog.diagnostics,
       ...assessment.diagnostics,
       ...inventory.diagnostics,
+      ...await resolutionDiagnostics(context, projection.documents),
     ]),
-    ...validateSpedCandidate(candidate, resolveSpedLayout(context.competence)),
+    ...validateSpedCandidate(candidate, layout),
   ];
   const begin = await supabaseAdmin.rpc("fiscal_sped_iniciar_validacao", { p_versao_id: version.id, p_context_hash: hash, p_usuario_id: actorId });
   throwIfSupabaseError(begin.error);
   await replaceDiagnostics(number(begin.data), diagnostics);
   const concluded = await supabaseAdmin.rpc("fiscal_sped_concluir_validacao", { p_execucao_id: begin.data, p_usuario_id: actorId });
   throwIfSupabaseError(concluded.error);
-  competence = await getCompetence(id);
-  return { data: await getSpedCompetenceDetail(id), validation: concluded.data, blocked: hasBlockingDiagnostics(diagnostics) };
+  return {
+    validation: concluded.data,
+    blocked: hasBlockingDiagnostics(diagnostics),
+    reconciliation: projection.reconciliation,
+    collection: context.collection as SpedCollectionReport[],
+    recordCount: records.length,
+  };
 }
 
-export async function closeSpedCompetence(id: string, expectedVersion: unknown, actorId: string) {
-  await validateSpedCompetence(id, expectedVersion, actorId);
+/** Fecha a versão que acabou de ser validada, sem repetir a projeção. */
+export async function closeValidatedSpedCompetence(id: string, actorId: string) {
   const competence = await getCompetence(id);
   const version = await getVersion(competence.versao_atual_id);
   if (!version || competence.status !== "APTA") throw new SpedServiceError("A competência possui bloqueios e não pode ser fechada.", 422, "NOT_READY");
@@ -1042,6 +1078,23 @@ export async function closeSpedCompetence(id: string, expectedVersion: unknown, 
     p_usuario_id: actorId,
   });
   throwIfSupabaseError(result.error);
+}
+
+/** Estado mínimo da competência, sem montar o detalhe completo. */
+export async function getSpedCompetenceState(id: string): Promise<{ id: string; status: string; versionNumber: number | null; empresaId: number }> {
+  const competence = await getCompetence(id);
+  const version = await getVersion(competence.versao_atual_id);
+  return {
+    id: String(competence.id),
+    status: text(competence.status),
+    versionNumber: version ? number(version.numero) : null,
+    empresaId: number(competence.empresa_id),
+  };
+}
+
+export async function closeSpedCompetence(id: string, expectedVersion: unknown, actorId: string) {
+  await validateSpedCompetence(id, expectedVersion, actorId);
+  await closeValidatedSpedCompetence(id, actorId);
   return getSpedCompetenceDetail(id);
 }
 
@@ -1051,45 +1104,17 @@ export async function reopenSpedCompetence(id: string, expectedVersion: unknown,
   assertExpectedVersion(version, expectedVersion);
   const reasonText = text(reason);
   if (!reasonText) throw new SpedServiceError("Motivo da reabertura é obrigatório.", 400, "REASON_REQUIRED");
-  const context = await sourceContext(competence);
-  const projection = projectDocuments(context);
-  const inventory = projectSpedInventory({
-    applicable: context.config?.inventario_aplicavel === true,
-    inventory: context.inventory,
-    items: context.inventoryItems,
-    competenceEnd: context.end,
-  });
-  const assessment = projectSpedAssessment({
-    competence: context.competence,
-    documents: projection.documents,
-    priorEfd: context.priorEfd,
-    adjustments: context.adjustments,
-  });
-  const catalog = projectSpedCatalog({
-    baseCatalogRecords: [...projection.catalogRecords, ...inventory.catalogRecords],
-    unitConversions: context.unitConversions,
-    itemCorrelations: context.itemCorrelations,
-    competenceStart: context.start,
-    competenceEnd: context.end,
-  });
-  const records = context.company ? buildFoundationRecords({
-    competence: context.competence,
-    company: context.company,
-    config: context.config,
-    accountant: context.accountant,
-    payments1601: context.payments1601,
-    catalogRecords: catalog.catalogRecords,
-    blockCRecords: projection.blockCRecords,
-    blockERecords: assessment.blockERecords,
-    blockHRecords: inventory.records,
-  }) : [];
+  // A retificadora usa o leiaute vigente na competência, o mesmo da original.
+  const layout = layoutFor(month(competence.competencia), version ? text(version.leiaute) : null);
+  const context = await collectSpedSources(competence);
+  const { projection, assessment, catalog, records } = await buildCompetenceProjection(context, { layout, finalidade: "RETIFICADORA" });
   const hash = contextHash(context, records, projection.documents);
   const result = await supabaseAdmin.rpc("fiscal_sped_reabrir_competencia", {
     p_competencia_id: competence.id,
     p_expected_lock_version: competence.lock_version,
     p_usuario_id: actorId,
     p_motivo: reasonText,
-    p_leiaute: "020",
+    p_leiaute: layout.code,
     p_guia_pratico: PRACTICAL_GUIDE,
     p_motor_versao: ENGINE_VERSION,
     p_git_commit: gitCommit(),
@@ -1108,12 +1133,24 @@ export async function reopenSpedCompetence(id: string, expectedVersion: unknown,
   return getSpedCompetenceDetail(id);
 }
 
-export async function generateSpedFile(
+export type SpedGeneratedFile = {
+  id: string;
+  tipo: "PREVIA" | "FINAL";
+  sha256: string;
+  lineCount: number;
+  sizeBytes: number;
+  recordCounts: Record<string, number>;
+  layout: string;
+  versao: number;
+  created: boolean;
+};
+
+export async function generateSpedFileRecord(
   id: string,
   expectedVersion: unknown,
   actorId: string,
-  options?: { tipo?: "PREVIA" | "FINAL" }
-) {
+  options?: { tipo?: "PREVIA" | "FINAL" },
+): Promise<SpedGeneratedFile> {
   const competence = await getCompetence(id);
   const version = await getVersion(competence.versao_atual_id);
   assertExpectedVersion(version, expectedVersion);
@@ -1128,50 +1165,76 @@ export async function generateSpedFile(
   }
   const records = await readStoredRecords(number(version.id));
   if (records.length === 0) throw new SpedServiceError("Snapshots da versão não contêm registros EFD.", 422, "SNAPSHOT_EMPTY");
-  const serialized = serializeEfd(records, resolveSpedLayout(month(competence.competencia)));
+  const layout = layoutFor(month(competence.competencia), text(version.leiaute));
+  const serialized = serializeEfd(records, layout);
   const hash = sha256Hex(serialized.bytes);
-  const existing = await supabaseAdmin
-    .from("fiscal_sped_arquivo")
-    .select("id")
-    .eq("versao_id", version.id)
-    .eq("tipo", tipo)
-    .eq("arquivo_sha256", hash)
-    .maybeSingle();
-  throwIfSupabaseError(existing.error);
-  if (!existing.data) {
-    const path = buildSpedStoragePath(competence.empresa_id, month(competence.competencia), version.numero, tipo, hash);
-    const upload = await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(path, serialized.bytes, { contentType: "text/plain", upsert: true });
-    if (upload.error) {
-      throw new SpedServiceError(`Falha no upload para o Storage: ${upload.error.message}`, 500, "STORAGE_UPLOAD_ERROR");
-    }
+  const result: SpedGeneratedFile = {
+    id: "",
+    tipo,
+    sha256: hash,
+    lineCount: serialized.lineCount,
+    sizeBytes: serialized.bytes.byteLength,
+    recordCounts: serialized.recordCounts,
+    layout: layout.code,
+    versao: number(version.numero),
+    created: false,
+  };
+  const findExisting = async () => {
+    const existing = await supabaseAdmin
+      .from("fiscal_sped_arquivo")
+      .select("id")
+      .eq("versao_id", version.id)
+      .eq("tipo", tipo)
+      .eq("arquivo_sha256", hash)
+      .maybeSingle();
+    throwIfSupabaseError(existing.error);
+    return existing.data ? String(existing.data.id) : null;
+  };
+  const existingId = await findExisting();
+  if (existingId) return { ...result, id: existingId };
 
-    try {
-      const registerRpc = await supabaseAdmin.rpc("fiscal_sped_registrar_arquivo", {
-        p_versao_id: number(version.id),
-        p_tipo: tipo,
-        p_finalidade: version.finalidade,
-        p_storage_bucket: STORAGE_BUCKET,
-        p_storage_path: path,
-        p_arquivo_sha256: hash,
-        p_tamanho_bytes: serialized.bytes.byteLength,
-        p_quantidade_registros: serialized.lineCount,
-        p_contadores_registro: serialized.recordCounts,
-        p_generated_by: actorId,
-      });
-
-      if (registerRpc.error) {
-        const classification = classifySpedDbInsertError(registerRpc.error);
-        if (classification.isHashDuplicate) {
-          return getSpedCompetenceDetail(id);
-        }
+  const path = buildSpedStoragePath(competence.empresa_id, month(competence.competencia), version.numero, tipo, hash);
+  const upload = await supabaseAdmin.storage.from(STORAGE_BUCKET).upload(path, serialized.bytes, { contentType: "text/plain", upsert: true });
+  if (upload.error) {
+    throw new SpedServiceError(`Falha no upload para o Storage: ${upload.error.message}`, 500, "STORAGE_UPLOAD_ERROR");
+  }
+  try {
+    const registerRpc = await supabaseAdmin.rpc("fiscal_sped_registrar_arquivo", {
+      p_versao_id: number(version.id),
+      p_tipo: tipo,
+      p_finalidade: version.finalidade,
+      p_storage_bucket: STORAGE_BUCKET,
+      p_storage_path: path,
+      p_arquivo_sha256: hash,
+      p_tamanho_bytes: serialized.bytes.byteLength,
+      p_quantidade_registros: serialized.lineCount,
+      p_contadores_registro: serialized.recordCounts,
+      p_generated_by: actorId,
+    });
+    if (registerRpc.error) {
+      const classification = classifySpedDbInsertError(registerRpc.error);
+      if (!classification.isHashDuplicate) {
         await compensateStorage(path);
         throwIfSupabaseError(registerRpc.error);
       }
-    } catch (err) {
-      await compensateStorage(path);
-      throw err;
     }
+    const registered = (Array.isArray(registerRpc.data) ? registerRpc.data[0] : registerRpc.data) as Row | null;
+    const fileId = registered?.id ? String(registered.id) : await findExisting();
+    if (!fileId) throw new SpedServiceError("O arquivo foi gerado, mas o registro não foi localizado.", 500, "FILE_NOT_REGISTERED");
+    return { ...result, id: fileId, created: registered?.is_new !== false };
+  } catch (err) {
+    await compensateStorage(path);
+    throw err;
   }
+}
+
+export async function generateSpedFile(
+  id: string,
+  expectedVersion: unknown,
+  actorId: string,
+  options?: { tipo?: "PREVIA" | "FINAL" },
+) {
+  await generateSpedFileRecord(id, expectedVersion, actorId, options);
   return getSpedCompetenceDetail(id);
 }
 
@@ -1227,7 +1290,7 @@ async function latestExecution(competenceId: number) {
 async function summaryFor(competence: Row): Promise<SpedCompetenciaSummary> {
   const version = await getVersion(competence.versao_atual_id);
   const [config, execution, documents, entries, outputs, participants, items, files] = await Promise.all([
-    getConfig(number(competence.empresa_id)), latestExecution(number(competence.id)),
+    loadEffectiveConfig(number(competence.empresa_id), `${month(competence.competencia)}-01`), latestExecution(number(competence.id)),
     version ? supabaseAdmin.from("fiscal_sped_documento_snapshot").select("id", { count: "exact", head: true }).eq("versao_id", version.id) : Promise.resolve({ count: 0, error: null }),
     version ? supabaseAdmin.from("fiscal_sped_documento_snapshot").select("id", { count: "exact", head: true }).eq("versao_id", version.id).eq("operacao", "ENTRADA") : Promise.resolve({ count: 0, error: null }),
     version ? supabaseAdmin.from("fiscal_sped_documento_snapshot").select("id", { count: "exact", head: true }).eq("versao_id", version.id).eq("operacao", "SAIDA") : Promise.resolve({ count: 0, error: null }),
@@ -1252,17 +1315,33 @@ export async function listSpedCompetences(): Promise<SpedCompetenciaSummary[]> {
   return Promise.all((result.data ?? []).map((row: Row) => summaryFor(row)));
 }
 
-export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenciaDetail> {
+/** Lê todas as páginas e devolve no formato de resposta do Supabase. */
+async function allRows(label: string, page: (range: { from: number; to: number }) => PromiseLike<{ data: Row[] | null; error: { message?: string; code?: string } | null; count?: number | null }>) {
+  const { rows } = await fetchAllPages<Row>(label, page);
+  return { data: rows, error: null };
+}
+
+/**
+ * Detalhe da competência. Sem `includeSnapshots`, pula documentos e cadastros
+ * (o volume grande) e serve ao acompanhamento da geração.
+ */
+export async function getSpedCompetenceDetail(id: string, options: { includeSnapshots?: boolean } = {}): Promise<SpedCompetenciaDetail> {
+  const includeSnapshots = options.includeSnapshots !== false;
   const competence = await getCompetence(id);
   const version = await getVersion(competence.versao_atual_id);
   const summary = await summaryFor(competence);
-  const config = await getConfig(number(competence.empresa_id));
+  // A tela mostra a configuração vigente na competência, não a mais recente.
+  const config = await loadEffectiveConfig(number(competence.empresa_id), `${month(competence.competencia)}-01`);
   const selectedInventoryId = number(config?.inventario_fechamento_id);
   const [companyResult, previousEfdResult, documentsResult, cadastrosResult, apuracaoResult, importsResult, adjustmentsResult, inventoryResult, execution, filesResult, accountantsResult] = await Promise.all([
     supabaseAdmin.from("empresa").select("id, cnpj, razaosocial, nomefantasia, inscricaoestadual").eq("id", competence.empresa_id).maybeSingle(),
     supabaseAdmin.from("fiscal_sped_efd_anterior_importacao").select("id, competencia_arquivo, nome_arquivo, arquivo_sha256, status, imported_at").eq("competencia_id", competence.id).order("imported_at", { ascending: false }).limit(1).maybeSingle(),
-    version ? supabaseAdmin.from("fiscal_sped_documento_snapshot").select("*, itens:fiscal_sped_item_snapshot(*)").eq("versao_id", version.id).order("data_emissao_civil").order("id") : Promise.resolve({ data: [], error: null }),
-    version ? supabaseAdmin.from("fiscal_sped_cadastro_snapshot").select("*").eq("versao_id", version.id).in("tipo", ["PARTICIPANTE", "ITEM"]).order("id") : Promise.resolve({ data: [], error: null }),
+    version && includeSnapshots
+      ? allRows("documentos da versão", ({ from, to }) => supabaseAdmin.from("fiscal_sped_documento_snapshot").select("*, itens:fiscal_sped_item_snapshot(*)", { count: "exact" }).eq("versao_id", version.id).order("data_emissao_civil").order("id").range(from, to))
+      : Promise.resolve({ data: [], error: null }),
+    version && includeSnapshots
+      ? allRows("cadastros da versão", ({ from, to }) => supabaseAdmin.from("fiscal_sped_cadastro_snapshot").select("*", { count: "exact" }).eq("versao_id", version.id).in("tipo", ["PARTICIPANTE", "ITEM"]).order("id").range(from, to))
+      : Promise.resolve({ data: [], error: null }),
     version ? supabaseAdmin.from("fiscal_sped_apuracao_snapshot").select("*").eq("versao_id", version.id).order("id") : Promise.resolve({ data: [], error: null }),
     supabaseAdmin.from("fiscal_sped_1601_importacao").select("id, nome_arquivo, arquivo_sha256, status, quantidade_linhas, imported_at").eq("competencia_id", competence.id).eq("status", "VALIDADA").order("imported_at", { ascending: false }),
     supabaseAdmin.from("fiscal_sped_ajuste_apuracao").select("*").eq("competencia_id", competence.id).eq("ativo", true).order("id"),
@@ -1275,7 +1354,9 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
   ]);
   for (const result of [companyResult, previousEfdResult, documentsResult, cadastrosResult, apuracaoResult, importsResult, adjustmentsResult, inventoryResult, filesResult, accountantsResult]) throwIfSupabaseError(result.error);
   const importIds = (importsResult.data ?? []).map((row: Row) => row.id);
-  const payments = importIds.length ? await supabaseAdmin.from("fiscal_sped_1601_linha").select("*").in("importacao_id", importIds).order("id") : { data: [], error: null };
+  const payments = importIds.length
+    ? await allRows("linhas do 1601", ({ from, to }) => supabaseAdmin.from("fiscal_sped_1601_linha").select("*", { count: "exact" }).in("importacao_id", importIds).order("id").range(from, to))
+    : { data: [], error: null };
   throwIfSupabaseError(payments.error);
   const fileRows = (filesResult.data ?? []) as Row[];
   const fileIds = fileRows.map((row) => row.id).filter(Boolean);
@@ -1293,10 +1374,13 @@ export async function getSpedCompetenceDetail(id: string): Promise<SpedCompetenc
     pvaValidationsByFile.set(fileId, [...(pvaValidationsByFile.get(fileId) ?? []), val]);
   }
   const inventoryItems = inventoryResult.data
-    ? await supabaseAdmin.from("fiscal_inventario_item").select("id, valor_total").eq("inventario_id", inventoryResult.data.id)
+    ? await allRows("itens do inventário", ({ from, to }) => supabaseAdmin.from("fiscal_inventario_item").select("id, valor_total", { count: "exact" }).eq("inventario_id", inventoryResult.data.id).order("id").range(from, to))
     : { data: [], error: null };
   throwIfSupabaseError(inventoryItems.error);
-  const inconsistencies = execution ? await supabaseAdmin.from("fiscal_sped_inconsistencia").select("*").eq("execucao_id", execution.id).order("id") : { data: [], error: null };
+  // Uma competência com milhares de itens pendentes passa de 1000 inconsistências.
+  const inconsistencies = execution
+    ? await allRows("inconsistências", ({ from, to }) => supabaseAdmin.from("fiscal_sped_inconsistencia").select("*", { count: "exact" }).eq("execucao_id", execution.id).order("id").range(from, to))
+    : { data: [], error: null };
   throwIfSupabaseError(inconsistencies.error);
   const company = (companyResult.data ?? {}) as Row;
   const cadastros = (cadastrosResult.data ?? []) as Row[];
@@ -1469,6 +1553,18 @@ export async function updateSpedConfiguration(input: {
   actorId: string;
   patch: Record<string, unknown>;
 }) {
+  const vigenciaInicio = input.patch.vigenciaInicio == null || input.patch.vigenciaInicio === ""
+    ? null
+    : text(input.patch.vigenciaInicio);
+  if (vigenciaInicio && !/^d{4}-(0[1-9]|1[0-2])$/.test(vigenciaInicio)) {
+    throw new SpedServiceError("Informe a vigência no formato AAAA-MM.", 400, "INVALID_VIGENCIA");
+  }
+  let policies: Row = {};
+  try {
+    policies = normalizePolicyPatch(input.patch.politicas, input.actorId);
+  } catch (error) {
+    throw new SpedServiceError(error instanceof Error ? error.message : "Política fiscal inválida.", 400, "INVALID_POLICY");
+  }
   const current = await getSpedConfiguration(input.companyId);
   const payload: Row = {
     empresa_id: input.companyId,
@@ -1554,7 +1650,7 @@ export async function updateSpedConfiguration(input: {
     ? mergeSped1010Evidence(baseEvidence, supplied1010, input.actorId)
     : baseEvidence;
 
-  payload.evidencias = mergedEvidence;
+  payload.evidencias = { ...mergedEvidence, ...policies };
 
   if (payload.inventario_fechamento_id != null) {
     const inventory = await supabaseAdmin.from("fiscal_inventario_fechamento")
@@ -1575,7 +1671,85 @@ export async function updateSpedConfiguration(input: {
     .select("*")
     .single();
   throwIfSupabaseError(result.error);
+  await recordConfigurationVigencia(input.companyId, result.data as Row, vigenciaInicio, input.actorId);
   return result.data;
+}
+
+const UNDEFINED_TABLE = /fiscal_sped_config_vigencia|42P01|PGRST205/;
+
+/**
+ * Mantém o histórico de vigências. Sem data, a alteração corrige a vigência
+ * mais recente (configuração inicial, por exemplo, vale desde sempre). Com
+ * data, abre uma vigência nova: competências anteriores continuam com a
+ * configuração da época.
+ */
+async function recordConfigurationVigencia(companyId: number, config: Row, vigenciaInicio: string | null, actorId: string) {
+  const latest = await supabaseAdmin
+    .from("fiscal_sped_config_vigencia")
+    .select("id, vigencia_inicio")
+    .eq("empresa_id", companyId)
+    .order("vigencia_inicio", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (latest.error) {
+    if (UNDEFINED_TABLE.test(`${latest.error.code ?? ""} ${latest.error.message ?? ""}`)) return;
+    throwIfSupabaseError(latest.error);
+  }
+  const start = vigenciaInicio ? `${vigenciaInicio}-01` : null;
+  const latestStart = latest.data ? text(latest.data.vigencia_inicio).slice(0, 10) : null;
+  if (start && latestStart && start < latestStart) {
+    throw new SpedServiceError(
+      `Já existe configuração vigente a partir de ${latestStart.slice(0, 7)}. Uma nova vigência precisa começar nessa data ou depois.`,
+      409,
+      "VIGENCIA_RETROATIVA",
+    );
+  }
+  if (latest.data && (!start || start === latestStart)) {
+    const updated = await supabaseAdmin.from("fiscal_sped_config_vigencia")
+      .update({ payload: config, updated_by: actorId })
+      .eq("id", latest.data.id);
+    throwIfSupabaseError(updated.error);
+    return;
+  }
+  const inserted = await supabaseAdmin.from("fiscal_sped_config_vigencia").insert({
+    empresa_id: companyId,
+    vigencia_inicio: start ?? "2000-01-01",
+    payload: config,
+    created_by: actorId,
+    updated_by: actorId,
+  });
+  throwIfSupabaseError(inserted.error);
+}
+
+/**
+ * Preenche o que a configuração fiscal pode derivar com segurança do cadastro
+ * da empresa. Hoje: o fuso civil, em UFs de fuso único. Nada que dependa de
+ * avaliação do contador é confirmado aqui.
+ */
+export async function applySmartSpedConfiguration(companyId: number, actorId: string): Promise<{ applied: string[] }> {
+  const [companyResult, current] = await Promise.all([
+    supabaseAdmin.from("empresa").select("id, uf, codigomunicipio").eq("id", companyId).maybeSingle(),
+    getConfig(companyId),
+  ]);
+  throwIfSupabaseError(companyResult.error);
+  const company = companyResult.data as Row | null;
+  if (!company) return { applied: [] };
+  const patch: Row = {};
+  const evidence: Row = {};
+  const applied: string[] = [];
+  if (gateStatus(current?.timezone_status) === "PENDENTE") {
+    const derived = deriveTimezoneFromAddress(company.uf, company.codigomunicipio);
+    if (derived) {
+      patch.timezone_iana = derived.timezone;
+      patch.timezone_status = "CONFIRMADO";
+      evidence.timezone = derived.evidence;
+      applied.push("timezone");
+    }
+  }
+  if (!current || applied.length > 0) {
+    await updateSpedConfiguration({ companyId, actorId, patch: { ...patch, evidencias: evidence } });
+  }
+  return { applied };
 }
 
 export async function configureSpedFiscalItem(input: {
