@@ -856,6 +856,17 @@ export function OrdensTabela({
       setPendenciaRealizadores({ osId: id, acao: acaoRealizadoresPara(id, status, extras) });
     };
 
+    // Avulso pendente barra o início no backend. O único lugar para resolver é
+    // o orçamento, então o aviso já leva até ele.
+    const avisarAvulsosPendentes = (mensagem: string, toastId?: string | number | null) => {
+      const row = rows.find((r) => r.id === id);
+      toast.error(mensagem, {
+        id: toastId ?? undefined,
+        duration: 8000,
+        action: row ? { label: "Abrir orçamento", onClick: () => onOpenOrcamento(row) } : undefined,
+      });
+    };
+
     barradoPorRealizadorRef.current = false;
 
     if (exigeRealizadores) {
@@ -863,6 +874,17 @@ export function OrdensTabela({
         const r = await fetch(`/api/ordens/${id}`, { cache: "no-store" });
         const j = await r.json().catch(() => ({} as any));
         if (!r.ok) throw new Error(j?.error || "Não foi possível validar realizadores da OS.");
+
+        // Antes dos realizadores: atribuir todo mundo e só depois descobrir
+        // que a OS não inicia é trabalho jogado fora.
+        const avulsosPendentes = Array.isArray(j?.itensProdutoAvulso) ? j.itensProdutoAvulso.length : 0;
+        if (status === "EM_ANDAMENTO" && avulsosPendentes > 0) {
+          avisarAvulsosPendentes(
+            `Existem ${avulsosPendentes} produto(s) avulso(s) pendente(s). Vincule ou cadastre esses produtos no orçamento antes de iniciar a OS.`,
+            loadingToastId,
+          );
+          return false;
+        }
 
         const itens = (j?.itensServico ?? []) as Array<{
           realizadores?: Array<{ id: string; nome: string | null }> | null;
@@ -911,6 +933,10 @@ export function OrdensTabela({
         if (r.status === 409 && j?.codigo === "REALIZADORES_PENDENTES") {
           abrirSelecaoDeRealizadores();
           toast.error(j?.error || "Defina os realizadores dos serviços da OS.", { duration: 5000 });
+          return false;
+        }
+        if (r.status === 409 && j?.codigo === "PRODUTOS_AVULSOS_PENDENTES") {
+          avisarAvulsosPendentes(j?.error || "Existem produtos avulsos pendentes no orçamento.");
           return false;
         }
         if (r.status === 409 && Array.isArray(j?.itens)) {

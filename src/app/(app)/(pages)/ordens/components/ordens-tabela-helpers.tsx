@@ -64,7 +64,9 @@ export function getTempoMs(r: OrdemComDatas, now: number) {
 // Política de botões por status
 export function buildPolicy(st: StatusOS) {
   return {
-    canEditBudget: st === "ORCAMENTO" || st === "ORCAMENTO_RECUSADO" || st === "EM_ANDAMENTO" ,
+    // ORCAMENTO_APROVADO entra para o usuário conseguir vincular os avulsos
+    // aprovados — sem isso a OS não inicia e não há outro caminho para resolver.
+    canEditBudget: st === "ORCAMENTO" || st === "ORCAMENTO_RECUSADO" || st === "ORCAMENTO_APROVADO" || st === "EM_ANDAMENTO",
     showEditOS: st === "ORCAMENTO",
     showLinkAprov: st === "ORCAMENTO" || st === "APROVACAO_ORCAMENTO",
     showCancelBudget: st === "APROVACAO_ORCAMENTO" || st === "ORCAMENTO_RECUSADO",
