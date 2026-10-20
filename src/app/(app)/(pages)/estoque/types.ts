@@ -167,6 +167,8 @@ export interface Produto {
   codigofornecedor?: string;
   conservacao?: Conservacao_produto;
   temAnuncioMercadoLivre?: boolean;
+  /** Fotos da galeria (produto_imagem); só vem na listagem. */
+  totalFotos?: number;
   mercadolivre?: {
     id?: number;
     ml_item_id: string;
