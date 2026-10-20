@@ -1,3 +1,4 @@
+import { normalizeMercadoLivreTopic } from "./mercadolivre-notification-topic";
 import type { SystemNotificationInput } from "@/lib/system-notifications";
 import { mercadoLivreNotificationEventForTopic } from "@/lib/integrations/mercadolivre-notification-events";
 
@@ -9,7 +10,7 @@ export function mercadoLivreSystemNotification(input: {
   resource: string;
   details?: NotificationDetails;
 }): SystemNotificationInput | null {
-  const topic = input.topic.toLowerCase();
+  const topic = normalizeMercadoLivreTopic(input.topic);
   const resourceId = input.resource.split("?")[0].split("/").filter(Boolean).pop() || null;
   const details = input.details ?? {};
   const base = {

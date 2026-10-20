@@ -1,3 +1,4 @@
+import { normalizeMercadoLivreTopic } from "./mercadolivre-notification-topic";
 /**
  * Catálogo de eventos do Mercado Livre que podem virar aviso. Todos são
  * implementados; quem decide o que quer ver é o usuário, na tela.
@@ -64,7 +65,7 @@ export function isMercadoLivreNotificationEvent(value: unknown): value is Mercad
  * Traduz o tópico cru do webhook para o evento que o usuário liga e desliga.
  */
 export function mercadoLivreNotificationEventForTopic(topic: string): MercadoLivreNotificationEvent | null {
-  const normalized = String(topic ?? "").toLowerCase();
+  const normalized = normalizeMercadoLivreTopic(topic);
   if (normalized === "orders_v2" || normalized === "orders") return "PEDIDO";
   if (normalized === "shipments") return "ENVIO";
   if (normalized.includes("feedback")) return "AVALIACAO";
@@ -74,7 +75,7 @@ export function mercadoLivreNotificationEventForTopic(topic: string): MercadoLiv
   if (normalized === "items") return "ANUNCIO";
   if (normalized === "items_prices" || normalized === "public_offers") return "PRECO";
   if (normalized === "stock-locations") return "ESTOQUE";
-  if (normalized === "user-products-families") return "FAMILIA";
+  if ((normalized === "user-products-families" || normalized === "user-products")) return "FAMILIA";
   return null;
 }
 

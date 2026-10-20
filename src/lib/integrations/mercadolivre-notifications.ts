@@ -1,3 +1,4 @@
+import { normalizeMercadoLivreTopic, mercadoLivreFamilyHeaders } from "./mercadolivre-notification-topic";
 import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";
 import { createHash } from "crypto";
 import { getMercadoLivreOrder, isMercadoLivreNotFound, mercadoLivreApiGet } from "@/lib/integrations/mercadolivre";
@@ -74,6 +75,7 @@ export async function receiveMercadoLivreNotification(
 export async function maintainMercadoLivreNotificationQueue() {
   await ignoreOrphanedNotifications();
   await requeuePreviouslyUnsupportedOffers();
+  await requeuePreviouslyUnsupportedUserProducts();
   await purgeMercadoLivreOutboundTouches();
 }
 
@@ -94,6 +96,21 @@ async function requeuePreviouslyUnsupportedOffers() {
     .eq("status", "IGNORADA")
     .eq("error", "Tópico sem processador configurado: public_offers.");
   if (updateError) throw updateError;
+}
+
+async function requeuePreviouslyUnsupportedUserProducts() {
+  for (const topic of ["user_products", "user_products_families"]) {
+    const reason = `Tópico sem processador configurado: ${topic}.`;
+    const { data, error } = await supabaseAdmin.from("mercadolivre_notification")
+      .select("id").eq("topic", topic).eq("status", "IGNORADA").eq("error", reason)
+      .not("account_id", "is", null).order("created_at", { ascending: true }).limit(15);
+    if (error) throw error;
+    if (!data?.length) continue;
+    const { error: updateError } = await supabaseAdmin.from("mercadolivre_notification")
+      .update({ status: "RECEBIDA", error: null, processed_at: null, locked_at: null, next_retry_at: null, processing_attempts: 0 })
+      .in("id", data.map((row) => row.id)).eq("status", "IGNORADA").eq("error", reason);
+    if (updateError) throw updateError;
+  }
 }
 
 export async function retryMercadoLivreNotifications(limit = 50) {
@@ -166,7 +183,7 @@ async function processNotification(notificationId: number, attempts: number) {
     if (!account) throw new Error("Conta Mercado Livre não encontrada para a notificação.");
     resolvedAccountId = account.id;
     const accessToken = await ensureValidAccessToken(account);
-    const topic = String(notification.topic ?? "").toLowerCase();
+    const topic = normalizeMercadoLivreTopic(notification.topic ?? "");
     const resource = String(notification.resource ?? "");
 
     let finalStatus = "PROCESSADA";
@@ -184,6 +201,8 @@ async function processNotification(notificationId: number, attempts: number) {
       notificationDetails = await processPublicOffer(resource,
         (path) => mercadoLivreApiGet(accessToken, path),
         (itemId, offer) => processItem(account, accessToken, `/items/${itemId}`, notificationId, topic, offer));
+    } else if (topic === "user-products") {
+      notificationDetails = await processUserProduct(account, accessToken, resource, notificationId);
     } else if (topic === "user-products-families") {
       notificationDetails = await processUserProductFamily(account, accessToken, resource);
     } else if (topic === "stock-locations") {
@@ -496,9 +515,24 @@ async function removeDeletedListing(account: Account, itemId: string, links: any
   return { item: item ?? { id: itemId }, listingRemoved: { itemId, reason, produtos } };
 }
 
+async function processUserProduct(account: Account, accessToken: string, resource: string, notificationId: number) {
+  const userProductId = resource.match(/^\/user[-_]products\/([^/?]+)(?:\?.*)?$/i)?.[1];
+  if (!userProductId) throw new Error("Notificação de produto sem user_product_id válido.");
+  const { data: links, error } = await supabaseAdmin.from("mercadolivre_product_link")
+    .select("ml_item_id").eq("empresa_id", account.empresa_id)
+    .eq("user_product_id", decodeURIComponent(userProductId));
+  if (error) throw error;
+  const itemIds = [...new Set((links ?? []).map((link) => String(link.ml_item_id ?? "")).filter(Boolean))];
+  for (const itemId of itemIds) {
+    await processItem(account, accessToken, `/items/${encodeURIComponent(itemId)}`, notificationId, "user-products");
+  }
+  return { erpItemIds: itemIds };
+}
+
 async function processUserProductFamily(account: Account, accessToken: string, resource: string) {
   if (!resource) throw new Error("Notificação de família de produto sem recurso.");
-  const family = await mercadoLivreApiGet<any>(accessToken, normalizeResource(resource));
+  const familyPath = normalizeResource(resource);
+  const family = await mercadoLivreApiGet<any>(accessToken, familyPath, mercadoLivreFamilyHeaders(familyPath));
   const familyId = String(family?.id ?? extractResourceId(resource) ?? "").trim();
   if (!familyId) throw new Error("Notificação de família de produto sem family_id.");
 
