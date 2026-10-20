@@ -38,6 +38,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ValueInput } from "@/components/ui/value-input";
 import { Banco_tipo } from "../../../(financeiro)/fluxodecaixa/types";
+import { formatCnpj, isValidCnpj, normalizeCnpj } from "@/lib/fiscal-identifiers";
+import { INSTITUICOES_FINANCEIRAS } from "@/lib/financeiro/instituicoes-financeiras";
 
 type ContaBancaria = {
   id: number;
@@ -46,6 +48,7 @@ type ContaBancaria = {
   agencia: string | null;
   contanumero: string | null;
   proprietario: string | null;
+  cnpjInstituicao: string | null;
   valorinicial: number | null;
   ativo: boolean | null;
 };
@@ -56,6 +59,7 @@ type ContaForm = {
   agencia: string;
   contanumero: string;
   proprietario: string;
+  cnpjInstituicao: string;
   valorinicial: number;
   ativo: boolean;
 };
@@ -66,6 +70,7 @@ const emptyForm: ContaForm = {
   agencia: "",
   contanumero: "",
   proprietario: "",
+  cnpjInstituicao: "",
   valorinicial: 0,
   ativo: true,
 };
@@ -149,6 +154,7 @@ export default function ContasBancariasSection() {
         agencia: (c.agencia as string | null) ?? null,
         contanumero: (c.contanumero as string | null) ?? null,
         proprietario: (c.proprietario as string | null) ?? null,
+        cnpjInstituicao: (c.cnpjInstituicao as string | null) ?? null,
         valorinicial: c.valorinicial != null ? Number(c.valorinicial) : null,
         ativo: typeof c.ativo === "boolean" ? (c.ativo as boolean) : true,
       }));
@@ -186,6 +192,7 @@ export default function ContasBancariasSection() {
       agencia: c.agencia ?? "",
       contanumero: c.contanumero ?? "",
       proprietario: c.proprietario ?? "",
+      cnpjInstituicao: c.cnpjInstituicao ? formatCnpj(c.cnpjInstituicao) : "",
       valorinicial: c.valorinicial ?? 0,
       ativo: c.ativo ?? true,
     });
@@ -197,6 +204,11 @@ export default function ContasBancariasSection() {
       toast.error("Título é obrigatório.");
       return;
     }
+    const cnpjInstituicao = form.cnpjInstituicao.trim() ? normalizeCnpj(form.cnpjInstituicao) : null;
+    if (cnpjInstituicao && !isValidCnpj(cnpjInstituicao)) {
+      toast.error("CNPJ da instituição inválido.");
+      return;
+    }
 
     const payload = {
       titulo: form.titulo.trim(),
@@ -204,6 +216,7 @@ export default function ContasBancariasSection() {
       agencia: form.agencia.trim() || null,
       contanumero: form.contanumero.trim() || null,
       proprietario: form.proprietario.trim() || null,
+      cnpjInstituicao,
       valorinicial: form.valorinicial,
       ativo: form.ativo,
     };
@@ -324,6 +337,38 @@ export default function ContasBancariasSection() {
                   />
                 </div>
                 <div className="space-y-1.5">
+                  <Label>CNPJ da instituição (opcional)</Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Input
+                      value={form.cnpjInstituicao}
+                      onChange={(e) => handleChange("cnpjInstituicao", e.target.value)}
+                      onBlur={() => {
+                        if (isValidCnpj(form.cnpjInstituicao)) handleChange("cnpjInstituicao", formatCnpj(form.cnpjInstituicao));
+                      }}
+                      placeholder="00.000.000/0000-00"
+                    />
+                    <Select
+                      value=""
+                      onValueChange={(cnpj) => handleChange("cnpjInstituicao", formatCnpj(cnpj))}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Preencher com…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {INSTITUICOES_FINANCEIRAS.map((instituicao) => (
+                          <SelectItem key={instituicao.cnpj} value={instituicao.cnpj} className="hover:cursor-pointer">
+                            {instituicao.nome}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Banco ou instituição de pagamento da conta. Vai no SPED (registro 1601) com os recebimentos por PIX,
+                    boleto, transferência e cartão lançados nesta conta.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
                   <Label>Valor inicial</Label>
                   <ValueInput
                     value={form.valorinicial}
@@ -413,7 +458,12 @@ export default function ContasBancariasSection() {
             ) : (
               pageItems.map((c) => (
                 <TableRow key={c.id} className="hover:cursor-default">
-                  <TableCell className="font-medium">{c.titulo}</TableCell>
+                  <TableCell className="font-medium">
+                    {c.titulo}
+                    {c.cnpjInstituicao && (
+                      <span className="block text-xs font-normal text-muted-foreground">{formatCnpj(c.cnpjInstituicao)}</span>
+                    )}
+                  </TableCell>
                   <TableCell>{c.tipo}</TableCell>
                   <TableCell className="text-sm">
                     {c.agencia || "-"}

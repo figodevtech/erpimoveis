@@ -129,7 +129,24 @@ Para cada produto movimentado na competência sem configuração vigente:
   - salvar sem data corrige a vigência mais recente;
   - salvar com "Aplicar a partir de" abre uma vigência nova, e uma data anterior à última vigência é recusada;
   - o fechamento (`fiscal_sped_fechar_versao`) confere os gates na configuração vigente da competência (`fiscal_sped_config_efetiva`).
-- **Nada vira `NAO_APLICAVEL` automaticamente.** Perfil, atividade, Bloco K, inventário, 1400, 1601, C176/C179, IPI e EFD-Contribuições continuam exigindo confirmação.
+- **Configuração por perguntas** (aba Configuração, `company-questions.tsx`; regras em `src/lib/sped/configuracao-empresa.ts`, compartilhadas entre tela e servidor). Cada pergunta grava os mesmos campos de `fiscal_sped_config`; a evidência é escrita pelo sistema e leva `origem` (`AUTOMATICA`, `RESPOSTA` ou `CONTADOR`). A dedução só preenche o que está pendente e nunca troca uma resposta já dada:
+
+  | Pergunta | Deduzida de |
+  |---|---|
+  | Atividade industrial e IPI | CNAE (divisões 05–33) ou NF-e de importação emitida (equiparado) |
+  | Perfil | PB e PE: B; A para energia elétrica e comunicação (CNAE 351, 60, 61). Demais UFs: pergunta ao contador |
+  | EFD-Contribuições | Regime 3 entrega; Simples e MEI não |
+  | Bloco K | Simples dispensado; regime normal exige de indústria e atacado (divisão 46) |
+  | Crédito nas compras para revenda | Simples e MEI não creditam (LC 123, art. 23); regime normal e excesso de sublimite creditam (LC 87, art. 20) |
+  | CSOSN → CST | Correspondência usual, ajustável pelo contador |
+  | 1601 | Recebimento por PIX, crédito ou débito no financeiro. Sem recebimento lançado, pergunta |
+  | Inventário | Modo automático: fevereiro leva o inventário aprovado de 31/12; demais meses, sem inventário |
+  | C176/C179 | Sem pedido de ressarcimento; venda que permitiria o pedido vira aviso, não bloqueio |
+  | 1010 (combustíveis, energia, usina, aéreo) | CNAE; exportação e FS-DA começam em N e a exportação vira S pelas notas do mês |
+  | 1400, crédito acumulado (regime normal), GIAF (PE) | Sem dedução: pergunta ao contador |
+
+- **Uso dos produtos** (aba "Uso dos produtos", `product-use-panel.tsx`): quem opera responde por produto se é revenda, uso e consumo ou bem da empresa (e matéria-prima/produto acabado na indústria). Vira o tipo do 0200 (00, 07, 08, 01, 04) pela `fiscal_sped_configurar_item_competencia`; o crédito sai da resolução automática: Simples sem crédito, tipo 07 uso e consumo, tipo 08 ativo imobilizado (CIAP não calculado).
+- As telas em linguagem do SPED (gates, 1010, políticas e decisões por item) ficaram recolhidas em "Ajustes técnicos do contador".
 
 ## 6. Arquivos modificados e criados
 
@@ -150,9 +167,9 @@ Para cada produto movimentado na competência sem configuração vigente:
 - `sped-workspace.tsx`, `competencia-detail.tsx` e `competencia-tabs.tsx` aceitam competência e aba iniciais;
 - `api.ts` e `types.ts` do cliente.
 
-**Banco:** `supabase/migrations/20261015120000_sped_fiscal_geracao_automatica.sql`, com os testes correspondentes em `supabase/tests/sped_fiscal.sql`.
+**Banco:** `supabase/migrations/20261018120000_sped_fiscal_geracao_automatica.sql`, com os testes correspondentes em `supabase/tests/sped_fiscal.sql`.
 
-## 7. Migration `20261015120000_sped_fiscal_geracao_automatica.sql`
+## 7. Migration `20261018120000_sped_fiscal_geracao_automatica.sql`
 
 | Objeto | Função |
 |---|---|
@@ -174,12 +191,12 @@ npm run db:deploy:demo                  # só com autorização
 
 ## 8. O que continua exigindo confirmação fiscal
 
-- Perfil EFD, indicador de atividade, contribuinte de IPI, EFD-Contribuições e indicadores do 1010.
-- Bloco K, inventário (e o fechamento aprovado), 1400 e 1601 (e o CSV).
-- C176/C179 quando houver indício: o motor **não gera** esses registros. Se confirmados como aplicáveis, a competência fica bloqueada.
-- Política de crédito nas compras para revenda e de-para CSOSN→CST.
-- Tipo do item quando não há venda de revenda nem compra para estoque, e itens de produção própria.
-- Crédito de ICMS-ST (CST 60), ativo imobilizado (CIAP/Bloco G não implementados) e crédito do Simples.
+- O que a seção 5 não deduz: perfil fora de PB/PE, 1400, crédito acumulado no regime normal, GIAF em PE, cartão/PIX sem recebimentos lançados, e tudo o que falta no cadastro da empresa (UF, regime, CNAE).
+- O CSV do 1601 (o ERP ainda não monta o registro a partir do financeiro).
+- O inventário de 31/12: não há tela para registrar e aprovar `fiscal_inventario_fechamento`, então o SPED de fevereiro bloqueia.
+- C176/C179 quando o contador decide pedir ressarcimento: o motor **não gera** esses registros e a competência fica bloqueada.
+- Item de compra que não foi vinculado a nenhum dos três estoques na entrada. O estoque define o tipo do 0200: Produtos é revenda (00), Uso e consumo é 07 e Geral (peça de terceiro guardada, como a que vem para conserto) é 99; só produto com saída de produção própria pede classificação. Notas que foram só para Uso e consumo/Geral entram no SPED pela `usoconsumo_entrada`, com data fiscal própria.
+- Crédito de ICMS-ST com ICMS próprio destacado, crédito do Simples (vCredICMSSN) e o CIAP do ativo imobilizado.
 - Fator de conversão de unidade (0220) quando a nota entra em unidade diferente da de estoque.
 - Guias de recolhimento (E116/E316) e a EFD do mês anterior (saldo credor).
 - Data de entrada de cada nota de compra (não é preenchida automaticamente).

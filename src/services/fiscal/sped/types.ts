@@ -53,6 +53,9 @@ export type SpedCompetenciaDetail = SpedCompetenciaSummary & {
     entregaEfdContribuicoes: boolean | null;
     entregaEfdContribuicoesStatus: SpedGateStatus;
     evidencias: Record<string, unknown>;
+    /** Linha vigente de fiscal_sped_config, lida pelas perguntas da configuração. */
+    campos: Record<string, unknown>;
+    empresa: { uf: string | null; regimeTributario: string | null; cnae: string | null };
   };
   documentos: Array<Record<string, unknown>>;
   participantes: Array<Record<string, unknown>>;

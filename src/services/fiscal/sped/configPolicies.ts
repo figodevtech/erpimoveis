@@ -56,6 +56,8 @@ const CSOSN_CODES = new Set(["101", "102", "103", "201", "202", "203", "300", "4
 
 export type SpedFiscalPolicies = {
   resaleCreditConfirmed: boolean;
+  /** Política confirmada: true gera crédito, false não gera. Null: ainda não decidida. */
+  resaleCredit: boolean | null;
   csosnToCst: Record<string, string> | null;
 };
 
@@ -71,6 +73,7 @@ export function readSpedPolicies(config: Row | null | undefined): SpedFiscalPoli
     : null;
   return {
     resaleCreditConfirmed: credit?.status === "CONFIRMADO" && credit?.aplicavel === true,
+    resaleCredit: credit?.status === "CONFIRMADO" && typeof credit?.aplicavel === "boolean" ? credit.aplicavel : null,
     csosnToCst: map && Object.keys(map).length > 0 ? map : null,
   };
 }
@@ -86,7 +89,7 @@ export function normalizePolicyPatch(patch: unknown, actorId: string): Row {
     const descricao = text(value?.descricao);
     if (typeof value?.aplicavel !== "boolean") throw new Error("Informe se as compras para revenda geram crédito de ICMS.");
     if (!descricao) throw new Error("Informe a evidência da política de crédito (ex.: regime de apuração confirmado pelo contador).");
-    output.politica_credito_revenda = { status: "CONFIRMADO", aplicavel: value.aplicavel, descricao, confirmadoEm: now, confirmadoPor: actorId };
+    output.politica_credito_revenda = { status: "CONFIRMADO", aplicavel: value.aplicavel, descricao, origem: origin(value.origem), confirmadoEm: now, confirmadoPor: actorId };
   }
   if (input.csosnEntrada !== undefined) {
     const value = input.csosnEntrada as Row;
@@ -95,9 +98,15 @@ export function normalizePolicyPatch(patch: unknown, actorId: string): Row {
     const invalid = Object.entries(mapa).filter(([key, cst]) => !CSOSN_CODES.has(key) || !/^\d{2}$/.test(text(cst)));
     if (invalid.length) throw new Error(`De-para CSOSN→CST inválido: ${invalid.map(([key]) => key).join(", ")}.`);
     if (!descricao) throw new Error("Informe a evidência do de-para CSOSN→CST.");
-    output.politica_csosn_entrada = { status: "CONFIRMADO", mapa, descricao, confirmadoEm: now, confirmadoPor: actorId };
+    output.politica_csosn_entrada = { status: "CONFIRMADO", mapa, descricao, origem: origin(value.origem), confirmadoEm: now, confirmadoPor: actorId };
   }
   return output;
+}
+
+/** Sem origem informada, a política veio da tela técnica do contador. */
+function origin(value: unknown): "AUTOMATICA" | "RESPOSTA" | "CONTADOR" {
+  const text = String(value ?? "");
+  return text === "AUTOMATICA" || text === "RESPOSTA" ? text : "CONTADOR";
 }
 
 export type SpedConfigVigencia = { vigencia_inicio: string; payload: Row };

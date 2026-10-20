@@ -5,7 +5,8 @@
  * novas (configuração inteligente, resolução automática), sempre na mesma
  * ordem. Cada operação é idempotente: um processamento interrompido recomeça
  * do início e passa rápido pelo que já foi feito. O arquivo FINAL só é gerado
- * de versão fechada, e a versão só fecha sem bloqueios.
+ * de versão fechada, e a versão só fecha sem bloqueios. Com pendências, sai
+ * a PRÉVIA: o usuário sempre leva um TXT para o contador.
  *
  * As dependências entram por portas para que o fluxo seja testável sem banco.
  */
@@ -62,6 +63,7 @@ export type SpedGenerationPorts = {
   ): Promise<SpedGenerationValidation>;
   close(competenceId: string): Promise<void>;
   generateFinal(competenceId: string, expectedVersion: number | null): Promise<SpedGenerationFile>;
+  generatePreview(competenceId: string, expectedVersion: number | null): Promise<SpedGenerationFile>;
 };
 
 export type SpedGenerationOutcome =
@@ -75,6 +77,9 @@ export type SpedGenerationOutcome =
   | {
     status: "PENDENCIAS";
     competenceId: string;
+    /** TXT de prévia para o contador completar. Null só se a montagem do arquivo falhou. */
+    file: SpedGenerationFile | null;
+    previewError: string | null;
     resolution: { itensCriados: number; creditosCriados: number } | null;
     validation: SpedGenerationValidation;
   };
@@ -115,7 +120,17 @@ export async function runSpedGeneration(ports: SpedGenerationPorts): Promise<Spe
   const validation = await ports.validate(competence.id, competence.versionNumber, progress);
   await progress("VALIDANDO");
   if (validation.blocked) {
-    return { status: "PENDENCIAS", competenceId: competence.id, resolution, validation };
+    // Quem opera o ERP não resolve pendência fiscal: leva o TXT como está ao
+    // contador, que completa o que faltar. A competência não fecha.
+    await progress("GERANDO_ARQUIVO");
+    competence = await ports.readCompetence(competence.id);
+    try {
+      const file = await ports.generatePreview(competence.id, competence.versionNumber);
+      return { status: "PENDENCIAS", competenceId: competence.id, file, previewError: null, resolution, validation };
+    } catch (error) {
+      const previewError = error instanceof Error ? error.message : "Falha ao montar o arquivo.";
+      return { status: "PENDENCIAS", competenceId: competence.id, file: null, previewError, resolution, validation };
+    }
   }
 
   await progress("FECHANDO");

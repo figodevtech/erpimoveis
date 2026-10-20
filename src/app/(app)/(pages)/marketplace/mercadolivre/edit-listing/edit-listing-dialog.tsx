@@ -16,14 +16,22 @@ import {
   getMercadoLivrePictureRequirement,
   mercadoLivrePictureRequirementMessage,
 } from "@/lib/integrations/mercadolivre-listing-pictures";
+import { isMercadoLivreListingTypeEnabled } from "@/lib/integrations/mercadolivre-listing-validation";
+import type { ListingTypeOption } from "../../marketplace-client";
 import { ListingDialogContent } from "../listing-dialog-content";
 import {
   AttributeCard,
   AttributeGroup,
   FormSection,
   listingFieldClass,
+  ListingTypeCard,
   StepHeading,
 } from "../listing-form-fields";
+
+const DEFAULT_LISTING_TYPE_OPTIONS: ListingTypeOption[] = [
+  { id: "gold_special", name: "Clássico" },
+  { id: "gold_pro", name: "Premium" },
+];
 
 const listingSelectClass = listingFieldClass;
 
@@ -205,6 +213,8 @@ export function MercadoLivreEditListingDialog({
   const [shippingQuote, setShippingQuote] = useState<any>(null);
   const [loadingShippingQuote, setLoadingShippingQuote] = useState(false);
   const [productImageUrls, setProductImageUrls] = useState<string[]>([]);
+  const [listingTypeOptions, setListingTypeOptions] = useState<ListingTypeOption[]>(DEFAULT_LISTING_TYPE_OPTIONS);
+  const [loadingListingTypes, setLoadingListingTypes] = useState(false);
 
   const [capabilities, setCapabilities] = useState({
     title: true,
@@ -344,6 +354,39 @@ export function MercadoLivreEditListingDialog({
     };
   }, [open, itemId, produtoId, initialProduct]);
 
+  // Taxas e disponibilidade de Clássico/Premium dependem da categoria e do preço,
+  // então a consulta acompanha o valor digitado com um pequeno atraso.
+  const listingOptionsPrice = parseCurrencyInput(form.price);
+  useEffect(() => {
+    if (!open || !form.categoryId) return;
+
+    let active = true;
+    const timer = setTimeout(() => {
+      setLoadingListingTypes(true);
+      const params = new URLSearchParams({ categoryId: form.categoryId });
+      if (listingOptionsPrice > 0) params.set("price", String(listingOptionsPrice));
+      if (form.shippingMode) params.set("shippingMode", form.shippingMode);
+      if (form.logisticType) params.set("logisticType", form.logisticType);
+      fetch(`/api/integracoes/mercadolivre/listing-options?${params.toString()}`, { cache: "no-store" })
+        .then(async (res) => {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json?.error || "Falha ao consultar os tipos de anúncio.");
+          if (!active || !Array.isArray(json.listingTypes)) return;
+          const enabled = (json.listingTypes as ListingTypeOption[]).filter((option) => isMercadoLivreListingTypeEnabled(option.id));
+          if (enabled.length) setListingTypeOptions(enabled);
+        })
+        .catch((error) => console.error("Falha ao consultar os tipos de anúncio:", error))
+        .finally(() => {
+          if (active) setLoadingListingTypes(false);
+        });
+    }, 500);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [open, form.categoryId, listingOptionsPrice, form.shippingMode, form.logisticType]);
+
   function updateForm<K extends keyof typeof form>(key: K, value: typeof form[K]) {
     setForm((curr) => ({ ...curr, [key]: value }));
   }
@@ -444,6 +487,7 @@ export function MercadoLivreEditListingDialog({
       const qty = Number(form.availableQuantity);
       if (!initial || qty !== Number(initial.availableQuantity)) changes.availableQuantity = qty;
       if (!initial || form.freeShipping !== initial.freeShipping) changes.freeShipping = form.freeShipping;
+      if (form.listingTypeId && form.listingTypeId !== initial?.listingTypeId) changes.listingTypeId = form.listingTypeId;
 
       for (const dim of ["widthCm", "heightCm", "lengthCm"] as const) {
         const val = Number(form[dim].replace(",", "."));
@@ -812,6 +856,39 @@ export function MercadoLivreEditListingDialog({
                   </Select>
                 </div>
               </div>
+            </FormSection>
+
+            <FormSection
+              title="Tipo de anúncio"
+              description="A troca vale para o anúncio já publicado e muda a tarifa cobrada nas próximas vendas."
+            >
+              {loadingListingTypes ? (
+                <p className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Consultando condições comerciais no Mercado Livre...
+                </p>
+              ) : null}
+              <div className="grid gap-3 md:grid-cols-2">
+                {listingTypeOptions.map((option) => {
+                  // O tipo atual continua selecionável mesmo que a conta não possa
+                  // mais publicá-lo: é só o ponto de partida da troca.
+                  const unavailable = option.available === false && option.id !== initialForm.listingTypeId;
+                  return (
+                    <ListingTypeCard
+                      key={option.id}
+                      option={option}
+                      selected={option.id === form.listingTypeId}
+                      disabled={saving || loading || unavailable}
+                      unavailable={unavailable}
+                      onSelect={() => updateForm("listingTypeId", option.id)}
+                    />
+                  );
+                })}
+              </div>
+              {initialForm.listingTypeId && form.listingTypeId !== initialForm.listingTypeId ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Atual: <strong className="text-foreground">{listingTypeOptions.find((option) => option.id === initialForm.listingTypeId)?.name || initialForm.listingTypeId}</strong>. A troca é enviada ao Mercado Livre quando você salvar.
+                </p>
+              ) : null}
             </FormSection>
 
             <FormSection title="Envio e Logística">

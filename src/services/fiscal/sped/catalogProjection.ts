@@ -1,4 +1,4 @@
-import type { EfdRecord, SpedDiagnostic } from "@/lib/sped/efd-icms-ipi";
+import type { EfdRecord, SpedDiagnostic, SpedSourceRef } from "@/lib/sped/efd-icms-ipi";
 
 type Row = Record<string, any>;
 
@@ -47,6 +47,175 @@ function number(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+export type SpedEntryUnitUsage = {
+  code: string;
+  /** Unidade do C170 (a do XML). */
+  documentUnit: string;
+  /** UNID_INV do 0200. */
+  inventoryUnit: string | null;
+  documentQuantity: number;
+  /** Quantidade que a entrada levou ao estoque, na unidade do estoque. */
+  stockQuantity: number | null;
+  source?: SpedSourceRef;
+};
+
+/**
+ * Fator do 0220 tirado da própria entrada: quanto da unidade de estoque entrou
+ * por unidade da nota. "PC" do fornecedor que entrou 1 para 1 como "UN" dá 1;
+ * caixa que virou 10 unidades dá 10. Quantidade fracionada arredondada na
+ * entrada (6,15 M → 6) é a mesma unidade, não conversão. Fator cadastrado à mão
+ * prevalece; o mesmo item com fatores diferentes no mês fica para quem opera.
+ */
+export function deriveUnitConversions(input: {
+  usages: readonly SpedEntryUnitUsage[];
+  manual: readonly SpedUnitConversion[];
+  competenceStart: string;
+}): { conversions: SpedUnitConversion[]; diagnostics: SpedDiagnostic[] } {
+  const covered = (code: string, origin: string, dest: string) => input.manual.some((conversion) =>
+    text(conversion.unidadeOrigem) === origin
+    && (text(conversion.codigoItem) === code || (!text(conversion.codigoItem) && text(conversion.unidadeDestino) === dest)));
+  const factors = new Map<string, { usage: SpedEntryUnitUsage; values: Set<number> }>();
+  for (const usage of input.usages) {
+    const origin = text(usage.documentUnit);
+    const dest = text(usage.inventoryUnit);
+    const stock = number(usage.stockQuantity);
+    if (!origin || !dest || origin === dest || covered(usage.code, origin, dest)) continue;
+    if (!(usage.documentQuantity > 0) || !(stock > 0)) continue;
+    const rounded = !Number.isInteger(usage.documentQuantity) && Math.round(usage.documentQuantity) === stock;
+    const factor = Math.round((rounded ? 1 : stock / usage.documentQuantity) * 1_000_000) / 1_000_000;
+    const key = `${usage.code}|${origin}`;
+    const entry = factors.get(key) ?? { usage, values: new Set<number>() };
+    entry.values.add(factor);
+    factors.set(key, entry);
+  }
+  const conversions: SpedUnitConversion[] = [];
+  const diagnostics: SpedDiagnostic[] = [];
+  for (const { usage, values } of factors.values()) {
+    const origin = text(usage.documentUnit);
+    const dest = text(usage.inventoryUnit);
+    if (values.size > 1) {
+      diagnostics.push({
+        code: "UNIDADE_CONVERSAO_DIVERGENTE",
+        severity: "BLOQUEIO",
+        message: `O item ${usage.code} entrou em ${origin} com fatores diferentes no mês (${Array.from(values).join(" e ")} ${dest} por ${origin}). Cadastre o fator de conversão ${origin} → ${dest}.`,
+        record: "0220",
+        source: usage.source,
+        context: { itemCode: usage.code, documentUnit: origin, inventoryUnit: dest },
+      });
+      continue;
+    }
+    conversions.push({
+      id: `entrada:${usage.code}:${origin}`,
+      codigoItem: usage.code,
+      unidadeOrigem: origin,
+      unidadeDestino: dest,
+      fatorConversao: Array.from(values)[0],
+      vigenciaInicio: input.competenceStart,
+    });
+  }
+  return { conversions, diagnostics };
+}
+
+/** Campos do 0200 que mudam a tributação: valores diferentes no mês pedem decisão. */
+const ITEM_FISCAL_FIELDS: Record<string, string> = {
+  COD_NCM: "NCM", CEST: "CEST", TIPO_ITEM: "tipo do item", UNID_INV: "unidade de estoque", ALIQ_ICMS: "alíquota de ICMS",
+};
+
+/**
+ * O mesmo item em várias notas do mês. O 0200 sai do cadastro; o campo que o
+ * cadastro não tem vem do XML, e cada fornecedor preenche o que quer. Nota que
+ * não informa o campo não apaga o que as outras informaram, e descrição ou
+ * código de barras diferentes ficam com a nota mais recente. NCM, CEST, tipo,
+ * unidade ou alíquota realmente diferentes mudam a tributação: esses bloqueiam.
+ */
+export function mergeItemVersions(versions: ReadonlyArray<{ record: EfdRecord; date: string }>): {
+  record: EfdRecord;
+  diagnostics: SpedDiagnostic[];
+} {
+  const ordered = [...versions].sort((left, right) => left.date.localeCompare(right.date, "en"));
+  const latest = ordered[ordered.length - 1].record;
+  const values: EfdRecord["values"] = { ...latest.values };
+  const conflicts: string[] = [];
+  const fields = new Set(ordered.flatMap((version) => Object.keys(version.record.values)));
+  for (const field of fields) {
+    const informed = ordered.map((version) => version.record.values[field]).filter((value) => text(value) !== "");
+    if (!informed.length) continue;
+    values[field] = informed[informed.length - 1];
+    const distinct = Array.from(new Set(informed.map(text)));
+    if (distinct.length > 1 && ITEM_FISCAL_FIELDS[field]) conflicts.push(`${ITEM_FISCAL_FIELDS[field]} (${distinct.join(" e ")})`);
+  }
+  const code = text(latest.values.COD_ITEM);
+  return {
+    record: { ...latest, values },
+    diagnostics: conflicts.length ? [{
+      code: "CADASTRO_FISCAL_DIVERGENTE",
+      severity: "BLOQUEIO",
+      message: `O item ${code} aparece com ${conflicts.join(", ")} diferentes entre as notas do mês. Corrija o cadastro do item; ele prevalece sobre as notas.`,
+      record: "0200",
+      source: latest.source,
+      context: { itemCode: code },
+    }] : [],
+  };
+}
+
+/** Campos do 0150 que o 0175 pode alterar, com o número do campo no leiaute (o 07, IE, não entra). */
+const PARTICIPANT_CHANGEABLE_FIELDS: ReadonlyArray<readonly [string, string]> = [
+  ["NOME", "03"], ["COD_PAIS", "04"], ["CNPJ", "05"], ["CPF", "06"], ["COD_MUN", "08"],
+  ["SUFRAMA", "09"], ["END", "10"], ["NUM", "11"], ["COMPL", "12"], ["BAIRRO", "13"],
+];
+
+/** Zero à esquerda não muda a inscrição: 070670003 e 70670003 são a mesma IE. */
+function normalizedIe(value: unknown): string {
+  const raw = text(value).toUpperCase();
+  return /^\d+$/.test(raw) ? raw.replace(/^0+/, "") : raw;
+}
+
+/**
+ * O mesmo participante em várias notas do mês. O 0150 leva os dados da nota
+ * mais recente e cada campo alterado no período gera um 0175 com a data da
+ * alteração e o conteúdo anterior (Guia Prático, registro 0175). Campo que antes
+ * estava vazio não tem conteúdo anterior a informar (CONT_ANT é obrigatório).
+ * Mudança de IE exige outro participante e não cabe no 0175: essa bloqueia.
+ */
+export function mergeParticipantVersions(versions: ReadonlyArray<{ record: EfdRecord; date: string }>): {
+  records: EfdRecord[];
+  diagnostics: SpedDiagnostic[];
+} {
+  const ordered = [...versions].sort((left, right) => left.date.localeCompare(right.date, "en"));
+  const latest = ordered[ordered.length - 1];
+  const code = text(latest.record.values.COD_PART);
+  const diagnostics: SpedDiagnostic[] = [];
+  const inscriptions = Array.from(new Set(ordered.map((version) => normalizedIe(version.record.values.IE)).filter(Boolean)));
+  if (inscriptions.length > 1) diagnostics.push({
+    code: "CADASTRO_FISCAL_DIVERGENTE",
+    severity: "BLOQUEIO",
+    message: `O participante ${code} aparece com inscrições estaduais diferentes no mês (${inscriptions.join(" e ")}). Mudança de IE exige outro participante no 0150; confira o cadastro.`,
+    record: "0150",
+    source: latest.record.source,
+  });
+
+  const changes: EfdRecord[] = [];
+  const seen = new Set<string>();
+  for (let index = 1; index < ordered.length; index += 1) {
+    const before = ordered[index - 1].record.values;
+    const after = ordered[index].record.values;
+    for (const [field, number] of PARTICIPANT_CHANGEABLE_FIELDS) {
+      const previous = text(before[field]);
+      if (!previous || previous === text(after[field])) continue;
+      const values = { DT_ALT: ordered[index].date, NR_CAMPO: number, CONT_ANT: previous.slice(0, 100) };
+      const key = JSON.stringify(values);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // documentKey liga o 0175 ao seu 0150 quando o Bloco 0 é reordenado.
+      changes.push({ code: "0175", values, source: { source: "XML", ...ordered[index].record.source, documentKey: code } });
+    }
+  }
+
+  // A IE da nota mais recente; se ela veio sem IE, a última informada no mês.
+  const ie = [...ordered].reverse().map((version) => text(version.record.values.IE)).find(Boolean) ?? latest.record.values.IE;
+  return { records: [{ ...latest.record, values: { ...latest.record.values, IE: ie } }, ...changes], diagnostics };
+}
+
 /**
  * Projeta e organiza os cadastros do Bloco 0 na hierarquia estrita do SPED Fiscal:
  * - 0150 ordenados por COD_PART
@@ -70,6 +239,7 @@ export function projectSpedCatalog(input: {
   const itemsWith0221 = new Set<string>();
 
   const participants = new Map<string, EfdRecord>();
+  const participantChanges = new Map<string, EfdRecord[]>();
   const units = new Map<string, EfdRecord>();
   const items = new Map<string, EfdRecord>();
   const otherRecords: EfdRecord[] = [];
@@ -78,6 +248,9 @@ export function projectSpedCatalog(input: {
     if (record.code === "0150") {
       const code = text(record.values.COD_PART);
       if (code && !participants.has(code)) participants.set(code, record);
+    } else if (record.code === "0175") {
+      const code = text(record.source?.documentKey);
+      if (code) participantChanges.set(code, [...(participantChanges.get(code) ?? []), record]);
     } else if (record.code === "0190") {
       const unit = text(record.values.UNID);
       if (unit && !units.has(unit)) units.set(unit, record);
@@ -173,11 +346,13 @@ export function projectSpedCatalog(input: {
   // Montar registros finais ordenados hierarquicamente
   const resultCatalogRecords: EfdRecord[] = [];
 
-  // 1. Participantes (0150) ordenados por COD_PART
+  // 1. Participantes (0150) ordenados por COD_PART, cada um seguido das suas alterações (0175)
   const sortedParticipants = Array.from(participants.values()).sort((a, b) =>
     text(a.values.COD_PART).localeCompare(text(b.values.COD_PART), "en"),
   );
-  resultCatalogRecords.push(...sortedParticipants);
+  for (const participant of sortedParticipants) {
+    resultCatalogRecords.push(participant, ...(participantChanges.get(text(participant.values.COD_PART)) ?? []));
+  }
 
   // 2. Unidades (0190) ordenadas por UNID
   const sortedUnits = Array.from(units.values()).sort((a, b) =>

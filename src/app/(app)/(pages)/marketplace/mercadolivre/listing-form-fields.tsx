@@ -3,7 +3,8 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Info, Loader2 } from "lucide-react";
+import { CheckCircle2, Info, Loader2 } from "lucide-react";
+import type { ListingTypeOption } from "../marketplace-client";
 
 /**
  * Primitivos visuais dos formulários de anúncio Mercado Livre. Criação e edição
@@ -148,4 +149,12 @@ export function FormSection({
       {children}
     </div>
   );
+}
+
+function formatListingCurrency(value: unknown) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
+}
+
+export function ListingTypeCard({ option, selected, disabled, unavailable, onSelect }: { option: ListingTypeOption; selected: boolean; disabled: boolean; unavailable: boolean; onSelect: () => void }) {
+  return <button type="button" onClick={onSelect} disabled={disabled} className={`rounded-xl border p-4 text-left transition-colors ${selected ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "bg-background hover:border-primary/50"} disabled:cursor-not-allowed ${unavailable ? "border-dashed bg-muted/40 opacity-60" : "disabled:opacity-55"}`}><div className="flex items-center justify-between gap-2"><span className="font-semibold">{option.name}</span>{unavailable ? <Badge variant="secondary" className="text-[10px]">Desabilitado</Badge> : selected ? <CheckCircle2 className="h-5 w-5 text-primary" /> : null}</div><div className="mt-3 space-y-1 text-xs text-muted-foreground">{unavailable ? <p className="text-destructive">{option.restrictionReason || "Esta modalidade não pode ser usada. Escolha Clássico ou Premium."}</p> : <><p>{option.saleFee != null ? `Taxa estimada: ${formatListingCurrency(option.saleFee)}` : "Taxa a calcular"}</p>{option.saleFeePercentage != null ? <p>{option.saleFeePercentage.toLocaleString("pt-BR")}% do valor{option.fixedFee ? ` + ${formatListingCurrency(option.fixedFee)} fixa` : ""}</p> : null}{option.netAmount != null ? <p className="font-medium text-foreground">Você recebe: {formatListingCurrency(option.netAmount)}</p> : null}{option.exposure ? <p>Exposição: {option.exposure}</p> : null}{option.interestFreeInstallments ? <p>Parcelamento sem juros</p> : null}</>}</div></button>;
 }

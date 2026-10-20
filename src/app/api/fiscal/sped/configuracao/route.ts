@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireSpedAccess, requireSpedManage } from "@/app/api/_authz/perms";
-import { getSpedConfiguration, updateSpedConfiguration } from "@/services/fiscal/sped";
+import { applySmartSpedConfiguration, getSpedConfiguration, updateSpedConfiguration } from "@/services/fiscal/sped";
 
 import { jsonBody, requireSpedActor, spedErrorResponse } from "../_lib/http";
 
@@ -19,6 +19,20 @@ export async function GET(request: Request) {
     const companyId = companyIdFrom(new URL(request.url).searchParams.get("companyId"));
     if (!companyId) return NextResponse.json({ message: "Empresa inválida." }, { status: 400 });
     return NextResponse.json({ data: await getSpedConfiguration(companyId) });
+  } catch (error) {
+    return spedErrorResponse(error);
+  }
+}
+
+/** Responde sozinho o que o cadastro e a lei já respondem; só preenche o que está pendente. */
+export async function POST(request: Request) {
+  try {
+    await requireSpedManage();
+    const actorId = await requireSpedActor();
+    const body = await jsonBody(request);
+    const companyId = companyIdFrom(body.companyId);
+    if (!companyId) return NextResponse.json({ message: "Empresa inválida." }, { status: 400 });
+    return NextResponse.json({ data: await applySmartSpedConfiguration(companyId, actorId) });
   } catch (error) {
     return spedErrorResponse(error);
   }

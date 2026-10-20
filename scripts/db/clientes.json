@@ -1,13 +1,5 @@
 [
   {
-<<<<<<< HEAD
-    "key": "br_pecas",
-    "label": "BR Pecas",
-    "projectRef": "ufomohkhyyekflykqejc",
-    "envName": "ERP_DB_BR_PECAS",
-    "poolerHosts": [
-      "aws-1-us-west-2.pooler.supabase.com"
-=======
     "key": "brpecas",
     "label": "BR Peças",
     "projectRef": "ufomohkhyyekflykqejc",
@@ -15,7 +7,6 @@
     "poolerHosts": [
       "aws-1-us-west-2.pooler.supabase.com",
       "aws-0-us-west-2.pooler.supabase.com"
->>>>>>> 271228950228f86fac85a3b141895a594e835f2b
     ]
   }
 ]

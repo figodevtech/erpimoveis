@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticated } from "@/app/api/_authz/perms";
+import { lerCnpjInstituicao } from "@/lib/financeiro/instituicoes-financeiras";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 
@@ -39,7 +40,13 @@ export async function PUT(
       tipo,
       proprietario,
       ativo,
+      cnpjInstituicao,
     } = body ?? {};
+
+    const cnpj = lerCnpjInstituicao(cnpjInstituicao);
+    if (!cnpj.ok) {
+      return NextResponse.json({ error: "CNPJ da instituição inválido." }, { status: 400 });
+    }
 
     if (!titulo?.trim()) {
       return NextResponse.json(
@@ -74,6 +81,8 @@ export async function PUT(
       proprietario: proprietario?.trim() || null,
       updated_at: now,
     };
+    // Campo novo: cliente antigo que não o envia não apaga o CNPJ gravado.
+    if (cnpjInstituicao !== undefined) payload.cnpj_instituicao = cnpj.cnpj;
 
     if (typeof ativo === "boolean") {
       payload.ativo = ativo;
@@ -91,6 +100,7 @@ export async function PUT(
         contanumero,
         tipo,
         proprietario,
+        cnpj_instituicao,
         ativo
       `)
       .maybeSingle();
@@ -111,6 +121,7 @@ export async function PUT(
       contanumero: (data.contanumero as string | null) ?? null,
       tipo: data.tipo as string,
       proprietario: (data.proprietario as string | null) ?? null,
+      cnpjInstituicao: (data.cnpj_instituicao as string | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
     };
 
@@ -165,6 +176,7 @@ export async function PATCH(
         contanumero,
         tipo,
         proprietario,
+        cnpj_instituicao,
         ativo
       `)
       .maybeSingle();
@@ -185,6 +197,7 @@ export async function PATCH(
       contanumero: (data.contanumero as string | null) ?? null,
       tipo: data.tipo as string,
       proprietario: (data.proprietario as string | null) ?? null,
+      cnpjInstituicao: (data.cnpj_instituicao as string | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : ativo,
     };
 

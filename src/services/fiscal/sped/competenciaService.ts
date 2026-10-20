@@ -17,11 +17,17 @@ import {
   type SpedDiagnostic,
   type SpedGateStatus,
 } from "@/lib/sped/efd-icms-ipi";
+import {
+  corpoDoPatch,
+  inventarioAplicavelNaCompetencia,
+  planejarDeducao,
+  type SpedFatosEmpresa,
+} from "@/lib/sped/configuracao-empresa";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 import { toSpedContabilista } from "./accountantService";
 import { SpedServiceError, throwIfSupabaseError } from "./errors";
-import { singleCompanyId } from "./guards";
+import { isDfeCancelledOrDenied, singleCompanyId } from "./guards";
 import {
   buildSpedStoragePath,
   classifySpedDbInsertError,
@@ -40,16 +46,17 @@ import { detectC176C179Evidence } from "./conditionalEvidence";
 import { deriveTimezoneFromAddress, normalizePolicyPatch, readSpedPolicies } from "./configPolicies";
 import { hashStableJson, sha256Hex } from "./hash";
 import { projectSpedInventory } from "./inventoryProjection";
-import { buildFoundationRecords, buildGateConfiguration, validateFoundation } from "./projection";
+import { buildFoundationRecords, buildGateConfiguration, validateFoundation, withPreviewAccountantPlaceholder } from "./projection";
 import { mergeSped1010Evidence } from "./indicators1010";
 import {
   projectFiscalDocument,
   type ProjectedFiscalDocument,
   type SpedItemAssignment,
 } from "./documentProjection";
-import { projectSpedCatalog } from "./catalogProjection";
+import { deriveUnitConversions, mergeItemVersions, mergeParticipantVersions, projectSpedCatalog, type SpedEntryUnitUsage } from "./catalogProjection";
 import {
   collectSpedSources,
+  entryDocumentKey,
   fiscalEmissionCivilDate,
   loadEffectiveConfig,
   productMaster,
@@ -163,16 +170,42 @@ function assignmentFromProduct(
   const master = productMaster(context.productsById.get(productId));
   // Sem configuração vigente o item segue identificado pelo produto: a
   // projeção acusa o 0200 pendente e a resolução automática sabe quem é.
-  if (!config) return { assignment: { code: "", productId, itemConfigId: null, master }, diagnostics: [] };
+  if (!config) return { assignment: { code: "", stock: "PRODUTO", productId, itemConfigId: null, master }, diagnostics: [] };
   return {
     assignment: {
       code: text(config.codigo_item),
+      stock: "PRODUTO",
       productId,
       itemConfigId: number(config.id),
       itemType: text(config.tipo_item) || null,
       master,
     },
     diagnostics: [],
+  };
+}
+
+/**
+ * Tipo do 0200 de quem não é produto de venda: o estoque já diz o uso. O geral
+ * guarda o que é de terceiros (peça de cliente que veio para conserto), que não
+ * é revenda nem consumo.
+ */
+const SIMPLE_STOCK_ITEM_TYPE: Record<string, { stock: "USOCONSUMO" | "GERAL"; itemType: string }> = {
+  USOCONSUMO: { stock: "USOCONSUMO", itemType: "07" },
+  GERAL: { stock: "GERAL", itemType: "99" },
+};
+
+function assignmentFromSimpleItem(context: SpedSourceContext, simpleItemId: number): SpedItemAssignment {
+  const row = context.simpleItemsById.get(simpleItemId);
+  const kind = SIMPLE_STOCK_ITEM_TYPE[text(row?.escopo)] ?? SIMPLE_STOCK_ITEM_TYPE.USOCONSUMO;
+  return {
+    // Prefixo próprio: o id de `usoconsumo_item` não pode colidir com o de produto.
+    code: `UC${simpleItemId}`,
+    stock: kind.stock,
+    productId: null,
+    simpleItemId,
+    itemConfigId: null,
+    itemType: kind.itemType,
+    master: productMaster(row),
   };
 }
 
@@ -196,29 +229,35 @@ function documentAssignments(
     return { assignments, diagnostics };
   }
 
-  const grouped = new Map<number, Set<number>>();
-  for (const item of context.entryItemsByDocument.get(number(row.id)) ?? []) {
-    const itemNumber = number(item.numero_item_fiscal);
-    const productId = number(item.produto_id);
-    if (!itemNumber || !productId) continue;
-    const products = grouped.get(itemNumber) ?? new Set<number>();
-    products.add(productId);
-    grouped.set(itemNumber, products);
+  // Cada item fiscal entrou em um único estoque: produto (P) ou item simples (U).
+  const grouped = new Map<number, Set<string>>();
+  // Quantidade que entrou no estoque, na unidade do estoque: dá o fator do 0220.
+  const stockQuantity = new Map<number, number>();
+  for (const item of context.entryStockItemsByDocument.get(entryDocumentKey(row.source_table, row.id)) ?? []) {
+    const target = item.productId ? `P:${item.productId}` : item.simpleItemId ? `U:${item.simpleItemId}` : null;
+    if (!target) continue;
+    grouped.set(item.itemNumber, (grouped.get(item.itemNumber) ?? new Set<string>()).add(target));
+    stockQuantity.set(item.itemNumber, (stockQuantity.get(item.itemNumber) ?? 0) + item.quantity);
   }
-  for (const [itemNumber, productIds] of grouped) {
-    if (productIds.size > 1) {
+  for (const [itemNumber, targets] of grouped) {
+    if (targets.size > 1) {
       diagnostics.push({
         code: "APROPRIACAO_ITEM_AMBIGUA",
         severity: "BLOQUEIO",
-        message: `O item fiscal ${itemNumber} da entrada ${row.id} foi apropriado para produtos diferentes.`,
-        source: { source: "BANCO", table: "entradaitens", id: row.id, documentKey: documentKey(row) },
+        message: `O item fiscal ${itemNumber} da entrada ${row.id} foi apropriado para itens de estoque diferentes.`,
+        source: { source: "BANCO", table: row.source_table, id: row.id, documentKey: documentKey(row) },
       });
       continue;
     }
-    const productId = Array.from(productIds)[0];
-    const resolved = assignmentFromProduct(context, productId, civilDate);
+    const [kind, id] = Array.from(targets)[0].split(":");
+    const quantity = stockQuantity.get(itemNumber) ?? null;
+    if (kind === "U") {
+      assignments.set(itemNumber, { ...assignmentFromSimpleItem(context, Number(id)), stockQuantity: quantity });
+      continue;
+    }
+    const resolved = assignmentFromProduct(context, Number(id), civilDate);
     diagnostics.push(...resolved.diagnostics);
-    if (resolved.assignment) assignments.set(itemNumber, resolved.assignment);
+    if (resolved.assignment) assignments.set(itemNumber, { ...resolved.assignment, stockQuantity: quantity });
   }
 
   // A decisão de crédito é do item fiscal do DF-e, com ou sem produto vinculado.
@@ -291,17 +330,18 @@ function projectDocuments(context: SpedSourceContext) {
   }
   for (const row of context.entryRows) {
     const xml = documentXml(row);
+    const sourceKey = entryDocumentKey(row.source_table, row.id);
     if (!xml) {
-      rejected.add(`entrada:${row.id}`);
+      rejected.add(sourceKey);
       continue;
     }
-    if (/CANCEL|DENEG/i.test(text(row.dfe?.status))) {
-      rejected.add(`entrada:${row.id}`);
+    if (isDfeCancelledOrDenied(row.dfe)) {
+      rejected.add(sourceKey);
       diagnostics.push({
         code: "ENTRADA_NFE_CANCELADA",
         severity: "BLOQUEIO",
         message: `A entrada ${row.id} usa a NF-e ${documentKey(row)}, que está ${text(row.dfe?.status).toLowerCase()} na SEFAZ. Documento cancelado ou denegado do fornecedor não é escriturado: cancele a entrada ou vincule a nota correta.`,
-        source: { source: "BANCO", table: "entrada", id: row.id, documentKey: documentKey(row) },
+        source: { source: "BANCO", table: row.source_table, id: row.id, documentKey: documentKey(row) },
       });
       continue;
     }
@@ -311,7 +351,7 @@ function projectDocuments(context: SpedSourceContext) {
     try {
       documents.push(projectFiscalDocument({
         sourceType: "NFE_RECEBIDA",
-        sourceTable: "entrada",
+        sourceTable: row.source_table,
         sourceId: row.id,
         operation: "ENTRADA",
         ownIssued: false,
@@ -324,12 +364,12 @@ function projectDocuments(context: SpedSourceContext) {
         csosnToCst: policies.csosnToCst,
       }));
     } catch (error) {
-      rejected.add(`entrada:${row.id}`);
+      rejected.add(sourceKey);
       diagnostics.push({
         code: "XML_FISCAL_INVALIDO",
         severity: "BLOQUEIO",
         message: `Não foi possível projetar a entrada ${row.id}: ${error instanceof Error ? error.message : "erro desconhecido"}`,
-        source: { source: "XML", table: "entrada", id: row.id, documentKey: documentKey(row) },
+        source: { source: "XML", table: row.source_table, id: row.id, documentKey: documentKey(row) },
       });
     }
   }
@@ -355,13 +395,22 @@ function projectDocuments(context: SpedSourceContext) {
     uniqueDocuments.push(document);
   }
   const catalogs = new Map<string, EfdRecord>();
+  // Participante e item aparecem uma vez no arquivo: as versões de cada nota se juntam.
+  const participantVersions = new Map<string, Array<{ record: EfdRecord; date: string }>>();
+  const itemVersions = new Map<string, Array<{ record: EfdRecord; date: string }>>();
   const blockCRecords: EfdRecord[] = [];
   for (const document of uniqueDocuments) {
     diagnostics.push(...document.diagnostics);
     blockCRecords.push(...document.blockCRecords);
+    const date = document.bookkeepingDate || document.emissionDate.civilDate;
     for (const record of document.catalogRecords) {
       const identity = catalogIdentity(record);
       if (!identity) continue;
+      const versions = record.code === "0150" ? participantVersions : record.code === "0200" ? itemVersions : null;
+      if (versions) {
+        versions.set(identity, [...(versions.get(identity) ?? []), { record, date }]);
+        continue;
+      }
       const previous = catalogs.get(identity);
       if (previous && hashStableJson(previous.values) !== hashStableJson(record.values)) {
         diagnostics.push({
@@ -376,6 +425,17 @@ function projectDocuments(context: SpedSourceContext) {
       if (!previous) catalogs.set(identity, record);
     }
   }
+  const mergedCatalogRecords: EfdRecord[] = [];
+  for (const versions of participantVersions.values()) {
+    const merged = mergeParticipantVersions(versions);
+    mergedCatalogRecords.push(...merged.records);
+    diagnostics.push(...merged.diagnostics);
+  }
+  for (const versions of itemVersions.values()) {
+    const merged = mergeItemVersions(versions);
+    mergedCatalogRecords.push(merged.record);
+    diagnostics.push(...merged.diagnostics);
+  }
   const reconciliation = reconcileDocuments({
     sourceNotes: context.noteRows.length,
     sourceEntries: context.entryRows.length,
@@ -387,7 +447,7 @@ function projectDocuments(context: SpedSourceContext) {
   diagnostics.push(...reconciliation.diagnostics);
   return {
     documents: uniqueDocuments,
-    catalogRecords: Array.from(catalogs.values()),
+    catalogRecords: [...mergedCatalogRecords, ...catalogs.values()],
     blockCRecords,
     diagnostics,
     reconciliation: reconciliation.summary,
@@ -431,7 +491,7 @@ function sourceDiagnostics(
       message: `O documento ${documentKey(row)} não possui XML completo preservado.`,
       source: {
         source: "BANCO",
-        table: row.dfe !== undefined ? "entrada" : "nfe",
+        table: row.source_table ?? "nfe",
         id: row.id,
         documentKey: documentKey(row),
       },
@@ -452,8 +512,7 @@ function contextHash(
     accountant: context.accountant,
     notes: context.noteRows.map((row) => ({ id: row.id, key: row.chave_acesso, status: row.status, xmlHash: documentXml(row) ? sha256Hex(documentXml(row)) : null })),
     unsettledNotes: context.unsettledNoteRows.map((row) => ({ id: row.id, status: row.status })),
-    entries: context.entryRows.map((row) => ({ id: row.id, date: row.data_entrada_fiscal, status: row.status, key: documentKey(row), xmlHash: documentXml(row) ? sha256Hex(documentXml(row)) : null })),
-    unconfirmedEntryIds: context.unconfirmedEntryIds,
+    entries: context.entryRows.map((row) => ({ table: row.source_table, id: row.id, date: row.data_entrada_fiscal, status: row.status, key: documentKey(row), xmlHash: documentXml(row) ? sha256Hex(documentXml(row)) : null })),
     priorEfd: context.priorEfd,
     payments1601: context.payments1601,
     adjustments: context.adjustments,
@@ -755,7 +814,7 @@ async function buildCompetenceProjection(
 ) {
   const projection = projectDocuments(context);
   const inventory = projectSpedInventory({
-    applicable: context.config?.inventario_aplicavel === true,
+    applicable: inventarioAplicavelNaCompetencia(context.config, context.competence),
     inventory: context.inventory,
     items: context.inventoryItems,
     competenceEnd: context.end,
@@ -768,13 +827,19 @@ async function buildCompetenceProjection(
     adjustments: context.adjustments,
   });
   await options.progress?.("MONTANDO_REGISTROS");
-  const catalog = projectSpedCatalog({
+  const derivedUnits = deriveUnitConversions({
+    usages: entryUnitUsages(projection.documents),
+    manual: context.unitConversions,
+    competenceStart: context.start,
+  });
+  const projectedCatalog = projectSpedCatalog({
     baseCatalogRecords: [...projection.catalogRecords, ...inventory.catalogRecords],
-    unitConversions: context.unitConversions,
+    unitConversions: [...context.unitConversions, ...derivedUnits.conversions],
     itemCorrelations: context.itemCorrelations,
     competenceStart: context.start,
     competenceEnd: context.end,
   });
+  const catalog = { ...projectedCatalog, diagnostics: [...projectedCatalog.diagnostics, ...derivedUnits.diagnostics] };
   const records = context.company ? buildFoundationRecords({
     competence: context.competence,
     layoutCode: options.layout.code,
@@ -789,6 +854,20 @@ async function buildCompetenceProjection(
     blockHRecords: inventory.records,
   }) : [];
   return { projection, inventory, assessment, catalog, records };
+}
+
+/** Itens de entrada de terceiro (os que têm C170), com as duas unidades e as duas quantidades. */
+function entryUnitUsages(documents: ProjectedFiscalDocument[]): SpedEntryUnitUsage[] {
+  return documents
+    .filter((document) => !(document.ownIssued ?? document.sourceTable === "nfe") && !["02", "04"].includes(document.situationCode))
+    .flatMap((document) => document.items.map((item) => ({
+      code: item.code,
+      documentUnit: item.documentUnit,
+      inventoryUnit: item.inventoryUnit,
+      documentQuantity: Number(item.payload?.quantidade) || 0,
+      stockQuantity: item.payload?.assignment?.stockQuantity ?? null,
+      source: item.sourceRefs[0],
+    })));
 }
 
 async function loadAllItemConfigs(companyId: number): Promise<SpedExistingItemConfig[]> {
@@ -808,7 +887,6 @@ async function loadAllItemConfigs(companyId: number): Promise<SpedExistingItemCo
 function autoProducts(context: SpedSourceContext): Map<number, SpedAutoProduct> {
   return new Map(Array.from(context.productsById.entries()).map(([id, row]) => {
     const master = productMaster(row);
-    const price = Number(row.precovenda);
     return [id, {
       id,
       description: master?.description ?? null,
@@ -817,7 +895,6 @@ function autoProducts(context: SpedSourceContext): Map<number, SpedAutoProduct> 
       cest: master?.cest ?? null,
       barcode: master?.barcode ?? null,
       internalIcmsRate: master?.internalIcmsRate ?? null,
-      salePrice: Number.isFinite(price) ? price : null,
       deleted: row.is_deleted === true,
     }];
   }));
@@ -846,13 +923,13 @@ function xmlItemNumber(xml: string, itemNumber: number, tag: string): number {
 }
 
 function creditCandidates(context: SpedSourceContext, documents: ProjectedFiscalDocument[]): SpedCreditCandidate[] {
-  const xmlByEntry = new Map(context.entryRows.map((row) => [String(row.id), documentXml(row)]));
+  const xmlByEntry = new Map(context.entryRows.map((row) => [entryDocumentKey(row.source_table, row.id), documentXml(row)]));
   return documents
     .filter((document) => !(document.ownIssued ?? document.sourceTable === "nfe") && document.situationCode === "00")
     .flatMap((document) => {
       const dfeId = number(document.payload.fiscalDfeDocumentoId);
       if (!dfeId) return [];
-      const xml = xmlByEntry.get(document.sourceId) ?? "";
+      const xml = xmlByEntry.get(entryDocumentKey(document.sourceTable, document.sourceId)) ?? "";
       return document.items
         .filter((item) => item.creditTreatment === "PENDENTE")
         .map((item) => {
@@ -1031,7 +1108,7 @@ export async function runSpedValidation(
   const candidate = {
     competence: context.competence,
     timezoneIana: text(context.config?.timezone_iana),
-    gates: buildGateConfiguration(context.config),
+    gates: buildGateConfiguration(context.config, context.competence),
     conditionalEvidence: detectC176C179Evidence(context.noteRows.map((row) => ({
       key: documentKey(row),
       xml: documentXml(row),
@@ -1039,7 +1116,6 @@ export async function runSpedValidation(
       status: text(row.status),
     }))),
     records,
-    unconfirmedEntryIds: context.unconfirmedEntryIds,
   };
   const diagnostics = [
     ...sourceDiagnostics(context, [
@@ -1163,8 +1239,10 @@ export async function generateSpedFileRecord(
   if (!version) {
     throw new SpedServiceError("Versão SPED não encontrada.", 404, "VERSION_NOT_FOUND");
   }
-  const records = await readStoredRecords(number(version.id));
-  if (records.length === 0) throw new SpedServiceError("Snapshots da versão não contêm registros EFD.", 422, "SNAPSHOT_EMPTY");
+  const storedRecords = await readStoredRecords(number(version.id));
+  if (storedRecords.length === 0) throw new SpedServiceError("Snapshots da versão não contêm registros EFD.", 422, "SNAPSHOT_EMPTY");
+  // Só a prévia leva contador de marcação; o FINAL sem contador nem chega aqui (fechamento bloqueado).
+  const records = tipo === "PREVIA" ? withPreviewAccountantPlaceholder(storedRecords) : storedRecords;
   const layout = layoutFor(month(competence.competencia), text(version.leiaute));
   const serialized = serializeEfd(records, layout);
   const hash = sha256Hex(serialized.bytes);
@@ -1334,7 +1412,7 @@ export async function getSpedCompetenceDetail(id: string, options: { includeSnap
   const config = await loadEffectiveConfig(number(competence.empresa_id), `${month(competence.competencia)}-01`);
   const selectedInventoryId = number(config?.inventario_fechamento_id);
   const [companyResult, previousEfdResult, documentsResult, cadastrosResult, apuracaoResult, importsResult, adjustmentsResult, inventoryResult, execution, filesResult, accountantsResult] = await Promise.all([
-    supabaseAdmin.from("empresa").select("id, cnpj, razaosocial, nomefantasia, inscricaoestadual").eq("id", competence.empresa_id).maybeSingle(),
+    supabaseAdmin.from("empresa").select("id, cnpj, razaosocial, nomefantasia, inscricaoestadual, uf, regimetributario, cnae").eq("id", competence.empresa_id).maybeSingle(),
     supabaseAdmin.from("fiscal_sped_efd_anterior_importacao").select("id, competencia_arquivo, nome_arquivo, arquivo_sha256, status, imported_at").eq("competencia_id", competence.id).order("imported_at", { ascending: false }).limit(1).maybeSingle(),
     version && includeSnapshots
       ? allRows("documentos da versão", ({ from, to }) => supabaseAdmin.from("fiscal_sped_documento_snapshot").select("*, itens:fiscal_sped_item_snapshot(*)", { count: "exact" }).eq("versao_id", version.id).order("data_emissao_civil").order("id").range(from, to))
@@ -1411,6 +1489,8 @@ export async function getSpedCompetenceDetail(id: string, options: { includeSnap
       entregaEfdContribuicoes: typeof config?.entrega_efd_contribuicoes === "boolean" ? config.entrega_efd_contribuicoes : null,
       entregaEfdContribuicoesStatus: gateStatus(config?.entrega_efd_contribuicoes_status),
       evidencias: config?.evidencias && typeof config.evidencias === "object" ? config.evidencias : {},
+      campos: config ?? {},
+      empresa: { uf: text(company.uf) || null, regimeTributario: text(company.regimetributario) || null, cnae: text(company.cnae) || null },
     },
     documentos: ((documentsResult.data ?? []) as Row[]).map((row) => ({
       id: String(row.id),
@@ -1522,13 +1602,34 @@ export async function getSpedFileSignedUrl(fileId: string) {
   const result = await supabaseAdmin.from("fiscal_sped_arquivo").select("id, storage_bucket, storage_path").eq("id", assertId(fileId)).maybeSingle();
   throwIfSupabaseError(result.error);
   if (!result.data) throw new SpedServiceError("Arquivo SPED não encontrado.", 404, "NOT_FOUND");
-  const signed = await supabaseAdmin.storage.from(result.data.storage_bucket).createSignedUrl(result.data.storage_path, 60);
+  // `download` faz o Storage responder como anexo: sem ele, o navegador abre o TXT numa aba.
+  const fileName = text(result.data.storage_path).split("/").pop() || `sped-${result.data.id}.txt`;
+  const signed = await supabaseAdmin.storage.from(result.data.storage_bucket).createSignedUrl(result.data.storage_path, 60, { download: fileName });
   throwIfSupabaseError(signed.error);
   if (!signed.data?.signedUrl) {
     throw new SpedServiceError("Não foi possível assinar o download do arquivo SPED.", 500, "SIGNED_URL_ERROR");
   }
   return { url: signed.data.signedUrl, expiresIn: 60 };
 }
+
+function answerOrigin(value: unknown): "AUTOMATICA" | "RESPOSTA" | "CONTADOR" | null {
+  const origin = text(value);
+  return origin === "AUTOMATICA" || origin === "RESPOSTA" || origin === "CONTADOR" ? origin : null;
+}
+
+/** Campos que guardam a decisão de cada gate. */
+const GATE_VALUE_FIELDS: Record<string, string[]> = {
+  timezone: ["timezone_iana"],
+  perfil: ["perfil_efd"],
+  atividade: ["indicador_atividade"],
+  "bloco-k": ["bloco_k_obrigatorio"],
+  "1400": ["registro_1400_aplicavel"],
+  "c176-c179": ["c176_c179_aplicavel"],
+  "1601": ["registro_1601_aplicavel"],
+  inventario: ["inventario_aplicavel", "inventario_fechamento_id"],
+  ipi: ["contribuinte_ipi"],
+  "efd-contribuicoes": ["entrega_efd_contribuicoes"],
+};
 
 const CONFIG_FIELDS = new Set([
   "timezone_iana", "timezone_status", "perfil_efd", "perfil_efd_status",
@@ -1556,7 +1657,7 @@ export async function updateSpedConfiguration(input: {
   const vigenciaInicio = input.patch.vigenciaInicio == null || input.patch.vigenciaInicio === ""
     ? null
     : text(input.patch.vigenciaInicio);
-  if (vigenciaInicio && !/^d{4}-(0[1-9]|1[0-2])$/.test(vigenciaInicio)) {
+  if (vigenciaInicio && !/^\d{4}-(0[1-9]|1[0-2])$/.test(vigenciaInicio)) {
     throw new SpedServiceError("Informe a vigência no formato AAAA-MM.", 400, "INVALID_VIGENCIA");
   }
   let policies: Row = {};
@@ -1636,9 +1737,22 @@ export async function updateSpedConfiguration(input: {
     if (!descricao) {
       throw new SpedServiceError(`Informe a evidência fiscal do gate ${gateId}.`, 400, "GATE_EVIDENCE_REQUIRED");
     }
+    const details = supplied && typeof supplied === "object" ? supplied as Row : {};
+    // A tela técnica reenvia todos os gates: o que voltou igual mantém quem decidiu e quando.
+    const previous = current?.evidencias?.[gateId] as Row | undefined;
+    const unchanged = !answerOrigin(details.origem)
+      && previous && typeof previous === "object"
+      && text(previous.descricao) === descricao
+      && text(current?.[field]) === nextStatus
+      && GATE_VALUE_FIELDS[gateId].every((key) => !(key in payload) || current?.[key] === payload[key]);
+    if (unchanged) continue;
     baseEvidence[gateId] = {
       descricao,
       status: nextStatus,
+      // Sem origem informada, a decisão veio da tela técnica do contador.
+      origem: answerOrigin(details.origem) ?? "CONTADOR",
+      // O modo automático só vale para o inventário (fevereiro decidido na competência).
+      ...(gateId === "inventario" && details.modo === "AUTOMATICO" ? { modo: "AUTOMATICO" } : {}),
       confirmadoEm: new Date().toISOString(),
       confirmadoPor: input.actorId,
     };
@@ -1722,32 +1836,58 @@ async function recordConfigurationVigencia(companyId: number, config: Row, vigen
 }
 
 /**
- * Preenche o que a configuração fiscal pode derivar com segurança do cadastro
- * da empresa. Hoje: o fuso civil, em UFs de fuso único. Nada que dependa de
- * avaliação do contador é confirmado aqui.
+ * O que o ERP sabe da empresa para responder a configuração sozinho: cadastro
+ * (UF, regime, CNAE), recebimentos no financeiro e NF-e de importação.
+ */
+export async function loadSpedCompanyFacts(companyId: number): Promise<{ company: Row | null; facts: SpedFatosEmpresa }> {
+  const [companyResult, electronic, anyReceipt, imports] = await Promise.all([
+    supabaseAdmin.from("empresa").select("id, uf, codigomunicipio, regimetributario, cnae").eq("id", companyId).maybeSingle(),
+    supabaseAdmin.from("transacao").select("id").eq("tipo", "RECEITA").eq("is_deleted", false)
+      .in("metodopagamento", ["PIX", "CREDITO", "DEBITO"]).limit(1),
+    supabaseAdmin.from("transacao").select("id").eq("tipo", "RECEITA").eq("is_deleted", false).limit(1),
+    supabaseAdmin.from("nfe_item").select("id").like("cfop", "3%").limit(1),
+  ]);
+  for (const result of [companyResult, electronic, anyReceipt, imports]) throwIfSupabaseError(result.error);
+  const company = companyResult.data as Row | null;
+  const hasReceipts = (anyReceipt.data ?? []).length > 0;
+  return {
+    company,
+    facts: {
+      uf: company ? text(company.uf) || null : null,
+      regimeTributario: company ? text(company.regimetributario) || null : null,
+      cnae: company ? text(company.cnae) || null : null,
+      // Sem nenhum recebimento lançado, o financeiro não diz nada sobre cartão/PIX.
+      recebeCartaoOuPix: (electronic.data ?? []).length > 0 ? true : hasReceipts ? false : null,
+      importaDoExterior: (imports.data ?? []).length > 0,
+    },
+  };
+}
+
+/**
+ * Responde sozinho o que a lei ou o cadastro já respondem: fuso, perfil,
+ * atividade, regime e seus efeitos, indicadores do 1010 pela atividade e as
+ * políticas de crédito. Só preenche o que está pendente; nunca troca uma
+ * resposta já dada.
  */
 export async function applySmartSpedConfiguration(companyId: number, actorId: string): Promise<{ applied: string[] }> {
-  const [companyResult, current] = await Promise.all([
-    supabaseAdmin.from("empresa").select("id, uf, codigomunicipio").eq("id", companyId).maybeSingle(),
-    getConfig(companyId),
-  ]);
-  throwIfSupabaseError(companyResult.error);
-  const company = companyResult.data as Row | null;
+  const [{ company, facts }, current] = await Promise.all([loadSpedCompanyFacts(companyId), getConfig(companyId)]);
   if (!company) return { applied: [] };
-  const patch: Row = {};
-  const evidence: Row = {};
-  const applied: string[] = [];
+  const plan = planejarDeducao(current ?? {}, facts);
+  const body = corpoDoPatch(plan.patch);
+  const evidence = (body.evidencias ?? {}) as Row;
+  const applied: string[] = [...plan.perguntas];
   if (gateStatus(current?.timezone_status) === "PENDENTE") {
     const derived = deriveTimezoneFromAddress(company.uf, company.codigomunicipio);
     if (derived) {
-      patch.timezone_iana = derived.timezone;
-      patch.timezone_status = "CONFIRMADO";
-      evidence.timezone = derived.evidence;
+      body.timezone_iana = derived.timezone;
+      body.timezone_status = "CONFIRMADO";
+      evidence.timezone = { descricao: derived.evidence, origem: "AUTOMATICA" };
       applied.push("timezone");
     }
   }
+  body.evidencias = evidence;
   if (!current || applied.length > 0) {
-    await updateSpedConfiguration({ companyId, actorId, patch: { ...patch, evidencias: evidence } });
+    await updateSpedConfiguration({ companyId, actorId, patch: body });
   }
   return { applied };
 }
@@ -1814,6 +1954,75 @@ export async function configureSpedFiscalItem(input: {
   });
   throwIfSupabaseError(result.error);
   return result.data;
+}
+
+/** Uso do produto na empresa → tipo do item no 0200 (Guia Prático, campo TIPO_ITEM). */
+export const SPED_PRODUCT_USES = {
+  REVENDA: { itemType: "00", label: "revenda ou aplicação em serviço" },
+  USO_CONSUMO: { itemType: "07", label: "uso e consumo da empresa" },
+  ATIVO: { itemType: "08", label: "bem da empresa (ativo imobilizado)" },
+  MATERIA_PRIMA: { itemType: "01", label: "matéria-prima para fabricação" },
+  PRODUTO_ACABADO: { itemType: "04", label: "produto fabricado pela empresa" },
+} as const;
+export type SpedProductUse = keyof typeof SPED_PRODUCT_USES;
+
+/**
+ * Classifica o produto pelo uso que a empresa faz dele. O código fiscal é o
+ * que o produto já tem ou o id do produto; o crédito das entradas é decidido
+ * pela resolução automática na próxima geração, a partir do tipo e do regime.
+ */
+export async function classifySpedProduct(input: {
+  competenceId: string | number;
+  productId: unknown;
+  use: unknown;
+  actorId: string;
+}) {
+  const productId = number(input.productId);
+  if (!Number.isSafeInteger(productId) || productId <= 0) {
+    throw new SpedServiceError("Produto inválido.", 400, "INVALID_PRODUCT");
+  }
+  const use = SPED_PRODUCT_USES[text(input.use) as SpedProductUse];
+  if (!use) throw new SpedServiceError("Escolha para que a empresa usa o produto.", 400, "INVALID_PRODUCT_USE");
+  const competence = await getCompetence(input.competenceId);
+  if (competence.status === "FECHADA") {
+    throw new SpedServiceError("Competência fechada não aceita decisões fiscais.", 409, "COMPETENCE_CLOSED");
+  }
+
+  const [own, taken] = await Promise.all([
+    supabaseAdmin.from("fiscal_sped_item_config").select("codigo_item")
+      .eq("empresa_id", competence.empresa_id).eq("produto_id", productId)
+      .order("vigencia_inicio", { ascending: false }).limit(1).maybeSingle(),
+    supabaseAdmin.from("fiscal_sped_item_config").select("codigo_item, produto_id")
+      .eq("empresa_id", competence.empresa_id).in("codigo_item", [String(productId), `PROD${productId}`]),
+  ]);
+  throwIfSupabaseError(own.error);
+  throwIfSupabaseError(taken.error);
+  const takenByOthers = new Set(((taken.data ?? []) as Row[])
+    .filter((row) => number(row.produto_id) !== productId)
+    .map((row) => text(row.codigo_item)));
+  const code = text(own.data?.codigo_item)
+    || [String(productId), `PROD${productId}`].find((candidate) => !takenByOthers.has(candidate));
+  if (!code) {
+    throw new SpedServiceError(
+      `Os códigos ${productId} e PROD${productId} já pertencem a outros produtos. Peça ao contador para definir o código nos ajustes técnicos.`,
+      409,
+      "CODIGO_ITEM_INDISPONIVEL",
+    );
+  }
+
+  const result = await supabaseAdmin.rpc("fiscal_sped_configurar_item_competencia", {
+    p_competencia_id: number(competence.id),
+    p_produto_id: productId,
+    p_codigo_item: code,
+    p_tipo_item: use.itemType,
+    p_documento_id: null,
+    p_numero_item: null,
+    p_tratamento_credito: null,
+    p_evidencia: `Uso informado por quem opera o ERP: ${use.label}`,
+    p_usuario_id: input.actorId,
+  });
+  throwIfSupabaseError(result.error);
+  return { productId, code, itemType: use.itemType };
 }
 
 const ADJUSTMENT_NATURES: Record<string, Set<string>> = {

@@ -5,6 +5,21 @@ export function singleCompanyId(ids: readonly number[]): { id: number } | { erro
   return { error: unique.length === 0 ? "NENHUMA" : "VARIAS" };
 }
 
+/** cStat do protocolo que indica NF-e cancelada (101, 135, 151, 155) ou denegada (110, 301, 302, 303). */
+const DFE_CANCELLED_OR_DENIED_CSTAT = new Set(["101", "135", "151", "155", "110", "301", "302", "303"]);
+
+/**
+ * DF-e recebido cancelado ou denegado pelo emitente. O status gravado é código
+ * da SEFAZ: no resumo (resNFe) é o cSitNFe (1 autorizada, 2 denegada, 3
+ * cancelada); na nota completa (procNFe) é o cStat do protocolo.
+ */
+export function isDfeCancelledOrDenied(row: { schema?: unknown; status?: unknown } | null | undefined): boolean {
+  const status = String(row?.status ?? "").trim();
+  if (/CANCEL|DENEG/i.test(status)) return true;
+  if (/^resNFe/i.test(String(row?.schema ?? ""))) return status === "2" || status === "3";
+  return DFE_CANCELLED_OR_DENIED_CSTAT.has(status);
+}
+
 /**
  * Meses (AAAA-MM) fechados que uma troca de data fiscal de entrada atingiria. A
  * data sai de uma competência e entra em outra: as duas precisam estar abertas.

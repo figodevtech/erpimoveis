@@ -33,6 +33,7 @@ const definitions: EfdRecordDefinition[] = [
   { code: "0005", block: "0", fields: [text("FANTASIA", true), text("CEP", true), text("END", true), text("NUM", true), text("COMPL"), text("BAIRRO", true), text("FONE"), text("FAX"), text("EMAIL")] },
   { code: "0100", block: "0", fields: [text("NOME", true), text("CPF", true), text("CRC", true), text("CNPJ"), text("CEP", true), text("END", true), text("NUM", true), text("COMPL"), text("BAIRRO", true), text("FONE"), text("FAX"), text("EMAIL", true), text("COD_MUN", true)] },
   { code: "0150", block: "0", fields: [text("COD_PART", true), text("NOME", true), text("COD_PAIS", true), text("CNPJ"), text("CPF"), text("IE"), text("COD_MUN"), text("SUFRAMA"), text("END"), text("NUM"), text("COMPL"), text("BAIRRO")] },
+  { code: "0175", block: "0", fields: [date("DT_ALT", true), text("NR_CAMPO", true), text("CONT_ANT", true, 100)] },
   { code: "0190", block: "0", fields: [text("UNID", true), text("DESCR", true)] },
   { code: "0200", block: "0", fields: [text("COD_ITEM", true), text("DESCR_ITEM", true), text("COD_BARRA"), text("COD_ANT_ITEM"), text("UNID_INV", true), text("TIPO_ITEM", true), text("COD_NCM"), text("EX_IPI"), text("COD_GEN"), text("COD_LST"), decimal("ALIQ_ICMS"), text("CEST")] },
   { code: "0205", block: "0", fields: [text("DESCR_ANT_ITEM", true), date("DT_INI", true), date("DT_FIM", true), text("COD_ANT_ITEM")] },

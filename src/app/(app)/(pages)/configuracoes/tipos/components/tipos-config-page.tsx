@@ -38,8 +38,9 @@ import BandeirasSection from "./bandeiras-section";
 
 type TabId = TipoId;
 
-export default function TiposConfigPage({ permissoes }: { permissoes: string[] }) {
-  const [activeTab, setActiveTab] = useState<TabId>("grupos");
+export default function TiposConfigPage({ permissoes, abaInicial }: { permissoes: string[]; abaInicial?: string }) {
+  // Aba vinda da URL (?aba=bancos); id desconhecido cai na primeira aba visível.
+  const [activeTab, setActiveTab] = useState<TabId>((abaInicial as TabId) || "grupos");
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const tabs: Array<{

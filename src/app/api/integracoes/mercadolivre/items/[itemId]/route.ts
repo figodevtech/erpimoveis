@@ -14,7 +14,11 @@ import {
   setMercadoLivreItemFlex,
 } from "@/lib/integrations/mercadolivre-flex";
 import { getValidMercadoLivreAccount } from "@/lib/integrations/mercadolivre-account";
-import { buildMercadoLivrePackageAttributes } from "@/lib/integrations/mercadolivre-listing-validation";
+import {
+  buildMercadoLivrePackageAttributes,
+  disabledMercadoLivreListingTypeMessage,
+  isMercadoLivreListingTypeEnabled,
+} from "@/lib/integrations/mercadolivre-listing-validation";
 import {
   getMercadoLivreEditPictureRequirement,
   mercadoLivrePictureRequirementMessage,
@@ -81,6 +85,7 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
         catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
         user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
         item_tags: Array.isArray(item?.tags) ? item.tags : [],
+        ...(item?.listing_type_id ? { listing_type_id: String(item.listing_type_id) } : {}),
         raw_item: userProduct ? { ...item, _erp_user_product: userProduct } : item ?? {},
         updated_at: new Date().toISOString(),
       })
@@ -235,8 +240,17 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         if (!categoryId) throw new Error("O anúncio não possui categoria para validar o Mercado Envios.");
         await validateMercadoLivreShippingSelection(account, categoryId, shippingMode);
       }
+      const listingTypeId = String(effectiveBody?.listingTypeId ?? "").trim().toLowerCase();
+      const listingTypeChanged =
+        Boolean(listingTypeId) && listingTypeId !== String(currentItem?.listing_type_id ?? "").trim().toLowerCase();
+      if (listingTypeChanged && !isMercadoLivreListingTypeEnabled(listingTypeId)) {
+        throw fieldRestriction("listingType", disabledMercadoLivreListingTypeMessage);
+      }
       const userProductEnabled = Boolean(currentItem?.family_name || currentItem?.user_product_id);
       payload = buildListingUpdatePayload(effectiveBody, userProductEnabled);
+      // O tipo não entra no PUT do anúncio: tem recurso próprio. Vai antes das
+      // demais escritas para que uma recusa não deixe a edição aplicada pela metade.
+      if (listingTypeChanged) await changeMercadoLivreListingType(accessToken, itemId, listingTypeId);
       if (effectiveBody?.pictureUrl !== undefined) {
         const pictureSources = parseMercadoLivrePictureUrls(String(effectiveBody.pictureUrl ?? ""));
         payload.pictures = await uploadMercadoLivrePictures(accessToken, pictureSources);
@@ -317,6 +331,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
         catalog_product_id: item?.catalog_product_id ?? userProduct?.catalog_product_id ?? null,
         user_product_enabled: Boolean(item?.family_name || item?.user_product_id),
         item_tags: Array.isArray(item?.tags) ? item.tags : [],
+        ...(item?.listing_type_id ? { listing_type_id: String(item.listing_type_id) } : {}),
         ...(action === "update_listing" && hasPackageDimensionChange(effectiveBody)
           ? packageDimensionSnapshot(effectiveBody)
           : {}),
@@ -363,6 +378,33 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
       },
       { status: Number(e?.status) || errorStatus(e) },
     );
+  }
+}
+
+/**
+ * Clássico ⇄ Premium num anúncio publicado. O Mercado Livre decide se a troca é
+ * permitida (reputação, vendas, categoria); a recusa dele chega ao usuário como
+ * erro do campo, com o motivo que a API informar.
+ */
+async function changeMercadoLivreListingType(accessToken: string, itemId: string, listingTypeId: string) {
+  try {
+    await mercadoLivreApiPost(accessToken, `/items/${encodeURIComponent(itemId)}/listing_type`, { id: listingTypeId });
+  } catch (error) {
+    if (!(error instanceof MercadoLivreApiError) || error.status >= 500) throw error;
+    const label = listingTypeId === "gold_pro" ? "Premium" : "Clássico";
+    const detail = mercadoLivreErrorDetail(error.message);
+    throw fieldRestriction("listingType", `O Mercado Livre recusou a troca para ${label}.${detail ? ` ${detail}` : ""}`);
+  }
+}
+
+function mercadoLivreErrorDetail(message: string) {
+  const body = message.slice(message.indexOf("): ") + 3);
+  try {
+    const parsed = JSON.parse(body);
+    const cause = Array.isArray(parsed?.cause) ? parsed.cause.find((entry: any) => entry?.message)?.message : null;
+    return String(cause || parsed?.message || "").trim();
+  } catch {
+    return "";
   }
 }
 

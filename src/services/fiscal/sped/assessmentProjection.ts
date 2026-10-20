@@ -104,6 +104,62 @@ function adjustmentRecord(adjustment: SpedAssessmentAdjustment): EfdRecord | nul
   return null;
 }
 
+type DifalOperation = { key: string; date: string; difal: number; fcp: number };
+
+/** Código de receita da GNRE: DIFAL e FCP de venda a consumidor final não contribuinte, por operação. */
+const GNRE_RECEITA = { DIFAL: "100102", FCP: "100129" } as const;
+/** Tabela 5.4 (obrigações do ICMS a recolher): 000 ICMS a recolher, 006 FCP. */
+const COD_OR = { DIFAL: "000", FCP: "006" } as const;
+
+/**
+ * E316 automático. Na venda a consumidor final não contribuinte de outra UF, o
+ * DIFAL e o FCP são recolhidos por GNRE a cada operação, com vencimento na
+ * saída (EC 87/2015, LC 190/2022): um E316 por nota e por imposto. Se saldo
+ * anterior ou ajuste mudarem o valor a recolher, sai uma obrigação só pelo
+ * valor apurado, vencendo na última operação do mês.
+ */
+function automaticDifalObligations(input: {
+  competence: string;
+  operations: DifalOperation[];
+  difalDue: number;
+  fcpDue: number;
+}): EfdRecord[] {
+  const [year, month] = input.competence.split("-");
+  const reference = `${month}${year}`;
+  const operations = [...input.operations].sort((left, right) => left.date.localeCompare(right.date, "en") || left.key.localeCompare(right.key, "en"));
+  const record = (tax: "DIFAL" | "FCP", value: number, dueDate: string, note: string, documentKey?: string): EfdRecord => ({
+    code: "E316",
+    values: {
+      COD_OR: COD_OR[tax],
+      VL_OR: cents(value),
+      DT_VCTO: dueDate,
+      COD_REC: GNRE_RECEITA[tax],
+      NUM_PROC: null,
+      IND_PROC: null,
+      PROC: null,
+      TXT_COMPL: note,
+      MES_REF: reference,
+    },
+    source: { source: "CALCULO", documentKey },
+  });
+  const records: EfdRecord[] = [];
+  for (const tax of ["DIFAL", "FCP"] as const) {
+    const field = tax === "DIFAL" ? "difal" : "fcp";
+    const due = tax === "DIFAL" ? input.difalDue : input.fcpDue;
+    if (due <= 0) continue;
+    const taxed = operations.filter((operation) => operation[field] > 0);
+    const documented = cents(taxed.reduce((sum, operation) => sum + operation[field], 0));
+    if (documented === cents(due)) {
+      for (const operation of taxed) {
+        records.push(record(tax, operation[field], operation.date, `${tax} da NF-e ${Number(operation.key.slice(25, 34))} (GNRE por operação)`, operation.key));
+      }
+    } else {
+      records.push(record(tax, due, taxed[taxed.length - 1]?.date ?? `${input.competence}-01`, `${tax} apurado no mês`));
+    }
+  }
+  return records;
+}
+
 function sumAdjustments(adjustments: SpedAssessmentAdjustment[], nature: SpedAssessmentAdjustment["nature"]): number {
   return cents(adjustments.filter((item) => item.nature === nature).reduce((sum, item) => sum + cents(item.value), 0));
 }
@@ -328,7 +384,7 @@ export function projectSpedAssessment(input: {
     },
   }];
 
-  const difalByUf = new Map<string, { difal: number; fcp: number }>();
+  const difalByUf = new Map<string, { difal: number; fcp: number; operations: DifalOperation[] }>();
   for (const document of outputDocuments) {
     const uf = text(document.payload.participanteUf).toUpperCase();
     const difal = cents(document.items.reduce((sum, item) => sum + cents(item.payload.valor_icms_uf_dest), 0));
@@ -344,9 +400,10 @@ export function projectSpedAssessment(input: {
       });
       continue;
     }
-    const current = difalByUf.get(uf) ?? { difal: 0, fcp: 0 };
+    const current = difalByUf.get(uf) ?? { difal: 0, fcp: 0, operations: [] };
     current.difal = cents(current.difal + difal);
     current.fcp = cents(current.fcp + fcp);
+    current.operations.push({ key: document.key, date: document.emissionDate.civilDate, difal, fcp });
     difalByUf.set(uf, current);
   }
 
@@ -432,17 +489,13 @@ export function projectSpedAssessment(input: {
     const fcpDue = cents(Math.max(0, fcpDebitSide - fcpCreditSide - fcpDeductions));
     const fcpCarry = cents(Math.max(0, fcpCreditSide - fcpDebitSide));
     const e316Adjustments = ufAdjustments.filter((item) => item.destination === "E316");
-    const e316 = e316Adjustments.map(adjustmentRecord).filter(Boolean) as EfdRecord[];
     const expectedDue = cents(difalDue + fcpDue);
     const informedDue = cents(e316Adjustments.reduce((sum, item) => sum + item.value, 0));
-    if (expectedDue > 0 && e316.length === 0) diagnostics.push({
-      code: "E316_RECOLHIMENTO_AUSENTE",
-      severity: "BLOQUEIO",
-      message: `Há R$ ${expectedDue.toFixed(2)} de DIFAL/FCP a recolher para ${uf}, mas não há E316 revisado.`,
-      record: "E316",
-      source: { source: "CALCULO" },
-    });
-    if (e316.length > 0 && informedDue !== expectedDue) diagnostics.push({
+    // Guia lançada à mão prevalece; sem ela, a obrigação sai das próprias notas.
+    const e316 = e316Adjustments.length
+      ? e316Adjustments.map(adjustmentRecord).filter(Boolean) as EfdRecord[]
+      : automaticDifalObligations({ competence: input.competence, operations: totals.operations, difalDue, fcpDue });
+    if (e316Adjustments.length > 0 && informedDue !== expectedDue) diagnostics.push({
       code: "E316_VALOR_DIVERGENTE",
       severity: "BLOQUEIO",
       message: `Os E316 de ${uf} totalizam R$ ${informedDue.toFixed(2)}, mas o valor calculado é R$ ${expectedDue.toFixed(2)}.`,
