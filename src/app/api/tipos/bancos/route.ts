@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { requireAuthenticated } from "@/app/api/_authz/perms";
+import { lerCnpjInstituicao } from "@/lib/financeiro/instituicoes-financeiras";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 
@@ -25,6 +26,7 @@ export async function GET() {
         contanumero,
         tipo,
         proprietario,
+        cnpj_instituicao,
         ativo
       `)
       .order("titulo", { ascending: true });
@@ -39,6 +41,7 @@ export async function GET() {
       contanumero: (c.contanumero as string | null) ?? null,
       tipo: c.tipo as string,
       proprietario: (c.proprietario as string | null) ?? null,
+      cnpjInstituicao: (c.cnpj_instituicao as string | null) ?? null,
       ativo: typeof c.ativo === "boolean" ? c.ativo : true,
     }));
 
@@ -69,7 +72,13 @@ export async function POST(req: Request) {
       tipo,
       proprietario,
       ativo,
+      cnpjInstituicao,
     } = body ?? {};
+
+    const cnpj = lerCnpjInstituicao(cnpjInstituicao);
+    if (!cnpj.ok) {
+      return NextResponse.json({ error: "CNPJ da instituição inválido." }, { status: 400 });
+    }
 
     if (!titulo?.trim()) {
       return NextResponse.json(
@@ -102,6 +111,7 @@ export async function POST(req: Request) {
       contanumero: contanumero?.trim() || null,
       tipo: tipo.trim(),
       proprietario: proprietario?.trim() || null,
+      cnpj_instituicao: cnpj.cnpj,
       ativo: typeof ativo === "boolean" ? ativo : true,
       created_at: now,
       updated_at: now,
@@ -118,6 +128,7 @@ export async function POST(req: Request) {
         contanumero,
         tipo,
         proprietario,
+        cnpj_instituicao,
         ativo
       `)
       .maybeSingle();
@@ -138,6 +149,7 @@ export async function POST(req: Request) {
       contanumero: (data.contanumero as string | null) ?? null,
       tipo: data.tipo as string,
       proprietario: (data.proprietario as string | null) ?? null,
+      cnpjInstituicao: (data.cnpj_instituicao as string | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
     };
 

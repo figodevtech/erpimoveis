@@ -16,7 +16,6 @@ export type SpedAutoProduct = {
   cest: string | null;
   barcode: string | null;
   internalIcmsRate: number | null;
-  salePrice: number | null;
   deleted: boolean;
 };
 
@@ -54,12 +53,8 @@ export type SpedItemResolutionPlan = {
   diagnostics: SpedDiagnostic[];
 };
 
-/** Saídas próprias que só existem para mercadoria adquirida de terceiros. */
-const RESALE_OUTPUT_SUFFIXES = new Set(["102", "106", "108", "110", "115", "117", "120", "202", "403", "404", "405", "411"]);
 /** Saídas de produção do estabelecimento: o item é produto acabado, não revenda. */
 const OWN_PRODUCTION_SUFFIXES = new Set(["101", "103", "105", "107", "109", "111", "113", "116", "118", "122", "124", "125", "401", "402"]);
-/** CFOPs do fornecedor que caracterizam venda (compra, para o declarante). */
-const SUPPLIER_SALE_SUFFIXES = new Set(["101", "102", "103", "104", "105", "106", "401", "402", "403", "405"]);
 
 const suffix = (cfop: string) => String(cfop ?? "").replace(/\D/g, "").slice(1, 4);
 
@@ -72,26 +67,25 @@ function previousDay(civilDate: string): string {
   return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
 }
 
-function deriveItemType(product: SpedAutoProduct, usages: SpedProductUsage[]):
+/**
+ * Produto mora no estoque de venda: é o que vai para ordem de serviço ou é
+ * vendido, portanto mercadoria para revenda. Uso e consumo e o estoque geral
+ * têm cadastro próprio e não passam por aqui. A exceção é a saída com CFOP de
+ * produção, que indica indústria e pede classificação fiscal.
+ */
+function deriveItemType(usages: SpedProductUsage[]):
   | { itemType: string; evidence: string }
   | { itemType: null; reason: string } {
-  const ownOutputs = usages.filter((usage) => usage.ownIssued);
-  const production = ownOutputs.find((usage) => OWN_PRODUCTION_SUFFIXES.has(suffix(usage.cfop)));
+  const production = usages.find((usage) => usage.ownIssued && OWN_PRODUCTION_SUFFIXES.has(suffix(usage.cfop)));
   if (production) {
     return { itemType: null, reason: `saída com CFOP ${production.cfop} indica produção própria; o tipo do item (produto acabado, em processo etc.) depende de classificação fiscal` };
   }
-  const resale = ownOutputs.find((usage) => RESALE_OUTPUT_SUFFIXES.has(suffix(usage.cfop)));
-  if (resale) {
-    return { itemType: "00", evidence: `Mercadoria para revenda: NF-e própria ${resale.documentKey} item ${resale.itemNumber} com CFOP ${resale.cfop}` };
-  }
-  const purchase = usages.find((usage) => !usage.ownIssued && SUPPLIER_SALE_SUFFIXES.has(suffix(usage.cfop)));
-  if (purchase && (product.salePrice ?? 0) > 0) {
-    return {
-      itemType: "00",
-      evidence: `Mercadoria para revenda: comprada na NF-e ${purchase.documentKey} item ${purchase.itemNumber} (CFOP ${purchase.cfop}) e cadastrada no estoque com preço de venda`,
-    };
-  }
-  return { itemType: null, reason: "não há venda própria nem compra para estoque que comprove a destinação do item" };
+  const entry = usages.find((usage) => !usage.ownIssued);
+  const sample = entry ?? usages[0];
+  const where = entry
+    ? `entrada da NF-e ${sample.documentKey} item ${sample.itemNumber} (CFOP ${sample.cfop})`
+    : `NF-e própria ${sample.documentKey} item ${sample.itemNumber} com CFOP ${sample.cfop}`;
+  return { itemType: "00", evidence: `Produto do estoque de venda (usado em OS ou vendido): ${where}` };
 }
 
 export function planSpedItemResolution(input: {
@@ -182,7 +176,7 @@ export function planSpedItemResolution(input: {
       continue;
     }
 
-    const derived = deriveItemType(product, usages);
+    const derived = deriveItemType(usages);
     if (derived.itemType == null) {
       diagnostics.push({
         code: "TIPO_ITEM_NAO_DERIVAVEL",
@@ -234,13 +228,15 @@ export type SpedCreditCandidate = {
 export type SpedPlannedCreditDecision = {
   dfeId: number;
   itemNumber: number;
-  treatment: "CREDITAVEL" | "SEM_CREDITO" | "USO_CONSUMO";
+  treatment: "CREDITAVEL" | "SEM_CREDITO" | "USO_CONSUMO" | "ATIVO_IMOBILIZADO";
   evidence: string;
 };
 
 export type SpedCreditPolicy = {
   /** Contador confirmou que compras para revenda com ICMS destacado geram crédito. */
   resaleCreditConfirmed: boolean;
+  /** False: o regime não apropria crédito (Simples Nacional). Null/ausente: não decidido. */
+  resaleCredit?: boolean | null;
 };
 
 export function planSpedCreditResolution(input: {
@@ -258,6 +254,26 @@ export function planSpedCreditResolution(input: {
     }
     if (candidate.itemType === "07") {
       create.push({ dfeId: candidate.dfeId, itemNumber: candidate.itemNumber, treatment: "USO_CONSUMO", evidence: `Item classificado como material de uso e consumo (0200 tipo 07) no ${where}` });
+      continue;
+    }
+    if (candidate.itemType === "08") {
+      // O crédito do ativo é apropriado em 1/48 por mês no CIAP (Bloco G), fora do C170.
+      create.push({ dfeId: candidate.dfeId, itemNumber: candidate.itemNumber, treatment: "ATIVO_IMOBILIZADO", evidence: `Item classificado como ativo imobilizado (0200 tipo 08) no ${where}; o crédito em 1/48 (CIAP) não é calculado pelo ERP` });
+      continue;
+    }
+    if (input.policy.resaleCredit === false) {
+      create.push({ dfeId: candidate.dfeId, itemNumber: candidate.itemNumber, treatment: "SEM_CREDITO", evidence: `Regime da empresa não apropria crédito de ICMS (LC 123/2006, art. 23) no ${where}` });
+      continue;
+    }
+    // Fornecedor do Simples não destaca ICMS: informa o crédito que o comprador
+    // pode aproveitar (vCredICMSSN). Para revenda, o comprador do regime normal
+    // credita esse valor (LC 123/2006, art. 23, §1º).
+    if (candidate.itemType === "00" && candidate.xmlIcms <= 0 && candidate.xmlSimplesCredit > 0) {
+      if (input.policy.resaleCreditConfirmed) {
+        create.push({ dfeId: candidate.dfeId, itemNumber: candidate.itemNumber, treatment: "CREDITAVEL", evidence: `Crédito do Simples Nacional de R$ ${candidate.xmlSimplesCredit.toFixed(2)} informado pelo fornecedor (LC 123/2006, art. 23) na compra para revenda do ${where}` });
+      } else {
+        policyMissing += 1;
+      }
       continue;
     }
     const cstSuffix = String(candidate.cst ?? "").slice(-2);

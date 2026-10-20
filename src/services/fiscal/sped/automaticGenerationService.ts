@@ -57,6 +57,8 @@ export type SpedGenerationJobView = {
     statusCompetencia: string;
     itensClassificados: number;
     creditosDecididos: number;
+    /** Motivo de a prévia não ter sido montada, quando houve pendências. */
+    erroArquivo: string | null;
     arquivo: {
       id: string;
       nome: string;
@@ -128,6 +130,7 @@ async function viewOf(job: Row): Promise<SpedGenerationJobView> {
     statusCompetencia: detail.status,
     itensClassificados: number(stored.resolucao?.itensCriados),
     creditosDecididos: number(stored.resolucao?.creditosCriados),
+    erroArquivo: text(stored.erroArquivo) || null,
     arquivo: file ? {
       id: text(file.id),
       nome: text(file.nome),
@@ -272,6 +275,9 @@ export async function executeSpedGeneration(id: string): Promise<void> {
     async generateFinal(competenceId, expectedVersion) {
       return generateSpedFileRecord(competenceId, expectedVersion, actorId, { tipo: "FINAL" });
     },
+    async generatePreview(competenceId, expectedVersion) {
+      return generateSpedFileRecord(competenceId, expectedVersion, actorId, { tipo: "PREVIA" });
+    },
   };
 
   try {
@@ -281,7 +287,8 @@ export async function executeSpedGeneration(id: string): Promise<void> {
       resolucao: outcome.resolution,
       reconciliacao: outcome.validation?.reconciliation ?? null,
       registros: outcome.validation?.recordCount ?? null,
-      arquivo: outcome.status === "CONCLUIDA" ? outcome.file : null,
+      arquivo: outcome.file,
+      erroArquivo: outcome.status === "PENDENCIAS" ? outcome.previewError : null,
     };
     const done = await supabaseAdmin.rpc("fiscal_sped_geracao_concluir", {
       p_id: number(claimed.id),

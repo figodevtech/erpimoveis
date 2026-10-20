@@ -20,7 +20,7 @@ export {
   validateSpedCandidate,
 } from "./validator";
 export { validateEfdCrossReferences } from "./cross-validation";
-export { parsePreviousEfd, previousCompetence } from "./import-previous";
+export { balancesFromEfdRecords, parsePreviousEfd, previousCompetence } from "./import-previous";
 export { parse1601Csv } from "./import-1601";
 export type { Imported1601Line } from "./import-1601";
 export type { ParsedPreviousEfd, PreviousEfdBalance } from "./import-previous";

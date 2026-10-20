@@ -81,6 +81,17 @@ function ports(state: World): SpedGenerationPorts {
       state.files.set(key, file);
       return file;
     },
+    async generatePreview(_id, expectedVersion) {
+      state.calls.push("preview");
+      if (state.status === "FECHADA") throw new Error("prévia é só de competência aberta");
+      crash("preview");
+      const key = `previa-v${expectedVersion}`;
+      const existing = state.files.get(key);
+      if (existing) return { ...existing, created: false };
+      const file: SpedGenerationFile = { id: String(state.files.size + 1), tipo: "PREVIA", sha256: "p".repeat(64), lineCount: 110, sizeBytes: 8000, layout: "020", versao: Number(expectedVersion), created: true };
+      state.files.set(key, file);
+      return file;
+    },
   };
 }
 
@@ -106,13 +117,37 @@ describe("geração em um clique", () => {
     ]);
   });
 
-  it("com pendências: não fecha e nunca gera FINAL", async () => {
+  it("com pendências: não fecha, nunca gera FINAL e entrega a prévia para o contador", async () => {
     const state = world({ blocked: true });
     const outcome = await runSpedGeneration(ports(state));
     assert.equal(outcome.status, "PENDENCIAS");
     assert.equal(state.calls.includes("close"), false);
     assert.equal(state.calls.includes("generate"), false);
-    assert.equal(state.files.size, 0);
+    assert.deepEqual(Array.from(state.files.values()).map((file) => file.tipo), ["PREVIA"]);
+    if (outcome.status === "PENDENCIAS") {
+      assert.equal(outcome.file?.tipo, "PREVIA");
+      assert.equal(outcome.file?.versao, 1, "prévia da versão recém-validada");
+      assert.equal(outcome.previewError, null);
+    }
+    assert.equal(state.stages.at(-1), "GERANDO_ARQUIVO");
+  });
+
+  it("com pendências e falha ao montar a prévia: devolve as pendências com o motivo", async () => {
+    const state = world({ blocked: true, crashAt: "preview" });
+    const outcome = await runSpedGeneration(ports(state));
+    assert.equal(outcome.status, "PENDENCIAS");
+    if (outcome.status === "PENDENCIAS") {
+      assert.equal(outcome.file, null);
+      assert.match(outcome.previewError ?? "", /queda simulada/);
+    }
+  });
+
+  it("gerar de novo com as mesmas pendências reaproveita a prévia", async () => {
+    const state = world({ blocked: true });
+    await runSpedGeneration(ports(state));
+    const second = await runSpedGeneration(ports(state));
+    assert.equal(second.status === "PENDENCIAS" && second.file?.created, false);
+    assert.equal(state.files.size, 1);
   });
 
   it("gerar de novo uma competência fechada devolve o mesmo arquivo", async () => {

@@ -103,7 +103,8 @@ export function SpedWorkspace({
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        setDetail(null);
+        // Falha ao atualizar a mesma competência mantém o que está na tela.
+        setDetail((current) => (current?.id === selectedId ? current : null));
         setDetailError(error instanceof Error ? error.message : "Não foi possível carregar a competência.");
       })
       .finally(() => {
@@ -269,7 +270,9 @@ export function SpedWorkspace({
 
       <CompetenciaDetail
         competencia={detail}
-        loading={detailLoading}
+        // Atualizar a competência aberta acontece por trás: trocar a tela pelo
+        // esqueleto desmontaria as abas e perderia aba, seção aberta e rolagem.
+        loading={detailLoading && detail?.id !== selectedId}
         canDownload={canView}
         canManage={canManage}
         busy={actionBusy}

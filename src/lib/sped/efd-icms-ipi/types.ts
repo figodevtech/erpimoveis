@@ -106,7 +106,6 @@ export type SpedValidationCandidate = {
   gates: SpedGateConfiguration;
   conditionalEvidence?: SpedConditionalEvidence;
   records?: EfdRecord[];
-  unconfirmedEntryIds?: number[];
 };
 
 export type SerializedEfd = {

@@ -147,6 +147,16 @@ describe("Entradas de terceiros", () => {
     assert.equal(partial.diagnostics.some((item) => item.code === "CFOP_ENTRADA_NAO_RESOLVIDO"), true);
   });
 
+  it("produto sem configuração vigente usa o código provisório, nunca vazio", () => {
+    const result = entry(supplierXml(), { code: "", productId: 1001, itemConfigId: null, creditTreatment: "CREDITAVEL" });
+    const code = `PEND-${fixtureKey(2).slice(-8)}-1`;
+    assert.equal(result.items[0].code, code);
+    assert.equal(result.items[0].productId, 1001);
+    assert.equal(result.catalogRecords.find((record) => record.code === "0200")?.values.COD_ITEM, code);
+    assert.equal(result.blockCRecords.find((record) => record.code === "C170")?.values.COD_ITEM, code);
+    assert.equal(result.diagnostics.some((item) => item.code === "CODIGO_ITEM_CANONICO_AUSENTE"), true);
+  });
+
   it("sem crédito: base e ICMS zerados no C170/C190 e no C100", () => {
     const result = entry(supplierXml(), { ...resale, creditTreatment: "SEM_CREDITO" });
     const c170 = result.blockCRecords.find((record) => record.code === "C170");
@@ -181,6 +191,25 @@ describe("Entradas de terceiros", () => {
     assert.equal(mapped.diagnostics.some((item) => item.code === "CST_ICMS_EFD_NAO_RESOLVIDO"), false);
   });
 
+  it("compra de optante do Simples (CSOSN 101): credita o vCredICMSSN na própria nota, com CST x90", () => {
+    // NF 1706 da W.A Chicotes: chicote para revenda, R$ 4.334,92, sem ICMS destacado.
+    const xml = supplierXml([{ cfop: "6102", vProd: 4334.92, csosn: "101", vCredICMSSN: 54.19 } as never]);
+    const result = entry(xml, { ...resale, creditTreatment: "CREDITAVEL" }, { csosnToCst: { "101": "90" } });
+    const c170 = result.blockCRecords.find((record) => record.code === "C170");
+    assert.equal(c170?.values.CST_ICMS, "090");
+    assert.equal(c170?.values.CFOP, "2102");
+    assert.equal(c170?.values.VL_BC_ICMS, 4334.92);
+    assert.equal(c170?.values.ALIQ_ICMS, 1.25);
+    assert.equal(c170?.values.VL_ICMS, 54.19);
+    assert.equal(result.blockCRecords.find((record) => record.code === "C190")?.values.VL_ICMS, 54.19);
+    assert.equal(result.blockCRecords.find((record) => record.code === "C100")?.values.VL_ICMS, 54.19);
+    assert.equal(result.icmsTotals?.icms, 54.19);
+
+    // Sem crédito decidido, nada é creditado.
+    const withoutCredit = entry(xml, { ...resale, creditTreatment: "SEM_CREDITO" }, { csosnToCst: { "101": "90" } });
+    assert.equal(withoutCredit.icmsTotals?.icms, 0);
+  });
+
   it("nota do fornecedor cancelada não é escriturada", () => {
     assert.throws(() => entry(supplierXml(), resale, { status: "CANCELADA" }), /não é escriturado/);
   });
@@ -193,7 +222,7 @@ describe("Entradas de terceiros", () => {
 
 describe("0200 a partir do cadastro do produto", () => {
   it("usa descrição, unidade, NCM e alíquota interna do produto; ignora GTIN inválido do XML", () => {
-    const result = own("AUTORIZADA", nfeXml());
+    const result = entry(supplierXml(), { ...resale, creditTreatment: "CREDITAVEL" });
     const item = result.catalogRecords.find((record) => record.code === "0200");
     assert.equal(item?.values.COD_ITEM, "1001");
     assert.equal(item?.values.DESCR_ITEM, "FILTRO DE OLEO");
@@ -211,12 +240,53 @@ describe("0200 a partir do cadastro do produto", () => {
   });
 
   it("sem cadastro mestre, GTIN 'SEM GTIN' não vira código de barras", () => {
-    const result = own("AUTORIZADA", nfeXml());
-    const noMaster = projectFiscalDocument({
-      sourceType: "NFE_EMITIDA", sourceTable: "nfe", sourceId: 1, operation: "SAIDA", status: "AUTORIZADA",
-      xml: nfeXml(), xmlSha256: "d".repeat(64), itemAssignments: new Map([[1, { ...resale, master: null }]]),
-    });
-    assert.ok(result);
+    const noMaster = entry(supplierXml(), { ...resale, master: null, creditTreatment: "CREDITAVEL" });
     assert.equal(noMaster.catalogRecords.find((record) => record.code === "0200")?.values.COD_BARRA, null);
+  });
+
+  it("nota própria não gera 0190/0200: sem C170, nenhum registro referencia o item", () => {
+    const result = own("AUTORIZADA", nfeXml());
+    assert.equal(result.catalogRecords.some((record) => record.code === "0200" || record.code === "0190"), false);
+    // Item de estoque geral ou digitado na nota, sem produto: não há o que pendenciar.
+    const avulsa = projectFiscalDocument({
+      sourceType: "NFE_EMITIDA", sourceTable: "nfe", sourceId: 2, operation: "SAIDA", status: "AUTORIZADA",
+      xml: nfeXml({ items: [{ cfop: "6916", vProd: 100 }] }), xmlSha256: "e".repeat(64),
+    });
+    assert.equal(avulsa.diagnostics.some((item) => item.code === "CODIGO_ITEM_CANONICO_AUSENTE"), false);
+    assert.equal(avulsa.items.length, 1);
+  });
+});
+
+describe("0200 dos estoques de uso e consumo e geral", () => {
+  const simple = (stock: "USOCONSUMO" | "GERAL", itemType: string): SpedItemAssignment => ({
+    code: "UC53", stock, simpleItemId: 53, productId: null, itemConfigId: null, itemType,
+    master: { description: "DESENGRIPANTE 300ML", unit: "UN", ncm: "34031900", cest: null, barcode: null, internalIcmsRate: null },
+  });
+
+  it("item de uso e consumo tem código e tipo do próprio estoque, sem pendência de cadastro", () => {
+    const result = entry(supplierXml(), { ...simple("USOCONSUMO", "07"), creditTreatment: "USO_CONSUMO" });
+    const item = result.catalogRecords.find((record) => record.code === "0200");
+    assert.equal(item?.values.COD_ITEM, "UC53");
+    assert.equal(item?.values.TIPO_ITEM, "07");
+    assert.equal(item?.values.DESCR_ITEM, "DESENGRIPANTE 300ML");
+    assert.equal(result.blockCRecords.find((record) => record.code === "C170")?.values.CFOP, "1556");
+    assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === "CODIGO_ITEM_CANONICO_AUSENTE"), false);
+  });
+
+  it("peça de cliente no estoque geral: tipo 99 e CFOP espelhado da remessa para conserto", () => {
+    const xml = supplierXml([{ cfop: "6915", vProd: 900, pICMS: 0 }]);
+    const result = entry(xml, { ...simple("GERAL", "99"), creditTreatment: "SEM_CREDITO" });
+    assert.equal(result.catalogRecords.find((record) => record.code === "0200")?.values.TIPO_ITEM, "99");
+    assert.equal(result.blockCRecords.find((record) => record.code === "C170")?.values.CFOP, "2915");
+    assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === "CFOP_ENTRADA_NAO_RESOLVIDO"), false);
+  });
+
+  it("item de compra sem nenhum estoque continua pendente", () => {
+    const result = projectFiscalDocument({
+      sourceType: "NFE_RECEBIDA", sourceTable: "usoconsumo_entrada", sourceId: 46, operation: "ENTRADA", status: "CONFIRMADA",
+      xml: supplierXml(), xmlSha256: "f".repeat(64), bookkeepingDate: "2026-08-12", receivedDocumentId: 55,
+    });
+    const diagnostic = result.diagnostics.find((item) => item.code === "CODIGO_ITEM_CANONICO_AUSENTE");
+    assert.match(String(diagnostic?.message), /não está vinculado a nenhum dos três estoques/);
   });
 });

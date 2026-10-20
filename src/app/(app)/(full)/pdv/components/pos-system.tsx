@@ -25,6 +25,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  ScanBarcode,
 } from "lucide-react";
 import Image from "next/image";
 import { Estoque_status, Produto } from "@/app/(app)/(pages)/estoque/types";
@@ -67,6 +68,8 @@ import {
 } from "@/components/financeiro/dados-para-financeiro";
 import { VendaConfirmacaoFields } from "@/components/vendas/venda-confirmacao-fields";
 import { DialogShell } from "@/app/(app)/(pages)/ordens/components/dialogs/dialog-shell";
+import { CameraScannerDialog } from "@/app/(app)/(pages)/estoque/components/dialog-produto/camera-scanner-dialog";
+import { criarDetectorDeLeitura, type ResultadoDaLeitura } from "@/lib/leitor-codigo-barras";
 
 interface CartItem {
   id: number;
@@ -76,6 +79,16 @@ interface CartItem {
   grupo: string;
   estoque: number;
 }
+
+/** O que /api/pdv/products/codigo-barras devolve do produto lido. */
+type ProdutoLidoNoPdv = {
+  id: number;
+  titulo: string | null;
+  precovenda: number | null;
+  estoque: number | null;
+  exibirPdv: boolean | null;
+  grupo: { nome: string | null; exibirPdv: boolean | null } | null;
+};
 
 type DiscountType = "FIXO" | "PORCENTAGEM";
 type CategoriaVenda = {
@@ -124,6 +137,15 @@ export function POSSystem() {
   );
   const [selectedProductInfo, setSelectedProductInfo] = useState<Produto>();
   const [isAlertOpen, setIsAlertOpen] = useState(false);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [lendoCodigo, setLendoCodigo] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  // A leitura e assincrona (busca o produto) e pode chegar entre dois renders:
+  // o carrinho e lido e gravado por ref para duas leituras seguidas do mesmo
+  // item nao partirem da mesma quantidade.
+  const cartRef = useRef<CartItem[]>([]);
+  // Leituras em sequencia rapida sao atendidas uma de cada vez, na ordem.
+  const filaDeLeituras = useRef<Promise<void>>(Promise.resolve());
   const { grupos } = useGruposProduto();
   const router = useRouter();
   const config = useConfig();
@@ -261,9 +283,10 @@ export function POSSystem() {
     if (quantity <= 0) {
       removeFromCart(productId);
     } else {
-      const product = produtos.find((p) => p.id === productId);
-      if (product?.estoque === undefined) return;
-      if (product && quantity <= product.estoque) {
+      // O limite vem do proprio item do carrinho: o produto pode ter entrado
+      // pelo leitor ou por outra pagina do catalogo, fora de `produtos`.
+      const item = cart.find((i) => i.id === productId);
+      if (item && quantity <= item.estoque) {
         setCart(
           cart.map((item) =>
             item.id === productId ? { ...item, quantity } : item,
@@ -282,6 +305,151 @@ export function POSSystem() {
       ),
     );
   };
+
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  const adicionarPorCodigo = useCallback(async (codigo: string) => {
+    setLendoCodigo(true);
+    try {
+      const response = await axios.get<ResultadoDaLeitura<ProdutoLidoNoPdv>>(
+        "/api/pdv/products/codigo-barras",
+        { params: { codigo } },
+      );
+      const leitura = response.data;
+
+      if (leitura.resultado === "nao_encontrado") {
+        toast.error("Produto não encontrado", {
+          description: `Nenhum produto cadastrado com o código ${codigo}.`,
+        });
+        return;
+      }
+
+      if (leitura.resultado === "fora_do_pdv") {
+        toast.error("Produto fora do PDV", {
+          description: `${leitura.titulo || "O produto"} (código ${codigo}) não está liberado para venda no PDV.`,
+        });
+        return;
+      }
+
+      if (leitura.resultado === "ambiguo") {
+        // O operador escolhe: o catalogo passa a mostrar so os produtos do codigo.
+        setSearchTerm(codigo);
+        setSubmittedSearch(codigo);
+        toast.warning("Código em mais de um produto", {
+          description: `${leitura.produtos.length} produtos usam o código ${codigo}. Escolha o certo no catálogo.`,
+        });
+        return;
+      }
+
+      const produto = leitura.produto;
+      const titulo = produto.titulo || "SEM TÍTULO";
+      const estoque = Number(produto.estoque ?? 0);
+      const atual = cartRef.current;
+      const noCarrinho = atual.find((item) => item.id === produto.id)?.quantity ?? 0;
+
+      if (estoque <= 0) {
+        toast.error("Produto sem estoque", {
+          description: `${titulo} não tem estoque disponível.`,
+        });
+        return;
+      }
+
+      if (noCarrinho + 1 > estoque) {
+        toast.error("Estoque insuficiente", {
+          description: `${titulo}: ${noCarrinho} no carrinho e ${estoque} em estoque.`,
+        });
+        return;
+      }
+
+      if (produto.precovenda == null) {
+        toast.error("Produto sem preço de venda", {
+          description: `${titulo} não tem preço cadastrado.`,
+        });
+        return;
+      }
+
+      // O estoque do item e atualizado com o valor recem-lido do banco, mais
+      // fresco que o da pagina do catalogo.
+      const proximo: CartItem[] = noCarrinho > 0
+        ? atual.map((item) =>
+            item.id === produto.id ? { ...item, quantity: noCarrinho + 1, estoque } : item,
+          )
+        : [
+            ...atual,
+            {
+              id: produto.id,
+              titulo,
+              precovenda: produto.precovenda,
+              quantity: 1,
+              grupo: produto.grupo?.nome || "SEM GRUPO",
+              estoque,
+            },
+          ];
+      cartRef.current = proximo;
+      setCart(proximo);
+      toast.success(`${titulo} adicionado`, {
+        description: `Quantidade no carrinho: ${noCarrinho + 1}`,
+      });
+    } catch (error) {
+      toast.error("Falha ao buscar o código de barras", {
+        description: isAxiosError(error) ? error.response?.data?.error || error.message : undefined,
+      });
+    } finally {
+      setLendoCodigo(false);
+    }
+  }, []);
+
+  const enfileirarLeitura = useCallback((codigo: string) => {
+    filaDeLeituras.current = filaDeLeituras.current.then(() => adicionarPorCodigo(codigo));
+  }, [adicionarPorCodigo]);
+
+  // Leitor USB/Bluetooth em modo teclado: escuta o PDV inteiro na fase de
+  // captura, antes do Enter do aparelho acionar o botao focado ou enviar a busca.
+  useEffect(() => {
+    const detector = criarDetectorDeLeitura();
+    let buscaAntesDaRajada: string | null = null;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.altKey || event.metaKey || event.isComposing) return;
+
+      const alvo = event.target instanceof HTMLElement ? event.target : null;
+      // Com um dialog aberto (cliente, conferencia, camera, detalhes) o leitor
+      // nao mexe no carrinho que esta atras dele.
+      if (alvo?.closest('[role="dialog"], [role="alertdialog"]')) return;
+
+      const naBusca = alvo !== null && alvo === searchInputRef.current;
+      const editavel =
+        alvo instanceof HTMLInputElement ||
+        alvo instanceof HTMLTextAreaElement ||
+        alvo instanceof HTMLSelectElement ||
+        alvo?.isContentEditable === true;
+      // Em preco, desconto e frete a digitacao e do operador; so a busca e o
+      // resto da tela (nada focado, botoes, cards) entregam a leitura ao PDV.
+      if (editavel && !naBusca) return;
+
+      const tecla = detector.registrar(event.key, event.timeStamp);
+
+      if (tecla.tipo === "caractere" && tecla.inicio) {
+        // keydown chega antes do caractere entrar no campo: e o texto que a
+        // busca tinha antes do leitor comecar a digitar nela.
+        buscaAntesDaRajada = naBusca ? searchInputRef.current?.value ?? "" : null;
+        return;
+      }
+
+      if (tecla.tipo === "leitura") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (naBusca && buscaAntesDaRajada !== null) setSearchTerm(buscaAntesDaRajada);
+        buscaAntesDaRajada = null;
+        enfileirarLeitura(tecla.codigo);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [enfileirarLeitura]);
 
   const subtotal = cart.reduce(
     (sum, item) => sum + item.precovenda * item.quantity,
@@ -517,41 +685,63 @@ export function POSSystem() {
                 </div>
               </header>
               <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,16rem)] sm:p-4">
-                <form
-                  className="relative"
-                  role="search"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    setSubmittedSearch(searchTerm.trim());
-                  }}
-                >
-                  <button
-                    type="submit"
-                    className="absolute inset-y-0 left-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    aria-label="Buscar produtos"
+                <div className="flex min-w-0 gap-2">
+                  <form
+                    className="relative min-w-0 flex-1"
+                    role="search"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      setSubmittedSearch(searchTerm.trim());
+                    }}
                   >
-                    <Search className="size-4" aria-hidden="true" />
-                  </button>
-                  <Input
-                    placeholder="Buscar por nome, referência ou código..."
-                    value={searchTerm}
-                    onChange={(event) => setSearchTerm(event.target.value)}
-                    className="h-10 rounded-none border-border bg-background pl-11 pr-10 text-foreground placeholder:text-muted-foreground"
-                  />
-                  {searchTerm ? (
                     <button
-                      type="button"
-                      className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      aria-label="Limpar busca"
-                      onClick={() => {
-                        setSearchTerm("");
-                        setSubmittedSearch("");
-                      }}
+                      type="submit"
+                      className="absolute inset-y-0 left-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label="Buscar produtos"
                     >
-                      <X className="size-4" aria-hidden="true" />
+                      <Search className="size-4" aria-hidden="true" />
                     </button>
-                  ) : null}
-                </form>
+                    <Input
+                      ref={searchInputRef}
+                      placeholder="Buscar por nome, referência ou código..."
+                      value={searchTerm}
+                      onChange={(event) => setSearchTerm(event.target.value)}
+                      className="h-10 rounded-none border-border bg-background pl-11 pr-10 text-foreground placeholder:text-muted-foreground"
+                    />
+                    {searchTerm ? (
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        aria-label="Limpar busca"
+                        onClick={() => {
+                          setSearchTerm("");
+                          setSubmittedSearch("");
+                        }}
+                      >
+                        <X className="size-4" aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </form>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-10 shrink-0 rounded-none"
+                        aria-label="Ler código de barras pela câmera"
+                        onClick={() => setIsCameraOpen(true)}
+                      >
+                        {lendoCodigo ? (
+                          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <ScanBarcode className="size-4" aria-hidden="true" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Ler código de barras pela câmera</TooltipContent>
+                  </Tooltip>
+                </div>
 
                 <Select
                   value={selectedCategory}
@@ -975,6 +1165,15 @@ export function POSSystem() {
           </aside>
         </div>
       </div>
+
+      <CameraScannerDialog
+        open={isCameraOpen}
+        onOpenChange={setIsCameraOpen}
+        kind="barcode"
+        title="Ler código de barras"
+        description="Aponte a câmera para o código de barras da embalagem, centralizado na linha vermelha."
+        onDetected={enfileirarLeitura}
+      />
 
       <DialogShell
         open={isAlertOpen}

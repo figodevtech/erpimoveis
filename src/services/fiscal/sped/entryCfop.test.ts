@@ -11,12 +11,20 @@ describe("CFOP de entrada", () => {
     assert.deepEqual(resolveEntryCfop("6102", "REVENDA"), { cfop: "2102", reason: null });
     assert.deepEqual(resolveEntryCfop("5405", "REVENDA"), { cfop: "1403", reason: null });
     assert.deepEqual(resolveEntryCfop("6403", "REVENDA"), { cfop: "2403", reason: null });
+    // NT Comércio e Emiteco: ST já retido anteriormente, venda interestadual.
+    assert.deepEqual(resolveEntryCfop("6404", "REVENDA"), { cfop: "2403", reason: null });
+    assert.equal(resolveEntryCfop("6404", "USO_CONSUMO").cfop, "2407");
   });
 
   it("uso e consumo e ativo imobilizado", () => {
     assert.equal(resolveEntryCfop("5102", "USO_CONSUMO").cfop, "1556");
     assert.equal(resolveEntryCfop("6102", "ATIVO_IMOBILIZADO").cfop, "2551");
     assert.equal(resolveEntryCfop("5405", "USO_CONSUMO").cfop, "1407");
+  });
+
+  it("combustível ou lubrificante: x652 para revenda, x653 para consumo", () => {
+    assert.equal(resolveEntryCfop("5655", "REVENDA").cfop, "1652");
+    assert.equal(resolveEntryCfop("6656", "USO_CONSUMO").cfop, "2653");
   });
 
   it("operações espelhadas não dependem da destinação", () => {
@@ -51,10 +59,12 @@ describe("configuração inteligente", () => {
   });
 
   it("lê apenas políticas confirmadas", () => {
-    assert.deepEqual(readSpedPolicies(null), { resaleCreditConfirmed: false, csosnToCst: null });
+    assert.deepEqual(readSpedPolicies(null), { resaleCreditConfirmed: false, resaleCredit: null, csosnToCst: null });
     const config = configureSpedPoliciesFixture();
-    assert.deepEqual(readSpedPolicies(config), { resaleCreditConfirmed: true, csosnToCst: { "102": "90", "500": "60" } });
-    assert.equal(readSpedPolicies({ evidencias: { politica_credito_revenda: { status: "CONFIRMADO", aplicavel: false } } }).resaleCreditConfirmed, false);
+    assert.deepEqual(readSpedPolicies(config), { resaleCreditConfirmed: true, resaleCredit: true, csosnToCst: { "102": "90", "500": "60" } });
+    const semCredito = readSpedPolicies({ evidencias: { politica_credito_revenda: { status: "CONFIRMADO", aplicavel: false } } });
+    assert.equal(semCredito.resaleCreditConfirmed, false);
+    assert.equal(semCredito.resaleCredit, false);
   });
 
   it("valida políticas antes de gravar", () => {

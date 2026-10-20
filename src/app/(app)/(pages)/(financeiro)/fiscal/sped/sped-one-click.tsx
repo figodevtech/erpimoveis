@@ -12,6 +12,7 @@ import {
   ExternalLink,
   FileCheck2,
   FileSearch,
+  FileText,
   Loader2,
   RefreshCw,
   Settings2,
@@ -265,7 +266,14 @@ export function SpedOneClick() {
       {job && jobActive ? <ProgressCard job={job} /> : null}
       {job?.status === "CONCLUIDA" ? <SuccessCard job={job} downloading={downloading} onDownload={download} /> : null}
       {job?.status === "PENDENCIAS" ? (
-        <PendenciesCard job={job} advancedHref={advancedHref} canManage={canManage} previewing={previewing} onPreview={preview} />
+        <AccountantReviewCard
+          job={job}
+          canManage={canManage}
+          downloading={downloading}
+          previewing={previewing}
+          onDownload={download}
+          onPreview={preview}
+        />
       ) : null}
       {job?.status === "FALHOU" ? (
         <Alert variant="destructive">
@@ -368,67 +376,124 @@ function SuccessCard({ job, downloading, onDownload }: { job: SpedGeracao; downl
   );
 }
 
-function PendenciesCard({
+/**
+ * Com pendências, o resultado continua sendo o TXT: quem opera o ERP baixa e
+ * envia ao contador, que completa no PVA o que o sistema não tinha. A lista
+ * de pendências é o recado para o contador, não uma tarefa do usuário.
+ */
+function AccountantReviewCard({
   job,
-  advancedHref,
   canManage,
+  downloading,
   previewing,
+  onDownload,
   onPreview,
 }: {
   job: SpedGeracao;
-  advancedHref: string;
   canManage: boolean;
+  downloading: boolean;
   previewing: boolean;
+  onDownload: () => void;
   onPreview: () => void;
 }) {
   const pendencies = job.pendencias;
+  const result = job.resultado;
+  const file = result?.arquivo;
+  const items = [...(pendencies?.groups ?? []).flatMap((group) => group.items), ...(pendencies?.warnings ?? [])];
+  const rows: Array<[string, string]> = [
+    ["Competência", formatCompetencia(job.competencia)],
+    ["Empresa", result ? `${result.empresa}${result.cnpj ? ` · CNPJ ${result.cnpj}` : ""}` : "—"],
+    ["Documentos processados", result ? `${formatInteger(result.documentos)} (${formatInteger(result.saidas)} saídas · ${formatInteger(result.entradas)} entradas)` : "—"],
+    ["Registros gerados", file ? `${formatInteger(file.linhas)} linhas · ${formatFileSize(file.tamanhoBytes)}` : "—"],
+    ["Data da geração", formatTimestamp(file?.geradoEm ?? job.concluidoEm)],
+  ];
   return (
-    <Card className="border-amber-500/50">
+    <Card className="border-emerald-600/40">
       <CardHeader>
         <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" aria-hidden="true" />
+          {file
+            ? <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-600" aria-hidden="true" />
+            : <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600" aria-hidden="true" />}
           <div>
-            <CardTitle className="text-base">Precisamos resolver algumas informações antes de gerar o arquivo final.</CardTitle>
+            <CardTitle className="text-base">
+              {file ? "SPED Fiscal gerado. Envie para o contador revisar." : "Não foi possível montar o arquivo"}
+            </CardTitle>
             <CardDescription className="mt-1">
-              {formatInteger(pendencies?.blocking ?? 0)} ocorrência(s) impedem o fechamento de {formatCompetencia(job.competencia)}. Depois de corrigir, clique em Gerar SPED Fiscal novamente.
+              {file
+                ? `Baixe o arquivo e mande para o contador. Ele completa o que faltar antes de transmitir${items.length ? `: são ${formatInteger(items.length)} ponto(s), listados abaixo para ele` : ""}.`
+                : result?.erroArquivo ?? "Tente gerar de novo; persistindo, fale com o suporte."}
             </CardDescription>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-5">
-        {(pendencies?.groups ?? []).map((group) => (
-          <section key={group.category} aria-labelledby={`pendencias-${group.category}`} className="space-y-2">
-            <h3 id={`pendencias-${group.category}`} className="text-sm font-semibold">{group.label}</h3>
-            <ul className="space-y-2">
-              {group.items.map((item) => <PendencyItem key={item.id} item={item} />)}
-            </ul>
-          </section>
-        ))}
-        {pendencies && pendencies.warnings.length > 0 ? (
-          <Collapsible>
-            <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-              <ChevronDown className="size-3.5" aria-hidden="true" /> {pendencies.warnings.length} aviso(s) que não impedem a geração
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <ul className="mt-2 space-y-2">{pendencies.warnings.map((item) => <PendencyItem key={item.id} item={item} />)}</ul>
-            </CollapsibleContent>
-          </Collapsible>
-        ) : null}
-      </CardContent>
-      <CardFooter className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-        <Button asChild>
-          <Link href={advancedHref}>Corrigir pendências</Link>
-        </Button>
-        {canManage && job.competenciaId ? (
-          <Button type="button" variant="outline" onClick={onPreview} disabled={previewing}>
+      {file ? (
+        <CardContent>
+          <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+            {rows.map(([label, value]) => (
+              <div key={label} className="min-w-0">
+                <dt className="text-muted-foreground">{label}</dt>
+                <dd className="truncate font-medium" title={value}>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </CardContent>
+      ) : null}
+      <CardFooter className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        {file ? (
+          <Button type="button" onClick={onDownload} disabled={downloading}>
+            {downloading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+            Baixar SPED Fiscal (.txt)
+          </Button>
+        ) : canManage && job.competenciaId ? (
+          <Button type="button" onClick={onPreview} disabled={previewing}>
             {previewing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <FileSearch aria-hidden="true" />}
-            Gerar prévia para conferência
+            Tentar montar o arquivo
           </Button>
         ) : null}
-        <p className="text-xs text-muted-foreground">A prévia é marcada como PRÉVIA, não é o arquivo final e não pode ser entregue.</p>
+        {items.length ? (
+          <Button type="button" variant="outline" onClick={() => downloadAccountantNotes(job, items)}>
+            <FileText aria-hidden="true" /> Baixar lista para o contador (.txt)
+          </Button>
+        ) : null}
       </CardFooter>
+      {items.length ? (
+        <CardContent className="pt-0">
+          <Collapsible>
+            <CollapsibleTrigger className="group flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+              <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" aria-hidden="true" />
+              O que o contador vai completar ({formatInteger(items.length)})
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <ul className="mt-3 space-y-2">{items.map((item) => <PendencyItem key={`${item.blocking}-${item.id}`} item={item} />)}</ul>
+            </CollapsibleContent>
+          </Collapsible>
+        </CardContent>
+      ) : null}
     </Card>
   );
+}
+
+/** Texto simples para anexar ao e-mail ou à mensagem junto com o SPED. */
+function downloadAccountantNotes(job: SpedGeracao, items: SpedPendencia[]) {
+  const header = [
+    `SPED Fiscal ${formatCompetencia(job.competencia)}${job.resultado?.empresa ? ` - ${job.resultado.empresa}` : ""}${job.resultado?.cnpj ? ` - CNPJ ${job.resultado.cnpj}` : ""}`,
+    "Pontos que o ERP não conseguiu completar e precisam de revisão antes da transmissão:",
+    "",
+  ];
+  const body = items.map((item, index) => [
+    `${index + 1}. ${item.title}${item.record ? ` (registro ${item.record})` : ""}${item.occurrences > 1 ? ` - ${item.occurrences} ocorrências` : ""}${item.blocking ? "" : " [aviso]"}`,
+    `   ${item.description}`,
+    ...(item.affected.length ? [`   Afeta: ${item.affected.join(", ")}${item.occurrences > item.affected.length ? " e outros" : ""}`] : []),
+    `   Motivo: ${item.reason}`,
+    "",
+  ].join("\r\n"));
+  const blob = new Blob([[...header, ...body].join("\r\n")], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `SPED-${job.competencia}-pontos-para-o-contador.txt`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function PendencyItem({ item }: { item: SpedPendencia }) {
@@ -446,8 +511,8 @@ function PendencyItem({ item }: { item: SpedPendencia }) {
         </p>
       ) : null}
       <dl className="mt-2 grid gap-1 text-xs sm:grid-cols-2">
-        <div><dt className="inline font-medium">Por que bloqueia: </dt><dd className="inline text-muted-foreground">{item.reason}</dd></div>
-        <div><dt className="inline font-medium">Como corrigir: </dt><dd className="inline text-muted-foreground">{item.action}</dd></div>
+        <div><dt className="inline font-medium">Motivo: </dt><dd className="inline text-muted-foreground">{item.reason}</dd></div>
+        <div><dt className="inline font-medium">Se quiser resolver no ERP: </dt><dd className="inline text-muted-foreground">{item.action}</dd></div>
       </dl>
       {item.link ? (
         <Link href={item.link.href} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">

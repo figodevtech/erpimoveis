@@ -122,6 +122,9 @@ BEGIN
   SELECT lock_version INTO v_lock FROM public.fiscal_sped_competencia WHERE id = v_competencia_id;
 
   -- Gates pendentes impedem o fechamento, mesmo com a versao validada.
+  -- A vigencia tem precedencia sobre fiscal_sped_config na configuracao
+  -- efetiva; num banco com SPED ja configurado ela esconderia o UPDATE abaixo.
+  DELETE FROM public.fiscal_sped_config_vigencia WHERE empresa_id = v_empresa_id;
   INSERT INTO public.fiscal_sped_config(empresa_id) VALUES (v_empresa_id)
   ON CONFLICT (empresa_id) DO NOTHING;
   BEGIN

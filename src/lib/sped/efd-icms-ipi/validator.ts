@@ -121,7 +121,16 @@ export function validateSpedCandidate(
   if (candidate.gates.recordsC176C179 === "CONFIRMADO" && candidate.gates.recordsC176C179Applicable === undefined) {
     diagnostics.push({ code: "C176_C179_DECISAO_AUSENTE", severity: "BLOQUEIO", message: "O gate C176/C179 foi confirmado sem decisão de aplicabilidade." });
   }
-  if (evidence?.hasC176C179Evidence && candidate.gates.recordsC176C179Applicable !== true) {
+  const declinedRefund = candidate.gates.recordsC176C179 !== "PENDENTE" && candidate.gates.recordsC176C179Applicable === false;
+  if (evidence?.hasC176C179Evidence && declinedRefund) {
+    // Pedir o ressarcimento é opção do contribuinte; quem decidiu não pedir só é avisado.
+    diagnostics.push({
+      code: "C176_C179_RESSARCIMENTO_DISPONIVEL",
+      severity: "AVISO",
+      message: "Há venda que permitiria pedir ressarcimento de ICMS-ST; a empresa está configurada para não pedir.",
+      context: { documentKeys: evidence.c176C179DocumentKeys ?? [] },
+    });
+  } else if (evidence?.hasC176C179Evidence && candidate.gates.recordsC176C179Applicable !== true) {
     diagnostics.push({
       code: "C176_C179_APLICABILIDADE_DETECTADA",
       severity: "BLOQUEIO",
@@ -152,22 +161,13 @@ export function validateSpedCandidate(
   if (candidate.gates.record1601 === "CONFIRMADO" && candidate.gates.record1601Applicable === undefined) {
     diagnostics.push({ code: "REGISTRO_1601_DECISAO_AUSENTE", severity: "BLOQUEIO", message: "O gate do 1601 foi confirmado sem decisão de aplicabilidade." });
   }
-  if (candidate.gates.record1601Applicable === true && !(candidate.records ?? []).some((record) => record.code === "1601")) {
-    diagnostics.push({ code: "REGISTRO_1601_AUSENTE", severity: "BLOQUEIO", message: "O 1601 foi confirmado como aplicável, mas nenhum CSV validado gerou o registro." });
-  }
+  // Sem 1601 com o registro aplicável não é falta: o 1601 sai do financeiro, e
+  // um mês sem venda recebida por instituição simplesmente não tem a linha.
   if (candidate.gates.inventory === "CONFIRMADO" && candidate.gates.inventoryApplicable === undefined) {
     diagnostics.push({ code: "INVENTARIO_DECISAO_AUSENTE", severity: "BLOQUEIO", message: "O gate de inventário foi confirmado sem decisão de aplicabilidade." });
   }
   if (candidate.gates.inventoryApplicable === true && !(candidate.records ?? []).some((record) => record.code === "H005")) {
     diagnostics.push({ code: "INVENTARIO_REGISTROS_AUSENTES", severity: "BLOQUEIO", message: "Inventário aplicável, mas H005/H010 não foram gerados a partir de fechamento aprovado." });
-  }
-  for (const entryId of candidate.unconfirmedEntryIds ?? []) {
-    diagnostics.push({
-      code: "DATA_ENTRADA_FISCAL_NAO_CONFIRMADA",
-      severity: "BLOQUEIO",
-      message: `A entrada ${entryId} não possui data fiscal confirmada.`,
-      source: { source: "BANCO", table: "entrada", id: entryId },
-    });
   }
 
   diagnostics.push(...validateEfdRecords(candidate.records ?? [], layout));

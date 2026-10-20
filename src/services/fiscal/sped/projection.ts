@@ -1,4 +1,5 @@
 import { endOfCompetence, parseCompetence } from "@/lib/fiscal-date";
+import { inventarioAplicavelNaCompetencia } from "@/lib/sped/configuracao-empresa";
 import { resolveSpedLayout, type EfdRecord, type SpedDiagnostic, type SpedGateStatus } from "@/lib/sped/efd-icms-ipi";
 import { resolve1010Indicators } from "./indicators1010";
 
@@ -19,7 +20,8 @@ function status(config: Config, key: string): SpedGateStatus {
   return value === "CONFIRMADO" || value === "NAO_APLICAVEL" ? value : "PENDENTE";
 }
 
-export function buildGateConfiguration(config: Config) {
+export function buildGateConfiguration(config: Config, competence?: string) {
+  const inventoryStatus = status(config, "inventario_status");
   return {
     profile: status(config, "perfil_efd_status"),
     blockK: status(config, "bloco_k_status"),
@@ -34,9 +36,11 @@ export function buildGateConfiguration(config: Config) {
     record1601: status(config, "registro_1601_status"),
     record1601Applicable:
       typeof config?.registro_1601_aplicavel === "boolean" ? config.registro_1601_aplicavel : undefined,
-    inventory: status(config, "inventario_status"),
-    inventoryApplicable:
-      typeof config?.inventario_aplicavel === "boolean" ? config.inventario_aplicavel : undefined,
+    inventory: inventoryStatus,
+    // No modo automático, fevereiro exige o inventário de 31/12 mesmo com o valor guardado false.
+    inventoryApplicable: competence && inventoryStatus !== "PENDENTE"
+      ? inventarioAplicavelNaCompetencia(config, competence)
+      : typeof config?.inventario_aplicavel === "boolean" ? config.inventario_aplicavel : undefined,
   };
 }
 
@@ -169,6 +173,7 @@ export function buildFoundationRecords(input: {
   }
 
   const participants = new Map<string, EfdRecord>();
+  const participantChanges = new Map<string, EfdRecord[]>();
   const units = new Map<string, EfdRecord>();
   const items = new Map<string, { item: EfdRecord; children: EfdRecord[] }>();
   const otherCatalog: EfdRecord[] = [];
@@ -178,6 +183,9 @@ export function buildFoundationRecords(input: {
     if (record.code === "0150") {
       const code = text(record.values.COD_PART);
       if (code && !participants.has(code)) participants.set(code, record);
+    } else if (record.code === "0175") {
+      const code = text(record.source?.documentKey);
+      if (code) participantChanges.set(code, [...(participantChanges.get(code) ?? []), record]);
     } else if (record.code === "0190") {
       const unit = text(record.values.UNID);
       if (unit && !units.has(unit)) units.set(unit, record);
@@ -204,10 +212,12 @@ export function buildFoundationRecords(input: {
     }
   }
 
-  // 1. 0150 ordenados por COD_PART
-  records.push(...Array.from(participants.values()).sort((a, b) =>
+  // 1. 0150 ordenados por COD_PART, cada um seguido dos seus 0175
+  for (const participant of Array.from(participants.values()).sort((a, b) =>
     text(a.values.COD_PART).localeCompare(text(b.values.COD_PART), "en"),
-  ));
+  )) {
+    records.push(participant, ...(participantChanges.get(text(participant.values.COD_PART)) ?? []));
+  }
 
   // 2. 0190 ordenados por UNID
   records.push(...Array.from(units.values()).sort((a, b) =>
@@ -276,6 +286,48 @@ export function buildFoundationRecords(input: {
   }
   records.push({ code: "1990", values: {} });
   return records;
+}
+
+/**
+ * Contador de marcação para a PRÉVIA sem contador cadastrado: o PVA confere o
+ * resto do arquivo em vez de parar no 0100. Nunca entra no arquivo FINAL, que
+ * continua bloqueado por CONTABILISTA_AUSENTE.
+ *
+ * O CPF é fixo (000.000.001-91, número de teste conhecido, com dígitos
+ * válidos) e não sorteado: um CPF válido ao acaso pode ser de uma pessoa real.
+ * Endereço e município vêm do 0005/0000 da própria empresa, para passar nas
+ * tabelas do PVA; os textos deixam claro que é prévia.
+ */
+export const PREVIEW_ACCOUNTANT_CPF = "00000000191";
+
+export function withPreviewAccountantPlaceholder(records: readonly EfdRecord[]): EfdRecord[] {
+  if (records.some((record) => record.code === "0100")) return [...records];
+  const header = records.find((record) => record.code === "0000")?.values ?? {};
+  const address = records.find((record) => record.code === "0005")?.values ?? {};
+  const uf = text(header.UF) || "XX";
+  const placeholder: EfdRecord = {
+    code: "0100",
+    values: {
+      NOME: "CONTADOR NAO CADASTRADO - PREVIA",
+      CPF: PREVIEW_ACCOUNTANT_CPF,
+      CRC: `${uf}-000000/O-0`,
+      CNPJ: "",
+      CEP: digits(address.CEP) || "00000000",
+      END: "PREVIA - CADASTRE O CONTADOR NO ERP",
+      NUM: "SN",
+      COMPL: "",
+      BAIRRO: text(address.BAIRRO) || "PREVIA",
+      FONE: "",
+      FAX: "",
+      EMAIL: "contador-nao-cadastrado@previa.invalid",
+      COD_MUN: digits(header.COD_MUN),
+    },
+    source: { source: "CALCULO", table: "previa_contador_marcacao" },
+  };
+  // O 0100 vem depois de 0000/0001/0002/0005/0015 e antes dos cadastros (0150 em diante).
+  const index = records.findIndex((record) => record.code[0] !== "0" || record.code > "0100");
+  const position = index === -1 ? records.length : index;
+  return [...records.slice(0, position), placeholder, ...records.slice(position)];
 }
 
 export function validateFoundation(input: {

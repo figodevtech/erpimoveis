@@ -165,3 +165,11 @@ test("altura que o Mercado Livre não guardou não passa como sucesso", () => {
   assert.equal(height?.actual, 90);
   assert.equal(results.filter((result) => result.status === "DIVERGENTE").length, 1);
 });
+
+test("troca de tipo confirmada só quando o anúncio fica com o tipo pedido", () => {
+  const confirmed = buildMercadoLivreEditConfirmations({ listingTypeId: "gold_pro" }, { listing_type_id: "gold_pro" }, null, null);
+  const refused = buildMercadoLivreEditConfirmations({ listingTypeId: "gold_pro" }, { listing_type_id: "gold_special" }, null, null);
+
+  assert.deepEqual(statusByField(confirmed), { listingTypeId: "CONFIRMADO" });
+  assert.deepEqual(statusByField(refused), { listingTypeId: "DIVERGENTE" });
+});

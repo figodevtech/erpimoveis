@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { balancesFromEfdRecords } from "@/lib/sped/efd-icms-ipi";
+
 import { projectSpedAssessment } from "./assessmentProjection";
 import type { ProjectedFiscalDocument } from "./documentProjection";
 
@@ -290,3 +292,79 @@ test("múltiplos ajustes E311 DIFAL aninham filhos apenas no pai correto e barra
   assert.equal(codes[firstE311 + 2], "E311");
 });
 
+
+// Venda a consumidor final não contribuinte de outra UF (DIFAL/FCP para o destino).
+function difalSale(uf: string, numero: number, date: string, difal: number, fcp = 0): ProjectedFiscalDocument {
+  const base = document("SAIDA", 0);
+  // cUF + AAMM + CNPJ + modelo + série (25 dígitos), nNF (9), tpEmis + cNF + DV (10).
+  const key = `2526091226072300010955003${String(numero).padStart(9, "0")}1234567890`;
+  return {
+    ...base,
+    sourceId: String(numero),
+    key,
+    emissionDate: { civilDate: date },
+    payload: { ...base.payload, participanteUf: uf },
+    items: [{ ...base.items[0], payload: { valor_icms: 0, valor_icms_uf_dest: difal, valor_fcp_uf_dest: fcp } }],
+  };
+}
+
+test("E316 automático: uma guia por nota e por imposto, vencendo na data da venda", () => {
+  const result = projectSpedAssessment({
+    competence: "2026-09",
+    documents: [difalSale("MA", 125, "2026-09-04", 330), difalSale("MA", 156, "2026-09-22", 110), difalSale("AL", 170, "2026-09-25", 566.08, 66.59)],
+    priorEfd: null,
+  });
+  assert.equal(result.diagnostics.some((item) => item.code.startsWith("E316")), false);
+  const e316 = result.blockERecords.filter((record) => record.code === "E316").map((record) => record.values);
+  assert.deepEqual(e316.map(({ COD_OR, VL_OR, DT_VCTO, COD_REC, MES_REF }) => [COD_OR, VL_OR, DT_VCTO, COD_REC, MES_REF]), [
+    ["000", 566.08, "2026-09-25", "100102", "092026"],
+    ["006", 66.59, "2026-09-25", "100129", "092026"],
+    ["000", 330, "2026-09-04", "100102", "092026"],
+    ["000", 110, "2026-09-22", "100102", "092026"],
+  ]);
+  assert.match(String(e316[2].TXT_COMPL), /NF-e 125/);
+  // Cada E316 logo depois do E310 da sua UF.
+  const codes = result.blockERecords.filter((record) => /^E3/.test(record.code)).map((record) => record.code);
+  assert.deepEqual(codes, ["E300", "E310", "E316", "E316", "E300", "E310", "E316", "E316"]);
+});
+
+test("E316 automático: saldo credor anterior muda o valor e vira uma guia só pelo apurado", () => {
+  const result = projectSpedAssessment({
+    competence: "2026-09",
+    documents: [difalSale("MA", 125, "2026-09-04", 330), difalSale("MA", 156, "2026-09-22", 110)],
+    priorEfd: { saldos_apuracao: { difalFcpByUf: [{ uf: "MA", saldoCredorDifalTransportar: 40 }] } },
+  });
+  const e316 = result.blockERecords.filter((record) => record.code === "E316");
+  assert.equal(e316.length, 1);
+  assert.equal(e316[0].values.VL_OR, 400);
+  assert.equal(e316[0].values.DT_VCTO, "2026-09-22");
+});
+
+test("E316 lançado à mão prevalece sobre o automático", () => {
+  const result = projectSpedAssessment({
+    competence: "2026-09",
+    documents: [difalSale("MA", 125, "2026-09-04", 330)],
+    priorEfd: null,
+    adjustments: [{ id: 1, destination: "E316", uf: "MA", nature: "RECOLHIMENTO", code: "000", value: 330, description: "GNRE manual", reference: { dataVencimento: "2026-09-05", codigoReceita: "999" } }],
+  });
+  const e316 = result.blockERecords.filter((record) => record.code === "E316");
+  assert.equal(e316.length, 1);
+  assert.equal(e316[0].values.COD_REC, "999");
+});
+
+test("mês fechado no ERP passa os saldos para o seguinte sem importar o TXT", () => {
+  // Agosto: crédito 140, débito 100 e 60 de DIFAL no MA com 80 de saldo anterior → sobram 40 e 20.
+  const august = projectSpedAssessment({
+    competence: "2026-08",
+    documents: [document("SAIDA", 100), document("ENTRADA", 140), difalSale("MA", 125, "2026-08-04", 60)],
+    priorEfd: { saldos_apuracao: { difalFcpByUf: [{ uf: "MA", saldoCredorDifalTransportar: 80 }] } },
+  });
+  const balances = balancesFromEfdRecords(august.blockERecords);
+  assert.equal(balances.icmsProprio.saldoCredorTransportar, 40);
+  assert.deepEqual(balances.difalFcpByUf, [{ uf: "MA", saldoCredorDifalTransportar: 20, saldoCredorFcpTransportar: 0 }]);
+
+  const september = projectSpedAssessment({ competence: "2026-09", documents: [document("SAIDA", 100)], priorEfd: { saldos_apuracao: balances } });
+  const e110 = september.blockERecords.find((record) => record.code === "E110");
+  assert.equal(e110?.values.VL_SLD_CREDOR_ANT, 40);
+  assert.equal(e110?.values.VL_ICMS_RECOLHER, 60);
+});

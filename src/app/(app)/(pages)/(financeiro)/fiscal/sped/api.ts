@@ -87,6 +87,22 @@ export function updateSpedConfiguration(companyId: number, patch: Record<string,
   });
 }
 
+export function deduceSpedConfiguration(companyId: number) {
+  return requestJson<{ data: { applied: string[] } }>(`${API_ROOT}/configuracao`, {
+    method: "POST",
+    body: JSON.stringify({ companyId }),
+  });
+}
+
+export type SpedProductUse = "REVENDA" | "USO_CONSUMO" | "ATIVO" | "MATERIA_PRIMA" | "PRODUTO_ACABADO";
+
+export function classifySpedProduct(competenciaId: string, productId: number, use: SpedProductUse) {
+  return requestJson<{ data: { productId: number; code: string; itemType: string } }>(
+    `${API_ROOT}/competencias/${encodeURIComponent(competenciaId)}/produtos`,
+    { method: "PUT", body: JSON.stringify({ productId, use }) },
+  );
+}
+
 export function configureSpedFiscalItem(
   competenciaId: string,
   input: {
@@ -222,15 +238,23 @@ export async function downloadSpedFile(file: SpedArquivo) {
     throw new SpedApiError(apiMessage(payload, "Não foi possível baixar o arquivo SPED."), response.status);
   }
 
+  const fileName = file.nome || `sped-${file.id}.txt`;
   const contentType = response.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     const payload = (await response.json()) as { url?: string };
     if (!payload?.url) throw new SpedApiError("A API não retornou a URL assinada do arquivo.", 502);
+    // Baixa pelo próprio app em vez de navegar até a URL: navegar abre o TXT numa aba.
+    const stored = await fetch(payload.url, { cache: "no-store" }).catch(() => null);
+    if (stored?.ok) {
+      downloadBlob(await stored.blob(), fileName);
+      return;
+    }
+    // Sem acesso direto ao Storage, a URL assinada já pede o arquivo como anexo.
     window.location.assign(payload.url);
     return;
   }
 
-  downloadBlob(await response.blob(), file.nome || `sped-${file.id}.txt`);
+  downloadBlob(await response.blob(), fileName);
 }
 
 export function createSpedContabilista(companyId: number, aPartirDe: string, data: SpedContabilistaForm) {

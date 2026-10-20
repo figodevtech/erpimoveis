@@ -83,6 +83,43 @@ async function attachMercadoLivreLinks(items: any[]) {
   }
 }
 
+// Conta as fotos da galeria (produto_imagem) de cada item da página. Uma linha
+// por produto com o count agregado, em vez de trazer as imagens: com 200 itens
+// por página a lista de imagens passaria do limite de linhas do PostgREST.
+async function attachTotalFotos(items: any[]) {
+  if (!Array.isArray(items) || !items.length) return items;
+  const productIds = items
+    .map((p) => Number(p?.id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (!productIds.length) return items;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("produto")
+      .select("id, produto_imagem(count)")
+      .in("id", productIds);
+    if (error) throw error;
+
+    const totalByProdutoId = new Map(
+      (data ?? []).map((row: any) => [
+        Number(row.id),
+        Number(row.produto_imagem?.[0]?.count ?? 0),
+      ])
+    );
+
+    return items.map((item) => ({
+      ...item,
+      totalFotos: totalByProdutoId.get(Number(item.id)) ?? 0,
+    }));
+  } catch {
+    return items;
+  }
+}
+
+async function attachListExtras(items: any[]) {
+  return attachTotalFotos(await attachMercadoLivreLinks(items));
+}
+
 /** Campos graváveis em produto */
 const WRITABLE_FIELDS = new Set([
   'descricao',
@@ -268,7 +305,7 @@ export async function GET(req: Request) {
     const page = Math.max(Number(searchParams.get('page') ?? 1), 1);
     const limitRaw =
       searchParams.get('limit') ?? searchParams.get('pageSize') ?? '20';
-    const limit = Math.min(Math.max(Number(limitRaw), 1), 100);
+    const limit = Math.min(Math.max(Number(limitRaw), 1), 200);
 
     const q = (searchParams.get('search') ?? searchParams.get('q') ?? '').trim();
     const exactEtiqueta = (searchParams.get('exactEtiqueta') ?? '').trim();
@@ -284,7 +321,7 @@ export async function GET(req: Request) {
       if (error) throw error;
 
       return NextResponse.json({
-        data: await attachMercadoLivreLinks(data ? [data] : []),
+        data: await attachListExtras(data ? [data] : []),
         pagination: {
           total: data ? 1 : 0,
           page: 1,
@@ -389,7 +426,7 @@ export async function GET(req: Request) {
         const items = data ?? [];
         const total = count ?? 0;
         return NextResponse.json({
-          data: await attachMercadoLivreLinks(items),
+          data: await attachListExtras(items),
           pagination: {
             total,
             page,
@@ -433,7 +470,7 @@ export async function GET(req: Request) {
       const items = matchedProducts.slice(from, from + limit);
 
       return NextResponse.json({
-        data: await attachMercadoLivreLinks(items),
+        data: await attachListExtras(items),
         pagination: {
           total,
           page,
@@ -485,7 +522,7 @@ export async function GET(req: Request) {
     const hasNextPage = page * limit < total;
 
     return NextResponse.json({
-      data: await attachMercadoLivreLinks(items),
+      data: await attachListExtras(items),
       pagination: {
         total,
         page,

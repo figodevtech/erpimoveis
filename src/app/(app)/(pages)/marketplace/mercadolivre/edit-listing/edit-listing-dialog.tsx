@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -9,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import ValueInput from "@/components/ui/value-input";
 import { toast } from "@/lib/toast";
@@ -16,16 +18,109 @@ import {
   getMercadoLivrePictureRequirement,
   mercadoLivrePictureRequirementMessage,
 } from "@/lib/integrations/mercadolivre-listing-pictures";
+import { isMercadoLivreListingTypeEnabled } from "@/lib/integrations/mercadolivre-listing-validation";
+import type { ListingTypeOption, MlCategoryAttribute, ShippingQuote } from "../../marketplace-client";
 import { ListingDialogContent } from "../listing-dialog-content";
 import {
   AttributeCard,
   AttributeGroup,
   FormSection,
   listingFieldClass,
+  ListingTypeCard,
   StepHeading,
 } from "../listing-form-fields";
+import { ListingMediaManager } from "../listing-media/listing-media-manager";
+import { loadProductImageUrls } from "../listing-media/product-image-urls";
+import { ListingStepper, type ListingStepDefinition } from "../listing-stepper";
+import {
+  BadgeDollarSign,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsUpDown,
+  FileText,
+  ImageIcon,
+  Loader2,
+  Tags,
+} from "lucide-react";
+
+/**
+ * Edição de um anúncio Mercado Livre já publicado. É o único diálogo de edição:
+ * o cadastro do produto (estoque) e o módulo de marketplace (vendas) abrem este
+ * mesmo componente, para que os dois nunca ofereçam campos diferentes.
+ */
 
 const listingSelectClass = listingFieldClass;
+
+const DEFAULT_LISTING_TYPE_OPTIONS: ListingTypeOption[] = [
+  { id: "gold_special", name: "Clássico" },
+  { id: "gold_pro", name: "Premium" },
+];
+
+// Mudanças nesses campos alteram o frete; a simulação anterior deixa de valer.
+const SHIPPING_QUOTE_FIELDS = new Set(["price", "listingTypeId", "condition", "logisticType", "freeShipping", "widthCm", "heightCm", "lengthCm", "weightGrams"]);
+
+export type EditListingStep = "content" | "media" | "attributes" | "offer";
+
+export const EDIT_LISTING_STEPS: ListingStepDefinition<EditListingStep>[] = [
+  { value: "content", title: "Conteúdo do anúncio", short: "Conteúdo", description: "Textos e dados", icon: FileText },
+  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Mínimo de 3 fotos", icon: ImageIcon },
+  { value: "attributes", title: "Categoria e características", short: "Categoria", description: "Classifique o item", icon: Tags },
+  { value: "offer", title: "Oferta e envio", short: "Oferta", description: "Preço e logística", icon: BadgeDollarSign },
+];
+
+export type EditListingDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  itemId?: string | null;
+  produtoId?: number | null;
+  /** Produto do ERP; com `mercadolivre` (vínculo), também preenche título e família enquanto o anúncio carrega. */
+  initialProduct?: any;
+  onAfterSave?: () => void;
+};
+
+type EditForm = {
+  itemId: string;
+  produtoId: string;
+  categoryId: string;
+  listingTypeId: string;
+  title: string;
+  familyName: string;
+  userProductId: string;
+  userProductEnabled: boolean;
+  price: string;
+  availableQuantity: string;
+  condition: "new" | "used" | "not_specified";
+  description: string;
+  videoUrl: string;
+  pictureUrl: string;
+  warranty: string;
+  warrantyTime: string;
+  shippingMode: string;
+  logisticType: string;
+  freeShipping: boolean;
+  localPickup: boolean;
+  widthCm: string;
+  heightCm: string;
+  lengthCm: string;
+  weightGrams: string;
+  dynamicAttributes: Record<string, string>;
+};
+
+type UserProductFamilyMember = {
+  id: string;
+  name: string;
+  attributes: Array<{ id?: string; name?: string; value_id?: string | null; value_name?: string | null }>;
+};
+
+const DEFAULT_CAPABILITIES = {
+  title: true,
+  price: true,
+  stock: true,
+  pictures: true,
+  description: true,
+  familyName: true,
+};
 
 function formatCurrencyInputFromNumber(value: unknown) {
   const number = Number(value);
@@ -45,39 +140,42 @@ function parseCurrencyInput(value: unknown) {
 function formatCurrency(value: unknown) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(value || 0));
 }
-import { ListingMediaManager } from "../listing-media/listing-media-manager";
-import { loadProductImageUrls } from "../listing-media/product-image-urls";
-import { ListingStepper, type ListingStepDefinition } from "../listing-stepper";
-import { TabsContent } from "@/components/ui/tabs";
-import {
-  BadgeDollarSign,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsUpDown,
-  FileText,
-  ImageIcon,
-  Loader2,
-  Tags,
-} from "lucide-react";
 
-export type EditListingStep = "content" | "media" | "attributes" | "offer";
+function productImages(product: any): string[] {
+  const urls: unknown[] = product?.imageUrls?.length ? product.imageUrls : product?.imgUrl ? [product.imgUrl] : [];
+  return Array.from(new Set(urls.filter(Boolean).map(String)));
+}
 
-export const EDIT_LISTING_STEPS: ListingStepDefinition<EditListingStep>[] = [
-  { value: "content", title: "Conteúdo do anúncio", short: "Conteúdo", description: "Textos e dados", icon: FileText },
-  { value: "media", title: "Mídia do anúncio", short: "Mídia", description: "Mínimo de 3 fotos", icon: ImageIcon },
-  { value: "attributes", title: "Categoria e características", short: "Categoria", description: "Classifique o item", icon: Tags },
-  { value: "offer", title: "Oferta e envio", short: "Oferta", description: "Preço e logística", icon: BadgeDollarSign },
-];
-
-export type EditListingDialogProps = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  itemId?: string | null;
-  produtoId?: number | null;
-  initialProduct?: any;
-  onAfterSave?: () => void;
-};
+function fallbackEditForm(itemId: string, produtoId: string, product: any): EditForm {
+  const link = product?.mercadolivre ?? null;
+  return {
+    itemId,
+    produtoId,
+    categoryId: "",
+    listingTypeId: "",
+    title: link?.title || product?.tituloMarketplace || product?.titulo || "",
+    familyName: link?.family_name || "",
+    userProductId: link?.user_product_id || "",
+    userProductEnabled: Boolean(link?.user_product_enabled || link?.family_name || link?.user_product_id),
+    price: formatCurrencyInputFromNumber(product?.precovenda),
+    availableQuantity: String(Math.max(Number(product?.estoque ?? 0), 0)),
+    condition: "new",
+    description: product?.descricaoMarketplace || product?.descricao || "",
+    videoUrl: "",
+    pictureUrl: productImages(product).join("\n"),
+    warranty: "",
+    warrantyTime: "",
+    shippingMode: "me2",
+    logisticType: "",
+    freeShipping: false,
+    localPickup: false,
+    widthCm: "",
+    heightCm: "",
+    lengthCm: "",
+    weightGrams: "",
+    dynamicAttributes: {},
+  };
+}
 
 export function shippingLogisticLabel(value?: string | null) {
   switch (value) {
@@ -91,12 +189,12 @@ export function shippingLogisticLabel(value?: string | null) {
   }
 }
 
-export function shippingOriginLabel(value?: string | null) {
-  switch (value) {
-    case "me2": return "Mercado Envios";
-    case "custom": return "Personalizado";
-    default: return value || "";
-  }
+export function shippingOriginLabel(address?: ShippingQuote["origin"]) {
+  if (!address) return null;
+  const location = [address.city, address.state].filter(Boolean).join("/");
+  const digits = String(address.zipCode ?? "").replace(/\D/g, "");
+  const maskedZip = digits.length === 8 ? `${digits.slice(0, 5)}-***` : digits;
+  return [location || null, maskedZip ? `CEP ${maskedZip}` : null].filter(Boolean).join(" · ") || null;
 }
 
 export function rawStatusLabel(value?: string | null) {
@@ -117,7 +215,7 @@ function ControlledAttributeInput({
   disabled,
   onChange,
 }: {
-  attribute: any;
+  attribute: MlCategoryAttribute;
   value: string;
   disabled: boolean;
   onChange: (value: string) => void;
@@ -125,7 +223,7 @@ function ControlledAttributeInput({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(value);
   const options = Array.isArray(attribute?.values) ? attribute.values : [];
-  const filteredOptions = options.filter((option: any) => {
+  const filteredOptions = options.filter((option) => {
     const text = `${option.name} ${option.id ?? ""}`.toLowerCase();
     return text.includes(query.trim().toLowerCase());
   });
@@ -166,7 +264,7 @@ function ControlledAttributeInput({
               </button>
             </CommandEmpty>
             <CommandGroup>
-              {filteredOptions.slice(0, 80).map((option: any) => (
+              {filteredOptions.slice(0, 80).map((option) => (
                 <CommandItem
                   key={`${attribute.id}:${option.id ?? option.name}`}
                   value={option.name}
@@ -200,64 +298,49 @@ export function MercadoLivreEditListingDialog({
   const [saving, setSaving] = useState(false);
   const [shippingModes, setShippingModes] = useState<string[]>([]);
   const [logisticOptions, setLogisticOptions] = useState<string[]>([]);
-  const [categoryAttributes, setCategoryAttributes] = useState<any[]>([]);
+  const [categoryAttributes, setCategoryAttributes] = useState<MlCategoryAttribute[]>([]);
+  const [familyMembers, setFamilyMembers] = useState<UserProductFamilyMember[]>([]);
   const [initialAttributes, setInitialAttributes] = useState<Record<string, string>>({});
-  const [shippingQuote, setShippingQuote] = useState<any>(null);
+  const [shippingQuote, setShippingQuote] = useState<ShippingQuote | null>(null);
   const [loadingShippingQuote, setLoadingShippingQuote] = useState(false);
   const [productImageUrls, setProductImageUrls] = useState<string[]>([]);
+  const [listingTypeOptions, setListingTypeOptions] = useState<ListingTypeOption[]>(DEFAULT_LISTING_TYPE_OPTIONS);
+  const [loadingListingTypes, setLoadingListingTypes] = useState(false);
+  const [capabilities, setCapabilities] = useState(DEFAULT_CAPABILITIES);
+  const [form, setForm] = useState<EditForm>(() =>
+    fallbackEditForm(itemId || "", String(produtoId || initialProduct?.id || ""), initialProduct),
+  );
+  const [initialForm, setInitialForm] = useState<EditForm>(form);
 
-  const [capabilities, setCapabilities] = useState({
-    title: true,
-    price: true,
-    stock: true,
-    pictures: true,
-    description: true,
-    familyName: true,
-  });
-
-  const [form, setForm] = useState({
-    itemId: itemId || "",
-    produtoId: String(produtoId || initialProduct?.id || ""),
-    categoryId: "",
-    listingTypeId: "",
-    title: initialProduct?.tituloMarketplace || initialProduct?.titulo || "",
-    familyName: "",
-    userProductId: "",
-    userProductEnabled: false,
-    price: formatCurrencyInputFromNumber(initialProduct?.precovenda),
-    availableQuantity: String(Math.max(Number(initialProduct?.estoque ?? 0), 0)),
-    condition: "new",
-    description: initialProduct?.descricaoMarketplace || initialProduct?.descricao || "",
-    videoUrl: "",
-    pictureUrl: (initialProduct?.imageUrls?.length ? initialProduct.imageUrls : initialProduct?.imgUrl ? [initialProduct.imgUrl] : []).join("\n"),
-    warranty: "",
-    warrantyTime: "",
-    shippingMode: "me2",
-    logisticType: "",
-    freeShipping: false,
-    localPickup: false,
-    widthCm: "",
-    heightCm: "",
-    lengthCm: "",
-    weightGrams: "",
-    dynamicAttributes: {} as Record<string, string>,
-  });
-
-  const [initialForm, setInitialForm] = useState({ ...form });
+  // O produto só semeia o formulário na abertura. Uma nova referência dele com o
+  // diálogo aberto (o formulário do estoque re-renderiza) não pode recarregar o
+  // anúncio e apagar o que o usuário já digitou.
+  const initialProductRef = useRef(initialProduct);
+  useEffect(() => {
+    initialProductRef.current = initialProduct;
+  }, [initialProduct]);
 
   useEffect(() => {
     if (!open || !itemId) return;
 
     let active = true;
+    const initialProduct = initialProductRef.current;
+    // Recomeça do zero a cada abertura: sem isso, um anúncio que falhasse ao
+    // carregar mostraria os dados do último anúncio editado.
+    const fallback = fallbackEditForm(itemId, String(produtoId || initialProduct?.id || ""), initialProduct);
+    setForm(fallback);
+    setInitialForm(fallback);
+    setInitialAttributes({});
+    setCategoryAttributes([]);
+    setFamilyMembers([]);
+    setShippingModes([]);
+    setLogisticOptions([]);
+    setShippingQuote(null);
+    setListingTypeOptions(DEFAULT_LISTING_TYPE_OPTIONS);
+    setCapabilities({ ...DEFAULT_CAPABILITIES, title: !fallback.userProductEnabled });
     setStep("content");
     setLoading(true);
-
-    const fallbackImages: string[] = Array.from(
-      new Set(
-        ((initialProduct?.imageUrls?.length ? initialProduct.imageUrls : initialProduct?.imgUrl ? [initialProduct.imgUrl] : []) as unknown[]).filter(Boolean)
-      )
-    ).map(String);
-    setProductImageUrls(fallbackImages);
+    setProductImageUrls(productImages(initialProduct));
 
     // Vindo do cadastro de estoque, o produto só traz a capa; "Usar imagens do
     // produto" precisa da galeria inteira.
@@ -270,36 +353,39 @@ export function MercadoLivreEditListingDialog({
         .catch((error) => console.error("Falha ao carregar as imagens do produto:", error));
     }
 
-    fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}`, { cache: "no-store" })
-      .then(async (res) => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}`, { cache: "no-store" });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json?.error || "Falha ao carregar dados do anúncio.");
         if (!active) return;
 
         const item = json.data ?? {};
         const categoryId = String(item.categoryId ?? "");
-        const shippingMode = String(item.shippingMode || "me2");
+        const shippingMode = String(item.shippingMode || fallback.shippingMode);
+        const logisticType = String(item.logisticType || fallback.logisticType);
         const dynamicAttributes = item.dynamicAttributes && typeof item.dynamicAttributes === "object" ? item.dynamicAttributes : {};
 
-        const loadedForm = {
+        const loadedForm: EditForm = {
+          ...fallback,
           itemId: String(item.id || itemId),
-          produtoId: String(produtoId || initialProduct?.id || item.produtoId || ""),
+          produtoId: fallback.produtoId || String(item.produtoId || ""),
           categoryId,
           listingTypeId: String(item.listingTypeId ?? ""),
-          title: item.title || initialProduct?.tituloMarketplace || initialProduct?.titulo || "",
-          familyName: item.familyName || "",
-          userProductId: item.userProductId || "",
+          title: item.title || fallback.title,
+          familyName: item.familyName || fallback.familyName,
+          userProductId: item.userProductId || fallback.userProductId,
           userProductEnabled: Boolean(item.userProductEnabled),
           price: formatCurrencyInputFromNumber(item.price ?? initialProduct?.precovenda),
           availableQuantity: String(Math.max(Number(item.availableQuantity ?? initialProduct?.estoque ?? 0), 0)),
           condition: ["new", "used", "not_specified"].includes(String(item.condition)) ? item.condition : "new",
-          description: item.description || initialProduct?.descricaoMarketplace || initialProduct?.descricao || "",
+          description: item.description || fallback.description,
           videoUrl: item.videoUrl || "",
           pictureUrl: Array.isArray(item.pictures) ? item.pictures.join("\n") : "",
           warranty: item.warranty || "",
           warrantyTime: item.warrantyTime || "",
           shippingMode,
-          logisticType: item.logisticType || "",
+          logisticType,
           freeShipping: Boolean(item.freeShipping),
           localPickup: false,
           widthCm: item.widthCm || "",
@@ -313,38 +399,78 @@ export function MercadoLivreEditListingDialog({
         setInitialForm(loadedForm);
         setInitialAttributes(dynamicAttributes);
         setCapabilities((curr) => ({ ...curr, ...(item.capabilities ?? {}) }));
+        setFamilyMembers(
+          (Array.isArray(item.familyMembers) ? item.familyMembers : []).map((member: any) => ({
+            id: String(member?.id ?? ""),
+            name: String(member?.name ?? ""),
+            attributes: Array.isArray(member?.attributes) ? member.attributes : [],
+          })),
+        );
         if (!getMercadoLivrePictureRequirement(loadedForm.pictureUrl).valid) setStep("media");
-        if (categoryId) {
-          const [attrRes, shipRes] = await Promise.all([
-            fetch(`/api/integracoes/mercadolivre/category-attributes?categoryId=${encodeURIComponent(categoryId)}`, { cache: "no-store" }).then((r) => r.json().catch(() => ({}))),
-            fetch(`/api/integracoes/mercadolivre/shipping-preferences?categoryId=${encodeURIComponent(categoryId)}`, { cache: "no-store" }).then((r) => r.json().catch(() => ({}))),
-          ]);
 
-          if (active) {
-            setCategoryAttributes(Array.isArray(attrRes?.data) ? attrRes.data : []);
-            const shipData = shipRes?.data ?? {};
-            const modes: string[] = Array.isArray(shipData?.modes) && shipData.modes.length ? shipData.modes.map(String) : ["me2"];
-            setShippingModes(modes);
-            setLogisticOptions(Array.isArray(shipData?.logistics) ? shipData.logistics.map(String) : []);
-          }
-        }
-      })
-      .catch((err) => {
+        if (!categoryId) return;
+        // A mesma consulta traz os atributos da categoria e as opções de envio
+        // que conta e categoria aceitam. O modo e a logística atuais ficam na
+        // lista mesmo quando não aparecem nela, para o anúncio não perder o valor.
+        const attrRes = await fetch(`/api/integracoes/mercadolivre/category-attributes?categoryId=${encodeURIComponent(categoryId)}`, { cache: "no-store" });
+        const attrJson = await attrRes.json().catch(() => ({}));
+        if (!active) return;
+        const modes: string[] = Array.isArray(attrJson.settings?.shippingOptions) ? attrJson.settings.shippingOptions.filter(Boolean).map(String) : [];
+        const logistics: string[] = Array.isArray(attrJson.settings?.logisticOptions) ? attrJson.settings.logisticOptions.filter(Boolean).map(String) : [];
+        setShippingModes(Array.from(new Set([shippingMode, ...modes].filter(Boolean))));
+        setLogisticOptions(Array.from(new Set([logisticType, ...logistics].filter(Boolean))));
+        if (!attrRes.ok) throw new Error(attrJson?.error || "Falha ao carregar atributos e opções de envio da categoria.");
+        setCategoryAttributes(Array.isArray(attrJson.data) ? attrJson.data : []);
+      } catch (err) {
         if (!active) return;
         toast.error("Não foi possível carregar os detalhes do anúncio", {
           description: err instanceof Error ? err.message : "Falha na comunicação com o Mercado Livre.",
         });
-      })
-      .finally(() => {
+      } finally {
         if (active) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       active = false;
     };
-  }, [open, itemId, produtoId, initialProduct]);
+  }, [open, itemId, produtoId]);
 
-  function updateForm<K extends keyof typeof form>(key: K, value: typeof form[K]) {
+  // Taxas e disponibilidade de Clássico/Premium dependem da categoria e do preço,
+  // então a consulta acompanha o valor digitado com um pequeno atraso.
+  const listingOptionsPrice = parseCurrencyInput(form.price);
+  useEffect(() => {
+    if (!open || !form.categoryId) return;
+
+    let active = true;
+    const timer = setTimeout(() => {
+      setLoadingListingTypes(true);
+      const params = new URLSearchParams({ categoryId: form.categoryId });
+      if (listingOptionsPrice > 0) params.set("price", String(listingOptionsPrice));
+      if (form.shippingMode) params.set("shippingMode", form.shippingMode);
+      if (form.logisticType) params.set("logisticType", form.logisticType);
+      fetch(`/api/integracoes/mercadolivre/listing-options?${params.toString()}`, { cache: "no-store" })
+        .then(async (res) => {
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(json?.error || "Falha ao consultar os tipos de anúncio.");
+          if (!active || !Array.isArray(json.listingTypes)) return;
+          const enabled = (json.listingTypes as ListingTypeOption[]).filter((option) => isMercadoLivreListingTypeEnabled(option.id));
+          if (enabled.length) setListingTypeOptions(enabled);
+        })
+        .catch((error) => console.error("Falha ao consultar os tipos de anúncio:", error))
+        .finally(() => {
+          if (active) setLoadingListingTypes(false);
+        });
+    }, 500);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [open, form.categoryId, listingOptionsPrice, form.shippingMode, form.logisticType]);
+
+  function updateForm<K extends keyof EditForm>(key: K, value: EditForm[K]) {
+    if (SHIPPING_QUOTE_FIELDS.has(String(key))) setShippingQuote(null);
     setForm((curr) => ({ ...curr, [key]: value }));
   }
 
@@ -425,8 +551,8 @@ export function MercadoLivreEditListingDialog({
 
       const initial = initialForm;
       const changes: Record<string, unknown> = {};
-      const addTextChange = (key: keyof typeof form, val: string) => {
-        if (!initial || String(initial[key] ?? "").trim() !== val.trim()) changes[key] = val;
+      const addTextChange = (key: keyof EditForm, val: string) => {
+        if (String(initial[key] ?? "").trim() !== val.trim()) changes[key] = val;
       };
 
       addTextChange("title", form.title);
@@ -440,18 +566,19 @@ export function MercadoLivreEditListingDialog({
       addTextChange("logisticType", form.logisticType);
 
       const price = parseCurrencyInput(form.price);
-      if (!initial || Math.abs(price - parseCurrencyInput(initial.price)) >= 0.01) changes.price = price;
+      if (Math.abs(price - parseCurrencyInput(initial.price)) >= 0.01) changes.price = price;
       const qty = Number(form.availableQuantity);
-      if (!initial || qty !== Number(initial.availableQuantity)) changes.availableQuantity = qty;
-      if (!initial || form.freeShipping !== initial.freeShipping) changes.freeShipping = form.freeShipping;
+      if (qty !== Number(initial.availableQuantity)) changes.availableQuantity = qty;
+      if (form.freeShipping !== initial.freeShipping) changes.freeShipping = form.freeShipping;
+      if (form.listingTypeId && form.listingTypeId !== initial.listingTypeId) changes.listingTypeId = form.listingTypeId;
 
       for (const dim of ["widthCm", "heightCm", "lengthCm"] as const) {
         const val = Number(form[dim].replace(",", "."));
-        const initVal = Number(initial?.[dim]?.replace(",", "."));
-        if (!initial || val !== initVal) changes[dim] = val;
+        const initVal = Number(initial[dim]?.replace(",", "."));
+        if (val !== initVal) changes[dim] = val;
       }
       const weight = Number(form.weightGrams);
-      if (!initial || weight !== Number(initial.weightGrams)) changes.weightGrams = weight;
+      if (weight !== Number(initial.weightGrams)) changes.weightGrams = weight;
 
       if (["warranty", "warrantyTime"].some((k) => k in changes)) {
         changes.warranty = form.warranty;
@@ -502,8 +629,9 @@ export function MercadoLivreEditListingDialog({
       } else {
         toast.success("Anúncio atualizado com sucesso no Mercado Livre!");
         onOpenChange(false);
-        onAfterSave?.();
       }
+      // Mesmo parcial, parte da edição entrou: a tela de origem precisa recarregar.
+      onAfterSave?.();
     } catch (err: any) {
       toast.error("Erro ao salvar anúncio", {
         description: err instanceof Error ? err.message : "Falha na comunicação com o Mercado Livre.",
@@ -532,10 +660,21 @@ export function MercadoLivreEditListingDialog({
     : pictureRequirement.valid
       ? "As imagens deste anúncio são controladas pelo catálogo do Mercado Livre."
       : `As imagens são controladas pelo catálogo e este anúncio tem ${pictureRequirement.count} de 3 fotos. Corrija as fotos diretamente no Mercado Livre; o salvamento pelo ERP permanecerá bloqueado até atender ao mínimo.`;
+  const restrictions = [
+    !capabilities.price && "preço com automação ativa",
+    !capabilities.stock && "estoque administrado pela logística Full/multiorigem",
+    !editTitleEditable && "título controlado pelo catálogo/família",
+    !capabilities.pictures && "imagens controladas pelo catálogo",
+  ].filter(Boolean);
+  const originLabel = shippingOriginLabel(shippingQuote?.origin);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <ListingDialogContent mode="edit" stepCount={EDIT_LISTING_STEPS.length}>
+      <ListingDialogContent
+        mode="edit"
+        stepCount={EDIT_LISTING_STEPS.length}
+        notice={restrictions.length ? `Alguns campos estão bloqueados pelas regras do Mercado Livre: ${restrictions.join("; ")}.` : undefined}
+      >
         {loading && (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 rounded-lg bg-background/95 backdrop-blur-sm">
             <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />
@@ -606,7 +745,7 @@ export function MercadoLivreEditListingDialog({
                   value={form.description}
                   onChange={(e) => updateForm("description", e.target.value)}
                   disabled={saving || loading || !capabilities.description}
-                  rows={6}
+                  rows={7}
                   className={listingFieldClass}
                 />
               </div>
@@ -659,14 +798,22 @@ export function MercadoLivreEditListingDialog({
                 <div className="space-y-2">
                   <Label>Categoria Mercado Livre</Label>
                   <Input value={form.categoryId} disabled className={listingFieldClass} />
+                  {/* O Mercado Livre não aceita category_id em PUT /items para anúncios
+                      de marketplace; trocar de categoria exige publicar de novo. */}
                   <p className="text-xs text-muted-foreground">
-                    A categoria de um anúncio publicado é fixa pelas regras do Mercado Livre.
+                    A categoria não pode ser alterada em um anúncio publicado. Para mudar, finalize este anúncio e publique o produto na categoria correta.
                   </p>
                 </div>
                 <div className="space-y-2">
                   <Label>Código do anúncio</Label>
                   <Input value={form.itemId} disabled className={listingFieldClass} />
                 </div>
+                {form.userProductEnabled && (
+                  <div className="space-y-2">
+                    <Label>Identificador do produto no Mercado Livre</Label>
+                    <Input value={form.userProductId || "Gerado pelo Mercado Livre"} disabled className={listingFieldClass} />
+                  </div>
+                )}
               </div>
             </FormSection>
           </TabsContent>
@@ -693,14 +840,14 @@ export function MercadoLivreEditListingDialog({
                 className={listingFieldClass}
               />
               <p className="text-xs text-muted-foreground">
-                Informe o link público de um vídeo explicativo ou review do produto.
+                Use uma URL pública do YouTube ou o código de 11 caracteres do vídeo. A disponibilidade final depende da categoria e das regras do anúncio.
               </p>
             </div>
           </TabsContent>
 
           {/* ETAPA 3: ATRIBUTOS */}
           <TabsContent value="attributes" className="m-0 space-y-5">
-            <StepHeading number="3" title="Categoria e características" description="Ficha técnica e atributos exigidos pela categoria." />
+            <StepHeading number="3" title="Categoria e características" description="Ficha técnica, atributos exigidos pela categoria e variações da família." />
             {[true, false].map((required) => {
               const attrs = categoryAttributes.filter((a) => a.required === required);
               if (!attrs.length) return null;
@@ -746,7 +893,7 @@ export function MercadoLivreEditListingDialog({
                                 <SelectValue placeholder="Un." />
                               </SelectTrigger>
                               <SelectContent>
-                                {(attribute.allowedUnits?.length ? attribute.allowedUnits : [{ id: attribute.defaultUnit ?? "", name: attribute.defaultUnit ?? "Un." }]).map((unit: any) => (
+                                {(attribute.allowedUnits?.length ? attribute.allowedUnits : [{ id: attribute.defaultUnit ?? "", name: attribute.defaultUnit ?? "Un." }]).map((unit) => (
                                   <SelectItem key={`${attribute.id}:${unit.id ?? unit.name}`} value={unit.id ?? unit.name}>
                                     {unit.name}
                                   </SelectItem>
@@ -770,13 +917,43 @@ export function MercadoLivreEditListingDialog({
             })}
 
             {categoryAttributes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Esta categoria não exige atributos adicionais.</p>
+              <p className="text-sm text-muted-foreground">Esta categoria não retornou atributos editáveis.</p>
             ) : null}
+
+            {form.userProductEnabled && familyMembers.length > 0 && (
+              <section className="mt-4 space-y-3 border-t pt-4">
+                <div>
+                  <h3 className="text-sm font-medium">Variações da família</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Cada variação é um anúncio independente ligado à mesma família do Mercado Livre.
+                  </p>
+                </div>
+                <div className="divide-y rounded-md border">
+                  {familyMembers.map((member) => (
+                    <div key={member.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{member.name || `User Product ${member.id}`}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {member.attributes
+                            .slice(0, 3)
+                            .map((attribute) => attribute.value_name || attribute.value_id)
+                            .filter(Boolean)
+                            .join(" · ") || "Sem atributos resumidos"}
+                        </div>
+                      </div>
+                      <Badge variant={member.id === form.userProductId ? "default" : "outline"} className="shrink-0">
+                        {member.id === form.userProductId ? "Atual" : member.id}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </TabsContent>
 
           {/* ETAPA 4: OFERTA E ENVIO */}
           <TabsContent value="offer" className="m-0 space-y-5">
-            <StepHeading number="4" title="Oferta e envio" description="Preço exclusivo do anúncio, estoque e condições de frete." />
+            <StepHeading number="4" title="Oferta e envio" description="Preço exclusivo do anúncio, tipo de anúncio, estoque e condições de frete." />
             <FormSection title="Preço e estoque">
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-2">
@@ -814,6 +991,39 @@ export function MercadoLivreEditListingDialog({
               </div>
             </FormSection>
 
+            <FormSection
+              title="Tipo de anúncio"
+              description="A troca vale para o anúncio já publicado e muda a tarifa cobrada nas próximas vendas."
+            >
+              {loadingListingTypes ? (
+                <p className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Consultando condições comerciais no Mercado Livre...
+                </p>
+              ) : null}
+              <div className="grid gap-3 md:grid-cols-2">
+                {listingTypeOptions.map((option) => {
+                  // O tipo atual continua selecionável mesmo que a conta não possa
+                  // mais publicá-lo: é só o ponto de partida da troca.
+                  const unavailable = option.available === false && option.id !== initialForm.listingTypeId;
+                  return (
+                    <ListingTypeCard
+                      key={option.id}
+                      option={option}
+                      selected={option.id === form.listingTypeId}
+                      disabled={saving || loading || unavailable}
+                      unavailable={unavailable}
+                      onSelect={() => updateForm("listingTypeId", option.id)}
+                    />
+                  );
+                })}
+              </div>
+              {initialForm.listingTypeId && form.listingTypeId !== initialForm.listingTypeId ? (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Atual: <strong className="text-foreground">{listingTypeOptions.find((option) => option.id === initialForm.listingTypeId)?.name || initialForm.listingTypeId}</strong>. A troca é enviada ao Mercado Livre quando você salvar.
+                </p>
+              ) : null}
+            </FormSection>
+
             <FormSection title="Envio e Logística">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -823,7 +1033,7 @@ export function MercadoLivreEditListingDialog({
                     <SelectContent>
                       {shippingModes.map((mode) => (
                         <SelectItem key={mode} value={mode} disabled={mode !== "me2" && mode !== form.shippingMode}>
-                          {mode === "me2" ? "Mercado Envios" : mode === "custom" ? "Envio personalizado" : rawStatusLabel(mode)}
+                          {mode === "me2" ? "Mercado Envios" : mode === "custom" ? "Envio personalizado atual" : rawStatusLabel(mode)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -874,7 +1084,7 @@ export function MercadoLivreEditListingDialog({
                   <Checkbox checked={form.freeShipping} onCheckedChange={(checked) => updateForm("freeShipping", checked === true)} disabled={saving || loading} />
                   <span>
                     <strong>Oferecer frete grátis</strong>
-                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">O comprador não paga pelo envio.</span>
+                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">O comprador não paga; o Mercado Livre calcula a parcela assumida pelo vendedor.</span>
                   </span>
                 </label>
                 <Button type="button" variant="outline" size="sm" onClick={simulateShipping} disabled={saving || loading || loadingShippingQuote || form.shippingMode !== "me2"}>
@@ -884,9 +1094,10 @@ export function MercadoLivreEditListingDialog({
               </div>
               {shippingQuote ? (
                 <div className="mt-3 rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                  Custo estimado do vendedor: <strong className="text-foreground">{shippingQuote.sellerShippingCost != null ? formatCurrency(shippingQuote.sellerShippingCost) : "não informado"}</strong>
+                  Custo estimado do vendedor: <strong className="text-foreground">{shippingQuote.sellerShippingCost != null ? formatCurrency(shippingQuote.sellerShippingCost) : "não informado pelo Mercado Livre"}</strong>
                   {shippingQuote.listCostBeforeDiscount != null ? ` · tarifa cheia ${formatCurrency(shippingQuote.listCostBeforeDiscount)}` : ""}
                   {shippingQuote.billableWeight != null ? ` · peso tarifado ${shippingQuote.billableWeight} g` : ""}
+                  {originLabel ? ` · origem ${originLabel}` : ""}
                 </div>
               ) : null}
             </FormSection>

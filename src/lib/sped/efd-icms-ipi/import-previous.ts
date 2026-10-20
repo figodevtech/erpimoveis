@@ -1,5 +1,7 @@
 import { isValidCnpj, normalizeCnpj } from "@/lib/fiscal-identifiers";
 
+import type { EfdRecord } from "./types";
+
 export type PreviousEfdBalance = {
   saldoCredorAnterior: number;
   saldoApurado: number;
@@ -142,5 +144,36 @@ export function parsePreviousEfd(
     balances: { icmsProprio, difalFcpByUf },
     lineCount: lines.length,
     declaredLineCount,
+  };
+}
+
+/**
+ * Mesmos saldos de `parsePreviousEfd`, lidos dos registros que o ERP gerou para
+ * um mês fechado nele: o mês seguinte não precisa importar o TXT de volta.
+ */
+export function balancesFromEfdRecords(records: readonly EfdRecord[]): ParsedPreviousEfd["balances"] {
+  const amount = (value: unknown) => {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const e110 = records.find((record) => record.code === "E110")?.values ?? {};
+  const difalFcpByUf: Array<Record<string, string | number>> = [];
+  let currentUf = "";
+  for (const record of records) {
+    if (record.code === "E300") currentUf = String(record.values.UF ?? "").trim().toUpperCase();
+    if (record.code === "E310" && /^[A-Z]{2}$/.test(currentUf)) difalFcpByUf.push({
+      uf: currentUf,
+      saldoCredorDifalTransportar: amount(record.values.VL_SLD_CRED_TRANSPORTAR_DIFAL),
+      saldoCredorFcpTransportar: amount(record.values.VL_SLD_CRED_TRANSPORTAR_FCP),
+    });
+  }
+  return {
+    icmsProprio: {
+      saldoCredorAnterior: amount(e110.VL_SLD_CREDOR_ANT),
+      saldoApurado: amount(e110.VL_SLD_APURADO),
+      icmsRecolher: amount(e110.VL_ICMS_RECOLHER),
+      saldoCredorTransportar: amount(e110.VL_SLD_CREDOR_TRANSPORTAR),
+    },
+    difalFcpByUf,
   };
 }

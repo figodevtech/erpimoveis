@@ -49,6 +49,24 @@ export function isSpedFiscalEntryCandidate(entry: SpedEntryCandidateInput | null
 }
 
 /**
+ * Data de entrada fiscal automática (C100.DT_E_S): o dia em que a nota foi
+ * lançada no estoque, que é o registro da chegada da mercadoria no ERP. Nunca
+ * antes da emissão (o PVA recusa DT_E_S < DT_DOC). A emissão não serve: diz
+ * quando o fornecedor faturou, não quando a mercadoria entrou.
+ */
+export function automaticEntryFiscalDate(entry: SpedEntryCandidateInput, timeZone?: string | null): string | null {
+  const createdRaw = entry.created_at
+    ? (typeof entry.created_at === "string" ? entry.created_at : entry.created_at.toISOString())
+    : null;
+  const created = (timeZone ? civilDateInTimezone(createdRaw, timeZone) : null) ?? (createdRaw ? createdRaw.slice(0, 10) : null);
+  const emissionRaw = entry.dfe?.data_emissao ?? entry.data_emissao;
+  const emissionText = emissionRaw ? (typeof emissionRaw === "string" ? emissionRaw : emissionRaw.toISOString()) : null;
+  const emission = (timeZone ? civilDateInTimezone(emissionText, timeZone) : null) ?? (emissionText ? emissionText.slice(0, 10) : null);
+  if (!created) return emission;
+  return emission && emission > created ? emission : created;
+}
+
+/**
  * Determina se uma entrada documental SEM data fiscal confirmada deve gerar
  * bloqueio (DATA_ENTRADA_FISCAL_NAO_CONFIRMADA) para a competência em validação.
  *

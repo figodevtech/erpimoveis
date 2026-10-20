@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import ValueInput from "../entrada-valor";
 import { Conservacao_produto, Produto, Unidade_medida } from "../../../types";
 import { formatDate } from "@/utils/formatDate";
-import { onlyDigits } from "../lib/utils";
+import { CodigoBarrasInput } from "../codigo-barras-input";
 import { ESTOQUE_STATUS_BADGES } from "../lib/options-fiscais";
 import type { UnidadeFromApi } from "../hooks/use-unidades-medida";
 import { GrupoFromApi } from "../hooks/use-grupo-produtos";
@@ -182,15 +182,11 @@ export function TabGeral({
                 placeholder="Fabricante"
               />
             </div>
-            <div className="space-y-2 lg:col-span-2">
-              <Label htmlFor="codigobarras">Código de Barras</Label>
-              <Input
-                id="codigobarras"
-                value={produto.codigobarras || ""}
-                onChange={(e) => onChange("codigobarras", onlyDigits(e.target.value))}
-                placeholder="7891234567890"
-                inputMode="numeric"
-                maxLength={14}
+            <div className="lg:col-span-2">
+              <CodigoBarrasInput
+                produtoId={mode === "edit" ? produto.id : undefined}
+                value={produto.codigobarras}
+                onChange={(v) => onChange("codigobarras", v)}
               />
             </div>
             <div className="space-y-2 lg:col-span-2">

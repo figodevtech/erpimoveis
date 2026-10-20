@@ -21,10 +21,13 @@ const SUFFIX_MAP: Record<string, PurposeMap> = {
   "107": SALE, "108": SALE, "109": SALE, "110": SALE, "111": SALE, "113": SALE,
   "116": SALE, "117": SALE, "118": SALE, "119": SALE, "120": SALE, "122": SALE,
   "123": SALE,
-  // Vendas com mercadoria sujeita a substituição tributária.
-  "401": SALE_ST, "402": SALE_ST, "403": SALE_ST, "405": SALE_ST,
+  // Vendas com mercadoria sujeita a substituição tributária (6404: ST já retido
+  // anteriormente, na venda interestadual).
+  "401": SALE_ST, "402": SALE_ST, "403": SALE_ST, "404": SALE_ST, "405": SALE_ST,
   // Venda de bem do ativo pelo emitente.
   "551": SALE,
+  // Venda de combustível ou lubrificante: x652 para comercialização, x653 para consumo.
+  "655": { REVENDA: "652", USO_CONSUMO: "653" }, "656": { REVENDA: "652", USO_CONSUMO: "653" },
   // Transferências entre estabelecimentos.
   "151": { REVENDA: "151" },
   "152": { REVENDA: "152", USO_CONSUMO: "557", ATIVO_IMOBILIZADO: "552" },

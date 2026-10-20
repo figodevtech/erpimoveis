@@ -34,11 +34,13 @@ function carriesRetainedSt(item: string): boolean {
 /**
  * Saída que pode gerar direito a ressarcimento/complemento do ICMS-ST:
  * interestadual (CFOP 6xxx), exportação (7xxx) ou devolução ao fornecedor
- * (finNFe = 4). Venda interna de mercadoria com ST encerrada não gera.
+ * (finNFe = 4). Venda interna de mercadoria com ST encerrada não gera, nem
+ * remessa ou retorno (x9xx, como o retorno de peça do cliente consertada):
+ * a mercadoria não foi vendida.
  */
 function ressarcimentoOperation(xml: string, item: string): boolean {
   const cfop = tag(item, "CFOP");
-  return /^[67]\d{3}$/.test(cfop) || tag(xml, "finNFe") === "4";
+  return /^[67][1-8]\d{2}$/.test(cfop) || tag(xml, "finNFe") === "4";
 }
 
 /**
