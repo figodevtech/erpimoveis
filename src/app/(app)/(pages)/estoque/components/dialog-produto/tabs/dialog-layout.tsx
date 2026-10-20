@@ -45,6 +45,7 @@ type Props = {
 
   /** Atalhos flutuantes no cabeçalho (ex.: imprimir etiqueta). */
   headerActions?: React.ReactNode;
+  resetKey?: number;
 };
 
 export function ProductDialogLayout({
@@ -63,6 +64,7 @@ export function ProductDialogLayout({
   isDesktop = true,
   isDrawer = false,
   headerActions,
+  resetKey,
 }: Props) {
   const DialogShellContent = isDrawer ? DrawerContent : DialogContent;
   const DialogShellHeader = isDrawer ? DrawerHeader : DialogHeader;
@@ -109,11 +111,12 @@ export function ProductDialogLayout({
             </DialogShellHeader>
 
             <Tabs
+              key={resetKey}
               value={currentTab}
               defaultValue={defaultTab}
               className="mt-4 flex-1 min-h-0 min-w-0 w-full max-w-full overflow-hidden"
             >
-              <div className="sticky top-0 z-10 w-full min-w-0 max-w-full shrink-0 overflow-hidden">
+              <div className="relative z-10 w-full min-w-0 max-w-full shrink-0 bg-background">
                 <div
                   className={
                     isDesktop
@@ -124,7 +127,7 @@ export function ProductDialogLayout({
                   }
                 >
                   <TabsList
-                    className="!flex h-auto !w-full !min-w-0 !max-w-full justify-start gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-2xl border-border bg-muted/90 p-1 shadow-sm backdrop-blur-sm [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
+                    className="!flex h-auto shrink-0 !w-full !min-w-0 !max-w-full justify-start gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-2xl border-border bg-muted p-1 shadow-sm [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
                   >
                     {tabs}
                   </TabsList>

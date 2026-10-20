@@ -28,7 +28,7 @@ interface ConteudoCadastroProdutoProps {
   newProduct: Produto;
   setNewProduct: Dispatch<SetStateAction<Produto>>;
   handleSearchFornecedor?: () => void;
-  onAfterSaveProduct?: () => void | Promise<void>;
+  onAfterSaveProduct?: (registerAgain?: boolean) => void | Promise<void>;
   isDesktop?: boolean;
   isDrawer?: boolean;
 }
@@ -55,6 +55,8 @@ export default function CadastroProduto({
   isDrawer = false,
 }: ConteudoCadastroProdutoProps) {
   const [salvando, setSalvando] = useState(false);
+  const salvandoRef = useRef(false);
+  const [cadastroVersion, setCadastroVersion] = useState(0);
   const [imagensPendentes, setImagensPendentes] = useState<ProdutoImagemPendente[]>([]);
   const imagensPendentesRef = useRef<ProdutoImagemPendente[]>([]);
   const [ordemImagensPendentes, setOrdemImagensPendentes] = useState<string[]>([]);
@@ -141,6 +143,8 @@ export default function CadastroProduto({
   }, []);
 
   const cadastrarProduto = async (registerAgain?: boolean) => {
+    if (salvandoRef.current) return;
+    salvandoRef.current = true;
     // Só há uma ida à rede aqui: o POST. A etiqueta duplicada é detectada pelo
     // trigger validar_etiqueta_inventario_global, que responde 409 — conferir
     // antes custava uma consulta inteira e ainda deixava janela de corrida.
@@ -232,7 +236,9 @@ export default function CadastroProduto({
           limparImagensSelecionadas();
           setLotePendente(null);
           setCurrentTab("Geral");
-          await onAfterSaveProduct?.();
+          // Remonta os campos e a rolagem, sem fechar o dialog.
+          setCadastroVersion((version) => version + 1);
+          await onAfterSaveProduct?.(true);
         } else {
           setSelectedProductId?.(produtoId);
           handleSearchFornecedor?.();
@@ -278,12 +284,14 @@ export default function CadastroProduto({
         });
       }
     } finally {
+      salvandoRef.current = false;
       setSalvando(false);
     }
   };
 
   return (
     <ProductDialogLayout
+      resetKey={cadastroVersion}
       isDesktop={isDesktop}
       isDrawer={isDrawer}
       title={

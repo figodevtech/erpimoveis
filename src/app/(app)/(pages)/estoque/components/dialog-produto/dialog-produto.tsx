@@ -7,7 +7,8 @@ import { Drawer, DrawerTrigger } from "@/components/ui/drawer";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import CadastroProduto from "./cadastro-produto";
 import EdicaoProduto from "./edicao-produto";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
+import { toast } from "@/lib/toast";
 import { Estoque_status, Produto, Unidade_medida } from "../../types";
 import { useConfig } from "../../../config-context";
 
@@ -50,6 +51,26 @@ export function DialogProduto({
   const [internalOpen, setInternalOpen] = useState(false);
   const open = isOpen ?? internalOpen;
   const setOpen = setIsOpen ?? setInternalOpen;
+  const atualizacaoPendente = useRef(false);
+
+  // Cadastros em sequencia nao precisam recarregar a tabela oculta a cada POST.
+  // Atualiza uma unica vez ao fechar, inclusive quando o pai controla o dialog.
+  useEffect(() => {
+    if (open || !atualizacaoPendente.current) return;
+    atualizacaoPendente.current = false;
+    Promise.resolve().then(() => onAfterSaveProduct?.()).catch(() => {
+      toast.error("Produto salvo; não foi possível atualizar a listagem.");
+    });
+  }, [open, onAfterSaveProduct]);
+
+  const handleAfterCreate = (registerAgain?: boolean) => {
+    if (registerAgain && open) {
+      atualizacaoPendente.current = true;
+      return;
+    }
+    atualizacaoPendente.current = false;
+    return onAfterSaveProduct?.();
+  };
 
   const [, setSelectedProduct] = useState<Produto | undefined>(undefined);
   const [newProduct, setNewProduct] = useState<Produto>(() => ({
@@ -95,7 +116,7 @@ export function DialogProduto({
           />
         ) : (
           <CadastroProduto
-            onAfterSaveProduct={onAfterSaveProduct}
+            onAfterSaveProduct={handleAfterCreate}
             handleSearchFornecedor={handleSearchFornecedor}
             setSelectedProductId={setSelectedProductId}
             newProduct={newProduct}
@@ -143,7 +164,7 @@ export function DialogProduto({
         />
       ) : (
         <CadastroProduto
-          onAfterSaveProduct={onAfterSaveProduct}
+          onAfterSaveProduct={handleAfterCreate}
           handleSearchFornecedor={handleSearchFornecedor}
           setSelectedProductId={setSelectedProductId}
           newProduct={newProduct}
