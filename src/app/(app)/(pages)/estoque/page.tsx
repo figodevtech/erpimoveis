@@ -27,7 +27,7 @@ export default function EstoquePage() {
   const [pagination, setPagination] = useState<Pagination>({
     total: 0,
     page: 1,
-    limit: 20,
+    limit: 50,
     totalPages: 0,
   });
   const [search, setSearch] = useState("");

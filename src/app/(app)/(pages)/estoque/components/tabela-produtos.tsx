@@ -42,6 +42,7 @@ import {
   MapPin,
   Tag,
   Handshake,
+  Camera,
 } from "lucide-react";
 import {
   Select,
@@ -100,6 +101,8 @@ interface TabelaProdutosProps {
   isOpen: boolean;
   setIsOpen: (value: boolean) => void;
 }
+
+const OPCOES_POR_PAGINA = [50, 100, 200];
 
 const getStatusBadge = (status: Estoque_status | undefined) => {
   if (!status) return null;
@@ -487,6 +490,16 @@ export default function TabelaProdutos({
                                 </TooltipContent>
                               </Tooltip>
                             )}
+                          {(p.totalFotos ?? 0) > 0 && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Camera className="w-4 h-4 text-primary shrink-0" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {p.totalFotos === 1 ? "1 foto" : `${p.totalFotos} fotos`}
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                           {(p.temAnuncioMercadoLivre || p.mercadolivre) && (
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -715,14 +728,27 @@ export default function TabelaProdutos({
           </div>
 
           <div>
-            <Select>
+            <Select
+              value={String(pagination.limit)}
+              onValueChange={(value) =>
+                // Trocar o tamanho volta para a página 1: a página atual pode
+                // nem existir com o novo tamanho.
+                handleGetProducts(1, Number(value), search, status, filters)
+              }
+            >
               <SelectTrigger size="sm" className="hover:cursor-pointer ml-2">
-                <SelectValue placeholder={pagination.limit}></SelectValue>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem className="hover:cursor-pointer" value="20">
-                  {pagination.limit}
-                </SelectItem>
+                {OPCOES_POR_PAGINA.map((opcao) => (
+                  <SelectItem
+                    key={opcao}
+                    className="hover:cursor-pointer"
+                    value={String(opcao)}
+                  >
+                    {opcao}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

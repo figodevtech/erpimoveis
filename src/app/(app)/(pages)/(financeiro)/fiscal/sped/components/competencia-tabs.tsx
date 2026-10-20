@@ -5,6 +5,7 @@ import {
   Boxes,
   Building2,
   Calculator,
+  ChevronDown,
   Download,
   FileClock,
   Landmark,
@@ -12,11 +13,13 @@ import {
   ReceiptText,
   ShieldCheck,
   UsersRound,
+  Wrench,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -33,9 +36,11 @@ import { AccountantEditor } from "./accountant-editor";
 import { AdjustmentPanel } from "./adjustment-panel";
 import { EmptyState } from "./empty-state";
 import { ImportPanel, type SpedImportKind } from "./import-panel";
+import { CompanyQuestions } from "./company-questions";
 import { ConfigurationEditor } from "./configuration-editor";
 import { PolicyEditor } from "./policy-editor";
 import { ItemDecisionEditor } from "./item-decision-editor";
+import { ProductUsePanel } from "./product-use-panel";
 import { DiagnosticBadge, GateStatusBadge, PvaStatusBadge } from "./status-badges";
 import { PvaValidationDialog } from "./pva-validation-dialog";
 import { SourceTrace } from "./source-trace";
@@ -69,7 +74,7 @@ export function CompetenciaTabs({
           <TabsTrigger value="configuracao">Configuração</TabsTrigger>
           <TabsTrigger value="importacoes">Importações</TabsTrigger>
           <TabsTrigger value="documentos">Documentos ({competencia.documentos.length})</TabsTrigger>
-          <TabsTrigger value="decisoes-itens">Decisões por item</TabsTrigger>
+          <TabsTrigger value="decisoes-itens">Uso dos produtos</TabsTrigger>
           <TabsTrigger value="participantes">Participantes ({competencia.participantes.length})</TabsTrigger>
           <TabsTrigger value="itens">Itens ({competencia.itens.length})</TabsTrigger>
           <TabsTrigger value="apuracao">Apuração</TabsTrigger>
@@ -84,12 +89,20 @@ export function CompetenciaTabs({
       <TabsContent value="geral"><OverviewTab competencia={competencia} /></TabsContent>
       <TabsContent value="configuracao" className="space-y-4">
         <AccountantEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
-        <ConfigurationEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
-        <PolicyEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
+        <CompanyQuestions competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
+        <TechnicalSection description="Os mesmos dados em linguagem do SPED (registros, gates e evidências), para o contador revisar ou corrigir.">
+          <ConfigurationEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
+          <PolicyEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
+        </TechnicalSection>
       </TabsContent>
       <TabsContent value="importacoes"><ImportPanel competencia={competencia} canManage={canManage} busy={busy} onImport={onImport} /></TabsContent>
       <TabsContent value="documentos"><DocumentsTab competencia={competencia} /></TabsContent>
-      <TabsContent value="decisoes-itens"><ItemDecisionEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} /></TabsContent>
+      <TabsContent value="decisoes-itens" className="space-y-4">
+        <ProductUsePanel competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
+        <TechnicalSection description="Código do 0200, tipo do item e crédito de ICMS por item de nota, para casos que o contador queira decidir à mão.">
+          <ItemDecisionEditor competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} />
+        </TechnicalSection>
+      </TabsContent>
       <TabsContent value="participantes"><ParticipantsTab competencia={competencia} /></TabsContent>
       <TabsContent value="itens"><ItemsTab competencia={competencia} /></TabsContent>
       <TabsContent value="apuracao"><AssessmentTab competencia={competencia} canManage={canManage} disabled={busy} onSaved={onConfigSaved} /></TabsContent>
@@ -367,6 +380,24 @@ function AuditTab({ competencia, timezone }: { competencia: SpedCompetenciaDetai
 
 function Definition({ label, value, mono = false }: { label: string; value: string | number | null | undefined; mono?: boolean }) {
   return <div className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className={mono ? "mt-1 break-all font-mono text-xs" : "mt-1 break-words text-sm font-medium"}>{value === null || value === undefined || value === "" ? "—" : value}</dd></div>;
+}
+
+/** Telas em linguagem do SPED, fechadas por padrão: quem opera o ERP não precisa delas. */
+function TechnicalSection({ description, children }: { description: string; children: React.ReactNode }) {
+  return (
+    <Collapsible className="rounded-lg border border-dashed">
+      <CollapsibleTrigger asChild>
+        <button type="button" className="group flex w-full items-center justify-between gap-3 p-4 text-left">
+          <span>
+            <span className="flex items-center gap-2 text-sm font-semibold"><Wrench className="size-4" aria-hidden="true" /> Ajustes técnicos do contador</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>
+          </span>
+          <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" aria-hidden="true" />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-4 px-4 pb-4">{children}</CollapsibleContent>
+    </Collapsible>
+  );
 }
 
 function DataCard({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {

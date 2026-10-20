@@ -30,10 +30,18 @@ export type SpedProductMaster = {
   internalIcmsRate?: number | null;
 };
 
+/** Os três estoques do ERP: venda (`produto`), uso e consumo e geral (`usoconsumo_item`). */
+export type SpedItemStock = "PRODUTO" | "USOCONSUMO" | "GERAL";
+
 export type SpedItemAssignment = {
   code: string;
+  stock?: SpedItemStock | null;
   productId?: number | null;
+  /** Item de uso e consumo ou do estoque geral: código e tipo saem do próprio estoque. */
+  simpleItemId?: number | null;
   itemConfigId?: number | null;
+  /** Quantidade que a entrada levou ao estoque, na unidade do estoque (UNID_INV). */
+  stockQuantity?: number | null;
   inventoryUnit?: string | null;
   itemType?: string | null;
   creditTreatment?: string | null;
@@ -42,7 +50,8 @@ export type SpedItemAssignment = {
 
 export type ProjectableFiscalDocument = {
   sourceType: "NFE_EMITIDA" | "NFE_RECEBIDA" | "NFC_E";
-  sourceTable: "nfe" | "entrada";
+  /** `usoconsumo_entrada`: nota que entrou só nos estoques de uso e consumo ou geral. */
+  sourceTable: "nfe" | "entrada" | "usoconsumo_entrada";
   sourceId: string | number;
   /**
    * Direção informada pela fonte. Para documento de emissão própria, o `tpNF`
@@ -273,6 +282,26 @@ function effectiveItem(
   const purpose = entryPurposeFor({ creditTreatment: assignment?.creditTreatment, itemType: assignment?.itemType });
   const cfop = resolveEntryCfop(item.cfop, purpose);
   const credited = assignment?.creditTreatment === "CREDITAVEL";
+  // Compra de optante do Simples: sem ICMS destacado, o crédito é o informado
+  // na nota (vCredICMSSN), escriturado na própria nota com a base e a alíquota
+  // (pCredSN) dela, como no livro de entradas. CSOSN 101 vira CST x90.
+  const simples = credited && !(cents(item.valor_icms) > 0) ? simplesNationalCredit(fiscalItem) : null;
+  if (simples) {
+    return {
+      item,
+      fiscalItem,
+      cst: resolution.cst,
+      cstFromCsosn: resolution.fromCsosn,
+      cfop: cfop.cfop ?? text(item.cfop),
+      cfopResolved: cfop.cfop != null,
+      credited,
+      baseIcms: cents(item.valor_total),
+      rate: simples.rate,
+      icms: simples.value,
+      fcp: 0,
+      reducedBase: 0,
+    };
+  }
   return {
     item,
     fiscalItem,
@@ -287,6 +316,17 @@ function effectiveItem(
     fcp: credited ? cents(fiscalItem?.informativos.fcp ?? 0) : 0,
     reducedBase: credited ? reducedBaseValue(item, fiscalItem, resolution.cst) : 0,
   };
+}
+
+/** pCredSN e vCredICMSSN do grupo ICMSSN101/201/900 do item, quando o fornecedor informa crédito. */
+function simplesNationalCredit(fiscalItem: ItemFiscalDaNota | undefined): { rate: number; value: number } | null {
+  const groups = fiscalItem?.icms && typeof fiscalItem.icms === "object" ? Object.values(fiscalItem.icms as Row) : [];
+  for (const group of [fiscalItem?.icms, ...groups]) {
+    if (!group || typeof group !== "object") continue;
+    const value = cents((group as Row).vCredICMSSN);
+    if (value > 0) return { rate: cents((group as Row).pCredSN), value };
+  }
+  return null;
 }
 
 function buildC190(
@@ -493,11 +533,16 @@ export function projectFiscalDocument(input: ProjectableFiscalDocument): Project
     for (const item of parsed.itens) {
       const assignment = input.itemAssignments?.get(item.n_item);
       const fallbackCode = `PEND-${key.slice(-8)}-${item.n_item}`;
-      const effective = assignment ?? { code: fallbackCode };
-      if (!assignment?.itemConfigId) diagnostics.push({
+      // Item sem configuração vigente chega identificado só pelo produto (ou só
+      // pela decisão de crédito), com código vazio: o 0200 pendente usa o provisório.
+      const effective = assignment ? { ...assignment, code: assignment.code || fallbackCode } : { code: fallbackCode };
+      // Só a entrada de terceiro tem C170, e só item referenciado vai ao 0200.
+      if (!ownIssued && !assignment?.itemConfigId && !assignment?.simpleItemId) diagnostics.push({
         code: "CODIGO_ITEM_CANONICO_AUSENTE",
         severity: "BLOQUEIO",
-        message: `O item ${item.n_item} da NF-e ${key} não possui configuração canônica vigente para o 0200.`,
+        message: assignment?.productId
+          ? `O produto ${assignment.productId} (item ${item.n_item} da NF-e ${key}) não possui configuração vigente para o 0200.`
+          : `O item ${item.n_item} da NF-e ${key} não está vinculado a nenhum dos três estoques na entrada.`,
         record: "0200",
         source: sourceRef,
         context: { itemNumber: item.n_item, xmlProductCode: item.produtoid, productId: assignment?.productId ?? null },
@@ -541,6 +586,10 @@ export function projectFiscalDocument(input: ProjectableFiscalDocument): Project
         payload: { ...item, assignment: effective, cfopEscrituracao: values.cfop },
         sourceRefs: [sourceRef],
       });
+      // C170 só para documentos de terceiros: na emissão própria o XML já está na SEFAZ.
+      // Sem C170, nenhum registro referencia o item, e o Guia Prático só admite no
+      // 0190/0200 o que é referenciado: a nota própria não gera cadastro de item.
+      if (ownIssued) continue;
       catalogRecords.push({ code: "0190", values: { UNID: unitCode(item.unidade), DESCR: unitCode(item.unidade) }, source: sourceRef });
       const record0200 = build0200(item, effective, sourceRef);
       const inventoryUnit = text(record0200.values.UNID_INV);
@@ -548,8 +597,7 @@ export function projectFiscalDocument(input: ProjectableFiscalDocument): Project
         catalogRecords.push({ code: "0190", values: { UNID: inventoryUnit, DESCR: inventoryUnit }, source: sourceRef });
       }
       catalogRecords.push(record0200);
-      // C170 só para documentos de terceiros: na emissão própria o XML já está na SEFAZ.
-      if (!ownIssued) itemRecords.push(buildC170(values, effective, sourceRef));
+      itemRecords.push(buildC170(values, effective, sourceRef));
     }
 
     for (const itemNumber of effectiveItems.filter((item) => !item.cst && !item.cstFromCsosn).map((item) => item.item.n_item)) diagnostics.push({

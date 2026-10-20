@@ -13,7 +13,7 @@ const START = "2026-08-01";
 const END = "2026-08-31";
 
 function product(id: number, overrides: Partial<SpedAutoProduct> = {}): SpedAutoProduct {
-  return { id, description: `Produto ${id}`, unit: "UN", ncm: "87089990", cest: null, barcode: null, internalIcmsRate: 20, salePrice: 50, deleted: false, ...overrides };
+  return { id, description: `Produto ${id}`, unit: "UN", ncm: "87089990", cest: null, barcode: null, internalIcmsRate: 20, deleted: false, ...overrides };
 }
 
 function sale(productId: number, cfop = "5102"): SpedProductUsage {
@@ -42,15 +42,13 @@ describe("resolução automática do 0200", () => {
     assert.match(result.create[0].evidence, /NF-e própria NFE-10/);
   });
 
-  it("produto só comprado, com preço de venda no estoque, é revenda", () => {
-    const result = plan([product(11)], [purchase(11, "6405")]);
-    assert.equal(result.create[0]?.itemType, "00");
-  });
-
-  it("compra sem preço de venda não basta para presumir revenda", () => {
-    const result = plan([product(12, { salePrice: 0 })], [purchase(12)]);
-    assert.equal(result.create.length, 0);
-    assert.equal(result.diagnostics[0].code, "TIPO_ITEM_NAO_DERIVAVEL");
+  it("produto que entrou no estoque de venda é revenda, com ou sem preço e qualquer CFOP", () => {
+    for (const cfop of ["6405", "5655", "6915"]) {
+      const result = plan([product(11)], [purchase(11, cfop)]);
+      assert.equal(result.diagnostics.length, 0);
+      assert.equal(result.create[0]?.itemType, "00");
+      assert.match(result.create[0].evidence, /estoque de venda.*entrada da NF-e ENT-11/);
+    }
   });
 
   it("saída de produção própria exige classificação humana", () => {
@@ -60,7 +58,7 @@ describe("resolução automática do 0200", () => {
   });
 
   it("uma pendência por produto, não por nota", () => {
-    const result = plan([product(14, { salePrice: 0 })], [purchase(14), purchase(14), purchase(14)]);
+    const result = plan([product(14)], [sale(14, "5101"), sale(14, "5101"), purchase(14)]);
     assert.equal(result.diagnostics.length, 1);
   });
 
@@ -123,6 +121,16 @@ describe("resolução automática do crédito", () => {
     assert.equal(result.diagnostics[0].code, "TRATAMENTO_CREDITO_PENDENTE");
   });
 
+  it("revenda comprada de optante do Simples credita o vCredICMSSN (LC 123, art. 23)", () => {
+    const simples = { ...base, xmlIcms: 0, xmlSimplesCredit: 58.95, cst: "0101" };
+    const result = planSpedCreditResolution({ candidates: [simples], policy: { resaleCreditConfirmed: true, resaleCredit: true } });
+    assert.equal(result.create[0]?.treatment, "CREDITAVEL");
+    assert.match(result.create[0].evidence, /Simples Nacional de R\$ 58\.95/);
+    // Regime que não credita (Simples) e política ainda não decidida não creditam.
+    assert.equal(planSpedCreditResolution({ candidates: [simples], policy: { resaleCreditConfirmed: false, resaleCredit: false } }).create[0].treatment, "SEM_CREDITO");
+    assert.equal(planSpedCreditResolution({ candidates: [simples], policy: { resaleCreditConfirmed: false } }).diagnostics[0].code, "POLITICA_CREDITO_REVENDA_PENDENTE");
+  });
+
   it("revenda com ICMS destacado credita só com a política confirmada", () => {
     const without = planSpedCreditResolution({ candidates: [base, { ...base, itemNumber: 2 }], policy: { resaleCreditConfirmed: false } });
     assert.equal(without.create.length, 0);
@@ -132,11 +140,23 @@ describe("resolução automática do crédito", () => {
     assert.equal(withPolicy.create[0].treatment, "CREDITAVEL");
   });
 
-  it("ICMS-ST (CST 60) e ativo imobilizado ficam para decisão fiscal", () => {
+  it("ICMS-ST (CST 60) com ICMS próprio destacado fica para decisão fiscal", () => {
     const st = planSpedCreditResolution({ candidates: [{ ...base, cst: "060" }], policy: { resaleCreditConfirmed: true } });
     assert.equal(st.create.length, 0);
+  });
+
+  it("ativo imobilizado segue a classificação do item (crédito pelo CIAP, fora do C170)", () => {
     const asset = planSpedCreditResolution({ candidates: [{ ...base, itemType: "08" }], policy: { resaleCreditConfirmed: true } });
-    assert.equal(asset.create.length, 0);
+    assert.equal(asset.create[0].treatment, "ATIVO_IMOBILIZADO");
+  });
+
+  it("regime sem crédito (Simples Nacional) não credita nada, sem pendência", () => {
+    const result = planSpedCreditResolution({
+      candidates: [base, { ...base, itemNumber: 2, cst: "060" }, { ...base, itemNumber: 3, itemType: "99" }],
+      policy: { resaleCreditConfirmed: false, resaleCredit: false },
+    });
+    assert.deepEqual(result.create.map((item) => item.treatment), ["SEM_CREDITO", "SEM_CREDITO", "SEM_CREDITO"]);
+    assert.equal(result.diagnostics.length, 0);
   });
 
   it("material de uso e consumo não gera crédito", () => {

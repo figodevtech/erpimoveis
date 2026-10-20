@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { civilDateInTimezone, closedMonthsAffectedByDateChange, singleCompanyId } from "./guards";
+import { civilDateInTimezone, closedMonthsAffectedByDateChange, isDfeCancelledOrDenied, singleCompanyId } from "./guards";
 
 describe("empresa da competência SPED", () => {
   it("usa a única empresa do banco", () => {
@@ -49,4 +49,17 @@ describe("data civil do lançamento no fuso do estabelecimento", () => {
     assert.equal(civilDateInTimezone("ontem", "America/Fortaleza"), null);
     assert.equal(civilDateInTimezone("2026-08-01T01:30:00Z", "Lua/Base"), null);
   });
+});
+
+it("DF-e cancelado ou denegado pelo código da SEFAZ, não só pelo texto", () => {
+  // Resumo (resNFe): cSitNFe 1 autorizada, 2 denegada, 3 cancelada. Ex.: Ekko Parts 141872.
+  assert.equal(isDfeCancelledOrDenied({ schema: "resNFe_v1.01.xsd", status: "3" }), true);
+  assert.equal(isDfeCancelledOrDenied({ schema: "resNFe_v1.01.xsd", status: "2" }), true);
+  assert.equal(isDfeCancelledOrDenied({ schema: "resNFe_v1.01.xsd", status: "1" }), false);
+  // Nota completa (procNFe): cStat do protocolo.
+  assert.equal(isDfeCancelledOrDenied({ schema: "procNFe_v4.00.xsd", status: "100" }), false);
+  assert.equal(isDfeCancelledOrDenied({ schema: "procNFe_v4.00.xsd", status: "101" }), true);
+  assert.equal(isDfeCancelledOrDenied({ schema: "procNFe_v4.00.xsd", status: "302" }), true);
+  assert.equal(isDfeCancelledOrDenied({ status: "CANCELADA" }), true);
+  assert.equal(isDfeCancelledOrDenied(null), false);
 });

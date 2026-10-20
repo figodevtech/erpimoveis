@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  automaticEntryFiscalDate,
   isConfirmedFiscalDateInCompetence,
   isPendingFiscalDateCandidateForCompetence,
   isSpedFiscalEntryCandidate,
@@ -234,5 +235,25 @@ describe("SPED Fiscal — Escopo e Delimitação das Entradas Fiscais", () => {
 
     // Emissão posterior (setembro) nunca bloqueia competência anterior (agosto)
     assert.equal(isPendingFiscalDateCandidateForCompetence(entrada, compAgosto, timeZonePB), false);
+  });
+});
+
+describe("data de entrada automática (C100.DT_E_S)", () => {
+  const TZ = "America/Fortaleza";
+
+  it("é o dia do lançamento no estoque, no fuso da empresa", () => {
+    // NF 22328 do Demir: emitida 03/09, lançada 04/09 às 10h.
+    assert.equal(automaticEntryFiscalDate({ created_at: "2026-09-04T13:00:00Z", dfe: { data_emissao: "2026-09-03T00:00:00-03:00" } }, TZ), "2026-09-04");
+    // Lançada às 23h do dia 30 no fuso local: ainda é setembro, mesmo já sendo 01/10 em UTC.
+    assert.equal(automaticEntryFiscalDate({ created_at: "2026-10-01T02:00:00Z", data_emissao: "2026-09-29" }, TZ), "2026-09-30");
+  });
+
+  it("nota emitida em um mês e lançada no seguinte entra no mês do lançamento", () => {
+    // NF 5085: emitida 12/08, lançada 29/09.
+    assert.equal(automaticEntryFiscalDate({ created_at: "2026-09-29T15:00:00Z", data_emissao: "2026-08-12T03:00:00Z" }, TZ), "2026-09-29");
+  });
+
+  it("nunca antes da emissão (o PVA recusa DT_E_S < DT_DOC)", () => {
+    assert.equal(automaticEntryFiscalDate({ created_at: "2026-09-01T12:00:00Z", dfe: { data_emissao: "2026-09-02T09:00:00-03:00" } }, TZ), "2026-09-02");
   });
 });

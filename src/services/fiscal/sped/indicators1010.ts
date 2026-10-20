@@ -523,10 +523,18 @@ export function mergeSped1010Evidence(
       const confirmadoEm = isIdentical ? (prevItem.confirmadoEm as string) : new Date().toISOString();
       const confirmadoPor = isIdentical ? (prevItem.confirmadoPor as string) : actorId;
 
+      // Sem origem informada, a decisão veio da tela técnica; reenviar a mesma
+      // decisão sem mudança mantém quem a tomou.
+      const suppliedOrigin = String(itemObj.origem || "");
+      const origem = suppliedOrigin === "AUTOMATICA" || suppliedOrigin === "RESPOSTA"
+        ? suppliedOrigin
+        : isIdentical && typeof prevItem.origem === "string" ? prevItem.origem : "CONTADOR";
+
       next1010[field] = {
         valor: rawVal as Sped1010IndicatorValue,
         status: "CONFIRMADO",
         descricao,
+        origem,
         confirmadoEm,
         confirmadoPor,
       };

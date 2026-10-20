@@ -29,6 +29,13 @@ describe("indício de C176/C179", () => {
     assert.deepEqual(evidence.c176C179DocumentKeys, [fixtureKey(3)]);
   });
 
+  it("retorno ou remessa de conserto e outras saídas (x9xx) não são venda nem indício", () => {
+    for (const [seed, cfop] of [[31, "6916"], [32, "6915"], [33, "6949"]] as const) {
+      const xml = nfeXml({ key: fixtureKey(seed), recipient: { cnpj: SUPPLIER_CNPJ, uf: "BA" }, items: [{ cfop, cst: "60" }] });
+      assert.equal(detectC176C179Evidence([doc(xml)]).hasC176C179Evidence, false, cfop);
+    }
+  });
+
   it("devolução ao fornecedor de mercadoria com ST é indício", () => {
     const xml = nfeXml({ key: fixtureKey(4), finNFe: "4", items: [{ cfop: "5411", cst: "60" }] });
     assert.equal(detectC176C179Evidence([doc(xml)]).hasC176C179Evidence, true);

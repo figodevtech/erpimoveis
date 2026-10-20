@@ -157,6 +157,7 @@ export function buildMercadoLivreEditConfirmations(
     compare("description", description?.plain_text ?? description?.text ?? "", changes.description, collapsedText);
   }
   if (changes.familyName !== undefined) compare("familyName", item?.family_name, changes.familyName, textWords);
+  if (changes.listingTypeId !== undefined) compare("listingTypeId", item?.listing_type_id, changes.listingTypeId, trimmedText);
   if (changes.freeShipping !== undefined) {
     const requested = Boolean(changes.freeShipping);
     const actual = Boolean(item?.shipping?.free_shipping);
