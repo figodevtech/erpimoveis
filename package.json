@@ -52,6 +52,7 @@
     "db:test:dashboard-estoque": "tsx scripts/db/test-dashboard-estoque-migration.ts",
     "db:test:schema-padrao": "tsx scripts/db/test-schema-padrao-migration.ts",
     "db:test:exclusao-desconcilia": "tsx scripts/db/test-exclusao-desconcilia-migration.ts",
+    "db:test:parcelas-de-entrada": "tsx scripts/db/test-parcelas-de-entrada-migration.ts",
     "db:test:credito-editar": "tsx scripts/db/test-credito-editar-excluir-migration.ts",
     "db:test:alugueis": "tsx scripts/db/test-alugueis-migration.ts",
     "db:test:documentos": "tsx scripts/db/test-documentos-migration.ts",
