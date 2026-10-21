@@ -1,0 +1,1255 @@
+{
+  "report": [
+    {
+      "route": "/",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/produtos",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/produtos?page=2",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/buscar?q=motor",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/buscar",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/produto/258",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produto/258",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/categoria/arrefecimento",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/categoria/arrefecimento",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/carrinho",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/carrinho",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/login",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/login",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/registro",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/registro",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/fale-conosco",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/fale-conosco",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/trocas-e-devolucoes",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/trocas-e-devolucoes",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/politica-de-privacidade",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/politica-de-privacidade",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/termos-de-uso",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/termos-de-uso",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/desmontagem-rastreada",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/admin",
+      "width": 320,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/admin",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/conta",
+      "width": 320,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/enderecos",
+      "width": 320,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/enderecos",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/pedidos",
+      "width": 320,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/pedidos",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/favoritos",
+      "width": 320,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/favoritos",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/conta/cartoes",
+      "width": 320,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/cartoes",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/conta/seguranca",
+      "width": 320,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/seguranca",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/checkout",
+      "width": 320,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/checkout",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/sucesso?orderId=999",
+      "width": 320,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/sucesso",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio?codigo=999",
+      "width": 320,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "route": "/",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/produtos",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/produtos?page=2",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/buscar?q=motor",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/buscar",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/produto/258",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produto/258",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/categoria/arrefecimento",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/categoria/arrefecimento",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/carrinho",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/carrinho",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/login",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/login",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/registro",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/registro",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/fale-conosco",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/fale-conosco",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/trocas-e-devolucoes",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/trocas-e-devolucoes",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/politica-de-privacidade",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/politica-de-privacidade",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/termos-de-uso",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/termos-de-uso",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/desmontagem-rastreada",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/admin",
+      "width": 375,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/admin",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/conta",
+      "width": 375,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/enderecos",
+      "width": 375,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/enderecos",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/pedidos",
+      "width": 375,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/pedidos",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/favoritos",
+      "width": 375,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/favoritos",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/conta/cartoes",
+      "width": 375,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/cartoes",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/conta/seguranca",
+      "width": 375,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/seguranca",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/checkout",
+      "width": 375,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/checkout",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/sucesso?orderId=999",
+      "width": 375,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/sucesso",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio?codigo=999",
+      "width": 375,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 375,
+      "scroll": 375,
+      "offenders": []
+    },
+    {
+      "route": "/",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/produtos",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/produtos?page=2",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/buscar?q=motor",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/buscar",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/produto/258",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produto/258",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/categoria/arrefecimento",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/categoria/arrefecimento",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/carrinho",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/carrinho",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/login",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/login",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/registro",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/registro",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/fale-conosco",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/fale-conosco",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/trocas-e-devolucoes",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/trocas-e-devolucoes",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/politica-de-privacidade",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/politica-de-privacidade",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/termos-de-uso",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/termos-de-uso",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/desmontagem-rastreada",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/admin",
+      "width": 430,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/admin",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/conta",
+      "width": 430,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/enderecos",
+      "width": 430,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/enderecos",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/pedidos",
+      "width": 430,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/pedidos",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/favoritos",
+      "width": 430,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/favoritos",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/conta/cartoes",
+      "width": 430,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/cartoes",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/conta/seguranca",
+      "width": 430,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/seguranca",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/checkout",
+      "width": 430,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/checkout",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/sucesso?orderId=999",
+      "width": 430,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/sucesso",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio?codigo=999",
+      "width": 430,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "route": "/",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/produtos",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/produtos?page=2",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/buscar?q=motor",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/buscar",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/produto/258",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produto/258",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/categoria/arrefecimento",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/categoria/arrefecimento",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/carrinho",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/carrinho",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/login",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/login",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/registro",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/registro",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/fale-conosco",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/fale-conosco",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/trocas-e-devolucoes",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/trocas-e-devolucoes",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/politica-de-privacidade",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/politica-de-privacidade",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/termos-de-uso",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/termos-de-uso",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/desmontagem-rastreada",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/admin",
+      "width": 768,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/admin",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/conta",
+      "width": 768,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/enderecos",
+      "width": 768,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/enderecos",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/pedidos",
+      "width": 768,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/pedidos",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/favoritos",
+      "width": 768,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/favoritos",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/conta/cartoes",
+      "width": 768,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/cartoes",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/conta/seguranca",
+      "width": 768,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/seguranca",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/checkout",
+      "width": 768,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/checkout",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/sucesso?orderId=999",
+      "width": 768,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/sucesso",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio?codigo=999",
+      "width": 768,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "route": "/",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/produtos",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/produtos?page=2",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/buscar?q=motor",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/buscar",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/produto/258",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produto/258",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/categoria/arrefecimento",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/categoria/arrefecimento",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/carrinho",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/carrinho",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/login",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/login",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/registro",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/registro",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/fale-conosco",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/fale-conosco",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/trocas-e-devolucoes",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/trocas-e-devolucoes",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/politica-de-privacidade",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/politica-de-privacidade",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/termos-de-uso",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/termos-de-uso",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/desmontagem-rastreada",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/produtos",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/admin",
+      "width": 1280,
+      "authenticated": false,
+      "status": 200,
+      "finalPath": "/admin",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/conta",
+      "width": 1280,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/enderecos",
+      "width": 1280,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/enderecos",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/pedidos",
+      "width": 1280,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/pedidos",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/favoritos",
+      "width": 1280,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/favoritos",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/conta/cartoes",
+      "width": 1280,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/cartoes",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/conta/seguranca",
+      "width": 1280,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/conta/seguranca",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/checkout",
+      "width": 1280,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/checkout",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/sucesso?orderId=999",
+      "width": 1280,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/sucesso",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "route": "/rastreio?codigo=999",
+      "width": 1280,
+      "authenticated": true,
+      "status": 200,
+      "finalPath": "/rastreio",
+      "viewport": 1280,
+      "scroll": 1280,
+      "offenders": []
+    }
+  ],
+  "failures": []
+}

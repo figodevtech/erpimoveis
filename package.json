@@ -12,6 +12,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:negocio": "node scripts/tests/run-unit.mjs",
+    "test:storefront": "node --test scripts/tests/storefront-auto-sync.test.mjs",
+    "storefront:worker": "node --use-system-ca --import tsx scripts/storefront/worker.ts",
     "lint:unused": "eslint . --config eslint-unused.config.mjs --no-error-on-unmatched-pattern",
     "test:nfe:xsd": "tsx --test src/lib/nfe/icms/xsd.test.ts",
     "test:nfe": "tsx --test src/lib/nfe/*.test.ts src/lib/nfe/nfce/*.test.ts src/lib/nfe/icms/*.test.ts src/lib/ibge/*.test.ts",

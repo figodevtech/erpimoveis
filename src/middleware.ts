@@ -56,6 +56,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/integracoes/mercadolivre/cron",
   "/api/integracoes/mercadolivre/webhook",
   "/api/integracoes/shopee/cron",
+  "/api/integracoes/site/cron",
   "/api/integracoes/telegram/webhook",
   "/api/integracoes/telegram/processar",
   "/api/integracoes/telegram/financeiro/processar",

@@ -36,7 +36,6 @@ export async function syncStorefrontCatalog(empresaId: number, limit = 100) {
   if (reserveError) throw reserveError;
 
   const reserved = (reservedData ?? []) as QueueItem[];
-  if (!reserved.length) return { processed: 0, categories: 0, products: 0 };
 
   try {
     const productIds = reserved.map((item) => Number(item.produto_id));
@@ -76,7 +75,8 @@ export async function syncStorefrontCatalog(empresaId: number, limit = 100) {
     }
 
     const rows = (catalogResult.data ?? []) as CatalogRow[];
-    if (!rows.length) throw new Error("Nenhum produto reservado foi encontrado na exportação do Site.");
+    if (reserved.length && !rows.length) throw new Error("Nenhum produto reservado foi encontrado na exportação do Site.");
+    if (!rows.length && !categoriesResult.data?.length) return { processed: 0, categories: 0, products: 0 };
 
     const payload = {
       categories: (categoriesResult.data ?? []).map((category) => ({
@@ -84,7 +84,7 @@ export async function syncStorefrontCatalog(empresaId: number, limit = 100) {
         name: String(category.nome || `Categoria #${category.id}`).slice(0, 160),
         description: category.descricao ? String(category.descricao).slice(0, 2000) : null,
         // No site, "ativo" decide se a categoria aparece; aqui isso e exibirSite.
-        active: Boolean(category.ativo) && category.exibirSite !== false,
+        active: category.exibirSite === true,
       })),
       products: rows.map((product) => ({
         id: Number(product.produto_id),
