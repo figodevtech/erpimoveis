@@ -99,7 +99,7 @@ const SEM_FILTRO = "todos";
 /** Opcao de motivo (tipos_entrada / tipos_motivo_saida) ou de autor. */
 type Opcao = { valor: string; rotulo: string };
 
-type Origem = "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "NAO_IDENTIFICADA";
+type Origem = "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "PEDIDO_ONLINE" | "NAO_IDENTIFICADA";
 type OrigemFilter = "todas" | Origem;
 
 /** Linha do razao de estoque de produtos (/api/estoque/movimentos). */
@@ -250,6 +250,7 @@ const ROTULO_ORIGEM: Record<Origem, string> = {
   SAIDA_MANUAL: "Saída manual",
   VENDA: "Venda",
   ORDEM_SERVICO: "Ordem de serviço",
+  PEDIDO_ONLINE: "Reserva do site",
   NAO_IDENTIFICADA: "Sem origem",
 };
 
@@ -258,6 +259,7 @@ const COR_ORIGEM: Record<Origem, string> = {
   SAIDA_MANUAL: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
   VENDA: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20",
   ORDEM_SERVICO: "bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-500/20",
+  PEDIDO_ONLINE: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20",
   NAO_IDENTIFICADA: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
 };
 
@@ -924,6 +926,7 @@ function MovementTable({
                             <SelectItem value="SAIDA_MANUAL">Saída manual</SelectItem>
                             <SelectItem value="VENDA">Venda</SelectItem>
                             <SelectItem value="ORDEM_SERVICO">Ordem de serviço</SelectItem>
+                            <SelectItem value="PEDIDO_ONLINE">Reserva do site</SelectItem>
                             <SelectItem value="NAO_IDENTIFICADA">Sem origem</SelectItem>
                           </SelectContent>
                         </Select>

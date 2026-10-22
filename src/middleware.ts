@@ -88,6 +88,7 @@ function isPublicApi(pathname: string) {
   if (pathname === "/api/webhooks/focus") return true;
   // Server-to-server endpoint: the handler validates its own Bearer secret.
   if (pathname === "/api/integracoes/site/webhook") return true;
+    if (pathname === "/api/integracoes/site/checkout") return true;
   return PUBLIC_API_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(p + "/"),
   );

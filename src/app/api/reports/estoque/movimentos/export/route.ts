@@ -38,6 +38,7 @@ const ORIGENS = new Set([
   "SAIDA_MANUAL",
   "VENDA",
   "ORDEM_SERVICO",
+  "PEDIDO_ONLINE",
   "NAO_IDENTIFICADA",
 ]);
 
@@ -46,6 +47,7 @@ const ROTULO_ORIGEM: Record<string, string> = {
   SAIDA_MANUAL: "Saída manual",
   VENDA: "Venda",
   ORDEM_SERVICO: "Ordem de serviço",
+  PEDIDO_ONLINE: "Reserva do site",
   NAO_IDENTIFICADA: "Sem origem",
 };
 

@@ -1,0 +1,139 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {createRequire} from 'node:module';
+import ts from 'typescript';
+const require=createRequire(import.meta.url);
+test('the shared inventory core is identical in the two independent storefronts',()=>{
+ function walk(directory){return fs.readdirSync(directory,{withFileTypes:true}).flatMap(item=>item.isDirectory()?walk(`${directory}/${item.name}`):[`${directory}/${item.name}`]);}
+ for(const source of [...walk('storefront-template/lib'),...walk('storefront-template/app')]){
+  const relative=source.replace('storefront-template/','');
+  for(const site of ['site_brpecaspb','site_demirdiesel'])assert.equal(fs.readFileSync(`${site}/${relative}`,'utf8').replace(/\r\n/g,'\n'),fs.readFileSync(source,'utf8').replace(/\r\n/g,'\n'),`${site}/${relative} drifted`);
+ }
+});
+function load(file,mocks={},extra={}) {
+ const exports={};
+ const source=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;
+ vm.runInNewContext(source,{exports,Buffer,URL,URLSearchParams,AbortSignal,Request,Response,Date,console,process:{env:{}},require(name){
+  if(name in mocks)return mocks[name];
+  if(name==='server-only')return {};
+  if(name==='next/server')return {NextResponse:{json:(body,init)=>Response.json(body,init)}};
+  return require(name);
+ },...extra});
+ return exports;
+}
+test('ERP checkout authenticates before database/tenant lookup and accepts only declared actions',async()=>{
+ let calls=0;
+ const endpoint=()=>load('src/app/api/integracoes/site/checkout/route.ts',{
+  '@/lib/supabaseAdmin':{supabaseAdmin:{rpc:async()=>{calls++;return {data:[],error:null};}}},
+  '@/lib/empresa-context':{requireEmpresaId:async()=>1},
+ },{process:{env:{STOREFRONT_ORDER_SYNC_SECRET:'orders'}}});
+ const req=(body,token)=>new Request('https://erp.test/api/integracoes/site/checkout',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(body)});
+ for(const token of ['','wrong'])assert.equal((await endpoint().POST(req({action:'release',orderId:1,reason:'x'},token))).status,401);
+ assert.equal(calls,0);
+ assert.equal((await endpoint().POST(req({action:'arbitrary_sql',sql:'bad'},'orders'))).status,400);
+ assert.equal(calls,0);
+ assert.equal((await endpoint().POST(req({action:'availability',ids:[1]},'orders'))).status,200);
+ assert.equal(calls,1);
+});
+test('public stock proxy never forwards reservation actions, prices or arbitrary caller fields',async()=>{
+ let forwarded;
+ const endpoint=load('storefront-template/app/api/stock/route.ts',{'@/lib/erp-checkout':{InventoryError:class extends Error{},erpCheckout:async body=>{forwarded=body;return [{productId:1,available:2,price:123,private:'hidden'}];}}});
+ const response=await endpoint.POST(new Request('https://store.test/api/stock',{method:'POST',body:JSON.stringify({ids:[1],action:'release',orderId:5,secret:'wrong'})}));
+ assert.equal(response.status,200);
+ assert.deepEqual(JSON.parse(JSON.stringify(forwarded)),{action:'availability',ids:[1]});
+ assert.deepEqual(await response.json(),{items:[{productId:1,available:2}]});
+});
+test('ERP URL reuses existing order webhook configuration; network failure closes checkout',async()=>{
+ let target,body;
+ const {erpCheckout}=load('storefront-template/lib/erp-checkout.ts',{}, {process:{env:{ERP_ORDER_WEBHOOK_URL:'https://erp.client.test/api/integracoes/site/webhook',ERP_ORDER_SYNC_SECRET:'same-secret'}},fetch:async(url,init)=>{target=String(url);body=JSON.parse(init.body);assert.equal(init.headers.Authorization,'Bearer same-secret');assert.equal(init.redirect,'error');return Response.json({data:{reserved:true}});}});
+ await erpCheckout({action:'reserve',orderId:1});
+ assert.equal(target,'https://erp.client.test/api/integracoes/site/checkout');assert.equal(body.orderId,1);
+ const unavailable=load('storefront-template/lib/erp-checkout.ts',{}, {process:{env:{}},fetch:()=>{throw Error('unexpected fetch');}});
+ await assert.rejects(unavailable.erpCheckout({action:'reserve'}),/temporariamente indisponível/);
+});
+function reconcileFixture({phase='BOUND',billing='PIX',status='PENDING',age=120000,deleted=false,cancelledAt=null,list,deleteSucceeds=false,now=Date.parse('2026-10-21T15:00:00Z')}={}) {
+ const attempt={order_id:10,phase,billing_type:billing,payment_id:list?null:'pay_test',expected_customer:'cus_test',created_at:new Date(now-age).toISOString(),bank_cancelled_at:cancelledAt};
+ const payment={id:'pay_test',customer:'cus_test',externalReference:'10',billingType:billing,value:10,status,deleted};
+ const updates=[],rpcs=[],requests=[],notifications=[];
+ const db={from(table){return {select(){return this;},eq(){return this;},single:async()=>({data:{status:'PENDENTE'},error:null}),maybeSingle:async()=>({data:table==='checkout_attempt'?attempt:null,error:null}),update(data){updates.push(data);return this;},then(resolve){return Promise.resolve({data:null,error:null}).then(resolve);}};},rpc:async(name,args)=>{rpcs.push([name,args]);return {data:false,error:null};}};
+ class FixedDate extends Date {constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
+ const api=load('storefront-template/lib/checkout-reconcile.ts',{
+  '@/lib/supabase/admin':{supabaseAdmin:db},
+  '@/lib/asaas':{getAsaasPayment:async()=>payment,asaasRequest:async(path,init)=>{requests.push([path,init]);if(list)return list;if(deleteSucceeds&&init?.method==='DELETE'){payment.deleted=true;return {deleted:true};}throw Error('unexpected provider mutation');}},
+  '@/lib/erp-checkout':{erpCheckout:async()=>true},
+  '@/lib/checkout-attempt':{bindCheckoutPayment:async()=>true,releaseCancelledCheckout:async()=>{requests.push(['release']);}},
+ },{Date:FixedDate,fetch:async(_url,init)=>{notifications.push(init);return Response.json({ok:true});},process:{env:{ERP_ORDER_WEBHOOK_URL:'https://erp.test/webhook',ERP_ORDER_SYNC_SECRET:'orders'}}});
+ return {api,payment,updates,rpcs,requests,notifications};
+}
+test('boleto settlement margin skips weekends, national holidays and bank closure days',()=>{
+ const {api}=reconcileFixture();
+ assert.equal(new Date(api.bankSettlementDeadline('2026-10-23T12:00:00Z')).toISOString(),'2026-10-29T03:00:00.000Z');
+ assert.equal(new Date(api.bankSettlementDeadline('2026-11-18T12:00:00Z')).toISOString(),'2026-11-25T03:00:00.000Z');
+ assert.equal(api.bankSettlementDeadline('invalid'),Infinity);
+});
+test('overdue boleto and a bank cancellation event never immediately release inventory',async()=>{
+ for(const deleted of [false,true]){
+ const f=reconcileFixture({billing:'BOLETO',status:'OVERDUE',age:10*86400000,deleted});
+ await f.api.reconcileCheckout(10,f.payment,'PAYMENT_BANK_SLIP_CANCELLED');
+ assert.equal(f.requests.length,0);assert.equal(f.rpcs.length,0);assert.ok(f.updates.some(x=>x.bank_cancelled_at));
+ }
+});
+test('payment reported after boleto due date confirms the reserved order',async()=>{
+ const f=reconcileFixture({billing:'BOLETO',status:'CONFIRMED',age:10*86400000});
+ await f.api.reconcileCheckout(10,f.payment);
+ assert.equal(f.rpcs[0][0],'fn_processar_evento_pagamento_asaas');
+ assert.equal(f.rpcs[0][1].p_novo_status,'PAGO');assert.equal(f.notifications.length,1);
+ assert.equal(f.requests.length,0);assert.ok(f.updates.some(x=>x.phase==='DONE'));
+});
+test('authorized and risk-analysis cards are never expired as unpaid pending checkouts',async()=>{
+ for(const status of ['AUTHORIZED','AWAITING_RISK_ANALYSIS']){
+ const f=reconcileFixture({billing:'CREDIT_CARD',status,age:10*86400000});
+ await f.api.reconcileCheckout(10,f.payment);assert.equal(f.requests.length,0);assert.equal(f.rpcs.length,0);
+ }
+});
+test('ambiguous charge submission reconciles by reference and never blindly retries or frees stock',async()=>{
+ for(const list of [{data:[]},{data:[{id:'a'},{id:'b'}]}]){
+ const f=reconcileFixture({phase:'SENDING',age:3600000,list});
+ if(list.data.length>1)await assert.rejects(f.api.reconcileCheckout(10),/conflitantes/);else await f.api.reconcileCheckout(10);
+ assert.ok(f.updates.some(x=>x.phase==='REVIEW'));
+ assert.equal(f.requests.filter(([,init])=>init?.method==='POST'||init?.method==='DELETE').length,0);
+ }
+});
+test('a late paid webhook cannot release an already-cancelled reservation',async()=>{
+ const f=reconcileFixture({phase:'CANCELLED',status:'RECEIVED'});
+ await assert.rejects(f.api.reconcileCheckout(10,f.payment),/revisão manual obrigatória/);
+ assert.ok(f.updates.some(update=>update.phase==='REVIEW'));
+ assert.equal(f.requests.length,0);
+});
+test('expired Pix only releases inventory after a confirmed provider deletion',async()=>{
+ for(const deleteSucceeds of [false,true]){
+  const f=reconcileFixture({age:3600000,deleteSucceeds});
+  if(deleteSucceeds){await f.api.reconcileCheckout(10,f.payment);assert.ok(f.rpcs.some(([name])=>name==='fn_checkout_cancel_bound'));assert.ok(f.requests.some(([path])=>path==='release'));}
+  else {await assert.rejects(f.api.reconcileCheckout(10,f.payment),/unexpected provider mutation/);assert.equal(f.requests.some(([path])=>path==='release'),false);}
+ }
+});
+test('boleto releases inventory only after acknowledged bank cancellation, settlement margin and provider deletion',async()=>{
+ const f=reconcileFixture({billing:'BOLETO',status:'OVERDUE',age:10*86400000,cancelledAt:'2026-10-14T12:00:00Z',deleteSucceeds:true});
+ await f.api.reconcileCheckout(10,f.payment);
+ assert.ok(f.requests.some(([,init])=>init?.method==='DELETE'));
+ assert.ok(f.rpcs.some(([name])=>name==='fn_checkout_cancel_bound'));
+ assert.ok(f.requests.some(([path])=>path==='release'));
+});
+test('checkout status is scoped to its customer and works before an order exists',async()=>{
+ for(const owner of [7,8]){
+  let reconciled=0;
+  const admin={from(table){const filters={};return {select(){return this;},eq(key,value){filters[key]=value;return this;},async maybeSingle(){return {data:table==='checkout_attempt'&&filters.cliente_id===7?{phase:'BOUND',payment_id:'pay_pending',created_at:'2026-10-22T12:00:00Z',checkout_payload:{total:125,method:'PIX'},payment_data:{status:'PENDING'}}:null,error:null};},async single(){return this.maybeSingle();}};}};
+  const {pendingCheckoutStatus}=load('storefront-template/lib/checkout-pending-status.ts',{'@/lib/supabase/admin':{supabaseAdmin:admin},'@/lib/checkout-reconcile':{reconcileCheckout:async()=>{reconciled++;}}});
+  const result=await pendingCheckoutStatus(10,owner);
+  if(owner===7){assert.equal(result.isPaid,false);assert.equal(result.isPending,true);assert.equal(result.total,125);assert.equal(reconciled,1);}
+  else {assert.equal(result,null);assert.equal(reconciled,0);}
+ }
+});
+test('refund of an uncompleted checkout does not create a cancelled customer order',async()=>{
+ const f=reconcileFixture({status:'REFUNDED'});
+ await f.api.reconcileCheckout(10,f.payment);
+ assert.equal(f.rpcs.length,0,'financial order event must not run without an order');
+ assert.ok(f.updates.some(update=>update.phase==='DONE'));
+});

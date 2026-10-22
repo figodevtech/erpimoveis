@@ -41,7 +41,7 @@ type Movimento = {
   id: number;
   produto_id: number;
   sentido: "ENTRADA" | "SAIDA";
-  origem: "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "NAO_IDENTIFICADA";
+  origem: "ENTRADA" | "SAIDA_MANUAL" | "VENDA" | "ORDEM_SERVICO" | "PEDIDO_ONLINE" | "NAO_IDENTIFICADA";
   acao: "REGISTRO" | "ESTORNO";
   quantidade: number;
   saldo_anterior: number | null;
@@ -71,6 +71,7 @@ const ROTULO_ORIGEM: Record<Movimento["origem"], string> = {
   SAIDA_MANUAL: "Saída manual",
   VENDA: "Venda",
   ORDEM_SERVICO: "Ordem de serviço",
+  PEDIDO_ONLINE: "Reserva do site",
   NAO_IDENTIFICADA: "Sem origem",
 };
 
@@ -79,6 +80,7 @@ const COR_ORIGEM: Record<Movimento["origem"], string> = {
   SAIDA_MANUAL: "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
   VENDA: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20",
   ORDEM_SERVICO: "bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-500/20",
+  PEDIDO_ONLINE: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/20",
   NAO_IDENTIFICADA: "bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/20",
 };
 
