@@ -26,6 +26,7 @@ const orderSchema = z.object({
   paymentMethod: z.string().trim().max(100).nullish(),
   paymentProvider: z.string().trim().max(60).nullish(),
   gatewayPaymentId: z.string().trim().max(200).nullish(),
+  centralInventory: z.boolean().default(false),
   createdAt: z.string().datetime({ offset: true }),
   shippingAddress: z.record(z.string(), z.unknown()),
   customer: z.object({
@@ -88,7 +89,7 @@ export async function syncSiteOrders(empresaId: number, orderId?: number) {
         .eq("site_order_id", order.id)
         .maybeSingle();
 
-      const { data: vendaId, error } = await supabaseAdmin.rpc("fn_importar_pedido_site", {
+      const { data: vendaId, error } = await supabaseAdmin.rpc("fn_confirmar_checkout_site", {
         p_empresa_id: empresaId,
         p_pedido: order,
       });

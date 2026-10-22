@@ -26,6 +26,7 @@ const ORIGENS = new Set([
   "SAIDA_MANUAL",
   "VENDA",
   "ORDEM_SERVICO",
+  "PEDIDO_ONLINE",
   "NAO_IDENTIFICADA",
 ]);
 const ACOES = new Set(["REGISTRO", "ESTORNO"]);

@@ -1,5 +1,8 @@
 # Estrutura comum das lojas
 
+O controle comum de estoque, tentativas de pagamento e publicação está descrito
+em [CHECKOUT.md](./CHECKOUT.md).
+
 `supabase/migrations` é a fonte comum para as lojas novas. Mudanças de tabelas,
 funções, RLS e índices entram aqui como **nova migration**, depois são
 sincronizadas para cada loja. Nunca reescreva migrations já aplicadas.

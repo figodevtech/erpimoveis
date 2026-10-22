@@ -16,6 +16,7 @@ async function main() {
   }
   const { requireEmpresaId } = await import('../../src/lib/empresa-context');
   const { runStorefrontCatalog } = await import('../../src/lib/integrations/storefront-catalog-run');
+  const { reconcileSiteCheckouts } = await import('../../src/lib/integrations/site-checkout-reconcile');
   const empresaId = await requireEmpresaId();
   let stopped = false;
   let wake: (() => void) | undefined;
@@ -25,6 +26,7 @@ async function main() {
     try {
       const result = await runStorefrontCatalog(empresaId, { maxBatches: 3, budgetMs: 20_000 });
       console.log(new Date().toISOString(), JSON.stringify(result));
+      if (args.includes('--checkout')) console.log('Checkout', JSON.stringify(await reconcileSiteCheckouts()));
     } catch {
       console.error('Falha na sincronização. Consulte a fila no Marketplace; haverá nova tentativa automática.');
       if (args.includes('--once')) process.exitCode = 1;
