@@ -1,4 +1,5 @@
 'use client';
+import { siteStatusLabel } from '@/lib/integrations/site-status-labels';
 import { useCallback,useEffect,useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,7 +33,7 @@ export default function StorefrontCheckouts() {
    {!rows.length&&!error&&<p className="text-sm text-muted-foreground">Nenhuma compra com reserva pendente.</p>}
    {rows.map(row=><div key={row.order_id} className="flex flex-wrap items-start justify-between gap-2 rounded-md border p-3 text-sm">
     <div className="min-w-0 space-y-1"><p className="font-medium">Checkout #{row.order_id} · {row.billing_type}</p><p className="text-xs text-muted-foreground">{new Date(row.created_at).toLocaleString('pt-BR')} · {row.reservation?.state==='RESERVED'?'Estoque reservado':row.release_pending?'Aguardando liberação de estoque':'Preparando reserva'}</p>{row.last_error&&<p className="break-words text-xs text-destructive">{row.last_error}</p>}</div>
-    <Badge variant={row.phase==='REVIEW'?'destructive':'secondary'}>{labels[row.phase]||row.phase}</Badge>
+    <Badge variant={row.phase==='REVIEW'?'destructive':'secondary'}>{labels[row.phase]||siteStatusLabel(row.phase)}</Badge>
    </div>)}
    <p className="text-xs text-muted-foreground">A reserva começa ao finalizar a compra. Cobranças sem confirmação permanecem em revisão; o estoque só é liberado após conciliação segura.</p>
   </CardContent>

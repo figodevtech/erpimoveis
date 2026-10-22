@@ -1,4 +1,5 @@
 "use client";
+import { siteStatusLabel } from "@/lib/integrations/site-status-labels";
 import { readJsonResponse } from "@/lib/read-json-response";
 
 
@@ -81,6 +82,12 @@ const EmissaoNotaDialog = dynamic(
 );
 
 type SiteOrder = {
+  checkout_pending?: boolean;
+  payment_due_date?: string | null;
+  checkout_updated_at?: string | null;
+  payment_checked_at?: string | null;
+  bank_cancelled_at?: string | null;
+  stock_release_pending?: boolean;
   refund_status?: string | null;
   nextAction?: string;
   refund_request_url?: string | null;
@@ -228,7 +235,7 @@ export function StorefrontOrders({
       setOrders(json.data || []);
       setTotal(json.pagination?.total ?? json.count ?? 0);
       setTotalPages(json.pagination?.totalPages ?? 1);
-      setError(null);
+      setError(json.warning || null);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -289,12 +296,25 @@ export function StorefrontOrders({
     return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
   }, [syncOrders]);
 
+  async function reconcilePayment() {
+    if(syncLock.current)return;
+    syncLock.current=true;setSyncing(true);
+    try {
+      const response=await fetch('/api/integracoes/site/checkouts',{method:'POST'});
+      const result=await readJsonResponse(response,'ERP');
+      if(!response.ok)throw new Error(result.error||'Não foi possível conferir os pagamentos.');
+      await loadOrders(true);
+      toast.success('Pagamentos conferidos');
+    }catch(error){toast.error(error instanceof Error?error.message:'Falha ao conferir pagamentos.');}
+    finally{syncLock.current=false;setSyncing(false);}
+  }
+
   async function checkRefund(order: SiteOrder) {
     try {
       const response = await fetch(`/api/integracoes/site/orders/${order.site_order_id}`, {cache:"no-store"});
       const result = await readJsonResponse(response, "ERP");
       if(!response.ok) throw new Error(result.error || "Falha ao consultar estorno.");
-      toast.info(result.refundStatus === "AWAITING_CRITICAL_ACTION_AUTHORIZATION" ? "Reembolso aguarda autorizacao na conta Asaas da Demir. Autorize a acao pendente; nao solicite outro estorno." : result.refundStatus === "DENIED" ? `Estorno recusado: ${result.denialReason || "Motivo nao informado"}. Nenhum estoque foi devolvido.` : result.gatewayStatus === "REFUNDED" ? result.requiresPhysicalReturn ? "Estorno confirmado. Estoque aguarda devolução física conferida." : "Estorno confirmado e estoque devolvido." : result.requestedAt && ["RECEIVED", "CONFIRMED"].includes(result.gatewayStatus) ? "Solicitação registrada, mas o pagamento continua recebido. O reembolso precisa de verificação antes de nova tentativa." : result.requestedAt ? `Estorno solicitado. Status Asaas: ${result.gatewayStatus}` : `Nenhum estorno solicitado. Status Asaas: ${result.gatewayStatus}`);
+      toast.info(result.refundStatus === "AWAITING_CRITICAL_ACTION_AUTHORIZATION" ? "Reembolso aguarda autorização na conta Asaas da loja. Autorize a ação pendente; não solicite outro estorno." : result.refundStatus === "DENIED" ? `Estorno recusado: ${result.denialReason || "Motivo nao informado"}. Nenhum estoque foi devolvido.` : result.gatewayStatus === "REFUNDED" ? result.requiresPhysicalReturn ? "Estorno confirmado. Estoque aguarda devolução física conferida." : "Estorno confirmado e estoque devolvido." : result.requestedAt && ["RECEIVED", "CONFIRMED"].includes(result.gatewayStatus) ? "Solicitação registrada, mas o pagamento continua recebido. O reembolso precisa de verificação antes de nova tentativa." : result.requestedAt ? `Estorno solicitado. Status Asaas: ${siteStatusLabel(result.gatewayStatus)}` : `Nenhum estorno solicitado. Status Asaas: ${siteStatusLabel(result.gatewayStatus)}`);
       await loadOrders(true);
     } catch(error) { toast.error(error instanceof Error ? error.message : "Falha ao consultar estorno."); }
   }
@@ -451,7 +471,7 @@ export function StorefrontOrders({
             <Label htmlFor="site-order-filter-number">Número do pedido</Label>
             <Input id="site-order-filter-number" className="w-full min-w-0" aria-label="Número do pedido" placeholder="Número do pedido" inputMode="numeric" value={orderSearch} onChange={e => { setOrderSearch(e.target.value.replace(/\D/g, "")); setPage(1); }} />
             <Label htmlFor="site-order-filter-stage">Situação</Label><Select value={stageFilter} onValueChange={value => { setStageFilter(value); setPage(1); }}><SelectTrigger id="site-order-filter-stage" className="w-full" aria-label="Filtrar situação do pedido"><SelectValue /></SelectTrigger><SelectContent>
-              <SelectItem value="all">Todos os pedidos</SelectItem><SelectItem value="error">Erro de importação</SelectItem><SelectItem value="refund-pending">Estorno pendente</SelectItem><SelectItem value="refund-denied">Estorno recusado</SelectItem><SelectItem value="return-pending">Devolução aguardada</SelectItem><SelectItem value="return-received">Devoluções recebidas</SelectItem><SelectItem value="dispute">Contestações</SelectItem><SelectItem value="cancelled">Cancelados</SelectItem>
+              <SelectItem value="all">Todos os pedidos</SelectItem><SelectItem value="awaiting-payment">Aguardando pagamento</SelectItem><SelectItem value="payment-analysis">Pagamento em análise</SelectItem><SelectItem value="payment-review">Pagamento em revisão</SelectItem><SelectItem value="error">Erro de importação</SelectItem><SelectItem value="refund-pending">Estorno pendente</SelectItem><SelectItem value="refund-denied">Estorno recusado</SelectItem><SelectItem value="return-pending">Devolução aguardada</SelectItem><SelectItem value="return-received">Devoluções recebidas</SelectItem><SelectItem value="dispute">Contestações</SelectItem><SelectItem value="cancelled">Cancelados</SelectItem>
             </SelectContent></Select>
           </div><SheetFooter><Button variant="outline" onClick={() => { setStageFilter("all"); setOrderSearch(""); setPage(1); }}>Limpar filtros</Button><Button onClick={() => setFiltersOpen(false)}>Ver pedidos</Button></SheetFooter></SheetContent></Sheet>
           <div className="grid grid-cols-2 overflow-hidden rounded-lg border xl:grid-cols-4">
@@ -487,14 +507,14 @@ export function StorefrontOrders({
                   <TableHead>Pedido</TableHead>
                   <TableHead>Cliente</TableHead>
                   <TableHead>Valor</TableHead>
-                  <TableHead>Entrega</TableHead>
+                  <TableHead>Situação</TableHead>
                   <TableHead>Nota fiscal</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody className="block md:table-row-group">
                 {orders.map((order) => {
-                  const actionsBlocked = Boolean(order.return_requested_at || order.refund_requested_at) || order.refund_status === "REFUNDED" || order.site_status === "CANCELADO" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "");
+                  const actionsBlocked = !order.venda?.id || order.checkout_pending || Boolean(order.return_requested_at || order.refund_requested_at) || order.refund_status === "REFUNDED" || order.site_status === "CANCELADO" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "");
                   return (
                   <TableRow key={order.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 p-3 md:table-row md:p-0">
                     <TableCell className="block p-0 md:table-cell md:p-2">
@@ -502,15 +522,14 @@ export function StorefrontOrders({
                       <p className="text-xs text-muted-foreground">
                         {formatDate(order.order_created_at)}
                       </p>
-                      <ImportBadge status={order.import_status} />
+                      {!order.checkout_pending && <ImportBadge status={order.import_status} />}
                     </TableCell>
                     <TableCell className="col-span-2 row-start-2 block min-w-0 p-0 md:table-cell md:p-2">
                       <p className="max-w-56 truncate">
-                        {order.venda?.cliente?.nomerazaosocial || "—"}
+                        {order.venda?.cliente?.nomerazaosocial || order.customer?.name || "—"}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Venda ERP{" "}
-                        {order.venda?.id ? `#${order.venda.id}` : "pendente"}
+                        {order.checkout_pending ? "Venda após confirmação do pagamento" : `Venda ERP ${order.venda?.id ? `#${order.venda.id}` : "pendente"}`}
                       </p>
                     </TableCell>
                     <TableCell className="col-start-2 row-start-1 block p-0 text-right font-medium md:table-cell md:p-2 md:text-left">
@@ -540,14 +559,14 @@ export function StorefrontOrders({
                             variant="outline"
                             className="border-emerald-600/30 text-emerald-700"
                           >
-                            {order.invoice.status || "Emitida"}
+                            {siteStatusLabel(order.invoice.status, "Emitida")}
                           </Badge>
                           <p className="mt-1 text-xs">
                             NF-e {order.invoice.numero || "—"}
                           </p>
                         </>
                       ) : (
-                        <Badge variant="secondary">Pendente</Badge>
+                        <Badge variant="secondary">{order.checkout_pending ? "—" : "Pendente"}</Badge>
                       )}
                     </TableCell>
                     <TableCell className="block p-0 text-right md:table-cell md:p-2">
@@ -559,6 +578,7 @@ export function StorefrontOrders({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
+                          {order.checkout_pending && order.site_status!=="CANCELADO" && <DropdownMenuItem disabled={syncing} onSelect={() => void reconcilePayment()}><RefreshCw className="h-4 w-4" />Conferir pagamentos</DropdownMenuItem>}
                           <DropdownMenuItem onSelect={() => { setDetailsOrder(order); setDetailsOpen(true); }}><ClipboardList className="h-4 w-4" /> Detalhes do pedido</DropdownMenuItem>
                           {!actionsBlocked ? (
                           <DropdownMenuItem
@@ -585,11 +605,10 @@ export function StorefrontOrders({
                             {order.delivery?.method === "pickup" ? <Store className="h-4 w-4" /> : <Truck className="h-4 w-4" />}
                             Atualizar andamento
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            disabled={!order.venda?.id || Boolean(order.refund_requested_at) || order.refund_status === "REFUNDED" || ["CANCELADA", "CANCELADO"].includes(order.venda?.status || "") || ["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda?.status_entrega || "")}
+                          {!["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda?.status_entrega || "") ? <DropdownMenuItem
                             onSelect={() => { setCancelOrder(order); setCancelReason(""); }}
                             className="text-destructive"
-                          ><Undo2 className="h-4 w-4" />{["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda?.status_entrega || "") ? "Estorno exige devolução conferida" : "Cancelar e estornar"}</DropdownMenuItem>
+                          ><Undo2 className="h-4 w-4" />Cancelar e estornar</DropdownMenuItem> : null}
                             </>
                           ) : null}
                           {order.refund_status === "DENIED" && order.venda?.id && !["CANCELADA", "CANCELADO"].includes(order.venda.status || "") && !["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda.status_entrega || "") ? (
@@ -597,7 +616,7 @@ export function StorefrontOrders({
                               <Undo2 className="h-4 w-4" />Tentar estorno novamente
                             </DropdownMenuItem>
                           ) : null}
-                          <DropdownMenuItem onSelect={() => void checkRefund(order)}><RefreshCw className="h-4 w-4" />Consultar estorno</DropdownMenuItem>
+                          {!order.checkout_pending && order.refund_status && <DropdownMenuItem onSelect={() => void checkRefund(order)}><RefreshCw className="h-4 w-4" />Consultar estorno</DropdownMenuItem>}
                           {order.venda?.id && ["ENVIO", "ENVIADO", "ENTREGUE"].includes(order.venda.status_entrega || "") && !order.return_received_at ? (
                             <DropdownMenuItem onSelect={() => { setReturnOrder(order); setReturnReason(""); setReturnTracking(""); setReturnApproved(false); }}>
                               <PackageCheck className="h-4 w-4" />{order.return_requested_at ? "Conferir recebimento da devolução" : "Solicitar devolução física"}
@@ -612,12 +631,12 @@ export function StorefrontOrders({
                               <DropdownMenuItem onSelect={() => { void navigator.clipboard.writeText(order.refund_request_url!).then(() => toast.success("Link copiado. Envie ao cliente para preencher os dados."), () => toast.error("Não foi possível copiar. Abra o formulário e copie o endereço.")); }}><Copy className="h-4 w-4" />Copiar link para o cliente</DropdownMenuItem>
                             </>
                           ) : null}
-                          <DropdownMenuSeparator />
+                          {order.venda?.id ? <><DropdownMenuSeparator />
                           <DropdownMenuItem asChild>
                             <Link href="/historicovendas">
                               <ExternalLink className="h-4 w-4" /> Abrir histórico de vendas
                             </Link>
-                          </DropdownMenuItem>
+                          </DropdownMenuItem></> : null}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -630,7 +649,7 @@ export function StorefrontOrders({
                       <div className="flex min-h-40 flex-col items-center justify-center text-center">
                         <ClipboardList className="mb-3 h-7 w-7 text-muted-foreground" />
                         <p className="text-sm font-medium">
-                          Nenhum pedido importado
+                          Nenhuma compra encontrada
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Use “Sincronizar pedidos” para buscar as compras pagas
@@ -775,7 +794,7 @@ export function StorefrontOrders({
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
         <DialogContent className="flex h-[85dvh] max-h-[850px] w-[calc(100vw-1rem)] flex-col overflow-hidden !gap-0 p-0 sm:w-[95vw] md:max-w-[1000px]">
           <DialogHeader className="shrink-0 border-b bg-background/95 px-5 py-4 pr-12 text-left">
-            <DialogTitle className="flex flex-wrap items-center gap-2"><ClipboardList className="h-5 w-5 text-primary" />Pedido do Site #{detailsOrder?.site_order_id}{detailsOrder ? <Badge variant="outline">{detailsOrder.site_status}</Badge> : null}</DialogTitle>
+            <DialogTitle className="flex flex-wrap items-center gap-2"><ClipboardList className="h-5 w-5 text-primary" />Pedido do Site #{detailsOrder?.site_order_id}{detailsOrder ? <FulfillmentBadge order={detailsOrder} /> : null}</DialogTitle>
             <DialogDescription>Dados do pedido e marcos registrados de acompanhamento.</DialogDescription>
           </DialogHeader>
           {detailsOrder ? <Tabs key={detailsOrder.site_order_id} defaultValue="summary" className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden bg-muted/25 text-sm [&_dt]:text-xs [&_dt]:font-medium [&_dd]:mt-1 [&_dd]:font-semibold [&_[data-slot=tabs-content]]:min-h-0 [&_[data-slot=tabs-content]]:flex-1 [&_[data-slot=tabs-content]]:overflow-y-auto [&_[data-slot=tabs-content]]:overscroll-contain [&_[data-slot=tabs-content]]:m-4 sm:[&_[data-slot=tabs-content]]:m-6">
@@ -788,23 +807,26 @@ export function StorefrontOrders({
               <div><dt className="text-muted-foreground">E-mail</dt><dd className="break-all">{detailsOrder.venda?.cliente?.email || detailsOrder.customer?.email || "Não informado"}</dd></div>
               <div><dt className="text-muted-foreground">Telefone</dt><dd>{detailsOrder.venda?.cliente?.telefone || detailsOrder.customer?.phone || "Não informado"}</dd></div>
               <div><dt className="text-muted-foreground">Total</dt><dd>{formatMoney(detailsOrder.total_amount)}</dd></div>
-              <div><dt className="text-muted-foreground">Andamento</dt><dd>{detailsOrder.venda?.status_entrega || "Não informado"}</dd></div>
-              <div><dt className="text-muted-foreground">Estorno</dt><dd>{detailsOrder.refund_status || "Sem solicitação"}</dd></div>
+              <div><dt className="text-muted-foreground">Andamento</dt><dd>{siteStatusLabel(detailsOrder.venda?.status_entrega)}</dd></div>
+              <div><dt className="text-muted-foreground">Estorno</dt><dd>{siteStatusLabel(detailsOrder.refund_status, "Sem solicitação")}</dd></div>
             </dl>
             <div className="rounded-lg border bg-card p-4"><p className="font-medium">Produtos</p><ul className="mt-3 divide-y">{detailsOrder.returnItems?.length ? detailsOrder.returnItems.map((item, index) => <li className="flex flex-wrap justify-between gap-2 py-3" key={`${item.productId}-${index}`}><div>{item.quantity} × {item.title}<p className="text-xs text-muted-foreground">{item.reference || `Produto #${item.productId}`}</p></div><span>{item.total != null ? formatMoney(item.total) : ""}</span></li>) : <li>Itens não disponíveis no vínculo do pedido.</li>}</ul></div>
             </TabsContent>
             <TabsContent value="delivery" className="space-y-4"><div className="rounded-lg border bg-card p-4"><h3 className="mb-4 flex items-center gap-2 border-b pb-3 font-semibold"><MapPin className="h-4 w-4 text-primary" />{detailsOrder.delivery?.label || "Entrega"}</h3><dl className="grid gap-4 sm:grid-cols-2"><div className="sm:col-span-2"><dt className="text-muted-foreground">Endereço</dt><dd>{formatDeliveryAddress(detailsOrder)}</dd></div><div><dt className="text-muted-foreground">Complemento</dt><dd>{detailsOrder.delivery?.address?.complement || "Não informado"}</dd></div><div><dt className="text-muted-foreground">CEP</dt><dd>{detailsOrder.delivery?.address?.zipCode || "Não informado"}</dd></div><div><dt className="text-muted-foreground">Transportadora</dt><dd>{detailsOrder.venda?.transportadora_rastreio || "Não informada"}</dd></div><div><dt className="text-muted-foreground">Rastreio</dt><dd className="break-all">{detailsOrder.venda?.codigo_rastreio || "Não informado"}</dd></div></dl></div><div className="rounded-lg border bg-card p-4"><h3 className="mb-4 flex items-center gap-2 border-b pb-3 font-semibold"><Undo2 className="h-4 w-4 text-primary" />Devolução física</h3><dl className="grid gap-4 sm:grid-cols-2"><div><dt className="text-muted-foreground">Rastreio reverso</dt><dd className="break-all">{detailsOrder.reverse_tracking || "Não informado"}</dd></div><div><dt className="text-muted-foreground">Motivo</dt><dd>{detailsOrder.return_reason || "Sem solicitação"}</dd></div></dl></div></TabsContent>
             <TabsContent value="payment" className="space-y-4 rounded-lg border bg-card p-4">
             <div className="space-y-3">
-              <h3 className="flex items-center gap-2 border-b pb-3 font-semibold"><CreditCard className="h-4 w-4 text-primary" />Pagamento e reembolso</h3>
-              <dl className="grid grid-cols-2 gap-4"><div><dt className="text-muted-foreground">Forma de pagamento</dt><dd>{detailsOrder.paymentMethod || "Não informada"}</dd></div><div><dt className="text-muted-foreground">Total do pedido</dt><dd className="text-lg font-semibold">{formatMoney(detailsOrder.total_amount)}</dd></div>{detailsOrder.subtotal != null ? <div><dt className="text-muted-foreground">Subtotal</dt><dd>{formatMoney(detailsOrder.subtotal)}</dd></div> : null}<div><dt className="text-muted-foreground">NF-e</dt><dd>{detailsOrder.invoice ? `${detailsOrder.invoice.status || "Pendente"} · Nº ${detailsOrder.invoice.numero || "—"}` : "Não emitida"}</dd></div></dl>
-              <dl className="grid gap-3 sm:grid-cols-2">
+              <h3 className="flex items-center gap-2 border-b pb-3 font-semibold"><CreditCard className="h-4 w-4 text-primary" />{detailsOrder.checkout_pending ? "Pagamento" : "Pagamento e reembolso"}</h3>
+              {detailsOrder.checkout_pending ? <div className="space-y-2 rounded-md bg-muted p-3"><FulfillmentBadge order={detailsOrder} /><p className="text-xs text-muted-foreground">{detailsOrder.stock_release_pending ? "Cancelamento em processamento. O estoque será liberado após a conferência da cobrança." : detailsOrder.site_status === "CANCELADO" ? "Compra cancelada. Não foi gerada uma venda." : "A compra ainda não gerou uma venda no ERP. A confirmação do pagamento atualiza esta lista automaticamente."}</p></div> : null}
+              {detailsOrder.payment_due_date ? <p><span className="text-muted-foreground">Vencimento: </span>{formatDueDate(detailsOrder.payment_due_date)}</p> : null}
+              <dl className="grid grid-cols-2 gap-4"><div><dt className="text-muted-foreground">Forma de pagamento</dt><dd>{paymentMethodLabel(detailsOrder.paymentMethod) || "Não informada"}</dd></div><div><dt className="text-muted-foreground">Total do pedido</dt><dd className="text-lg font-semibold">{formatMoney(detailsOrder.total_amount)}</dd></div>{detailsOrder.subtotal != null ? <div><dt className="text-muted-foreground">Subtotal</dt><dd>{formatMoney(detailsOrder.subtotal)}</dd></div> : null}<div><dt className="text-muted-foreground">NF-e</dt><dd>{detailsOrder.invoice ? `${siteStatusLabel(detailsOrder.invoice.status, "Pendente")} · Nº ${detailsOrder.invoice.numero || "—"}` : "Não emitida"}</dd></div></dl>
+              {!detailsOrder.checkout_pending ? <><dl className="grid gap-3 sm:grid-cols-2">
                 <div><dt className="text-muted-foreground">Provedor</dt><dd>{detailsOrder.payment_provider || "Não informado"}</dd></div>
                 <div><dt className="text-muted-foreground">Identificador da cobrança</dt><dd className="break-all">{detailsOrder.gateway_payment_id || "Não informado"}</dd></div>
-                <div><dt className="text-muted-foreground">Situação do reembolso</dt><dd>{detailsOrder.refund_status === "AWAITING_CUSTOMER" ? "Aguardando formulário do cliente" : detailsOrder.refund_status === "REFUNDED" ? "Confirmado" : detailsOrder.refund_status === "DENIED" ? "Recusado" : detailsOrder.refund_status || "Sem solicitação"}</dd></div>
+                <div><dt className="text-muted-foreground">Situação do reembolso</dt><dd>{siteStatusLabel(detailsOrder.refund_status, "Sem solicitação")}</dd></div>
                 <div><dt className="text-muted-foreground">Última consulta</dt><dd>{detailsOrder.refund_checked_at ? new Date(detailsOrder.refund_checked_at).toLocaleString("pt-BR") : "Ainda não consultado"}</dd></div>
               </dl>
-              <Button variant="outline" size="sm" onClick={() => void checkRefund(detailsOrder)}>Consultar estorno</Button>
+              {detailsOrder.refund_status ? <Button variant="outline" size="sm" onClick={() => void checkRefund(detailsOrder)}>Consultar estorno</Button> : null}</> : null}
+              {detailsOrder.checkout_pending && detailsOrder.site_status!=="CANCELADO" ? <Button variant="outline" size="sm" disabled={syncing} onClick={() => void reconcilePayment()}>{syncing ? "Conferindo…" : "Conferir pagamento"}</Button> : null}
               {detailsOrder.refund_request_url && detailsOrder.refund_status !== "REFUNDED" ? <div className="space-y-2 rounded-md border bg-muted/30 p-3">
                 <p>Formulário do boleto: o cliente precisa preencher os dados solicitados. O link não confirma a devolução do dinheiro.</p>
                 <p className="break-all text-xs">{detailsOrder.refund_request_url}</p>
@@ -812,14 +834,14 @@ export function StorefrontOrders({
               </div> : null}
             </div>
             </TabsContent><TabsContent value="history" className="space-y-4 rounded-lg border bg-card p-4">
-            <div className="space-y-3"><p className="font-medium">Operações do pedido</p><div className="flex flex-wrap gap-2">
+            <div className="space-y-3"><p className="font-medium">Operações do pedido</p>{detailsOrder.checkout_pending ? <p className="text-muted-foreground">{detailsOrder.site_status === "CANCELADO" ? "Compra encerrada. Consulte abaixo as datas registradas." : "Emissão de nota, separação e entrega ficam disponíveis após a confirmação do pagamento e a criação da venda."}</p> : null}<div className="flex flex-wrap gap-2">
               {!detailsOrder.return_requested_at && !detailsOrder.refund_requested_at && detailsOrder.site_status !== "CANCELADO" && detailsOrder.venda?.id && !["CANCELADA", "CANCELADO"].includes(detailsOrder.venda.status || "") ? <Button variant="outline" size="sm" onClick={() => { setDetailsOpen(false); openShipment(detailsOrder); }}>Atualizar andamento</Button> : null}
               {detailsOrder.venda?.id && !["CANCELADA", "CANCELADO"].includes(detailsOrder.venda.status || "") && detailsOrder.refund_status !== "REFUNDED" && (!detailsOrder.refund_requested_at || detailsOrder.refund_status === "DENIED") && (!["ENVIO", "ENVIADO", "ENTREGUE"].includes(detailsOrder.venda.status_entrega || "") || detailsOrder.return_received_at) ? <Button variant="destructive" size="sm" onClick={() => { setDetailsOpen(false); setCancelOrder(detailsOrder); setCancelReason(detailsOrder.return_received_at ? "Devolução integral recebida e conferida" : ""); }}> {detailsOrder.return_received_at ? "Reembolsar devolução" : detailsOrder.refund_status === "DENIED" ? "Tentar estorno novamente" : "Cancelar e estornar"}</Button> : null}
               {detailsOrder.venda?.id && ["ENVIO", "ENVIADO", "ENTREGUE"].includes(detailsOrder.venda.status_entrega || "") && !detailsOrder.return_received_at ? <Button variant="outline" size="sm" onClick={() => { setDetailsOpen(false); setReturnOrder(detailsOrder); setReturnReason(""); setReturnTracking(""); setReturnApproved(false); }}>{detailsOrder.return_requested_at ? "Conferir recebimento" : "Solicitar devolução"}</Button> : null}
               {detailsOrder.venda?.id ? <Button variant="outline" size="sm" onClick={() => { setDetailsOpen(false); setInvoiceSaleId(detailsOrder.venda!.id); }}>Gerenciar NF-e</Button> : null}
             </div></div>
             <div><p className="font-medium">Datas registradas</p><ul className="mt-1 space-y-1">{([
-              ["Pedido criado", detailsOrder.order_created_at], ["Última sincronização", detailsOrder.last_synced_at],
+              [detailsOrder.checkout_pending ? "Compra iniciada" : "Pedido criado", detailsOrder.order_created_at], ["Última atualização da compra", detailsOrder.checkout_updated_at], ["Última conferência do pagamento", detailsOrder.payment_checked_at], ["Cancelamento do registro do boleto", detailsOrder.bank_cancelled_at], ["Última sincronização", detailsOrder.last_synced_at],
               ["Devolução solicitada", detailsOrder.return_requested_at], ["Recebimento conferido", detailsOrder.return_received_at], ["Estorno solicitado", detailsOrder.refund_requested_at],
             ] as const).filter(([, date]) => date).map(([label, date]) => <li key={label}>{label}: {new Date(date!).toLocaleString("pt-BR")}</li>)}</ul></div>
             {detailsOrder.return_reason ? <p>Motivo da devolução: {detailsOrder.return_reason}</p> : null}
@@ -904,6 +926,10 @@ function ImportBadge({ status }: { status: SiteOrder["import_status"] }) {
 }
 
 function FulfillmentBadge({ order }: { order: SiteOrder }) {
+  if(order.checkout_pending){
+    const labels:Record<string,string>={AGUARDANDO_PAGAMENTO:'Aguardando pagamento',PAGAMENTO_EM_ANALISE:'Pagamento em análise',REVISAO_NECESSARIA:'Pagamento em revisão',PAGAMENTO_CONFIRMADO:'Pago · aguardando importação',CANCELADO:'Cancelado'};
+    return <Badge variant={order.site_status==='REVISAO_NECESSARIA'?'destructive':'secondary'}>{labels[order.site_status]||'Aguardando pagamento'}</Badge>;
+  }
   if (order.refund_status === "AWAITING_CRITICAL_ACTION_AUTHORIZATION") return <Badge variant="outline">Estorno: autorizar no Asaas</Badge>;
   if (order.refund_status === "AWAITING_CUSTOMER") return <Badge variant="outline">Boleto: aguardando dados do cliente</Badge>;
   if (order.return_received_at && order.refund_status !== "REFUNDED") return <Badge variant="outline">Devolução recebida · reembolso pendente</Badge>;
@@ -947,4 +973,13 @@ function formatDate(value?: string | null) {
         timeStyle: "short",
       })
     : "—";
+}
+
+function paymentMethodLabel(method?:string|null) {
+  const labels:Record<string,string>={PIX:'Pix',BOLETO:'Boleto',CREDIT_CARD:'Cartão de crédito'};
+  return method ? labels[method]||'Outra forma de pagamento' : 'Não informada';
+}
+function formatDueDate(value:string) {
+  if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value.split('-').reverse().join('/');
+  return formatDate(value);
 }

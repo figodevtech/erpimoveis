@@ -1,5 +1,5 @@
 "use client";
-import StorefrontCheckouts from './storefront-checkouts';
+
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -706,7 +706,6 @@ export default function StorefrontMarketplace() {
           </TabsContent>
 
           <TabsContent value="orders" className="m-0 space-y-4">
-            <StorefrontCheckouts />
             <StorefrontOrders
               embedded
               onActionsChange={setOrderActions}

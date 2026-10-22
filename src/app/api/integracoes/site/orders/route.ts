@@ -3,6 +3,7 @@ import { syncSiteOrders } from "@/lib/integrations/site-order-sync";
 import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { fetchPendingSiteOrders } from "@/lib/integrations/site-pending-orders";
 import { nextOrderAction } from "@/lib/integrations/site-order-control";
 
 export const runtime = "nodejs";
@@ -22,6 +23,25 @@ export async function GET(request: NextRequest) {
     const from = (page - 1) * limit;
     const stage = request.nextUrl.searchParams.get("stage") || "all";
     const search = request.nextUrl.searchParams.get("search")?.trim() || "";
+
+    if(search && (!/^\d+$/.test(search)||!Number.isSafeInteger(Number(search))||Number(search)<1))return NextResponse.json({error:"Pesquise pelo n?mero do pedido."},{status:400});
+    const checkoutStages=['all','awaiting-payment','payment-analysis','payment-review','cancelled'];
+    let warning:string|null=null;
+    let pending:Awaited<ReturnType<typeof fetchPendingSiteOrders>>=[];
+    if(checkoutStages.includes(stage)) {
+      try {pending=await fetchPendingSiteOrders();}
+      catch(error){warning=error instanceof Error?error.message:'Falha ao consultar compras pendentes.';}
+      // A materialized ERP order always wins, even when payment/import races this read.
+      for(let offset=0;offset<pending.length;offset+=100){
+        const batch=pending.slice(offset,offset+100);
+        const {data:linked,error:linkError}=await supabaseAdmin.from('site_order_link').select('site_order_id').eq('empresa_id',empresaId).in('site_order_id',batch.map(row=>row.site_order_id));
+        if(linkError)throw linkError;
+        const ids=new Set((linked||[]).map(row=>Number(row.site_order_id)));
+        for(const row of batch)if(ids.has(row.site_order_id))row.id=0;
+      }
+      pending=pending.filter(row=>row.id!==0 && (!search||row.site_order_id===Number(search)) && (
+        stage==='all'||stage==='cancelled'&&row.site_status==='CANCELADO'||stage==='awaiting-payment'&&row.site_status==='AGUARDANDO_PAGAMENTO'||stage==='payment-analysis'&&row.site_status==='PAGAMENTO_EM_ANALISE'||stage==='payment-review'&&row.site_status==='REVISAO_NECESSARIA'));
+    }
 
     let query = supabaseAdmin
       .from("site_order_link")
@@ -49,12 +69,16 @@ export async function GET(request: NextRequest) {
     else if (stage === "return-received") query = query.not("return_received_at", "is", null);
     else if (stage === "cancelled") query = query.eq("site_status", "CANCELADO");
     else if (stage === "dispute") query = query.like("refund_status", "CHARGEBACK%");
+    else if (["awaiting-payment","payment-analysis","payment-review"].includes(stage)) query = query.eq("id", -1);
     else if (stage !== "all") return NextResponse.json({error:"Filtro inválido."},{status:400});
-    const { data, error, count } = await query.range(from, from + limit - 1);
+    const { data, error, count } = await query.range(pending.length ? 0 : from, from + limit - 1);
 
     if (error) throw error;
 
-    const rows = (data ?? []) as any[];
+    const combined = [...(data ?? []),...pending] as any[];
+    combined.sort((a,b)=>String(b.order_created_at||'').localeCompare(String(a.order_created_at||''))||b.site_order_id-a.site_order_id);
+    const rows=pending.length ? combined.slice(from,from+limit) : combined;
+    const combinedCount=(count??0)+pending.length;
     const vendaIds = rows.map((row) => Number(row.venda?.id)).filter(Number.isFinite);
     const invoiceBySale = new Map<number, any>();
     if (vendaIds.length) {
@@ -77,7 +101,7 @@ export async function GET(request: NextRequest) {
           ?? {};
         return {
           ...row,
-          nextAction: nextOrderAction(row),
+          nextAction: row.checkout_pending ? row.nextAction : nextOrderAction(row),
           paymentMethod: row.raw_order?.paymentMethod ?? null,
           subtotal: row.raw_order?.subtotal ?? null,
           customer: row.raw_order?.customer ?? null,
@@ -102,12 +126,13 @@ export async function GET(request: NextRequest) {
           invoice: invoiceBySale.get(Number(row.venda?.id)) ?? null,
         };
       }),
-      count: count ?? rows.length,
+      warning,
+      count: combinedCount,
       pagination: {
         page,
         limit,
-        total: count ?? 0,
-        totalPages: Math.max(1, Math.ceil((count ?? 0) / limit)),
+        total: combinedCount,
+        totalPages: Math.max(1, Math.ceil(combinedCount / limit)),
       },
     });
   } catch (error) {

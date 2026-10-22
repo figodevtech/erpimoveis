@@ -23,6 +23,26 @@ function load(file,mocks={},extra={}) {
  },...extra});
  return exports;
 }
+test('ERP order view requires the tenant secret and returns only sanitized checkout details',async()=>{
+ const calls=[];
+ const query={then(resolve){return Promise.resolve({data:[{order_id:12,phase:'BOUND',billing_type:'PIX',payment_id:'private-id',payment_data:{status:'PENDING',url:'private-url',dueDate:'2026-10-25'},checkout_payload:{total:50,items:[{produtoid:22,quantidade:2,valor_total:50}],address:{}},created_at:'2026-10-22',cliente:{nomerazaosocial:'Cliente'},payment_meta:{secret:'never-expose'}}],error:null}).then(resolve);}};
+ for(const method of ['select','not','neq','order','range'])query[method]=(...args)=>{calls.push([method,...args]);return query;};
+ const endpoint=load('storefront-template/app/api/integrations/erp/checkout/reconcile/route.ts',{
+  '@/lib/supabase/admin':{supabaseAdmin:{from(table){return table==='produto'?{select(){return {in:async()=>({data:[{id:22,titulo:'Produto de teste',referencia:'REF22'}],error:null})}}}:query;}}},
+  '@/lib/checkout-reconcile':{reconcileCheckoutBatch:async()=>{throw Error('Read must not reconcile');}},
+ },{process:{env:{ERP_ORDER_SYNC_SECRET:'tenant-secret'}}});
+ const request=token=>new Request('https://store.test/api/integrations/erp/checkout/reconcile?view=orders&offset=100',{headers:{Authorization:`Bearer ${token}`}});
+ assert.equal((await endpoint.GET(request('wrong'))).status,401);
+ assert.equal(calls.length,0);
+ const response=await endpoint.GET(request('tenant-secret'));
+ const result=await response.json();
+ assert.equal(result.data[0].dueDate,'2026-10-25');assert.equal(result.data[0].items[0].title,'Produto de teste');assert.equal(result.data[0].items[0].reference,'REF22');
+ assert.equal(result.data[0].orderId,12);assert.equal(result.data[0].customer.name,'Cliente');
+ assert.ok(calls.some(call=>JSON.stringify(call)===JSON.stringify(['not','payment_id','is',null])));
+ assert.ok(calls.some(call=>JSON.stringify(call)===JSON.stringify(['range',100,199])));
+ assert.equal(JSON.stringify(result).includes('private-'),false);
+ assert.equal(JSON.stringify(result).includes('never-expose'),false);
+});
 test('ERP checkout authenticates before database/tenant lookup and accepts only declared actions',async()=>{
  let calls=0;
  const endpoint=()=>load('src/app/api/integracoes/site/checkout/route.ts',{
