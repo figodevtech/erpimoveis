@@ -66,6 +66,11 @@ export async function GET(request: NextRequest) {
     const stockMax = finiteNumber(request.nextUrl.searchParams.get("stockMax"));
     const priceMin = finiteNumber(request.nextUrl.searchParams.get("priceMin"));
     const priceMax = finiteNumber(request.nextUrl.searchParams.get("priceMax"));
+    for(const key of ['stockMin','stockMax','priceMin','priceMax']){
+      const raw=request.nextUrl.searchParams.get(key);
+      if(raw?.trim()&&finiteNumber(raw)==null)return NextResponse.json({error:'Informe faixas de estoque e preço válidas.'},{status:400});
+    }
+    if((stockMin!=null&&stockMax!=null&&stockMin>stockMax)||(priceMin!=null&&priceMax!=null&&priceMin>priceMax))return NextResponse.json({error:'O mínimo não pode superar o máximo.'},{status:400});
 
     const { data: links, error: linksError } = await supabaseAdmin
       .from("site_product_link")

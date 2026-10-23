@@ -38,7 +38,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
+import { StorefrontOrderFilters } from "./storefront-order-filters";
+import { EMPTY_SITE_ORDER_FILTERS, type SiteOrderFilters } from "@/lib/integrations/site-order-filters";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import {
@@ -177,6 +178,8 @@ export function StorefrontOrders({
   const [returnTracking, setReturnTracking] = useState("");
   const [returnApproved, setReturnApproved] = useState(false);
   const [returnSaving, setReturnSaving] = useState(false);
+  const [orderFilters, setOrderFilters] = useState<SiteOrderFilters>(EMPTY_SITE_ORDER_FILTERS);
+  const extraFilterCount=Object.values(orderFilters).filter(value=>value!==""&&value!=="all").length;
   const [stageFilter, setStageFilter] = useState("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [detailsOrder, setDetailsOrder] = useState<SiteOrder | null>(null);
@@ -226,7 +229,7 @@ export function StorefrontOrders({
     if (!quiet) setLoading(true);
     try {
       const response = await fetch(
-        `/api/integracoes/site/orders?page=${page}&limit=${pageSize}&stage=${encodeURIComponent(stageFilter)}&search=${encodeURIComponent(orderSearch)}`,
+        `/api/integracoes/site/orders?page=${page}&limit=${pageSize}&stage=${encodeURIComponent(stageFilter)}&search=${encodeURIComponent(orderSearch)}&${new URLSearchParams(orderFilters).toString()}`,
         { cache: "no-store" },
       );
       const json = await readJsonResponse(response, "ERP");
@@ -245,7 +248,7 @@ export function StorefrontOrders({
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, stageFilter, orderSearch]);
+  }, [page, pageSize, stageFilter, orderSearch, orderFilters]);
 
   useEffect(() => {
     void loadOrders();
@@ -346,9 +349,9 @@ export function StorefrontOrders({
       syncing,
       total,
       openFilters: () => setFiltersOpen(true),
-      activeFilters: Number(stageFilter !== "all") + Number(Boolean(orderSearch)),
+      activeFilters: Number(stageFilter !== "all") + Number(Boolean(orderSearch)) + extraFilterCount,
     });
-  }, [loadOrders, loading, onActionsChange, syncOrders, syncing, total, stageFilter, orderSearch]);
+  }, [loadOrders, loading, onActionsChange, syncOrders, syncing, total, stageFilter, orderSearch, extraFilterCount]);
 
   function openShipment(order: SiteOrder) {
     setSelectedOrder(order);
@@ -467,13 +470,7 @@ export function StorefrontOrders({
         ) : null}
         <CardContent className="space-y-5 p-4 lg:p-6">
           {!embedded ? <Button variant="outline" size="sm" onClick={() => setFiltersOpen(true)}><Filter className="h-4 w-4" />Filtros</Button> : null}
-          <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}><SheetContent className="flex flex-col"><SheetHeader><SheetTitle>Filtros dos pedidos</SheetTitle><SheetDescription>Pesquise por número e acompanhe a situação dos pedidos.</SheetDescription></SheetHeader><div className="space-y-4 px-4">
-            <Label htmlFor="site-order-filter-number">Número do pedido</Label>
-            <Input id="site-order-filter-number" className="w-full min-w-0" aria-label="Número do pedido" placeholder="Número do pedido" inputMode="numeric" value={orderSearch} onChange={e => { setOrderSearch(e.target.value.replace(/\D/g, "")); setPage(1); }} />
-            <Label htmlFor="site-order-filter-stage">Situação</Label><Select value={stageFilter} onValueChange={value => { setStageFilter(value); setPage(1); }}><SelectTrigger id="site-order-filter-stage" className="w-full" aria-label="Filtrar situação do pedido"><SelectValue /></SelectTrigger><SelectContent>
-              <SelectItem value="all">Pedidos não cancelados</SelectItem><SelectItem value="awaiting-payment">Aguardando pagamento</SelectItem><SelectItem value="payment-analysis">Pagamento em análise</SelectItem><SelectItem value="payment-review">Pagamento em revisão</SelectItem><SelectItem value="error">Erro de importação</SelectItem><SelectItem value="refund-pending">Estorno pendente</SelectItem><SelectItem value="refund-denied">Estorno recusado</SelectItem><SelectItem value="return-pending">Devolução aguardada</SelectItem><SelectItem value="return-received">Devoluções recebidas</SelectItem><SelectItem value="dispute">Contestações</SelectItem><SelectItem value="cancelled">Cancelados</SelectItem>
-            </SelectContent></Select>
-          </div><SheetFooter><Button variant="outline" onClick={() => { setStageFilter("all"); setOrderSearch(""); setPage(1); }}>Limpar filtros</Button><Button onClick={() => setFiltersOpen(false)}>Ver pedidos</Button></SheetFooter></SheetContent></Sheet>
+          <StorefrontOrderFilters key={JSON.stringify([filtersOpen,orderFilters,stageFilter,orderSearch])} open={filtersOpen} onOpenChange={setFiltersOpen} filters={orderFilters} stage={stageFilter} search={orderSearch} onApply={(filters,stage,search)=>{setOrderFilters(filters);setStageFilter(stage);setOrderSearch(search);setPage(1);}} />
           <div className="grid grid-cols-2 overflow-hidden rounded-lg border xl:grid-cols-4">
             <Summary label="Importados" value={imported} icon={PackageCheck} />
             <Summary

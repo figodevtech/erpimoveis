@@ -26,6 +26,22 @@ async function main(){
  const {client:store}=await connectDatabase(storeConfig('site_brpecaspb'));
  const {client:erp}=await connectDatabase(loadDatabaseConfigs().find(c=>c.key==='brpecas')!);
  try {
+  if(phase==='listing-verify'){
+   console.log({removedTests:(await erp.query("select site_order_id from site_order_link where empresa_id=1 and raw_order->>'archivedTest'='true' and site_order_id in(8,9) order by site_order_id")).rows,visibleCancelled:(await erp.query("select site_order_id,site_status,refund_status from site_order_link where empresa_id=1 and coalesce(raw_order->>'archivedTest','false')<>'true' and site_status='CANCELADO' order by site_order_id")).rows});return;
+  }
+  if(phase==='inspect-order10'){
+   console.log({site:(await store.query('select id,status,gateway_status,central_inventory from venda where id=10')).rows,erp:(await erp.query('select site_order_id,venda_id,site_status,refund_status from site_order_link where empresa_id=1 and site_order_id=10')).rows,attempt:(await store.query('select order_id,phase from checkout_attempt where order_id=10')).rows});return;
+  }
+  if(phase==='archive-tests'){
+   await erp.query('begin');
+   try{
+    const rows=await erp.query("select site_order_id,venda_id,site_status from site_order_link where empresa_id=1 and site_order_id in(8,9) for update");
+    if(rows.rowCount!==2||rows.rows.some(row=>row.site_status!=='CANCELADO'||Number(row.venda_id)!==(Number(row.site_order_id)===8?1:2)))throw Error('Testes divergentes.');
+    await erp.query("update site_order_link set raw_order=jsonb_set(coalesce(raw_order,'{}'::jsonb),'{archivedTest}','true'::jsonb),updated_at=now() where empresa_id=1 and site_order_id in(8,9)");
+    await erp.query('commit');
+    console.log({archivedTests:rows.rows.map(row=>Number(row.site_order_id))});
+   }catch(error){await erp.query('rollback');throw error;}return;
+  }
   if(phase==='cleanup-verify'){
    const guard=await erp.query("select tgenabled from pg_trigger where tgrelid='public.venda'::regclass and tgname='proteger_venda_site'");
    if(guard.rows[0]?.tgenabled!=='O')throw Error('Proteção não reativada.');

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { AmountRangeFilter } from "./amount-range-filter";
 import { SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import {
   SheetContent,
   SheetHeader,
   SheetTitle,
+  SheetDescription,
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { SearchCombobox } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/search-combobox";
@@ -66,6 +68,10 @@ export function StorefrontProductFiltersSheet({
     [filters],
   );
 
+  const rangeError = ([['stockMin','stockMax'],['priceMin','priceMax']] as const).some(([min,max])=>
+    [draft[min],draft[max]].some(value=>value!==''&&(!Number.isFinite(Number(value))||Number(value)<0))||
+    (draft[min]!==''&&draft[max]!==''&&Number(draft[min])>Number(draft[max]))) ? "Revise as faixas: os valores devem ser positivos e o mínimo não pode superar o máximo." : null;
+
   function update(field: keyof StorefrontProductFilters, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
   }
@@ -106,10 +112,11 @@ export function StorefrontProductFiltersSheet({
         <SheetContent className="w-full overflow-hidden sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Filtros dos produtos do Site</SheetTitle>
+            <SheetDescription>Combine os filtros e aplique para atualizar a lista.</SheetDescription>
           </SheetHeader>
 
-          <div className="grid flex-1 auto-rows-min gap-5 overflow-y-auto p-4">
-            <div className="space-y-5 rounded-xl border bg-card p-4">
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={event=>{event.preventDefault();if(!rangeError){onApply(draft);setOpen(false);}}}>
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-4">
               <div className="space-y-2">
                 <Label>Situação de publicação</Label>
                 <Select value={draft.status} onValueChange={(value) => update("status", value)}>
@@ -201,28 +208,22 @@ export function StorefrontProductFiltersSheet({
 
               <div className="space-y-2 border-t pt-4">
                 <Label>Faixa de estoque</Label>
+                <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" size="sm" onClick={()=>setDraft(current=>({...current,stockMin:"1",stockMax:""}))}>Com estoque</Button><Button type="button" variant="outline" size="sm" onClick={()=>setDraft(current=>({...current,stockMin:"0",stockMax:"0"}))}>Sem estoque</Button></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <Input type="number" min="0" value={draft.stockMin} onChange={(event) => update("stockMin", event.target.value)} placeholder="Mínimo" />
-                  <Input type="number" min="0" value={draft.stockMax} onChange={(event) => update("stockMax", event.target.value)} placeholder="Máximo" />
+                  <Input type="number" min="0" value={draft.stockMin} onChange={(event) => update("stockMin", event.target.value)} aria-label="Valor mínimo" placeholder="Mínimo" />
+                  <Input type="number" min="0" value={draft.stockMax} onChange={(event) => update("stockMax", event.target.value)} aria-label="Valor máximo" placeholder="Máximo" />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>Faixa de preço de venda</Label>
-                <div className="grid grid-cols-2 gap-3">
-                  <Input type="number" min="0" step="0.01" value={draft.priceMin} onChange={(event) => update("priceMin", event.target.value)} placeholder="Mínimo" />
-                  <Input type="number" min="0" step="0.01" value={draft.priceMax} onChange={(event) => update("priceMax", event.target.value)} placeholder="Máximo" />
-                </div>
-              </div>
+              <AmountRangeFilter id="site-product-price" title="Faixa de preço de venda (R$)" minValue={draft.priceMin} maxValue={draft.priceMax} onChange={(priceMin,priceMax)=>setDraft(current=>({...current,priceMin,priceMax}))}/>
 
-              <div className="flex justify-end gap-2 border-t pt-4">
-                <Button type="button" variant="outline" onClick={clear}>Limpar</Button>
-                <Button type="button" onClick={() => { onApply(draft); setOpen(false); }}>
-                  Aplicar filtros
-                </Button>
-              </div>
+              {rangeError&&<p role="alert" className="text-sm text-destructive">{rangeError}</p>}
             </div>
-          </div>
+            <div className="flex justify-between gap-2 border-t p-4">
+              <Button type="button" variant="outline" onClick={clear}>Limpar filtros</Button>
+              <Button type="submit" disabled={Boolean(rangeError)}>Aplicar filtros</Button>
+            </div>
+          </form>
         </SheetContent>
       </Sheet>
     </div>

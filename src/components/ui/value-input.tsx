@@ -9,6 +9,9 @@ export type ValueInputProps = Omit<
 > & {
   value?: number | null;
   onValueChange?: (value: number) => void;
+  /** Mantém um filtro vazio como "sem limite", sem convertê-lo em zero. */
+  allowEmpty?: boolean;
+  onEmpty?: () => void;
   /** Casas decimais aceitas. Padrão 2 (centavos). */
   decimals?: number;
   /** Permite valor negativo. */
@@ -76,6 +79,8 @@ export const ValueInput = React.forwardRef<HTMLInputElement, ValueInputProps>(
     {
       value,
       onValueChange,
+      allowEmpty = false,
+      onEmpty,
       price,
       setPrice,
       decimals = 2,
@@ -131,6 +136,12 @@ export const ValueInput = React.forwardRef<HTMLInputElement, ValueInputProps>(
     const handleChange = React.useCallback(
       (event: React.ChangeEvent<HTMLInputElement>) => {
         const raw = event.target.value;
+        if (allowEmpty && !/\d/.test(raw)) {
+          setUnits(0);
+          setDraft(mode === "decimal" ? "" : null);
+          onEmpty?.();
+          return;
+        }
 
         if (mode === "decimal") {
           const next = sanitizeDraft(raw, decimals, allowNegative);
@@ -150,7 +161,7 @@ export const ValueInput = React.forwardRef<HTMLInputElement, ValueInputProps>(
         setUnits(nextUnits);
         notifyChange?.(nextUnits / factor);
       },
-      [mode, decimals, allowNegative, notifyChange, factor],
+      [mode, decimals, allowNegative, notifyChange, factor, allowEmpty, onEmpty],
     );
 
     const handleFocus = React.useCallback(
@@ -181,7 +192,7 @@ export const ValueInput = React.forwardRef<HTMLInputElement, ValueInputProps>(
         ref={ref}
         type="text"
         inputMode={mode === "decimal" ? "decimal" : "numeric"}
-        value={displayValue}
+        value={allowEmpty && value == null ? draft ?? "" : displayValue}
         onChange={handleChange}
         onFocus={handleFocus}
         onBlur={handleBlur}

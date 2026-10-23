@@ -5,6 +5,7 @@ import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { fetchPendingSiteOrders } from "@/lib/integrations/site-pending-orders";
 import { nextOrderAction } from "@/lib/integrations/site-order-control";
+import {EMPTY_SITE_ORDER_FILTERS,siteOrderFiltersError,orderDateBounds,matchesSiteOrderFilters,type SiteOrderFilters} from '@/lib/integrations/site-order-filters';
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,9 +24,14 @@ export async function GET(request: NextRequest) {
     const from = (page - 1) * limit;
     const stage = request.nextUrl.searchParams.get("stage") || "all";
     const search = request.nextUrl.searchParams.get("search")?.trim() || "";
+    const filters={...EMPTY_SITE_ORDER_FILTERS};
+    for(const key of Object.keys(filters) as Array<keyof SiteOrderFilters>)filters[key]=request.nextUrl.searchParams.get(key)||filters[key];
+    const filterError=siteOrderFiltersError(filters);
+    if(filterError)return NextResponse.json({error:filterError},{status:400});
+    const {start:dateStart,end:dateEnd}=orderDateBounds(filters);
 
-    if(search && (!/^\d+$/.test(search)||!Number.isSafeInteger(Number(search))||Number(search)<1))return NextResponse.json({error:"Pesquise pelo n?mero do pedido."},{status:400});
-    const checkoutStages=['all','awaiting-payment','payment-analysis','payment-review','cancelled'];
+    if(search && (!/^\d+$/.test(search)||!Number.isSafeInteger(Number(search))||Number(search)<1))return NextResponse.json({error:"Pesquise pelo número do pedido."},{status:400});
+    const checkoutStages=['all','active','awaiting-payment','payment-analysis','payment-review','cancelled'];
     let warning:string|null=null;
     let pending:Awaited<ReturnType<typeof fetchPendingSiteOrders>>=[];
     if(checkoutStages.includes(stage)) {
@@ -40,9 +46,10 @@ export async function GET(request: NextRequest) {
         for(const row of batch)if(ids.has(row.site_order_id))row.id=0;
       }
       pending=pending.filter(row=>row.id!==0 && (!search||row.site_order_id===Number(search)) && (
-        stage==='all'||stage==='cancelled'&&row.site_status==='CANCELADO'||stage==='awaiting-payment'&&row.site_status==='AGUARDANDO_PAGAMENTO'||stage==='payment-analysis'&&row.site_status==='PAGAMENTO_EM_ANALISE'||stage==='payment-review'&&row.site_status==='REVISAO_NECESSARIA'));
-      if(stage!=='cancelled'&&!search)pending=pending.filter(row=>row.site_status!=='CANCELADO');
+        stage==='all'||stage==='active'&&row.site_status!=='CANCELADO'||stage==='cancelled'&&row.site_status==='CANCELADO'||stage==='awaiting-payment'&&row.site_status==='AGUARDANDO_PAGAMENTO'||stage==='payment-analysis'&&row.site_status==='PAGAMENTO_EM_ANALISE'||stage==='payment-review'&&row.site_status==='REVISAO_NECESSARIA'));
     }
+
+    pending=pending.filter(row=>matchesSiteOrderFilters(row,filters));
 
     let query = supabaseAdmin
       .from("site_order_link")
@@ -56,12 +63,19 @@ export async function GET(request: NextRequest) {
         )
       `, { count: "exact" })
       .eq("empresa_id", empresaId)
-      // Keep the integration history, but hide canceled orders whose ERP sale was removed.
-      .or("venda_id.not.is.null,site_status.neq.CANCELADO")
+      // Explicitly removed test orders remain audit records, never list entries.
+      .or("raw_order->>archivedTest.is.null,raw_order->>archivedTest.neq.true")
       .order("order_created_at", { ascending: false });
-    // Cancellations stay available in their filter and by exact order number,
-    // without occupying the default operational list.
-    if(stage!=='cancelled'&&!search)query=query.neq('site_status','CANCELADO');
+    if(stage==='active')query=query.neq('site_status','CANCELADO');
+    if(dateStart)query=query.gte('order_created_at',dateStart);
+    if(dateEnd)query=query.lt('order_created_at',dateEnd);
+    if(filters.minTotal)query=query.gte('total_amount',Number(filters.minTotal));
+    if(filters.maxTotal)query=query.lte('total_amount',Number(filters.maxTotal));
+    if(filters.payment==='PIX')query=query.ilike('raw_order->>paymentMethod','%pix%');
+    if(filters.payment==='BOLETO')query=query.ilike('raw_order->>paymentMethod','%boleto%');
+    if(filters.payment==='CREDIT_CARD')query=query.or('raw_order->>paymentMethod.ilike.%CREDIT_CARD%,raw_order->>paymentMethod.ilike.%cartão%,raw_order->>paymentMethod.ilike.%cartao%');
+    if(filters.delivery==='pickup')query=query.eq('raw_order->shippingAddress->>deliveryMethod','pickup');
+    if(filters.delivery==='delivery')query=query.or('raw_order->shippingAddress->>deliveryMethod.is.null,raw_order->shippingAddress->>deliveryMethod.neq.pickup');
     if (search) {
       if (!/^\d+$/.test(search) || !Number.isSafeInteger(Number(search)) || Number(search) < 1) return NextResponse.json({error:"Pesquise pelo número do pedido."},{status:400});
       query = query.eq("site_order_id", Number(search));
@@ -74,7 +88,7 @@ export async function GET(request: NextRequest) {
     else if (stage === "cancelled") query = query.eq("site_status", "CANCELADO");
     else if (stage === "dispute") query = query.like("refund_status", "CHARGEBACK%");
     else if (["awaiting-payment","payment-analysis","payment-review"].includes(stage)) query = query.eq("id", -1);
-    else if (stage !== "all") return NextResponse.json({error:"Filtro inválido."},{status:400});
+    else if (stage !== "all" && stage !== "active") return NextResponse.json({error:"Filtro inválido."},{status:400});
     const { data, error, count } = await query.range(pending.length ? 0 : from, from + limit - 1);
 
     if (error) throw error;
