@@ -267,6 +267,20 @@ export function EntradaFiscalDialog({
     number | undefined
   >(undefined);
 
+  /*
+   * Salvar o produto vincula a linha, e o dialog dela desmonta sem passar pelo
+   * fechamento. Sem esta limpeza o índice e o id do produto salvo sobrevivem: o
+   * dialog reabriria sozinho se a linha perdesse o vínculo.
+   */
+  const produtoDialogVinculado =
+    produtoDialogIndex !== null &&
+    Boolean(parsed?.itens[produtoDialogIndex]?.produtoReferenciaId);
+  useEffect(() => {
+    if (!produtoDialogVinculado) return;
+    setProdutoDialogIndex(null);
+    setProdutoSelecionadoId(undefined);
+  }, [produtoDialogVinculado]);
+
   const [itemSelectIndex, setItemSelectIndex] = useState<number | null>(null);
   const [itemDialogIndex, setItemDialogIndex] = useState<number | null>(null);
   const [itemEmEdicao, setItemEmEdicao] = useState<UsoConsumoItem | null>(null);
@@ -2356,7 +2370,10 @@ export function EntradaFiscalDialog({
                                     : "text-red-400"
                               }`}
                             >
-                              <span className="min-w-0 truncate">
+                              <span
+                                className="min-w-0 truncate"
+                                title={vinculando ? undefined : rotuloVinculo(linha)}
+                              >
                                 {vinculando
                                   ? "Buscando vínculo..."
                                   : rotuloVinculo(linha)}
@@ -2420,6 +2437,11 @@ export function EntradaFiscalDialog({
                                           "Cadastre um fornecedor para habilitar o cadastro de produto",
                                         );
                                         return;
+                                      }
+                                      // O id é compartilhado entre as linhas: o
+                                      // cadastro anterior o deixa preenchido.
+                                      if (aberto) {
+                                        setProdutoSelecionadoId(undefined);
                                       }
                                       setProdutoDialogIndex(
                                         aberto ? indice : null,

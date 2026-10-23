@@ -1,4 +1,4 @@
-﻿begin;
+begin;
 create table if not exists public.site_stock_reservation (
  empresa_id integer not null references public.empresa(id), site_order_id bigint not null,
  status text not null default 'ACTIVE' check(status in ('ACTIVE','CONSUMED','RELEASED')),

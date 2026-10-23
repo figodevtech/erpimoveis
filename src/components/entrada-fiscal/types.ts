@@ -83,7 +83,7 @@ export function linhaVinculada(linha: LinhaFiscal) {
 export function rotuloVinculo(linha: LinhaFiscal) {
   if (linha.destino === "ESTOQUE") {
     return linha.produtoReferenciaId
-      ? `Produto vinculado: ${linha.produtoReferencia?.titulo ?? `#${linha.produtoReferenciaId}`}`
+      ? `Produto vinculado: #${linha.produtoReferenciaId}${linha.produtoReferencia?.titulo ? ` · ${linha.produtoReferencia.titulo}` : ""}`
       : "Produto não vinculado ao estoque";
   }
   if (ehEstoqueSimples(linha.destino)) {
