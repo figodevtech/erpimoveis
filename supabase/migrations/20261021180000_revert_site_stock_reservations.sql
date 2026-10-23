@@ -1,4 +1,4 @@
-﻿begin;
+begin;
 -- Reversao do experimento de reservas; nao altera quantidades de estoque.
 do $$
 declare used boolean;
