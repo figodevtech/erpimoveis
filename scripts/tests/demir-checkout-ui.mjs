@@ -46,6 +46,9 @@ try {
   });
   const page=await context.newPage();await page.goto(base+'/checkout');
   await page.getByText('Rua de teste, 10',{exact:false}).first().waitFor();
+  assert.equal(await page.locator('[id^="payment-"][role="radio"][data-state="checked"]').count(),0,'Payment method must start unselected');
+  const paymentButton=page.getByRole('button',{name:'Escolha como pagar'}).filter({visible:true});
+  assert.equal(await paymentButton.isDisabled(),true,'Payment requires an explicit choice');
   await page.locator(`#payment-${method}`).click();
   const popupPromise=page.waitForEvent('popup');
   await page.getByRole('button',{name:/Pagar com/}).filter({visible:true}).click();

@@ -41,6 +41,7 @@ export async function GET(request: NextRequest) {
       }
       pending=pending.filter(row=>row.id!==0 && (!search||row.site_order_id===Number(search)) && (
         stage==='all'||stage==='cancelled'&&row.site_status==='CANCELADO'||stage==='awaiting-payment'&&row.site_status==='AGUARDANDO_PAGAMENTO'||stage==='payment-analysis'&&row.site_status==='PAGAMENTO_EM_ANALISE'||stage==='payment-review'&&row.site_status==='REVISAO_NECESSARIA'));
+      if(stage!=='cancelled'&&!search)pending=pending.filter(row=>row.site_status!=='CANCELADO');
     }
 
     let query = supabaseAdmin
@@ -58,6 +59,9 @@ export async function GET(request: NextRequest) {
       // Keep the integration history, but hide canceled orders whose ERP sale was removed.
       .or("venda_id.not.is.null,site_status.neq.CANCELADO")
       .order("order_created_at", { ascending: false });
+    // Cancellations stay available in their filter and by exact order number,
+    // without occupying the default operational list.
+    if(stage!=='cancelled'&&!search)query=query.neq('site_status','CANCELADO');
     if (search) {
       if (!/^\d+$/.test(search) || !Number.isSafeInteger(Number(search)) || Number(search) < 1) return NextResponse.json({error:"Pesquise pelo número do pedido."},{status:400});
       query = query.eq("site_order_id", Number(search));

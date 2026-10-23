@@ -67,6 +67,9 @@ try {
   });
   const page=await context.newPage();await page.goto(base+'/checkout');
   await page.getByText(address.logradouro,{exact:false}).first().waitFor();
+  assert.equal(await page.locator('[id^="payment-"][role="radio"][data-state="checked"]').count(),0,'Payment method must start unselected');
+  const paymentButton=page.getByRole('button',{name:'Escolha como pagar'}).filter({visible:true});
+  assert.equal(await paymentButton.isDisabled(),true,'Payment requires an explicit choice');
   await page.locator(`#payment-${method}`).click();
   if(method==='CREDIT_CARD'){
     await page.locator('#checkout-holderName').fill('TEST USER');await page.locator('#checkout-number').fill('4111111111111111');
