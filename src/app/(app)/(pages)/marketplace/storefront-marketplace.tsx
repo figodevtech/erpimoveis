@@ -164,7 +164,7 @@ export default function StorefrontMarketplace() {
       .catch((requestError: unknown) => {
         // Cleanup and filter changes cancel the previous request intentionally.
         // Checking the signal also covers abort errors from another JS realm.
-        if (!active || controller.signal.aborted) return;
+        if (!active || controller.signal.aborted || (requestError instanceof Error && requestError.name === "AbortError")) return;
         setError(
           requestError instanceof Error
             ? requestError.message
@@ -177,7 +177,7 @@ export default function StorefrontMarketplace() {
 
     return () => {
       active = false;
-      controller.abort(new DOMException("Carregamento substituído ou tela fechada.", "AbortError"));
+      controller.abort();
     };
   }, [filters, page, pageSize, reloadKey, search]);
 
