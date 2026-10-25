@@ -21,7 +21,8 @@ const { PGlite } = require('../../central.figosoftwares.com.br/node_modules/@ele
     const columns = (await db.query("select column_name from information_schema.columns where table_schema='public' and table_name='venda'")).rows.map(r => r.column_name);
     for (const name of ['status_entrega','nfe_numero','nfe_chave_acesso','danfe_url','separacao_em','entregue_em']) assert.ok(columns.includes(name), name);
     const tables = (await db.query("select tablename from pg_tables where schemaname='public'")).rows.map(r => r.tablename);
-    for (const name of ['cliente','cliente_endereco','produto','favorito','venda','vendaproduto','customer_payment_card','order_fulfillment_event','site_order_refund_request','veiculo_compatibilidade','produto_compatibilidade']) assert.ok(tables.includes(name), name);
+    for (const name of ['cliente','cliente_endereco','produto','favorito','venda','vendaproduto','customer_payment_card','order_fulfillment_event','site_order_refund_request']) assert.ok(tables.includes(name), name);
+    for (const name of ['veiculo_compatibilidade','produto_compatibilidade']) assert.ok(!tables.includes(name), `${name} must remain deferred`);
     const alice = '00000000-0000-4000-8000-000000000001', bob = '00000000-0000-4000-8000-000000000002';
     await db.query('insert into auth.users values($1),($2)', [alice, bob]);
     await db.query(`insert into cliente(user_id,tipopessoa,cpfcnpj,nomerazaosocial,email,telefone)

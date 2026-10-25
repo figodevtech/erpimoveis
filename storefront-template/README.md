@@ -23,6 +23,11 @@ nessa base. O utilitário ignora esse baseline ao sincronizar a Demir e adiciona
 somente migrations comuns ausentes. Os bancos podem ter históricos antigos
 diferentes e convergir para as mesmas tabelas e funções com migrations aditivas.
 
+A busca por compatibilidade de veículos está adiada. A migration
+`20261023150000_remove_vehicle_compatibility.sql` remove as tabelas desse recurso;
+a migration antiga permanece no histórico, sem ser reescrita. Não execute seeds
+de compatibilidade até existir uma implementação comum no ERP e nas lojas.
+
 As diferenças históricas de nome da empresa são aceitas na comparação; novos
 schemas usam o nome neutro `Loja virtual`. A identidade da loja fica no código,
 nas variáveis próprias e na configuração da Central.

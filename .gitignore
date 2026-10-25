@@ -73,3 +73,4 @@ next-env.d.ts
 
 # Capturas e bundles temporários dos testes de valores de entrada
 /artifacts/entrada-valores-ui/
+/artifacts/db/backups/
