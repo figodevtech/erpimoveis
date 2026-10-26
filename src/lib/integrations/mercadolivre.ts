@@ -53,6 +53,7 @@ export type MercadoLivreOrder = {
     nickname?: string;
     first_name?: string;
     last_name?: string;
+    billing_info?: { id?: string | number };
   };
   order_items?: MercadoLivreOrderItem[];
   shipping?: {

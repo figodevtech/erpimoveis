@@ -23,6 +23,7 @@ const MARGEM_PADRAO = "15mm";
 const MARGEM_BOBINA = "3mm";
 const LARGURA_BOBINA = /^\d{2,3}(?:\.\d+)?mm$/;
 const MM_POR_PX = 25.4 / 96;
+const FOLGA_BOBINA_MM = 8;
 
 export type Margens = { top: string; right: string; bottom: string; left: string };
 
@@ -134,8 +135,9 @@ html, body { margin: 0 !important; padding: 0 !important; }
   bobina.querySelectorAll('[data-documento="quebra"]').forEach((el) => el.remove());
   bobina.querySelectorAll("[data-documento-pagina]").forEach((s) => (s.textContent = "1"));
 
-  // Um milímetro de folga para o arredondamento não empurrar uma página em branco.
-  css.textContent = estilo(Math.ceil(bobina.getBoundingClientRect().height * MM_POR_PX) + 1);
+  // Folga em branco no pé: a térmica não imprime os últimos milímetros da
+  // página, e sem ela a última linha saía cortada ao meio.
+  css.textContent = estilo(Math.ceil(bobina.getBoundingClientRect().height * MM_POR_PX) + FOLGA_BOBINA_MM);
 
   body.setAttribute("data-documento-paginado", "");
   return { folhas: 1 };

@@ -1,7 +1,7 @@
 // Os modelos com que cada banco nasce, ao menos um por módulo. As migrations
-// 20261014150000_documento_modelo.sql e 20261026120000_documento_cupom_venda.sql
-// semeiam exatamente estes textos (o teste `padrao.test.ts` confronta as
-// cópias), e a tela usa daqui o "Restaurar texto padrão".
+// `*_documento_modelo.sql` e `*_documento_cupom_venda*.sql` gravam exatamente
+// estes textos (o teste `padrao.test.ts` confronta as cópias), e a tela usa
+// daqui o "Restaurar texto padrão".
 
 import type { ModuloDocumento } from "./tipos";
 
@@ -202,7 +202,8 @@ const CONTRATO_ALUGUEL = pagina(
 
 /**
  * Cupom não fiscal para a impressora térmica de 80 mm: uma tira só
- * (`data-documento-bobina`), em preto, com o leiaute do cupom do caixa.
+ * (`data-documento-bobina`), com o leiaute do cupom do caixa. Tudo em negrito
+ * e numa fonte de traço grosso: a térmica clareia o traço fino do Courier.
  */
 const CUPOM_VENDA = `<!doctype html>
 <html lang="pt-BR">
@@ -212,21 +213,21 @@ const CUPOM_VENDA = `<!doctype html>
 <style>
   @page { margin: 3mm 4mm; }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: "Courier New", Courier, monospace; font-size: 11px; line-height: 1.35; color: #000; background: #fff; }
+  body { margin: 0; font-family: Consolas, "Lucida Console", "Courier New", monospace; font-size: 12px; font-weight: bold; line-height: 1.35; color: #000; background: #fff; }
   p { margin: 0; }
   .centro { text-align: center; }
-  .empresa strong { display: block; font-size: 12px; }
-  .linha { margin: 5px 0; border: 0; border-top: 1px dashed #000; }
+  .empresa strong { display: block; font-size: 13px; }
+  .linha { margin: 5px 0; border: 0; border-top: 1.5px dashed #000; }
   .par { display: flex; justify-content: space-between; gap: 8px; }
   .par span:last-child { text-align: right; white-space: nowrap; }
   .itens { width: 100%; border-collapse: collapse; }
-  .itens th { padding: 0 0 2px; font-weight: normal; text-align: left; }
+  .itens th { padding: 0 0 2px; font-weight: bold; text-align: left; }
   .itens td { padding: 0; vertical-align: top; }
   .itens .num { text-align: right; white-space: nowrap; padding-left: 6px; }
   .itens .produto td { padding-top: 4px; }
-  .total { margin-top: 2px; font-size: 13px; font-weight: bold; }
+  .total { margin-top: 2px; font-size: 14px; }
   .doc-pagamentos { margin: 2px 0 0; padding: 0; list-style: none; }
-  .aviso { margin-top: 6px; font-weight: bold; }
+  .aviso { margin-top: 6px; }
 </style>
 </head>
 <body data-documento-bobina="80mm">
