@@ -82,7 +82,7 @@ export default function EdicaoProduto({
   const reqIdRef = useRef(0);
   const originalProductRef = useRef<Produto | undefined>(undefined);
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
-  const { grupos } = useGruposProduto();
+  const { grupos, loadingGrupos, adicionarGrupo } = useGruposProduto();
   const config = useConfig();
   const precoMedioCompraObrigatorio = config?.produto_preco_medio_compra_obrigatorio === true;
   const ncmObrigatorio = config?.produto_ncm_obrigatorio === true;
@@ -109,6 +109,23 @@ export default function EdicaoProduto({
       setLoadError(error?.response?.data?.error ?? "Erro ao buscar produto.");
     } finally {
       if (myId === reqIdRef.current) setIsLoading(false);
+    }
+  };
+
+  // Depois de salvar, a tela ja mostra o que o PATCH devolveu; falta so o que
+  // ele nao traz (vendas, ordens, movimentos, imagem principal). Busca sem
+  // overlay e sem desmontar as abas. Se o usuario voltou a editar enquanto a
+  // busca andava, a edicao dele fica e so a base de comparacao e atualizada.
+  const handleRefreshSilencioso = async (id: number, exibido: Produto) => {
+    const myId = ++reqIdRef.current;
+    try {
+      const response = await axios.get(`/api/products/${id}`);
+      if (myId !== reqIdRef.current || response.status !== 200) return;
+      const fresh = response.data.data as Produto;
+      originalProductRef.current = fresh;
+      setSelectedProduct((current) => (current === exibido ? fresh : current));
+    } catch (error) {
+      console.error("Erro ao recarregar produto após salvar:", error);
     }
   };
 
@@ -204,7 +221,7 @@ export default function EdicaoProduto({
         } else if (imagensHook.ordemAlterada) {
           await imagensHook.salvarOrdem();
         }
-        await handleGetProduct(data.data.id);
+        await handleRefreshSilencioso(data.data.id, data.data);
         onAfterSaveProduct?.();
         toast.success("Sucesso!", { description: "Produto atualizado.", duration: 1500 });
       }
@@ -369,6 +386,8 @@ export default function EdicaoProduto({
               onChange={handleChange}
               unidades={unidades}
               grupos={grupos}
+              loadingGrupos={loadingGrupos}
+              onGrupoCriado={adicionarGrupo}
               loadingUnidades={loadingUnidades}
               errorUnidades={errorUnidades}
               showDates

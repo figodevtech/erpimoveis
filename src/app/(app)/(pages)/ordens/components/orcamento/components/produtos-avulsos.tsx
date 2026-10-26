@@ -126,7 +126,6 @@ export function ProdutosAvulsos({ itens, onAdicionar, onAtualizar, onRemover, on
         status_estoque: Estoque_status.OK,
         unidade: Unidade_medida.UN,
         fornecedor: "DESCONHECIDO",
-        grupo_produto_id: 1,
       }
     : undefined;
 

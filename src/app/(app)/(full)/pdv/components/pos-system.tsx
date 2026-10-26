@@ -26,6 +26,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ScanBarcode,
+  Pencil,
 } from "lucide-react";
 import Image from "next/image";
 import { Estoque_status, Produto } from "@/app/(app)/(pages)/estoque/types";
@@ -43,8 +44,10 @@ import {
 } from "@/components/ui/tooltip";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -69,7 +72,10 @@ import {
 import { VendaConfirmacaoFields } from "@/components/vendas/venda-confirmacao-fields";
 import { DialogShell } from "@/app/(app)/(pages)/ordens/components/dialogs/dialog-shell";
 import { CameraScannerDialog } from "@/app/(app)/(pages)/estoque/components/dialog-produto/camera-scanner-dialog";
+import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/dialog-produto";
 import { criarDetectorDeLeitura, type ResultadoDaLeitura } from "@/lib/leitor-codigo-barras";
+import { useSession } from "next-auth/react";
+import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 interface CartItem {
   id: number;
@@ -146,9 +152,23 @@ export function POSSystem() {
   const cartRef = useRef<CartItem[]>([]);
   // Leituras em sequencia rapida sao atendidas uma de cada vez, na ordem.
   const filaDeLeituras = useRef<Promise<void>>(Promise.resolve());
+  const [isNovoProdutoOpen, setIsNovoProdutoOpen] = useState(false);
+  // Remonta o cadastro a cada abertura: fechar pelo PDV nao passa pelo
+  // onOpenChange do dialog, que e quem limpa o formulario.
+  const [novoProdutoVersion, setNovoProdutoVersion] = useState(0);
   const { grupos } = useGruposProduto();
   const router = useRouter();
   const config = useConfig();
+  const { data: session } = useSession();
+  const podeCadastrarProduto = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.ESTOQUE_CRIAR,
+  );
+  const podeEditarProduto = permissionSetHas(
+    (session?.user as any)?.permissoes,
+    PERMS.ESTOQUE_EDITAR,
+  );
+  const [produtoEdicaoId, setProdutoEdicaoId] = useState<number>();
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -159,11 +179,16 @@ export function POSSystem() {
     return () => window.clearTimeout(timer);
   }, [searchTerm]);
 
-  const fetchProdutos = useCallback(async (page: number) => {
+  // `silencioso` e a atualizacao depois de cadastrar/editar um produto: sem
+  // indicador de carregamento e, se falhar, o catalogo fica como estava.
+  const fetchProdutos = useCallback(async (page: number, silencioso = false) => {
+    // Uma navegacao do operador ja em andamento traz a lista atualizada; a
+    // atualizacao silenciosa nao a cancela para voltar a uma pagina antiga.
+    if (silencioso && productsRequest.current) return;
     productsRequest.current?.abort();
     const controller = new AbortController();
     productsRequest.current = controller;
-    setLoadingProductsPage(true);
+    if (!silencioso) setLoadingProductsPage(true);
     try {
       const response = await axios.get("/api/pdv/products", {
         signal: controller.signal,
@@ -184,6 +209,10 @@ export function POSSystem() {
       setProductsTotal(Number(response.data?.pagination?.total ?? items.length));
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (silencioso) {
+        console.error("Erro ao atualizar o catálogo do PDV:", error);
+        return;
+      }
       if (isAxiosError(error)) {
         toast.error("Falha ao buscar produtos", {
           description: error.response?.data?.error || error.message,
@@ -398,6 +427,33 @@ export function POSSystem() {
       });
     } finally {
       setLendoCodigo(false);
+    }
+  }, []);
+
+  // Depois de editar pelo PDV, o item do carrinho passa a usar o titulo, o
+  // preco e o grupo salvos, inclusive sobre um preco ajustado a mao.
+  const atualizarProdutoNoCarrinho = useCallback(async (produtoId: number) => {
+    if (!cartRef.current.some((item) => item.id === produtoId)) return;
+    try {
+      const response = await axios.get(`/api/products/${produtoId}`);
+      const produto = response.data?.data as Produto | undefined;
+      if (!produto) return;
+      const proximo = cartRef.current.map((item) =>
+        item.id === produtoId
+          ? {
+              ...item,
+              titulo: produto.titulo || "SEM TÍTULO",
+              precovenda: produto.precovenda != null ? Number(produto.precovenda) : item.precovenda,
+              grupo: produto.grupo?.nome || "SEM GRUPO",
+            }
+          : item,
+      );
+      cartRef.current = proximo;
+      setCart(proximo);
+    } catch (error) {
+      toast.error("Produto salvo; o carrinho não foi atualizado", {
+        description: isAxiosError(error) ? error.response?.data?.error || error.message : undefined,
+      });
     }
   }, []);
 
@@ -683,6 +739,21 @@ export function POSSystem() {
                     {productsTotal} produtos encontrados · página {productsPage} de {productsTotalPages}
                   </p>
                 </div>
+                {podeCadastrarProduto ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto h-8 shrink-0 rounded-none"
+                    onClick={() => {
+                      setNovoProdutoVersion((version) => version + 1);
+                      setIsNovoProdutoOpen(true);
+                    }}
+                  >
+                    <Plus className="size-4" aria-hidden="true" />
+                    Novo produto
+                  </Button>
+                ) : null}
               </header>
               <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(12rem,16rem)] sm:p-4">
                 <div className="flex min-w-0 gap-2">
@@ -863,6 +934,23 @@ export function POSSystem() {
                               </div>
                             </div>
                           </div>
+                          {podeEditarProduto && selectedProductInfo?.id ? (
+                            <DialogFooter>
+                              {/* Fecha os detalhes antes de abrir a edicao: ao voltar, eles
+                                  mostrariam os dados de antes de salvar. */}
+                              <DialogClose asChild>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="rounded-none"
+                                  onClick={() => setProdutoEdicaoId(selectedProductInfo.id)}
+                                >
+                                  <Pencil className="size-4" aria-hidden="true" />
+                                  Editar produto
+                                </Button>
+                              </DialogClose>
+                            </DialogFooter>
+                          ) : null}
                         </DialogContent>
                       </Dialog>
 
@@ -1174,6 +1262,34 @@ export function POSSystem() {
         description="Aponte a câmera para o código de barras da embalagem, centralizado na linha vermelha."
         onDetected={enfileirarLeitura}
       />
+
+      {podeCadastrarProduto ? (
+        <DialogProduto
+          key={novoProdutoVersion}
+          isOpen={isNovoProdutoOpen}
+          setIsOpen={setIsNovoProdutoOpen}
+          // O cadastro avisa o id ao terminar sem "cadastrar outro": no PDV isso
+          // fecha o dialog em vez de abrir a edicao do produto.
+          setSelectedProductId={(produtoId) => {
+            if (produtoId) setIsNovoProdutoOpen(false);
+          }}
+          onAfterSaveProduct={() => void fetchProdutos(productsPage, true)}
+        />
+      ) : null}
+
+      {podeEditarProduto && produtoEdicaoId ? (
+        <DialogProduto
+          productId={produtoEdicaoId}
+          isOpen
+          setIsOpen={(open) => {
+            if (!open) setProdutoEdicaoId(undefined);
+          }}
+          onAfterSaveProduct={() => {
+            void fetchProdutos(productsPage, true);
+            void atualizarProdutoNoCarrinho(produtoEdicaoId);
+          }}
+        />
+      ) : null}
 
       <DialogShell
         open={isAlertOpen}

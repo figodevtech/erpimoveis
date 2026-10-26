@@ -17,17 +17,8 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,31 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-type GrupoProduto = {
-  id: number;
-  nome: string;
-  descricao: string | null;
-  ativo: boolean | null;
-  exibirPdv: boolean;
-  exibirSite: boolean;
-};
-
-type GrupoForm = {
-  nome: string;
-  descricao: string;
-  ativo: boolean;
-  exibirPdv: boolean;
-  exibirSite: boolean;
-};
-
-const emptyForm: GrupoForm = {
-  nome: "",
-  descricao: "",
-  ativo: true,
-  exibirPdv: true,
-  exibirSite: true,
-};
+import GrupoProdutoDialog, { type GrupoProduto } from "./grupoProdutoDialog/grupo-produto-dialog";
 
 const DEFAULT_LIMIT = 10;
 
@@ -70,9 +37,7 @@ export default function GruposProdutoSection() {
   const [erro, setErro] = useState<string | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [editing, setEditing] = useState<GrupoProduto | null>(null);
-  const [form, setForm] = useState<GrupoForm>(emptyForm);
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
@@ -147,98 +112,14 @@ export default function GruposProdutoSection() {
     loadGrupos();
   }, []);
 
-  function handleChange<K extends keyof GrupoForm>(key: K, value: GrupoForm[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
-
   function openNovo() {
     setEditing(null);
-    setForm(emptyForm);
     setDialogOpen(true);
   }
 
   function openEditar(g: GrupoProduto) {
     setEditing(g);
-    setForm({
-      nome: g.nome ?? "",
-      descricao: g.descricao ?? "",
-      ativo: g.ativo ?? true,
-      exibirPdv: g.exibirPdv,
-      exibirSite: g.exibirSite,
-    });
     setDialogOpen(true);
-  }
-
-  // Instalacoes sem loja tambem passam por aqui; so avisa da falha quando o
-  // usuario mexeu justamente no "Exibir no site".
-  async function syncSite(avisarFalha: boolean) {
-    try {
-      const res = await fetch("/api/integracoes/site/catalog/sync", { method: "POST" });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j?.error || "Falha ao sincronizar com o site.");
-      if (avisarFalha) toast.success("Site atualizado.");
-    } catch (e: any) {
-      if (avisarFalha) {
-        toast.warning("Grupo salvo, mas o site não foi atualizado.", {
-          description: e?.message || "Sincronize o catálogo no módulo Marketplace.",
-        });
-      }
-    }
-  }
-
-  async function handleSave() {
-    if (!form.nome.trim()) {
-      toast.error("Informe o nome do grupo.");
-      return;
-    }
-
-    const payload = {
-      nome: form.nome.trim(),
-      descricao: form.descricao.trim() || null,
-      ativo: form.ativo,
-      exibirPdv: form.exibirPdv,
-      exibirSite: form.exibirSite,
-    };
-
-    try {
-      setIsSaving(true);
-
-      if (editing) {
-        const res = await fetch(`/api/tipos/grupos-produto/${editing.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j?.error || "Falha ao atualizar grupo de produto");
-        toast.success("Grupo de produto atualizado.");
-
-        // Nome, status e exibirSite chegam ao site; o banco ja enfileirou os
-        // produtos do grupo, falta enviar.
-        const exibirSiteMudou = editing.exibirSite !== form.exibirSite;
-        if (exibirSiteMudou || editing.nome !== payload.nome || editing.ativo !== form.ativo) {
-          await syncSite(exibirSiteMudou);
-        }
-      } else {
-        const res = await fetch("/api/tipos/grupos-produto", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j?.error || "Falha ao cadastrar grupo de produto");
-        toast.success("Grupo de produto cadastrado.");
-      }
-
-      setDialogOpen(false);
-      setEditing(null);
-      setForm(emptyForm);
-      await loadGrupos();
-    } catch (e: any) {
-      toast.error(e?.message || "Erro ao salvar grupo de produto");
-    } finally {
-      setIsSaving(false);
-    }
   }
 
   return (
@@ -266,99 +147,20 @@ export default function GruposProdutoSection() {
             </CardDescription>
           </div>
 
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm" onClick={openNovo} disabled={!canCreate} className="hover:cursor-pointer">
-                <Plus className="mr-1 h-4 w-4" />
-                Grupo
-              </Button>
-            </DialogTrigger>
-
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>{editing ? "Editar grupo de produto" : "Novo grupo de produto"}</DialogTitle>
-              </DialogHeader>
-
-              <div className="mt-4 space-y-4">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">Nome do grupo</label>
-                  <Input value={form.nome} onChange={(e) => handleChange("nome", e.target.value)} placeholder="Ex.: MOTOR, FREIOS..." />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-sm font-medium">Descricao</label>
-                  <Input
-                    value={form.descricao}
-                    onChange={(e) => handleChange("descricao", e.target.value)}
-                    placeholder="Descricao amigavel para relatorios (opcional)"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between rounded-md border px-3 py-2 bg-muted/40">
-                  <div className="space-y-0.5">
-                    <span className="text-sm font-medium">Status do grupo</span>
-                    <p className="text-xs text-muted-foreground">
-                      Defina se este grupo pode ser usado nos produtos.
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground hidden sm:inline">
-                      {form.ativo ? "Ativo" : "Inativo"}
-                    </span>
-                    <Switch checked={form.ativo} onCheckedChange={(val) => handleChange("ativo", val)} />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 bg-muted/40">
-                  <div className="space-y-0.5">
-                    <label htmlFor="grupo-exibir-pdv" className="text-sm font-medium">Exibir no PDV</label>
-                    <p id="grupo-exibir-pdv-descricao" className="text-xs text-muted-foreground">
-                      Ao desativar, todos os produtos deste grupo ficam ocultos no PDV,
-                      mesmo que estejam habilitados individualmente.
-                    </p>
-                  </div>
-                  <Switch
-                    id="grupo-exibir-pdv"
-                    aria-describedby="grupo-exibir-pdv-descricao"
-                    checked={form.exibirPdv}
-                    onCheckedChange={(val) => handleChange("exibirPdv", val)}
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 bg-muted/40">
-                  <div className="space-y-0.5">
-                    <label htmlFor="grupo-exibir-site" className="text-sm font-medium">Exibir no site</label>
-                    <p id="grupo-exibir-site-descricao" className="text-xs text-muted-foreground">
-                      Ao desativar, a categoria e todos os produtos deste grupo ficam ocultos no site,
-                      mesmo que estejam publicados individualmente.
-                    </p>
-                  </div>
-                  <Switch
-                    id="grupo-exibir-site"
-                    aria-describedby="grupo-exibir-site-descricao"
-                    checked={form.exibirSite}
-                    onCheckedChange={(val) => handleChange("exibirSite", val)}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-6 flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => {
-                    setDialogOpen(false);
-                    setEditing(null);
-                    setForm(emptyForm);
-                  }}
-                >
-                  Cancelar
-                </Button>
-                <Button type="button" onClick={handleSave} disabled={isSaving}>
-                  {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Salvar
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <GrupoProdutoDialog
+            open={dialogOpen}
+            onOpenChange={(open) => {
+              setDialogOpen(open);
+              if (!open) setEditing(null);
+            }}
+            editing={editing}
+            onSaved={() => loadGrupos()}
+          >
+            <Button size="sm" onClick={openNovo} disabled={!canCreate} className="hover:cursor-pointer">
+              <Plus className="mr-1 h-4 w-4" />
+              Grupo
+            </Button>
+          </GrupoProdutoDialog>
         </div>
       </CardHeader>
 
