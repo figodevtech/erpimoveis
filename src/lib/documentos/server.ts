@@ -7,6 +7,9 @@ import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { PERMS, type Permission } from "@/app/api/_authz/permission-constants";
 
+import { CATALOGOS } from "./catalogo";
+import { montarContexto } from "./contexto-server";
+import { renderizarModelo } from "./motor";
 import {
   LIMITE_HTML_DOCUMENTO,
   MODULOS_DOCUMENTO,
@@ -15,7 +18,7 @@ import {
   type ModuloDocumento,
 } from "./tipos";
 
-export const COLUNAS_DOCUMENTO = "id, codigo_padrao, modulo, nome, html, ativo, ordem, created_at, updated_at";
+export const COLUNAS_DOCUMENTO = "id, codigo_padrao, modulo, nome, html, ativo, ordem, impressao_rapida, created_at, updated_at";
 
 /** Quem pode emitir os documentos de cada módulo: quem enxerga o módulo. */
 export const PERMISSAO_DO_MODULO: Record<ModuloDocumento, Permission> = {
@@ -33,6 +36,8 @@ export const DocumentoSchema = z.object({
     .refine((v) => v.length <= LIMITE_HTML_DOCUMENTO, "O documento passou do limite de 200 mil caracteres."),
   ativo: z.boolean().default(true),
   ordem: z.number().int().min(0).max(9999).default(0),
+  // Sem o campo, a gravação não mexe nele (e o banco cria desligado).
+  impressao_rapida: z.boolean().optional(),
 });
 
 export type DocumentoEntrada = z.infer<typeof DocumentoSchema>;
@@ -89,7 +94,7 @@ export async function listarDocumentos(modulo?: ModuloDocumento | null): Promise
 export async function listarParaEmitir(modulo: ModuloDocumento): Promise<DocumentoParaEmitir[]> {
   const { data, error } = await supabaseAdmin
     .from("documento_modelo")
-    .select("id, nome")
+    .select("id, nome, impressao_rapida")
     .eq("modulo", modulo)
     .eq("ativo", true)
     .eq("is_deleted", false)
@@ -108,6 +113,21 @@ export async function buscarDocumento(id: number): Promise<DocumentoModelo | nul
     .maybeSingle();
   if (error) throw error;
   return (data ?? null) as DocumentoModelo | null;
+}
+
+/**
+ * O modelo preenchido com o registro, igual na aba do documento e na
+ * impressão rápida. `null` quando o registro não existe.
+ */
+export async function preencherDocumento(modelo: DocumentoModelo, registroId: number): Promise<string | null> {
+  const session = await auth();
+  const usuario = session?.user as { nome?: string | null; name?: string | null; email?: string | null } | undefined;
+  const contexto = await montarContexto(modelo.modulo, registroId, {
+    nomeDocumento: modelo.nome,
+    emitidoPor: usuario?.nome ?? usuario?.name ?? usuario?.email ?? null,
+    agora: new Date(),
+  });
+  return contexto ? renderizarModelo(modelo.html, contexto, CATALOGOS[modelo.modulo]) : null;
 }
 
 export async function criarDocumento(entrada: DocumentoEntrada, usuarioId: string) {

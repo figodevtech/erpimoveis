@@ -6,6 +6,7 @@ export type DocumentoPayload = {
   html: string;
   ativo: boolean;
   ordem: number;
+  impressao_rapida: boolean;
 };
 
 async function corpoOuErro<T>(resposta: Response, fallback: string): Promise<T> {

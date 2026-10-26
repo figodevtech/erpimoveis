@@ -24,6 +24,7 @@ export default async function EditarDocumentoPage({ params }: PageProps) {
         html: documento.html,
         ativo: documento.ativo,
         ordem: documento.ordem,
+        impressao_rapida: documento.impressao_rapida,
       }}
     />
   );
