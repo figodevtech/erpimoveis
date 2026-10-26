@@ -214,6 +214,7 @@ export async function POST(req: NextRequest) {
         codigo: item.codigo,
         ean: item.ean,
         descricao: item.descricao,
+        informacaoAdicional: item.informacaoAdicional,
         ncm: item.ncm,
         cest: item.cest,
         cfop: item.cfop,

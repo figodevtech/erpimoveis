@@ -82,6 +82,7 @@ const VENDA: GrupoVariaveis = {
   variaveis: [
     v("venda.numero", "Número da venda"),
     v("venda.data", "Data da venda"),
+    v("venda.data_hora", "Data e hora da venda"),
     v("venda.ano", "Ano da venda (2026)"),
     v("venda.ano_curto", "Ano da venda com dois dígitos (26)"),
     v("venda.status", "Status"),
@@ -250,12 +251,20 @@ const ITENS_ALUGUEL: ListaDocumento = {
 };
 
 /**
- * Exatamente uma das duas vale quando há cliente: sem tipo no cadastro, conta
- * o documento (14 dígitos é CNPJ). Sem cliente nenhuma vale.
+ * Exatamente uma das três vale: com cliente, jurídica ou física (sem tipo no
+ * cadastro, conta o documento: 14 dígitos é CNPJ); sem cliente, a última.
  */
 const CONDICOES_CLIENTE: CondicaoDocumento[] = [
   { chave: "se_pessoa_juridica", rotulo: "Só quando o cliente é pessoa jurídica (CNPJ)" },
   { chave: "se_pessoa_fisica", rotulo: "Só quando o cliente é pessoa física (CPF)" },
+  { chave: "se_sem_cliente", rotulo: "Só quando não há cliente identificado" },
+];
+
+/** Linhas de total que só aparecem quando há valor, como no cupom. */
+const CONDICOES_VENDA: CondicaoDocumento[] = [
+  { chave: "se_desconto", rotulo: "Só quando a venda tem desconto" },
+  { chave: "se_frete", rotulo: "Só quando a venda tem frete" },
+  { chave: "se_acrescimo", rotulo: "Só quando a venda tem acréscimo financeiro" },
 ];
 
 export const CATALOGOS: Record<ModuloDocumento, CatalogoModulo> = {
@@ -263,7 +272,7 @@ export const CATALOGOS: Record<ModuloDocumento, CatalogoModulo> = {
     modulo: "venda",
     grupos: [VENDA, CLIENTE, ENTREGA, EMPRESA, DOCUMENTO, PAGINA],
     listas: [ITENS_VENDA],
-    condicoes: CONDICOES_CLIENTE,
+    condicoes: [...CONDICOES_CLIENTE, ...CONDICOES_VENDA],
   },
   os: {
     modulo: "os",

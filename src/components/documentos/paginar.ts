@@ -10,6 +10,9 @@
 //   {{pagina.atual}} / {{pagina.total}} dentro do cabeçalho ou do rodapé
 // e também `break-before`, `break-after` e `break-inside: avoid` do CSS.
 // Sem marcador de número no modelo, cada folha ganha "Página X de Y" no pé.
+//
+// Cupom em impressora térmica: `<body data-documento-bobina="80mm">` troca as
+// folhas A4 por uma tira só, da largura dada e da altura do conteúdo.
 
 const NAO_DIVIDE = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "IMG", "SVG", "THEAD", "TFOOT", "PRE", "BLOCKQUOTE", "FIGURE", "CANVAS"]);
 /** O que não se parte como texto: linha de tabela, imagem, figura. */
@@ -17,12 +20,22 @@ const SEM_TEXTO_PARTIVEL = new Set(["TR", "TABLE", "THEAD", "TBODY", "TFOOT", "I
 const QUEBRA = new Set(["page", "always", "left", "right", "recto", "verso"]);
 const EVITA = new Set(["avoid", "avoid-page"]);
 const MARGEM_PADRAO = "15mm";
+const MARGEM_BOBINA = "3mm";
+const LARGURA_BOBINA = /^\d{2,3}(?:\.\d+)?mm$/;
+const MM_POR_PX = 25.4 / 96;
 
 export type Margens = { top: string; right: string; bottom: string; left: string };
 
-/** As margens do `@page` do modelo; sem elas, 15 mm. */
+/** Largura do papel de bobina (`data-documento-bobina="80mm"`); `null` é A4. */
+export function larguraDaBobina(doc: Document): string | null {
+  const valor = doc.body?.getAttribute("data-documento-bobina")?.trim() ?? "";
+  return LARGURA_BOBINA.test(valor) ? valor : null;
+}
+
+/** As margens do `@page` do modelo; sem elas, 15 mm (3 mm na bobina). */
 export function margensDoModelo(doc: Document): Margens {
-  const margens: Margens = { top: MARGEM_PADRAO, right: MARGEM_PADRAO, bottom: MARGEM_PADRAO, left: MARGEM_PADRAO };
+  const padrao = larguraDaBobina(doc) ? MARGEM_BOBINA : MARGEM_PADRAO;
+  const margens: Margens = { top: padrao, right: padrao, bottom: padrao, left: padrao };
   for (const folha of Array.from(doc.styleSheets)) {
     let regras: CSSRuleList;
     try {
@@ -82,17 +95,66 @@ function temConteudo(el: Element) {
 
 export type ResultadoPaginacao = { folhas: number };
 
+/**
+ * A tira de bobina: o conteúdo corre inteiro, sem quebra, e a página impressa
+ * tem a altura medida dele — a térmica corta logo depois do fim.
+ */
+function montarBobina(doc: Document, largura: string): ResultadoPaginacao {
+  const body = doc.body;
+  const m = margensDoModelo(doc);
+  const css = doc.createElement("style");
+  css.setAttribute("data-documento-paginacao", "");
+  doc.head.appendChild(css);
+  const estilo = (alturaMm: number | null) => `
+@page { ${alturaMm ? `size: ${largura} ${alturaMm}mm; ` : ""}margin: 0; }
+html, body { margin: 0 !important; padding: 0 !important; }
+@media screen { html, body { background: transparent !important; } }
+.doc-paginas { display: flex; justify-content: center; padding: 12px 0; }
+.doc-bobina {
+  box-sizing: border-box; width: ${largura}; background: #fff;
+  padding: ${m.top} ${m.right} ${m.bottom} ${m.left};
+  box-shadow: 0 1px 2px rgba(15,23,42,.10), 0 10px 28px -12px rgba(15,23,42,.40);
+}
+@media print {
+  html, body { background: #fff !important; }
+  .doc-paginas { display: block; padding: 0; }
+  .doc-bobina { box-shadow: none; }
+}`;
+  css.textContent = estilo(null);
+
+  const conjunto = doc.createElement("div");
+  conjunto.className = "doc-paginas";
+  const bobina = doc.createElement("section");
+  bobina.className = "doc-bobina";
+  Array.from(body.childNodes).forEach((no) => bobina.appendChild(no));
+  conjunto.appendChild(bobina);
+  body.appendChild(conjunto);
+
+  // Na bobina não há quebra nem segunda folha.
+  bobina.querySelectorAll('[data-documento="quebra"]').forEach((el) => el.remove());
+  bobina.querySelectorAll("[data-documento-pagina]").forEach((s) => (s.textContent = "1"));
+
+  // Um milímetro de folga para o arredondamento não empurrar uma página em branco.
+  css.textContent = estilo(Math.ceil(bobina.getBoundingClientRect().height * MM_POR_PX) + 1);
+
+  body.setAttribute("data-documento-paginado", "");
+  return { folhas: 1 };
+}
+
 export function paginarDocumento(doc: Document): ResultadoPaginacao {
   const body = doc.body;
   const janela = doc.defaultView;
   if (!body || !janela) return { folhas: 0 };
   if (body.hasAttribute("data-documento-paginado")) {
-    return { folhas: body.querySelectorAll(".doc-folha").length };
+    return { folhas: body.querySelectorAll(".doc-folha, .doc-bobina").length };
   }
   const estilo = (el: Element) => janela.getComputedStyle(el);
 
   // <style> perdido no corpo vai para o head: ele não é conteúdo de folha.
   body.querySelectorAll("style").forEach((s) => doc.head.appendChild(s));
+
+  const bobina = larguraDaBobina(doc);
+  if (bobina) return montarBobina(doc, bobina);
 
   const cabecalho = body.querySelector<HTMLElement>('[data-documento="cabecalho"]');
   const rodape = body.querySelector<HTMLElement>('[data-documento="rodape"]');

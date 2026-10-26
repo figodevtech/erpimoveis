@@ -6,17 +6,19 @@
 //
 // A alteração vale só para aquela impressão: não muda o modelo nem o registro.
 
-import { margensDoModelo } from "./paginar";
+import { larguraDaBobina, margensDoModelo } from "./paginar";
 
 /** Marca o que a edição põe no documento e tira ao devolver o HTML. */
 const MARCA = "data-documento-edicao";
 
 function estiloDaEdicao(doc: Document) {
   const m = margensDoModelo(doc);
+  // Cupom de bobina é editado na largura do rolo, sem altura de folha.
+  const bobina = larguraDaBobina(doc);
   return `
 html { padding: 12px 0 !important; margin: 0 !important; background: transparent !important; }
 body {
-  box-sizing: border-box !important; width: 210mm !important; min-height: 297mm;
+  box-sizing: border-box !important; width: ${bobina ?? "210mm"} !important; min-height: ${bobina ? "0" : "297mm"};
   margin: 0 auto !important; padding: ${m.top} ${m.right} ${m.bottom} ${m.left} !important;
   background: #fff; outline: none; caret-color: #2563eb;
   box-shadow: 0 1px 2px rgba(15,23,42,.10), 0 10px 28px -12px rgba(15,23,42,.40);

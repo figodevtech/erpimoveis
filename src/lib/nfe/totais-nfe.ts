@@ -191,6 +191,8 @@ export interface ItemFiscalDaNota {
   codigo: string | null;
   ean: string | null;
   descricao: string | null;
+  /** `det/infAdProd`: texto livre do emitente, onde costuma vir descrição longa e referência. */
+  informacaoAdicional: string | null;
   ncm: string | null;
   cest: string | null;
   cfop: string | null;
@@ -361,6 +363,7 @@ export function lerItensDaNota(infNFe: unknown): ItemFiscalDaNota[] {
         codigo: paraTexto(prod.cProd),
         ean: paraTexto(prod.cEAN),
         descricao: paraTexto(prod.xProd),
+        informacaoAdicional: paraTexto(det.infAdProd),
         ncm: paraTexto(prod.NCM),
         cest: paraTexto(prod.CEST),
         cfop: paraTexto(prod.CFOP),

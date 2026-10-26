@@ -55,18 +55,34 @@ test("empresa: endereço completo com a cidade; sem ela, só a UF", () => {
   assert.equal(semCidade.empresa.endereco, "Av. Epitácio Pessoa, nº 1000, Loja 2 · Tambaú · PB · CEP 58039-000");
 });
 
-test("condições do cliente: exatamente uma vale quando há cliente; sem cliente, nenhuma", () => {
+test("condições do cliente: exatamente uma das três vale", () => {
   const venda = (cliente: unknown) =>
     contextoDaVenda({ venda: { ...VENDA_EXEMPLO, cliente }, empresa: null, pagamentos: null, emissao: EMISSAO }) as any;
+  const condicoes = (ctx: any) => [ctx.se_pessoa_juridica, ctx.se_pessoa_fisica, ctx.se_sem_cliente];
   const pj = venda({ nomerazaosocial: "ACME LTDA", tipopessoa: "JURIDICA", cpfcnpj: "30430969000163" });
-  assert.deepEqual([pj.se_pessoa_juridica, pj.se_pessoa_fisica], [true, false]);
+  assert.deepEqual(condicoes(pj), [true, false, false]);
   const pf = venda({ nomerazaosocial: "Maria", tipopessoa: "FISICA", cpfcnpj: "12345678909" });
-  assert.deepEqual([pf.se_pessoa_juridica, pf.se_pessoa_fisica], [false, true]);
+  assert.deepEqual(condicoes(pf), [false, true, false]);
   // Sem tipo no cadastro, o documento decide.
   const semTipo = venda({ nomerazaosocial: "ACME", cpfcnpj: "30.430.969/0001-63" });
-  assert.deepEqual([semTipo.se_pessoa_juridica, semTipo.se_pessoa_fisica], [true, false]);
-  const semCliente = venda(null);
-  assert.deepEqual([semCliente.se_pessoa_juridica, semCliente.se_pessoa_fisica], [false, false]);
+  assert.deepEqual(condicoes(semTipo), [true, false, false]);
+  assert.deepEqual(condicoes(venda(null)), [false, false, true]);
+});
+
+test("venda: linhas de desconto, frete e acréscimo só quando há valor", () => {
+  const venda = (extra: Record<string, unknown>) =>
+    contextoDaVenda({ venda: { ...VENDA_EXEMPLO, ...extra }, empresa: null, pagamentos: null, emissao: EMISSAO }) as any;
+  const exemplo = venda({});
+  assert.deepEqual([exemplo.se_desconto, exemplo.se_frete], [true, true]);
+  const limpa = venda({
+    itens: [{ id: 1, quantidade: 1, sub_total: 35, valor_total: 35, produto: { titulo: "Filtro de ar" } }],
+    desconto_tipo: null,
+    desconto_valor: 0,
+    valor_frete: 0,
+    acrescimo_financeiro_tipo: null,
+    acrescimo_financeiro_valor: 0,
+  });
+  assert.deepEqual([limpa.se_desconto, limpa.se_frete, limpa.se_acrescimo], [false, false, false]);
 });
 
 test("venda: totais iguais aos do diálogo (descontos de item e geral, frete)", () => {
