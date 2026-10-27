@@ -42,7 +42,7 @@ export default function DialogClienteCompras() {
               </Button>
               {customer && <Button type="button" variant="outline" size="icon" aria-label="Limpar cliente" onClick={() => setCustomer(undefined)}><X className="h-4 w-4" /></Button>}
             </div>
-            <CustomerSelect open={customerSelectOpen} setOpen={setCustomerSelectOpen} OnSelect={(selected) => { setCustomer(selected); setCustomerSelectOpen(false); }} />
+            <CustomerSelect permitirConsumidorFinal open={customerSelectOpen} setOpen={setCustomerSelectOpen} OnSelect={(selected) => { setCustomer(selected); setCustomerSelectOpen(false); }} />
           </div>
           <ReportPeriod dateFrom={dateFrom} dateTo={dateTo} onDateFromChange={setDateFrom} onDateToChange={setDateTo} />
         </ReportFiltersPanel>

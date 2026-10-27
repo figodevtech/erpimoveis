@@ -67,6 +67,10 @@ test("condições do cliente: exatamente uma das três vale", () => {
   const semTipo = venda({ nomerazaosocial: "ACME", cpfcnpj: "30.430.969/0001-63" });
   assert.deepEqual(condicoes(semTipo), [true, false, false]);
   assert.deepEqual(condicoes(venda(null)), [false, false, true]);
+  // O Consumidor Final do sistema é venda sem cliente identificado.
+  const consumidorFinal = venda({ nomerazaosocial: "CONSUMIDOR FINAL", tipopessoa: "FISICA", cpfcnpj: null, codigo_sistema: "consumidor_final" });
+  assert.deepEqual(condicoes(consumidorFinal), [false, false, true]);
+  assert.equal(consumidorFinal.cliente.nome, "");
 });
 
 test("venda: linhas de desconto, frete e acréscimo só quando há valor", () => {

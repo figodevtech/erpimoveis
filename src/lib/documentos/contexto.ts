@@ -168,9 +168,12 @@ function contextoCliente(cliente: ClienteDocumento | null) {
   };
 }
 
-/** Cliente do cadastro (`cliente`), no formato que os documentos esperam. */
+/**
+ * Cliente do cadastro (`cliente`), no formato que os documentos esperam. O
+ * Consumidor Final é a venda sem cliente identificado: sai como sem cliente.
+ */
 export function clienteDoCadastro(cliente: Linha | null): ClienteDocumento | null {
-  if (!cliente) return null;
+  if (!cliente || cliente.codigo_sistema) return null;
   return {
     ...cliente,
     nome: cliente.nomerazaosocial ?? cliente.nome,

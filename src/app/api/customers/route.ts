@@ -138,7 +138,7 @@ export async function GET(req: Request) {
         id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
         cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
   ind_ie_dest,
-        createdat, updatedat,endereconumero, enderecocomplemento, status, rank, foto_url
+        createdat, updatedat,endereconumero, enderecocomplemento, status, rank, foto_url, codigo_sistema
         `,
         { count: "exact" }
       )

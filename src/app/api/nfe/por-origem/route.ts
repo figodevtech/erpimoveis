@@ -13,6 +13,7 @@ import {
   listarNotasPorOrigem,
   type TipoOrigemNota,
 } from "@/services/fiscal/notasPorOrigemService";
+import { permissoesDeEmissaoDasOrigens } from "@/services/fiscal/nfeOrigemService";
 
 export const runtime = "nodejs";
 
@@ -40,10 +41,13 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const nfes = await listarNotasPorOrigem(tipo, ids);
+    const [nfes, emissao] = await Promise.all([
+      listarNotasPorOrigem(tipo, ids),
+      tipo === "OS" || tipo === "VENDA" ? permissoesDeEmissaoDasOrigens(tipo, ids) : null,
+    ]);
 
     return NextResponse.json(
-      { ok: true, tipo, ids, nfes },
+      { ok: true, tipo, ids, nfes, emissao },
       { status: 200, headers: { "Cache-Control": "no-store" } },
     );
   } catch (error: any) {

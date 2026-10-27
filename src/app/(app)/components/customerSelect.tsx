@@ -57,6 +57,8 @@ interface CustomerSelectProps {
   OnSelect?: (value: Customer) => void;
   setOpen?: (value: boolean) => void;
   open?: boolean;
+  /** Inclui o Consumidor Final na busca; só as telas de venda o aceitam. */
+  permitirConsumidorFinal?: boolean;
 }
 
 function formatarCpfCnpj(val?: string | null) {
@@ -73,6 +75,7 @@ export default function CustomerSelect({
   OnSelect,
   setOpen,
   open,
+  permitirConsumidorFinal = false,
 }: CustomerSelectProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [pagination, setPagination] = useState<Pagination>({
@@ -113,6 +116,7 @@ export default function CustomerSelect({
           search: searchText !== undefined ? searchText : search,
           tipopessoa: tipo !== undefined ? tipo : tipoPessoaFilter,
           status: "TODOS",
+          ...(permitirConsumidorFinal ? { consumidorFinal: "1" } : {}),
         },
       });
 

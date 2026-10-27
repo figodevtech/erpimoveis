@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { requireClientesCreate } from "@/app/api/_authz/perms";
+import { recusaSeClienteDoSistema } from "@/lib/clientes/consumidor-final-server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const BUCKET = "cliente-images";
@@ -18,6 +19,8 @@ export async function POST(req: Request, context: Params) {
     if (!Number.isInteger(clienteId) || clienteId <= 0) {
       return NextResponse.json({ error: "ID inválido." }, { status: 400 });
     }
+    const recusa = await recusaSeClienteDoSistema(clienteId);
+    if (recusa) return recusa;
 
     const formData = await req.formData();
     const file = formData.get("file");

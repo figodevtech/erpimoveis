@@ -269,7 +269,7 @@ export function DialogRelatorioVendas() {
                 </Button>
                 {customer && <Button type="button" variant="outline" size="icon" onClick={() => setCustomer(undefined)} aria-label="Limpar cliente"><X className="h-4 w-4" /></Button>}
               </div>
-              <CustomerSelect open={customerOpen} setOpen={setCustomerOpen} OnSelect={(selected) => { setCustomer(selected); setCustomerOpen(false); }} />
+              <CustomerSelect permitirConsumidorFinal open={customerOpen} setOpen={setCustomerOpen} OnSelect={(selected) => { setCustomer(selected); setCustomerOpen(false); }} />
             </Field>
           </div>
         </ReportFiltersPanel>

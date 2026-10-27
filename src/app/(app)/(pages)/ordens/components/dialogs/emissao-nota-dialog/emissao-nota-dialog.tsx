@@ -42,6 +42,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/compon
 import { ExcluirRascunhoNfeButton } from "./excluirRascunhoNfeButton";
 import { CancelarNotaDialog } from "./cancelar-nota-dialog";
 import { MODELO_NFCE } from "@/lib/nfe/modeloDocumento";
+import type { PermissaoDeEmissao } from "@/lib/nfe/permissaoDeEmissao";
 import {
   dataDoDiaNFSe,
   politicaDeLucena,
@@ -303,6 +304,9 @@ export function EmissaoNotaDialog({
   const [openGerarNfse, setOpenGerarNfse] = useState(false);
   const [empresaFiscal, setEmpresaFiscal] = useState<EmpresaFiscal | null>(null);
   const [composicaoOs, setComposicaoOs] = useState<ComposicaoOs | null>(null);
+  // O que a origem pode gerar (`permissaoDeEmissao`). Sem resposta, nada é
+  // bloqueado aqui: o servidor recusa do mesmo jeito na geração do rascunho.
+  const [permissoes, setPermissoes] = useState<{ nfe: PermissaoDeEmissao; nfce: PermissaoDeEmissao } | null>(null);
   const [openCancelNfseDialog, setOpenCancelNfseDialog] = useState(false);
   const [selectedNfseId, setSelectedNfseId] = useState<number | null>(null);
   const [downloadingXmlId, setDownloadingXmlId] = useState<number | null>(null);
@@ -649,6 +653,7 @@ export function EmissaoNotaDialog({
         ? (json as any)?.message || `Erro ao buscar NF-e (HTTP ${res.status}).`
         : null;
       let fetchedNfes = erroNfe ? [] : (json as any).nfes ?? [];
+      if (!signal?.aborted) setPermissoes(erroNfe ? null : (json as any).emissao ?? null);
 
       if (origem === "OS" && osId) {
         // Na emissao agrupada, as NFS-e de todas as OS do grupo. Uma chamada
@@ -896,6 +901,8 @@ export function EmissaoNotaDialog({
   const composicaoPendente = origem === "OS" && composicaoOs === null;
   const temProdutos = origem !== "OS" || composicaoOs === null || composicaoOs.produtos > 0;
   const temServicos = origem === "OS" && (composicaoOs === null || composicaoOs.servicos > 0);
+  const bloqueioNfe = origem !== "SAIDA" && permissoes?.nfe.permitido === false ? permissoes.nfe.motivo : null;
+  const condicaoNfce = permissoes?.nfce.permitido ? permissoes.nfce.condicao : null;
   /** OS sem produto e sem serviço: nada a emitir, e vale dizer por quê. */
   const osVazia = origem === "OS" && composicaoOs !== null && !composicaoOs.produtos && !composicaoOs.servicos;
 
@@ -911,6 +918,7 @@ export function EmissaoNotaDialog({
           // Zerado junto com a lista: reabrir em outra OS não pode oferecer os
           // botões da anterior enquanto a contagem nova não chega.
           setComposicaoOs(null);
+          setPermissoes(null);
         }
       }}
     >
@@ -994,7 +1002,8 @@ export function EmissaoNotaDialog({
 
                   {temProdutos && (
                     <Button
-                      disabled={loading || composicaoPendente}
+                      disabled={loading || composicaoPendente || Boolean(bloqueioNfe)}
+                      title={bloqueioNfe ?? undefined}
                       variant="secondary"
                       size="sm"
                       onClick={() => {
@@ -1038,6 +1047,17 @@ export function EmissaoNotaDialog({
                 </div>
               </div>
             )}
+
+            {/* Botão desabilitado não mostra `title`: o motivo fica escrito. */}
+            {!!origemId && (bloqueioNfe || condicaoNfce) ? (
+              <div className="flex items-start gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-800 dark:text-sky-200">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="space-y-0.5">
+                  {bloqueioNfe ? <p>{bloqueioNfe}</p> : null}
+                  {condicaoNfce ? <p>NFC-e: {condicaoNfce}</p> : null}
+                </div>
+              </div>
+            ) : null}
           </DialogHeader>
 
           <div className="pt-5 pb-5 space-y-4 relative">

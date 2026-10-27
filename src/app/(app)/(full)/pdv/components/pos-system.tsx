@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Store,
   UserRoundX,
+  UserRound,
   CircleOff,
   ArrowLeftToLine,
   ReceiptText,
@@ -62,6 +63,7 @@ import { useRouter } from "next/navigation";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { formatCurrencyBRL } from "@/app/(app)/(pages)/dashboard/components/dashboard-ordemservico/lib/format";
 import { CustomerBlockedAlert } from "@/components/cliente/customer-blocked-alert";
+import { ehClienteDoSistema } from "@/lib/clientes/consumidor-final";
 import {
   dadosParaFinanceiroVazios,
   montarFormaPagamento,
@@ -126,6 +128,7 @@ export function POSSystem() {
   const [selectedCustomer, setSelectedCustomer] = useState<
     Customer | undefined
   >(undefined);
+  const [carregandoConsumidorFinal, setCarregandoConsumidorFinal] = useState(false);
   const [discount, setDiscount] = useState(0);
   const [discountType, setDiscountType] = useState<DiscountType | null>(null);
   const [hasFreight, setHasFreight] = useState(false);
@@ -539,6 +542,22 @@ export function POSSystem() {
           },
     );
   }, [soleSelectedPaymentMethod, total]);
+
+  // Venda sem cliente identificado: o cadastro do sistema, que ninguém altera.
+  const usarConsumidorFinal = async () => {
+    if (carregandoConsumidorFinal) return;
+    setCarregandoConsumidorFinal(true);
+    try {
+      const response = await axios.get("/api/venda/consumidor-final");
+      setSelectedCustomer(response.data.data);
+    } catch (error) {
+      toast.error("Não foi possível usar o Consumidor Final.", {
+        description: isAxiosError(error) ? error.response?.data?.error : undefined,
+      });
+    } finally {
+      setCarregandoConsumidorFinal(false);
+    }
+  };
 
   const abrirConfirmacao = (acao: "ORCAMENTO" | "PAGAMENTO") => {
     if (cart.length === 0) {
@@ -1078,6 +1097,9 @@ export function POSSystem() {
                       <p className="truncate text-sm font-semibold text-foreground" title={selectedCustomer.nomerazaosocial}>
                         {selectedCustomer.nomerazaosocial}
                       </p>
+                      {ehClienteDoSistema(selectedCustomer) ? (
+                        <p className="text-xs text-muted-foreground">Venda sem cliente identificado</p>
+                      ) : null}
                     </div>
                     <Button
                       type="button"
@@ -1091,16 +1113,34 @@ export function POSSystem() {
                     </Button>
                   </div>
                 ) : (
-                  <CustomerSelect
-                    open={isCustomerSelectOpen}
-                    setOpen={setIsCustomerSelectOpen}
-                    OnSelect={setSelectedCustomer}
-                  >
-                    <Button type="button" variant="outline" className="h-10 w-full justify-start rounded-none text-xs">
-                      <Search className="size-4" aria-hidden="true" />
-                      Selecionar cliente
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                    <CustomerSelect
+                      open={isCustomerSelectOpen}
+                      setOpen={setIsCustomerSelectOpen}
+                      OnSelect={setSelectedCustomer}
+                      permitirConsumidorFinal
+                    >
+                      <Button type="button" variant="outline" className="h-10 w-full justify-start rounded-none text-xs">
+                        <Search className="size-4" aria-hidden="true" />
+                        Selecionar cliente
+                      </Button>
+                    </CustomerSelect>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 rounded-none text-xs"
+                      disabled={carregandoConsumidorFinal}
+                      onClick={() => void usarConsumidorFinal()}
+                      title="Venda sem cliente identificado"
+                    >
+                      {carregandoConsumidorFinal ? (
+                        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                      ) : (
+                        <UserRound className="size-4" aria-hidden="true" />
+                      )}
+                      Consumidor final
                     </Button>
-                  </CustomerSelect>
+                  </div>
                 )}
                 <CustomerBlockedAlert status={selectedCustomer?.status} className="px-0 pt-2 text-left" />
               </div>

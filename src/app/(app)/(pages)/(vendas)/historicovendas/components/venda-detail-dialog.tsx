@@ -1035,6 +1035,7 @@ export function VendaDetailsDialog({ vendaId, open, onOpenChange, onSaved }: Ven
                                   open={openCustomerSelect}
                                   setOpen={setOpenCustomerSelect}
                                   OnSelect={handleCustomerSelect}
+                                  permitirConsumidorFinal
                                 >
                                   <Button
                                     type="button"

@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireClientesAccess, requireClientesEdit } from "@/app/api/_authz/perms";
+import { recusaSeClienteDoSistema } from "@/lib/clientes/consumidor-final-server";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -97,6 +98,8 @@ export async function PUT(req: Request, ctx: Params) {
     await requireClientesEdit();
     const { id: raw } = await ctx.params;
     const clienteId = parseId(raw);
+    const recusa = await recusaSeClienteDoSistema(clienteId);
+    if (recusa) return recusa;
     const body = await req.json().catch(() => ({}));
     const lista = normalizarLista(body);
 

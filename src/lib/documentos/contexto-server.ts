@@ -9,7 +9,7 @@ import { contextoDaOS, contextoDaVenda, contextoDoAluguel, type EmissaoDocumento
 import type { ContextoDocumento, ModuloDocumento } from "./tipos";
 
 const COLUNAS_CLIENTE =
-  "id, nomerazaosocial, tipopessoa, cpfcnpj, inscricaoestadual, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep";
+  "id, nomerazaosocial, tipopessoa, cpfcnpj, inscricaoestadual, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, codigo_sistema";
 
 const SELECT_VENDA = `
   id, status, canal, datavenda, createdat,
