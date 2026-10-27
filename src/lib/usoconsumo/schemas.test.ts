@@ -1,6 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { entradaUsoConsumoSchema, usoConsumoItemPatchSchema, zodMessage } from "./schemas";
+import { entradaUsoConsumoSchema, entradaItemSchema, usoConsumoItemPatchSchema, zodMessage } from "./schemas";
+
+test("PATCH de item nao preenche campos omitidos nem aceita atualizacao vazia", () => {
+  assert.deepEqual(usoConsumoItemPatchSchema.parse({ titulo: " Teste " }), { titulo: "Teste" });
+  assert.equal(usoConsumoItemPatchSchema.safeParse({}).success, false);
+});
+
+test("entrada preserva coercao, defaults e mensagens de quantidade/valor invalidos", () => {
+  const base = { item_id: "10", quantidade: "2", valor_unitario_compra: "12.50" };
+  const valid = entradaItemSchema.parse(base);
+  assert.equal(valid.item_id, 10);
+  assert.equal(valid.quantidade, 2);
+  assert.equal(valid.valor_unitario_compra, 12.5);
+  assert.equal(valid.valor_desconto, 0);
+  for (const [field, message] of [["quantidade", "quantidade inválida."], ["valor_unitario_compra", "valor unitário inválido."]]) {
+    const result = entradaItemSchema.safeParse({ ...base, [field]: "invalido" });
+    assert.equal(result.success, false);
+    if (!result.success) assert.ok(result.error.issues.some((issue) => issue.message === message));
+  }
+});
 
 test("aceita expectedUpdatedAt retornado pelo PostgREST com offset", () => {
   const result = usoConsumoItemPatchSchema.safeParse({

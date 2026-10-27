@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import type { Asset, Compilation } from "webpack";
+// O pacote fornece default e runtimeCaching no mesmo namespace CommonJS.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const nextPWA = require("@ducanh2912/next-pwa");
 
 type RuntimeCachingRule = {
@@ -117,7 +120,30 @@ const withPWA = nextPWA.default({
   cacheStartUrl: false,
   dynamicStartUrl: false,
   reloadOnOnline: false,
-  workboxOptions: { runtimeCaching },
+  workboxOptions: {
+    runtimeCaching,
+    // O codec HEIC tem ~3 MB e so e solicitado ao selecionar uma foto HEIC.
+    // Mantem o download sob demanda e o cache de runtime dos scripts, sem
+    // baixa-lo em toda instalacao do PWA. Identifica o modulo, nao o hash.
+    exclude: [
+      /\/_next\/static\/.*(?<!\.p)\.woff2/,
+      /\.map$/,
+      /^manifest.*\.js$/,
+      // Manifestos internos nao sao servidos como assets publicos em producao.
+      /(?:^|\/)(?:(?:app-)?build-manifest|react-loadable-manifest)\.json$/,
+      /(?:^|\/)server\//,
+      ({ asset, compilation }: { asset: Asset; compilation: Compilation }) => {
+        if (!asset.name.endsWith(".js")) return false;
+        for (const chunk of compilation.chunks) {
+          if (!chunk.files.has(asset.name)) continue;
+          for (const chunkModule of compilation.chunkGraph.getChunkModulesIterable(chunk)) {
+            if (chunkModule.identifier().replaceAll("\\", "/").includes("/node_modules/heic-to/")) return true;
+          }
+        }
+        return false;
+      },
+    ],
+  },
 });
 
 const nextConfig: NextConfig = {

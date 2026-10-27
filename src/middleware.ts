@@ -572,6 +572,9 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
 });
 
 export const config = {
+  // Auth.js/jose usa APIs Web de compressao disponiveis no Node 24.
+  // Middleware Node.js e estavel desde Next 15.5.
+  runtime: "nodejs",
   // âœ… Protege TUDO (inclusive /api), exceto assets do Next
   matcher: ["/((?!_next/static|_next/image|favicon.ico|images).*)"],
 };

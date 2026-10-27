@@ -29,7 +29,7 @@ export const PERMISSAO_DO_MODULO: Record<ModuloDocumento, Permission> = {
 
 export const DocumentoSchema = z.object({
   nome: z.string().trim().min(1, "Dê um nome ao documento.").max(120, "Nome longo demais (máximo de 120 caracteres)."),
-  modulo: z.enum(MODULOS_DOCUMENTO, { errorMap: () => ({ message: "Módulo inválido." }) }),
+  modulo: z.enum(MODULOS_DOCUMENTO, { error: "Módulo inválido." }),
   html: z
     .string()
     .refine((v) => v.trim().length > 0, "O documento está vazio.")

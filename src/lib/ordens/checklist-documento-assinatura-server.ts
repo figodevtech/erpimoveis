@@ -1,4 +1,4 @@
-import sharp from "sharp";
+import sharp, { type OutputInfo } from "sharp";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   CHECKLIST_DECLARACAO,
@@ -35,7 +35,7 @@ function signatureBytes(dataUrl: unknown) {
 
 export async function normalizeAndValidateSignature(dataUrl: unknown) {
   const source = signatureBytes(dataUrl);
-  let raw: { data: Buffer; info: sharp.OutputInfo };
+  let raw: { data: Buffer; info: OutputInfo };
   try {
     raw = await sharp(source, { failOn: "error", limitInputPixels: 8_000_000 })
       .rotate()

@@ -17,7 +17,7 @@ try {
   });
   async function check(name, run) { stage = name; await run(); console.log(`PASS: ${name}`); }
   async function go(route) {
-    await page.goto(`http://localhost:3000${route}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.goto(`${baseURL}${route}`, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await waitForScreen(page, new Set(), () => 0, 45_000);
   }
   const response = (path) => page.waitForResponse((r) => new URL(r.url()).pathname === path && r.status() === 200, { timeout: 45_000 });
