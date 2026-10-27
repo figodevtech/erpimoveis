@@ -87,8 +87,11 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       }
     }
 
-    void loadPreferences();
-    return () => controller.abort();
+    const timer = window.setTimeout(() => void loadPreferences(), 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [ready, semSessao, sessionPermitted, userId]);
 
   const setRadioEnabled = React.useCallback(

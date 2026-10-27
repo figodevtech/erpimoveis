@@ -126,3 +126,8 @@ export interface Pagination {
   totalPages: number;
   pageCount?: number;
 }
+
+/** Dados usados pela tabela; formularios consultam a venda completa por id. */
+export type VendaResumo = Pick<VendaComItens, "id" | "status" | "valortotal" | "datavenda" | "canal" | "status_entrega"> & {
+  cliente: Pick<Customer, "id" | "nomerazaosocial" | "telefone">;
+};

@@ -4,7 +4,7 @@ import Cards from "./components/cards";
 import axios from "axios";
 import {
   Pagination,
-  VendaComItens,
+  VendaResumo,
   vendaStatus,
   VendaStatusMetricsData,
 } from "./types";
@@ -23,7 +23,7 @@ export default function HistoricoVendas() {
 
   const totalVendas = 0;
   const [data, setData] = useState<VendaStatusMetricsData | null>(null);
-  const [vendas, setVendas] = useState<VendaComItens[]>([]);
+  const [vendas, setVendas] = useState<VendaResumo[]>([]);
   const date = new Date(); // hoje
   const month = formatMonthFromDate(date);
   const [isLoading, setIsLoading] = useState(false);
@@ -39,6 +39,7 @@ export default function HistoricoVendas() {
   });
   const requisicao = useRef<AbortController | null>(null);
   const [search, setSearch] = useState("");
+  const buscaAnterior = useRef(search);
   const [filters, setFilters] = useState<VendasListFilters>({
     cliente: "",
     notaNumero: "",
@@ -60,6 +61,7 @@ export default function HistoricoVendas() {
       const response = await axios.get("/api/venda", {
         signal: controller.signal,
         params: {
+          view: "historico",
           page: pageNumber || 1,
           limit: limit || pagination.limit,
           search: searchText || undefined,
@@ -112,14 +114,18 @@ export default function HistoricoVendas() {
   }, [month]);
 
   useEffect(() => {
+    // Debounce apenas da digitacao; abertura, filtros e tamanho da pagina sao imediatos.
+    const atraso = buscaAnterior.current === search ? 0 : 350;
+    buscaAnterior.current = search;
     const timeout = window.setTimeout(() => {
       handleGetVendas(1, pagination.limit, search, status);
-    }, 350);
+    }, atraso);
 
     return () => { window.clearTimeout(timeout); requisicao.current?.abort(); };
   }, [search, status, pagination.limit, handleGetVendas]);
   useEffect(() => {
-    fetchMetrics();
+    const timer = window.setTimeout(() => void fetchMetrics(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchMetrics]);
 
   return (

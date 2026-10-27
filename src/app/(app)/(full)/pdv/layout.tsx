@@ -1,5 +1,7 @@
 ﻿"use client";
 
+import { requestConfig } from "@/lib/config-request";
+
 import { useEffect, useState } from "react";
 import { ConfigProvider } from "../../(pages)/config-context";
 import { Config } from "../../(pages)/type";
@@ -47,9 +49,8 @@ export default function PdvLayout({ children }: { children: React.ReactNode }) {
 
     try {
       setProgress(background ? 100 : 40);
-      const response = await fetch("/api/config", { cache: "no-store" });
+      const data = await requestConfig();
       setProgress(background ? 100 : 70);
-      const data = await response.json();
 
       if (data.config) {
         writeCachedConfig(data.config);

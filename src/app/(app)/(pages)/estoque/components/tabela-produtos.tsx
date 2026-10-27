@@ -59,7 +59,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { Estoque_status, Pagination, Produto, ProductListFilters } from "../types";
-import { DialogProduto } from "./dialog-produto/dialog-produto";
+import dynamic from "next/dynamic";
+import { MountOnDemand } from "@/components/mount-on-demand";
 import AlertaExcluir from "./alerta-excluir";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
@@ -73,11 +74,17 @@ import {
 } from "@/components/ui/tooltip";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
-import EntradaDialog from "./dialog-entrada/dialog-entrada-unica";
-import SaidaDialog from "./dialog-saida/dialog-saida-unica";
-import { EntradaFiscalDialog } from "@/components/entrada-fiscal/entrada-fiscal-dialog";
-import { DialogEntradaGeral } from "./dialog-entrada-geral/dialog-entrada-geral";
 import { ProdutoFiltrosSheet } from "./produto-filtros-sheet";
+
+function DialogLoading() {
+  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulário...</p>;
+}
+
+const DialogProduto = dynamic(() => import("./dialog-produto/dialog-produto").then((module) => module.DialogProduto), { loading: DialogLoading });
+const EntradaDialog = dynamic(() => import("./dialog-entrada/dialog-entrada-unica"), { loading: DialogLoading });
+const SaidaDialog = dynamic(() => import("./dialog-saida/dialog-saida-unica"), { loading: DialogLoading });
+const EntradaFiscalDialog = dynamic(() => import("@/components/entrada-fiscal/entrada-fiscal-dialog").then((module) => module.EntradaFiscalDialog), { loading: DialogLoading });
+const DialogEntradaGeral = dynamic(() => import("./dialog-entrada-geral/dialog-entrada-geral").then((module) => module.DialogEntradaGeral), { loading: DialogLoading });
 
 interface TabelaProdutosProps {
   isLoading: boolean;
@@ -371,6 +378,7 @@ export default function TabelaProdutos({
         </div>
 
         {/* ✅ 1 ÚNICO dialog de produto */}
+        <MountOnDemand active={isOpen}>
         <DialogProduto
           setSelectedProductId={setSelectedProductId}
           productId={selectedProductId}
@@ -380,13 +388,17 @@ export default function TabelaProdutos({
             handleGetProducts(pagination.page, pagination.limit, search, status, filters)
           }
         />
+        </MountOnDemand>
 
         {/* ✅ Entrada Fiscal (1 instância) */}
+        <MountOnDemand active={entradaFiscalOpen}>
         <EntradaFiscalDialog
           open={entradaFiscalOpen}
           onOpenChange={setEntradaFiscalOpen}
           onSaved={() => filteredHandleGetProducts(pagination.page, pagination.limit, search, status)}
         />
+        </MountOnDemand>
+        <MountOnDemand active={entradaGeralOpen}>
         <DialogEntradaGeral
           open={entradaGeralOpen}
           onOpenChange={setEntradaGeralOpen}
@@ -403,6 +415,7 @@ export default function TabelaProdutos({
             ]);
           }}
         />
+        </MountOnDemand>
       </CardHeader>
 
       <CardContent className="min-h-[300px] -mt-[24px] px-4 pb-4 pt-0 relative">

@@ -34,8 +34,8 @@ interface ProdutoFiltrosSheetProps {
 export function ProdutoFiltrosSheet({ filters, onApply }: ProdutoFiltrosSheetProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<ProductListFilters>(filters);
-  const { grupos, loadingGrupos } = useGruposProduto();
-  const { unidades, loadingUnidades } = useUnidadesMedida();
+  const { grupos, loadingGrupos } = useGruposProduto(open);
+  const { unidades, loadingUnidades } = useUnidadesMedida(open);
 
   const activeCount = useMemo(
     () => Object.values(filters).filter((value) => value.trim() !== "").length,

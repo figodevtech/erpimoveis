@@ -1,13 +1,20 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { ChatConversation } from "./chat-conversation";
-import { ChatInbox } from "./chat-inbox";
 import { ChatProvider, useChat } from "./chat-provider";
-import { ChatSettings } from "./chat-settings";
 import { ChatTrigger } from "./chat-trigger";
 import { ChatViewTransition } from "./chat-view-transition";
-import { NewConversation } from "./new-conversation";
+
+function ChatLoading() {
+  return <p role="status" className="p-4 text-sm text-muted-foreground">Carregando conversa...</p>;
+}
+
+// O provider e o indicador permanecem ativos; cada tela so entra ao abrir o painel.
+const ChatConversation = dynamic(() => import("./chat-conversation").then((module) => module.ChatConversation), { loading: ChatLoading });
+const ChatInbox = dynamic(() => import("./chat-inbox").then((module) => module.ChatInbox), { loading: ChatLoading });
+const ChatSettings = dynamic(() => import("./chat-settings").then((module) => module.ChatSettings), { loading: ChatLoading });
+const NewConversation = dynamic(() => import("./new-conversation").then((module) => module.NewConversation), { loading: ChatLoading });
 
 function ChatPanel() {
   const { open, setOpen, view } = useChat();

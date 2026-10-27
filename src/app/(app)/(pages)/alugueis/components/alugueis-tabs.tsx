@@ -94,10 +94,13 @@ export function AlugueisTabs({
   }, []);
 
   useEffect(() => {
-    void Promise.resolve().then(carregarContagem);
+    const timer = window.setTimeout(() => void carregarContagem(), 0);
     const aoMudar = () => void carregarContagem();
     window.addEventListener("alugueis:refresh", aoMudar);
-    return () => window.removeEventListener("alugueis:refresh", aoMudar);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("alugueis:refresh", aoMudar);
+    };
   }, [carregarContagem]);
 
   const resumo = (

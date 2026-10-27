@@ -137,8 +137,7 @@ const nextConfig: NextConfig = {
   // o build por falta de memoria (SIGKILL). Menos workers e o modo de memoria
   // do webpack trocam alguns segundos por um pico bem menor.
   experimental: {
-    webpackMemoryOptimizations: true,
-    cpus: 1,
+    ...(!isDevelopment ? { webpackMemoryOptimizations: true, cpus: 1 } : {}),
   },
   async headers() {
     return [
@@ -169,4 +168,6 @@ const nextConfig: NextConfig = {
   },
 }
 
-export default withPWA(nextConfig);
+// O plugin adiciona um hook de Webpack mesmo desabilitado. No desenvolvimento,
+// exportamos a configuracao diretamente para permitir o uso do Turbopack.
+export default isDevelopment ? nextConfig : withPWA(nextConfig);

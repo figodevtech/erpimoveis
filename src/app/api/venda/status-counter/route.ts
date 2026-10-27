@@ -2,7 +2,7 @@
 
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { createApiTiming } from "@/lib/api-timing";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 // Linha bruta vinda do banco
@@ -108,6 +108,7 @@ function mapStatusKey(status: string): string {
  *      - ex: byStatus.finalizadas.totalValor
  */
 export async function GET(req: Request) {
+  const timing = createApiTiming();
   try {
     const { searchParams } = new URL(req.url);
     const monthParam = searchParams.get("month"); // ex: "2025-11"
@@ -115,15 +116,15 @@ export async function GET(req: Request) {
     const { monthStr, startISO, endISO } = getMonthRange(monthParam);
 
     // ========= 1) Buscar todas as vendas do mês =========
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await timing.measure("query", () => supabaseAdmin
       .from("venda")
       .select("valortotal, sub_total, desconto_valor, status, datavenda")
       .gte("datavenda", startISO)
-      .lt("datavenda", endISO);
+      .lt("datavenda", endISO));
 
     if (error) {
       console.error("Erro ao buscar vendas para métricas:", error);
-      return NextResponse.json(
+      return timing.json(
         { error: "Erro ao buscar vendas para métricas." },
         { status: 500 }
       );
@@ -220,10 +221,10 @@ export async function GET(req: Request) {
       byStatus,
     };
 
-    return NextResponse.json({ data: payload });
+    return timing.json({ data: payload });
   } catch (e: any) {
     console.error("Erro inesperado no GET /venda/status-counter:", e);
-    return NextResponse.json(
+    return timing.json(
       { error: e?.message || "Erro interno do servidor." },
       { status: 500 }
     );

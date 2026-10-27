@@ -10,12 +10,13 @@ export type UnidadeFromApi = {
   ativo: boolean;
 };
 
-export function useUnidadesMedida() {
+export function useUnidadesMedida(enabled = true) {
   const [unidades, setUnidades] = useState<UnidadeFromApi[]>([]);
   const [loadingUnidades, setLoadingUnidades] = useState(false);
   const [errorUnidades, setErrorUnidades] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     const fetchUnidades = async () => {
       try {
         setLoadingUnidades(true);
@@ -33,7 +34,7 @@ export function useUnidadesMedida() {
     };
 
     fetchUnidades();
-  }, []);
+  }, [enabled]);
 
   return { unidades, loadingUnidades, errorUnidades };
 }

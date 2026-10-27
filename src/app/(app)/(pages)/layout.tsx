@@ -1,6 +1,8 @@
 ﻿// src/app/(app)/(shell)/layout.tsx
 "use client";
 
+import { requestConfig } from "@/lib/config-request";
+
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import ClientAppShell from "./ClientAppShell";
 import { Pizza } from "lucide-react";
@@ -89,12 +91,8 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
 
     try {
       setProgress(background ? 100 : 40);
-      const response = await fetch("/api/config", { cache: "no-store" });
-      if (!response.ok) {
-        throw new Error(`Falha ao buscar configuração: ${response.status}`);
-      }
+      const data = await requestConfig();
       setProgress(background ? 100 : 70);
-      const data = await response.json();
 
       if (data.config) {
         writeCachedConfig(data.config);

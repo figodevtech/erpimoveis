@@ -49,6 +49,7 @@ function toYYYYMMDD(date?: Date) {
 }
 
 export default function DialogVendasSetor() {
+  const [open, setOpen] = useState(false);
   const [setores, setSetores] = useState<Setor[]>([]);
   const [loadingSetores, setLoadingSetores] = useState(false);
   
@@ -75,6 +76,7 @@ export default function DialogVendasSetor() {
   };
 
   useEffect(() => {
+    if (!open) return;
     const loadSetores = async () => {
       try {
         setLoadingSetores(true);
@@ -92,7 +94,7 @@ export default function DialogVendasSetor() {
     };
 
     loadSetores();
-  }, []);
+  }, [open]);
 
   const handlePrint = () => {
     const params = new URLSearchParams();
@@ -138,7 +140,7 @@ export default function DialogVendasSetor() {
   };
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
           variant="outline"

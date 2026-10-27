@@ -3,6 +3,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import { createApiTiming } from "@/lib/api-timing";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { planoBuscaVendas } from "@/lib/vendas/busca";
 import { auth } from "@/lib/auth";
@@ -164,6 +165,13 @@ const VENDA_SELECT = `
   )
 `;
 
+// Exclusivo da tabela do historico; detalhes e demais consumidores mantem
+// o contrato completo. Nao remove joins auxiliares exigidos pelos filtros.
+const VENDA_LIST_SELECT = `
+  id, clienteid, cliente:cliente (id, nomerazaosocial, telefone),
+  status, valortotal, datavenda, canal, status_entrega
+`;
+
 /* ========================= GET ========================= */
 /**
  * GET /api/venda
@@ -175,10 +183,12 @@ const VENDA_SELECT = `
  *      - status
  */
 export async function GET(req: Request) {
+  const timing = createApiTiming();
   try {
-    await requireVendasAccess();
+    await timing.measure("access", () => requireVendasAccess());
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    const resumida = searchParams.get("view") === "historico";
     const clienteId = searchParams.get("clienteId");
     const cliente = searchParams.get("cliente")?.trim() || "";
     const notaNumero = searchParams.get("notaNumero")?.trim() || "";
@@ -213,11 +223,11 @@ export async function GET(req: Request) {
       ? (statusParam as Status)
       : null;
     if (valorMin !== null && valorMax !== null && valorMin > valorMax) {
-      return NextResponse.json({ error: "O valor mínimo não pode superar o máximo." }, { status: 400 });
+      return timing.json({ error: "O valor mínimo não pode superar o máximo." }, { status: 400 });
     }
     const dataValida = (data: string) => /^\d{4}-\d{2}-\d{2}$/.test(data) && Number.isFinite(Date.parse(data)) && new Date(data).toISOString().slice(0, 10) === data;
     if ((dateFrom && !dataValida(dateFrom)) || (dateTo && !dataValida(dateTo)) || (dateFrom && dateTo && dateFrom > dateTo)) {
-      return NextResponse.json({ error: "Informe um período válido, com início anterior ao fim." }, { status: 400 });
+      return timing.json({ error: "Informe um período válido, com início anterior ao fim." }, { status: 400 });
     }
     // Paginação (para lista)
     const pageValue = Number(searchParams.get("page") ?? 1);
@@ -228,7 +238,7 @@ export async function GET(req: Request) {
       ""
     ).trim();
     if ([q, cliente, notaNumero].some((termo) => termo.length > 200)) {
-      return NextResponse.json({ error: "Use até 200 caracteres em cada campo de busca." }, { status: 400 });
+      return timing.json({ error: "Use até 200 caracteres em cada campo de busca." }, { status: 400 });
     }
 
     const limitRaw =
@@ -237,7 +247,7 @@ export async function GET(req: Request) {
     const limit = Number.isSafeInteger(limitValue) && limitValue > 0 ? Math.min(limitValue, 100) : 20;
 
     const emptyResponse = () =>
-      NextResponse.json({
+      timing.json({
         data: [],
         pagination: {
           total: 0,
@@ -259,7 +269,7 @@ export async function GET(req: Request) {
     if (id) {
       const vendaId = Number(id);
       if (Number.isNaN(vendaId)) {
-        return NextResponse.json(
+        return timing.json(
           { error: 'Parâmetro "id" inválido.' },
           { status: 400 }
         );
@@ -273,21 +283,21 @@ export async function GET(req: Request) {
 
       if (error) {
         console.error("Erro ao buscar venda por id:", error);
-        return NextResponse.json(
+        return timing.json(
           { error: "Erro ao buscar venda." },
           { status: 500 }
         );
       }
 
       if (!data) {
-        return NextResponse.json(
+        return timing.json(
           { error: "Venda não encontrada." },
           { status: 404 }
         );
       }
 
       const [item] = await applyMarketplaceBuyerNames([data]);
-      return NextResponse.json({ data: item });
+      return timing.json({ data: item });
     }
 
     // Lista paginada de vendas com filtros opcionais
@@ -298,11 +308,11 @@ export async function GET(req: Request) {
     // O PostgREST devolve a consulta em Content-Location. Limita o tamanho
     // antes de exceder o limite de cabeçalhos HTTP do transporte.
     if (encodeURIComponent(JSON.stringify(plano)).length > 10000) {
-      return NextResponse.json({ error: "Busca muito longa. Use um trecho do nome, documento ou descrição." }, { status: 400 });
+      return timing.json({ error: "Busca muito longa. Use um trecho do nome, documento ou descrição." }, { status: 400 });
     }
     let query = supabaseAdmin
       .from("venda")
-      .select([VENDA_SELECT, ...plano.select].join(","), { count: "exact" })
+      .select([resumida ? VENDA_LIST_SELECT : VENDA_SELECT, ...plano.select].join(","), { count: "exact" })
       .order("id", { ascending: false })
       .range(from, to);
 
@@ -333,7 +343,7 @@ export async function GET(req: Request) {
     if (clienteId) {
       clienteIdNum = Number(clienteId);
       if (Number.isNaN(clienteIdNum)) {
-        return NextResponse.json(
+        return timing.json(
           { error: 'Parâmetro "clienteId" inválido.' },
           { status: 400 }
         );
@@ -355,11 +365,11 @@ export async function GET(req: Request) {
     if (valorMin != null) query = query.gte("valortotal", valorMin);
     if (valorMax != null) query = query.lte("valortotal", valorMax);
 
-    const { data, error, count } = await query;
+    const { data, error, count } = await timing.measure("query", () => query);
 
     if (error) {
       console.error("Erro ao listar vendas:", error);
-      return NextResponse.json(
+      return timing.json(
         { error: "Erro ao listar vendas." },
         { status: 500 }
       );
@@ -373,28 +383,52 @@ export async function GET(req: Request) {
       }
     }
 
+    if (resumida) {
+      await timing.measure("marketplace", () => applyMarketplaceBuyerNames(items));
+      const total = count ?? 0;
+      return timing.json({
+        data: items,
+        pagination: {
+          total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)),
+          pageCount: items.length, hasPrevPage: page > 1, hasNextPage: page * limit < total,
+        },
+        filters: { search: q, clienteId: clienteIdNum, status: statusFilter ?? null },
+      });
+    }
+
     // `transacao.baixado_por` e um uuid solto (sem FK para `usuario`), entao o nome
     // de quem executou a baixa e resolvido em lote.
-    const autores = await carregarAutores(
-      items.flatMap((item: any) => (item.transacoes ?? []).map((t: any) => t.baixado_por)),
-    );
+    const vendaIds = items.map((item: any) => Number(item.id)).filter(Number.isFinite);
+    // Os enriquecimentos usam apenas os ids da pagina, sem depender uns dos
+    // outros. Mantem consultas e regras, mas evita somar suas latencias de rede.
+    const [autores, rateioResult, notasResult, vinculosResult] = await Promise.all([
+      carregarAutores(items.flatMap((item: any) => (item.transacoes ?? []).map((t: any) => t.baixado_por))),
+      vendaIds.length > 0
+        ? supabaseAdmin.from("pagamento_multiplo_rateio")
+          .select("documento_id, valor, transacao:transacao_id ( id, data, pendente, is_deleted )")
+          .eq("tipo_documento", "VENDA").in("documento_id", vendaIds)
+        : Promise.resolve({ data: [], error: null }),
+      vendaIds.length > 0
+        ? supabaseAdmin.from("nfe").select("vendaid, numero, createdat")
+          .in("vendaid", vendaIds).not("vendaid", "is", null).order("numero", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+      vendaIds.length > 0
+        ? supabaseAdmin.from("nfe_origem_vinculo").select("origem_id, nfe_id")
+          .eq("tipo", "VENDA").in("origem_id", vendaIds)
+        : Promise.resolve({ data: [], error: null }),
+      applyMarketplaceBuyerNames(items),
+    ]);
     for (const item of items as any[]) {
       for (const transacao of item.transacoes ?? []) {
         transacao.baixadoPor = autores.get(String(transacao.baixado_por ?? "")) ?? null;
       }
     }
 
-    const vendaIds = items.map((item: any) => Number(item.id)).filter(Number.isFinite);
-
     // Pagamento múltiplo não preenche `vendaid` — a transação cobre várias
     // vendas e o elo é o rateio. Sem juntar essas fatias aqui, a venda paga em
     // grupo aparece em aberto na listagem e pode ser cobrada de novo.
     if (vendaIds.length > 0) {
-      const { data: rateio, error: rateioError } = await supabaseAdmin
-        .from("pagamento_multiplo_rateio")
-        .select("documento_id, valor, transacao:transacao_id ( id, data, pendente, is_deleted )")
-        .eq("tipo_documento", "VENDA")
-        .in("documento_id", vendaIds);
+      const { data: rateio, error: rateioError } = rateioResult;
       if (rateioError) throw rateioError;
 
       const fatiasPorVenda = new Map<number, any[]>();
@@ -433,22 +467,8 @@ export async function GET(req: Request) {
        * por nota agrupada mostraria a coluna "Nota" vazia e voltaria a ser
        * oferecida para emissão.
        */
-      const [
-        { data: notasData, error: notasError },
-        { data: vinculosData, error: vinculosError },
-      ] = await Promise.all([
-        supabaseAdmin
-          .from("nfe")
-          .select("vendaid, numero, createdat")
-          .in("vendaid", vendaIds)
-          .not("vendaid", "is", null)
-          .order("numero", { ascending: false }),
-        supabaseAdmin
-          .from("nfe_origem_vinculo")
-          .select("origem_id, nfe_id")
-          .eq("tipo", "VENDA")
-          .in("origem_id", vendaIds),
-      ]);
+      const { data: notasData, error: notasError } = notasResult;
+      const { data: vinculosData, error: vinculosError } = vinculosResult;
 
       if (notasError) {
         throw notasError;
@@ -506,8 +526,6 @@ export async function GET(req: Request) {
       });
     }
 
-    await applyMarketplaceBuyerNames(items);
-
     const total = count ?? 0;
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -515,7 +533,7 @@ export async function GET(req: Request) {
     const hasPrevPage = page > 1;
     const hasNextPage = page * limit < total;
 
-    return NextResponse.json({
+    return timing.json({
       data: items,
       pagination: {
         total,
@@ -534,7 +552,7 @@ export async function GET(req: Request) {
     });
   } catch (e: any) {
     console.error("Erro inesperado no GET /venda:", e);
-    return NextResponse.json(
+    return timing.json(
       { error: e?.message || "Erro interno do servidor." },
       { status: 500 }
     );
@@ -552,7 +570,7 @@ export async function POST(req: Request) {
     await requireVendasCreate();
     const session = await auth()
 
-    if (!session?.user.id) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: "Usuário não autenticado." }, { status: 401 });
     }
 

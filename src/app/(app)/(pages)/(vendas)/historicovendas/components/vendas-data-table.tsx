@@ -54,14 +54,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
-import { Pagination, VendaCanal, VendaComItens, vendaStatus } from "../types";
+import { Pagination, VendaCanal, VendaResumo, vendaStatus } from "../types";
 import { formatDate } from "@/utils/formatDate";
 import formatarEmReal from "@/utils/formatarEmReal";
 import DeleteAlert from "./deleteAlert";
-import { EmissaoNotaDialog } from "../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
-import { VendaDetailsDialog } from "./venda-detail-dialog";
-import { VendaLinkAprovacaoDialog } from "./venda-link-aprovacao-dialog";
-import { PedidoOnlineDialog } from "./pedido-online-dialog";
+import dynamic from "next/dynamic";
+import { MountOnDemand } from "@/components/mount-on-demand";
+
+function DialogLoading() {
+  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulário...</p>;
+}
+
+const EmissaoNotaDialog = dynamic(() => import("../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog").then((module) => module.EmissaoNotaDialog), { loading: DialogLoading });
+const VendaDetailsDialog = dynamic(() => import("./venda-detail-dialog").then((module) => module.VendaDetailsDialog), { loading: DialogLoading });
+const VendaLinkAprovacaoDialog = dynamic(() => import("./venda-link-aprovacao-dialog").then((module) => module.VendaLinkAprovacaoDialog), { loading: DialogLoading });
+const PedidoOnlineDialog = dynamic(() => import("./pedido-online-dialog").then((module) => module.PedidoOnlineDialog), { loading: DialogLoading });
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import { useConfig } from "../../../config-context";
@@ -79,7 +86,7 @@ import {
 import { VendaConfirmacaoFields } from "@/components/vendas/venda-confirmacao-fields";
 
 interface VendasDataTableProps {
-  vendas: VendaComItens[];
+  vendas: VendaResumo[];
   isLoading: boolean;
   pagination: Pagination;
   search: string;
@@ -309,7 +316,7 @@ export default function VendasDataTable({
     dadosParaFinanceiroVazios,
   );
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
-  const [linkVenda, setLinkVenda] = useState<VendaComItens | null>(null);
+  const [linkVenda, setLinkVenda] = useState<VendaResumo | null>(null);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelVendaId, setCancelVendaId] = useState<number | null>(null);
   const [cancelMotivo, setCancelMotivo] = useState("");
@@ -689,13 +696,13 @@ export default function VendasDataTable({
                   <TableCell>{p.cliente.nomerazaosocial}</TableCell>
 
                   <TableCell className="font-mono text-xs">{formatDate(p.datavenda)}</TableCell>
-                  <TableCell className="text-center">{getCanalBadge((p as any).canal)}</TableCell>
+                  <TableCell className="text-center">{getCanalBadge(p.canal)}</TableCell>
                   <TableCell>{formatarEmReal(p.valortotal)}</TableCell>
                   <TableCell className="text-center">
                     {getStatusBadge(p.status)}
                   </TableCell>
                   <TableCell className="text-center">
-                    {getEntregaBadge((p as any).canal, (p as any).status_entrega)}
+                    {getEntregaBadge(p.canal, p.status_entrega)}
                   </TableCell>
 
                   <TableCell>
@@ -789,7 +796,7 @@ export default function VendasDataTable({
                           Imprimir venda
                         </DropdownMenuItem>
 
-                        {canEdit && isMarketplaceCanal((p as any).canal) && (
+                        {canEdit && isMarketplaceCanal(p.canal) && (
                           <DropdownMenuItem
                             onClick={() => {
                               setOnlineVendaId(p.id);
@@ -896,8 +903,11 @@ export default function VendasDataTable({
           </div>
         </div>
 
-        <EmissaoNotaDialog onOpenChange={setOpenEmissao} open={openEmissao} vendaId={emissaoId} />
+        <MountOnDemand active={openEmissao}>
+          <EmissaoNotaDialog onOpenChange={setOpenEmissao} open={openEmissao} vendaId={emissaoId} />
+        </MountOnDemand>
       </CardContent>
+      <MountOnDemand active={openDetails}>
       <VendaDetailsDialog
         vendaId={selectedVendaId}
         onOpenChange={setOpenDetails}
@@ -907,6 +917,8 @@ export default function VendasDataTable({
           fetchStatusCounts();
         }}
       />
+      </MountOnDemand>
+      <MountOnDemand active={openOnline}>
       <PedidoOnlineDialog
         vendaId={onlineVendaId}
         open={openOnline}
@@ -916,6 +928,8 @@ export default function VendasDataTable({
           fetchStatusCounts();
         }}
       />
+      </MountOnDemand>
+      <MountOnDemand active={linkDialogOpen}>
       <VendaLinkAprovacaoDialog
         open={linkDialogOpen}
         onOpenChange={(open) => {
@@ -929,6 +943,7 @@ export default function VendasDataTable({
           void handleGetVendas(pagination.page, pagination.limit, search, status, filters);
         }}
       />
+      </MountOnDemand>
       <AlertDialog
         open={approveDialogOpen}
         onOpenChange={(open) => {

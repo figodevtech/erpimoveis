@@ -16,14 +16,20 @@ export default function EstoquePage() {
     totalPages: 0,
   });
   const [search, setSearch] = useState("");
+  const buscaAnterior = useRef(search);
+  const requisicao = useRef<AbortController | null>(null);
   const [selectedTipo] = useState<Veiculo_tipos | undefined>(undefined);
   const requestIdRef = useRef(0);
 
   const handleGetVehicles = useCallback(async (pageNumber = 1, limit = 20, search = "", tipo?: string) => {
     const requestId = ++requestIdRef.current;
+    requisicao.current?.abort();
+    const controller = new AbortController();
+    requisicao.current = controller;
     setIsLoading(true);
     try {
       const response = await axios.get("/api/veiculos", {
+        signal: controller.signal,
         params: {
           page: pageNumber,
           limit,
@@ -31,24 +37,26 @@ export default function EstoquePage() {
           tipo
         },
       })
-      if (requestId !== requestIdRef.current) return;
+      if (controller.signal.aborted || requestId !== requestIdRef.current) return;
 
       setVeiculos(response.data.data ?? []);
       setPagination(response.data.pagination);
     } catch {
-      if (requestId !== requestIdRef.current) return;
+      if (controller.signal.aborted || requestId !== requestIdRef.current) return;
       setVeiculos([]);
     } finally {
-      if (requestId === requestIdRef.current) setIsLoading(false);
+      if (!controller.signal.aborted && requestId === requestIdRef.current) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    const atraso = buscaAnterior.current === search ? 0 : 300;
+    buscaAnterior.current = search;
     const timeout = setTimeout(() => {
       void handleGetVehicles(1, pagination.limit, search, selectedTipo);
-    }, 300);
+    }, atraso);
 
-    return () => clearTimeout(timeout);
+    return () => { clearTimeout(timeout); requisicao.current?.abort(); };
   }, [handleGetVehicles, pagination.limit, search, selectedTipo]);
 
 

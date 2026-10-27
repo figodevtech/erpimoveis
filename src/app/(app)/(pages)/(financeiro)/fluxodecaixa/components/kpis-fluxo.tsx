@@ -133,7 +133,8 @@ export function KpisFluxo({
   useEffect(() => {
     let ativo = true;
 
-    axios
+    const timer = window.setTimeout(() => {
+      void axios
       .get("/api/transaction/kpis", { params: consulta })
       .then((r) => {
         // Só aqui a tela troca: dados e rótulo da aba entram no mesmo estado.
@@ -145,9 +146,11 @@ export function KpisFluxo({
         // Falha mantém o que estava: apagar os números por causa de uma consulta
         // que não voltou seria pior do que mostrá-los levemente desatualizados.
       });
+    }, 0);
 
     return () => {
       ativo = false;
+      window.clearTimeout(timer);
     };
   }, [chave, consulta]);
 

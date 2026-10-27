@@ -11,12 +11,13 @@ export type GrupoFromApi = {
   exibirPdv: boolean;
 };
 
-export function useGruposProduto() {
+export function useGruposProduto(enabled = true) {
   const [grupos, setGrupos] = useState<GrupoFromApi[]>([]);
   const [loadingGrupos, setLoadingGrupos] = useState(false);
   const [errorGrupos, setErrorGrupos] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     const fetchUnidades = async () => {
       try {
         setLoadingGrupos(true);
@@ -33,8 +34,9 @@ export function useGruposProduto() {
       }
     };
 
-    fetchUnidades();
-  }, []);
+    const timer = window.setTimeout(() => void fetchUnidades(), 0);
+    return () => window.clearTimeout(timer);
+  }, [enabled]);
 
   return { grupos, loadingGrupos, errorGrupos };
 }

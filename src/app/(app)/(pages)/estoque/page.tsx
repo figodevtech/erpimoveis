@@ -86,7 +86,10 @@ export default function EstoquePage() {
   };
 
   useEffect(() => {
-    handleGetProducts(1, pagination.limit, search, status, productFilters);
+    const timer = window.setTimeout(() => {
+      void handleGetProducts(1, pagination.limit, search, status, productFilters);
+    }, 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, status, productFilters]);
 

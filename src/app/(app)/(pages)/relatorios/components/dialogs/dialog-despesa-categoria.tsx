@@ -14,10 +14,11 @@ import { ReportFiltersPanel, ReportPeriod, ReportTrigger, isInvalidPeriod } from
 import { SpreadsheetPdfButton } from "../spreadsheet-pdf-button";
 
 export default function DialogDespesaCategoria() {
+  const [open, setOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [categoriaId, setCategoriaId] = useState("");
-  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao();
+  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao(open);
   const invalid = isInvalidPeriod(dateFrom, dateTo);
   const reportParams = new URLSearchParams({ tipo: Tipo_transacao.DESPESA });
   if (categoriaId) reportParams.set("categoriaId", categoriaId);
@@ -25,7 +26,7 @@ export default function DialogDespesaCategoria() {
   if (dateTo) reportParams.set("dateTo", dateTo);
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <ReportTrigger icon={<PieChart className="h-4 w-4" />} title="Despesas por categoria" description="Detalhamento das despesas por classificação financeira" tone="bg-red-500/10 text-red-600" />
       </DialogTrigger>

@@ -64,6 +64,7 @@ const AJUDA_DO_EIXO: Record<DateField, string> = {
 };
 
 export function DialogRelatorioVendas() {
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [dateField, setDateField] = useState<DateField>("venda");
@@ -83,6 +84,7 @@ export function DialogRelatorioVendas() {
   const invalid = isInvalidPeriod(dateFrom, dateTo);
 
   useEffect(() => {
+    if (!dialogOpen) return;
     let active = true;
     fetch("/api/tipos/categorias-venda?ativo=true", { cache: "no-store" })
       .then(async (response) => {
@@ -94,13 +96,14 @@ export function DialogRelatorioVendas() {
       .catch(() => active && setCategorias([]))
       .finally(() => active && setLoadingCategorias(false));
     return () => { active = false; };
-  }, []);
+  }, [dialogOpen]);
 
   // A mesma rota que a ficha da venda usa para atribuir vendedor. Ela exige a
   // permissão de Usuários; quem só tem a de Relatórios não a alcança, e nesse
   // caso os dois seletores ficam só com "Todos", em vez de derrubar o restante
   // dos filtros. Uma busca só alimenta vendedor e criador.
   useEffect(() => {
+    if (!dialogOpen) return;
     let active = true;
     fetch("/api/users?ativos=1", { cache: "no-store" })
       .then(async (response) => {
@@ -120,7 +123,7 @@ export function DialogRelatorioVendas() {
       })
       .catch(() => active && setPeople([]));
     return () => { active = false; };
-  }, []);
+  }, [dialogOpen]);
 
   const params = new URLSearchParams();
   if (dateFrom) params.set("dateFrom", dateFrom);
@@ -170,7 +173,7 @@ export function DialogRelatorioVendas() {
   }
 
   return (
-    <Dialog>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild>
         <ReportTrigger
           icon={<ShoppingCart className="h-4 w-4" />}

@@ -56,10 +56,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Pagination, Veiculo, Veiculo_tipos } from "./types";
-import { VeiculoDialog } from "./dialgo-veiculo/dialog-veiculo";
+import dynamic from "next/dynamic";
+import { MountOnDemand } from "@/components/mount-on-demand";
+
+function FormLoading() {
+  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulario...</p>;
+}
+const VeiculoDialog = dynamic(() => import("./dialgo-veiculo/dialog-veiculo").then((module) => module.VeiculoDialog), { loading: FormLoading });
+const CustomerSelect = dynamic(() => import("../../components/customerSelect"), { loading: FormLoading });
 import { useState } from "react";
 import { useSession } from "next-auth/react";
-import CustomerSelect from "../../components/customerSelect";
 import { toast } from "@/lib/toast";
 import axios, { isAxiosError } from "axios";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
@@ -174,25 +180,29 @@ export default function TabelaVeiculos({
 
   return (
     <Card>
-      <VeiculoDialog
+      <MountOnDemand active={openVeiculo}>
+        <VeiculoDialog
 
-        isOpen={openVeiculo}
-        setIsOpen={(open) => {
-          setOpenVeiculo(open);
-          if (!open) {
-            setSelectedVeiculoId(undefined);
-            handleGetVehicles(pagination.page, pagination.limit, search, selectedTipo);
-          }
-        }}
-        veiculoId={veiculoId}
-        setSelectedVeiculoId={setSelectedVeiculoId}
-        onRegister={() => handleGetVehicles(pagination.page, pagination.limit, search, selectedTipo)}
-      />
-      <CustomerSelect
-        open={openCustomerSelect}
-        setOpen={setOpenCustomerSelect}
-        OnSelect={(c) => handleVehicleTransfer(c.id)}
-      />
+          isOpen={openVeiculo}
+          setIsOpen={(open) => {
+            setOpenVeiculo(open);
+            if (!open) {
+              setSelectedVeiculoId(undefined);
+              handleGetVehicles(pagination.page, pagination.limit, search, selectedTipo);
+            }
+          }}
+          veiculoId={veiculoId}
+          setSelectedVeiculoId={setSelectedVeiculoId}
+          onRegister={() => handleGetVehicles(pagination.page, pagination.limit, search, selectedTipo)}
+        />
+      </MountOnDemand>
+      <MountOnDemand active={openCustomerSelect}>
+        <CustomerSelect
+          open={openCustomerSelect}
+          setOpen={setOpenCustomerSelect}
+          OnSelect={(c) => handleVehicleTransfer(c.id)}
+        />
+      </MountOnDemand>
       <AlertDialog
         open={deleteDialogOpen}
         onOpenChange={(open) => {

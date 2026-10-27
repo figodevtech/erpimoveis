@@ -602,6 +602,7 @@ export default function AgendamentosPage() {
   const [items, setItems] = useState<AgendamentoItem[]>([]);
   const [veiculos, setVeiculos] = useState<VeiculoOption[]>([]);
   const [servicosAgendamento, setServicosAgendamento] = useState<ServicoOption[]>([]);
+  const [carregandoOpcoes, setCarregandoOpcoes] = useState(false);
   const [servicosPopoverOpen, setServicosPopoverOpen] = useState(false);
   const [selectedServicoIds, setSelectedServicoIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
@@ -784,7 +785,7 @@ export default function AgendamentosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configAgenda]);
 
-  async function loadItems() {
+  async function loadItems(signal?: AbortSignal) {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -796,14 +797,16 @@ export default function AgendamentosPage() {
       });
       if (q.trim()) params.set("q", q.trim());
 
-      const response = await fetch(`/api/agendamentos?${params.toString()}`);
+      const response = await fetch(`/api/agendamentos?${params.toString()}`, { signal });
       const data = await response.json();
+      if (signal?.aborted) return;
       if (!response.ok) throw new Error(data?.error ?? "Erro ao carregar agendamentos");
       setItems(data.items ?? []);
     } catch (error: any) {
+      if (signal?.aborted) return;
       toast.error(error?.message ?? "Erro ao carregar agendamentos");
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }
 
@@ -824,12 +827,28 @@ export default function AgendamentosPage() {
   }
 
   useEffect(() => {
-    loadLookup().catch((error) => toast.error(error?.message ?? "Erro ao carregar dados auxiliares"));
-    loadServicosAgendamento();
-  }, []);
+    if (!open) return;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setCarregandoOpcoes(true);
+      void Promise.all([
+        loadLookup().catch((error) => toast.error(error?.message ?? "Erro ao carregar dados auxiliares")),
+        loadServicosAgendamento(),
+      ]).finally(() => { if (active) setCarregandoOpcoes(false); });
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [open]);
 
   useEffect(() => {
-    loadItems();
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void loadItems(controller.signal), 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, activeRange.start, activeRange.end, view]);
 
@@ -1225,7 +1244,7 @@ export default function AgendamentosPage() {
             <div>
               <CardTitle>Agenda</CardTitle>
               <button
-                onClick={loadItems}
+                onClick={() => void loadItems()}
                 className="inline-flex items-center gap-1 text-sm text-foreground/50 hover:text-foreground/70 hover:cursor-pointer"
               >
                 <span>Recarregar</span>
@@ -1904,9 +1923,9 @@ export default function AgendamentosPage() {
                 {!form.id ? (
                   <Popover modal open={servicosPopoverOpen} onOpenChange={setServicosPopoverOpen}>
                     <PopoverTrigger asChild>
-                      <Button type="button" variant="outline" className="min-h-10 w-full justify-between">
+                      <Button type="button" variant="outline" className="min-h-10 w-full justify-between" disabled={carregandoOpcoes}>
                         <span className="truncate text-left">
-                          {selectedServicos.length
+                          {carregandoOpcoes ? "Carregando opcoes..." : selectedServicos.length
                             ? `${selectedServicos.length} servico${selectedServicos.length === 1 ? "" : "s"} selecionado${selectedServicos.length === 1 ? "" : "s"}`
                             : "Selecionar servicos"}
                         </span>
@@ -1965,7 +1984,7 @@ export default function AgendamentosPage() {
                     ))}
                   </div>
                 ) : null}
-                {!form.id && servicosAgendamento.length === 0 ? (
+                {!form.id && !carregandoOpcoes && servicosAgendamento.length === 0 ? (
                   <p className="text-xs text-muted-foreground">
                     Nenhum servico esta habilitado para agendamento.
                   </p>
@@ -1974,7 +1993,7 @@ export default function AgendamentosPage() {
 
               <div className="space-y-2">
                 <Label>Veiculo</Label>
-                <Select value={form.veiculoid} onValueChange={(value) => setField("veiculoid", value)}>
+                <Select value={form.veiculoid} onValueChange={(value) => setField("veiculoid", value)} disabled={carregandoOpcoes}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
@@ -2063,6 +2082,7 @@ export default function AgendamentosPage() {
               onClick={save}
               disabled={
                 saving ||
+                carregandoOpcoes ||
                 (!form.clienteid && !String(form.solicitante_nome ?? "").trim()) ||
                 !form.titulo ||
                 !form.inicio ||

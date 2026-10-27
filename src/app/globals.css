@@ -1,4 +1,5 @@
-@import "tailwindcss";
+/* Restringe a busca de classes ao ERP, sem varrer os sites e artefatos da raiz. */
+@import "tailwindcss" source("..");
 @plugin "tailwindcss-animate";
 
 @custom-variant dark (&:is(.dark *));

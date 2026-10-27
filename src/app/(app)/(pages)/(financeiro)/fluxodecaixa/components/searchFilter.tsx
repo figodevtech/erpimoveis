@@ -93,14 +93,14 @@ export default function SearchFilter({
   const [banks, setBanks] = React.useState<Banco[]>([]);
   const [loadingBanks, setLoadingBanks] = React.useState(false);
   const [bankLoadError, setBankLoadError] = React.useState<string | null>(null);
-  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao();
-  const { gruposPlanosDeConta, loadingPlanos, errorPlanos } = usePlanosDeConta();
-  const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
+  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao(sheetOpen);
+  const { gruposPlanosDeConta, loadingPlanos, errorPlanos } = usePlanosDeConta(sheetOpen);
+  const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto(sheetOpen);
   const {
     options: paymentMethodOptions,
     isLoading: loadingPaymentMethods,
     error: paymentMethodsError,
-  } = usePaymentMethodOptions();
+  } = usePaymentMethodOptions(sheetOpen);
 
   React.useEffect(() => {
     if (!sheetOpen) {

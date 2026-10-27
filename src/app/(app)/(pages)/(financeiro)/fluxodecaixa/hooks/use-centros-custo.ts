@@ -5,12 +5,13 @@ import axios from "axios";
 
 import type { Centro_custo } from "../types";
 
-export function useCentrosCusto() {
+export function useCentrosCusto(enabled = true) {
   const [centrosCusto, setCentrosCusto] = useState<Centro_custo[]>([]);
   const [loadingCentrosCusto, setLoadingCentrosCusto] = useState(false);
   const [errorCentrosCusto, setErrorCentrosCusto] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     async function load() {
       try {
         setLoadingCentrosCusto(true);
@@ -25,8 +26,9 @@ export function useCentrosCusto() {
         setLoadingCentrosCusto(false);
       }
     }
-    void load();
-  }, []);
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [enabled]);
 
   return { centrosCusto, loadingCentrosCusto, errorCentrosCusto };
 }

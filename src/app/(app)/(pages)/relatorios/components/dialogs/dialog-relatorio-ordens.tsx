@@ -49,6 +49,7 @@ const STATUS_PRESETS: Array<[string, string[]]> = [
 ];
 
 export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
   const financial = mode === "financeiro";
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -72,6 +73,7 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
   const invalid = isInvalidPeriod(dateFrom, dateTo);
 
   useEffect(() => {
+    if (!dialogOpen) return;
     let active = true;
     fetch("/api/tipos/setores", { cache: "no-store" })
       .then(async (response) => {
@@ -83,12 +85,13 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
       .catch(() => active && setSectors([]))
       .finally(() => active && setLoadingSectors(false));
     return () => { active = false; };
-  }, []);
+  }, [dialogOpen]);
 
   // Lista enxuta de usuários, a mesma do vínculo de realizadores. Quem só tem a
   // permissão de Relatórios não a alcança; nesse caso o seletor fica só com
   // "Todos", em vez de derrubar o restante dos filtros.
   useEffect(() => {
+    if (!dialogOpen) return;
     let active = true;
     fetch("/api/ordens/realizadores", { cache: "no-store" })
       .then(async (response) => {
@@ -105,7 +108,7 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
       })
       .catch(() => active && setPeople([]));
     return () => { active = false; };
-  }, []);
+  }, [dialogOpen]);
 
   const params = new URLSearchParams({ mode });
   if (dateFrom) params.set("dateFrom", dateFrom);
@@ -161,7 +164,7 @@ export function DialogRelatorioOrdens({ mode }: { mode: Mode }) {
   }
 
   return (
-    <Dialog>
+    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild>
         <ReportTrigger
           icon={financial ? <FileChartColumn className="h-4 w-4" /> : <ClipboardList className="h-4 w-4" />}

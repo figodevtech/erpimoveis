@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import axios from "axios";
 import { toast } from "@/lib/toast";
@@ -63,22 +63,38 @@ export default function FiscalPage() {
     currentAmbiente: string;
   } | null>(null);
 
+  const requisicaoNotas = useRef<AbortController | null>(null);
+  const requisicaoKpis = useRef<AbortController | null>(null);
+  const buscaAnterior = useRef(filters.search);
+
+  useEffect(() => () => {
+    requisicaoNotas.current?.abort();
+    requisicaoKpis.current?.abort();
+  }, []);
+
   const handleGetKpis = useCallback(async () => {
+    requisicaoKpis.current?.abort();
+    const controller = new AbortController();
+    requisicaoKpis.current = controller;
     setIsLoadingKpis(true);
     try {
-      const response = await axios.get("/api/fiscal/kpis");
-      setKpis(response.data.kpis);
+      const response = await axios.get("/api/fiscal/kpis", { signal: controller.signal });
+      if (!controller.signal.aborted) setKpis(response.data.kpis);
     } catch (error: any) {
+      if (controller.signal.aborted) return;
       toast.error("Erro ao carregar KPIs fiscais", {
         description: error?.response?.data?.error ?? error?.message,
       });
     } finally {
-      setIsLoadingKpis(false);
+      if (!controller.signal.aborted) setIsLoadingKpis(false);
     }
   }, []);
 
   const handleGetNotas = useCallback(
     async (page = 1, limit = pagination.limit) => {
+      requisicaoNotas.current?.abort();
+      const controller = new AbortController();
+      requisicaoNotas.current = controller;
       setIsLoading(true);
       try {
         const endpoint =
@@ -87,6 +103,7 @@ export default function FiscalPage() {
             : "/api/fiscal/notas-emitidas";
 
         const response = await axios.get(endpoint, {
+          signal: controller.signal,
           params: {
             page,
             limit,
@@ -105,14 +122,16 @@ export default function FiscalPage() {
           },
         });
 
+        if (controller.signal.aborted) return;
         setNotas(response.data.data ?? []);
         setPagination(response.data.pagination ?? initialPagination);
       } catch (error: any) {
+        if (controller.signal.aborted) return;
         toast.error("Erro ao carregar notas fiscais", {
           description: error?.response?.data?.error ?? error?.message,
         });
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     },
     [filters, pagination.limit, viewMode],
@@ -168,15 +187,18 @@ export default function FiscalPage() {
   }, [handleGetKpis, handleGetNotas, pagination.limit]);
 
   useEffect(() => {
+    const atraso = buscaAnterior.current === filters.search ? 0 : 250;
+    buscaAnterior.current = filters.search;
     const timeout = window.setTimeout(() => {
       void handleGetNotas(1, pagination.limit);
-    }, 250);
+    }, atraso);
 
-    return () => window.clearTimeout(timeout);
-  }, [handleGetNotas, pagination.limit]);
+    return () => { window.clearTimeout(timeout); requisicaoNotas.current?.abort(); };
+  }, [handleGetNotas, pagination.limit, filters.search]);
 
   useEffect(() => {
-    void handleGetKpis();
+    const timer = window.setTimeout(() => void handleGetKpis(), 0);
+    return () => window.clearTimeout(timer);
   }, [handleGetKpis]);
 
   return (

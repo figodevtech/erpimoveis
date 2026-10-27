@@ -1,10 +1,8 @@
 "use client";
 
-import type React from "react";
-import { ReactNode, useEffect, useState } from "react";
-import axios from "axios";
+import { type ReactNode, useState } from "react";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
-import { Veiculo } from "../types";
+import type { Veiculo } from "../types";
 import RegisterContent from "./registrar-veiculo";
 import EditContent from "./editar-veiculo";
 
@@ -14,7 +12,7 @@ interface CustomerDialogProps {
   isOpen: boolean;
   setIsOpen?: (value: boolean) => void;
   setSelectedVeiculoId?: (value: number | undefined) => void;
-  onRegister?:(c: Veiculo)=> void;
+  onRegister?: (c: Veiculo) => void;
   clienteId?: number;
 }
 
@@ -32,34 +30,7 @@ export function VeiculoDialog({
   const open = isOpen ?? internalOpen;
   const setOpen = setIsOpen ?? setInternalOpen;
 
-  const [, setSelectedVeiculo] = useState<
-    Veiculo | undefined
-  >(undefined);
-  const [, setIsLoading] = useState(false);
-  const [novoVeiculo, setNovoVeiculo] = useState<Veiculo>({
-  });
-
-  const handleGetVeiculo = async (id: number) => {
-    setIsLoading(true);
-    try {
-      const response = await axios.get(`/api/veiculos/cliente/${id}`);
-      if (response.status === 200) {
-        const { data } = response;
-        setSelectedVeiculo(data.data);
-      }
-    } catch (error) {
-      console.log("Erro ao buscar veiculo:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Busca o cliente sempre que o dialog abrir e existir um customerId
-  useEffect(() => {
-    if (open && veiculoId) {
-      handleGetVeiculo(veiculoId);
-    }
-  }, [open, veiculoId]);
+  const [novoVeiculo, setNovoVeiculo] = useState<Veiculo>({});
 
   return (
     <Dialog
@@ -67,17 +38,14 @@ export function VeiculoDialog({
       onOpenChange={(nextOpen) => {
         // sempre sincroniza o estado (controlado ou interno)
         setOpen(nextOpen);
-        
 
         if (!nextOpen) {
           setSelectedVeiculoId?.(undefined);
-          setSelectedVeiculo(undefined);
           setNovoVeiculo({
             ...(clienteId ? { clienteid: clienteId } : {})
           });
         }
 
-        
       }}
     >
       <DialogTrigger autoFocus={false} asChild>

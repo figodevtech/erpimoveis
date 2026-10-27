@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import ts from "typescript";
 import * as busca from "@/lib/vendas/busca";
+import * as apiTiming from "@/lib/api-timing";
 
 const code = ts.transpileModule(readFileSync(path.join(process.cwd(), "src/app/api/venda/route.ts"), "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -15,6 +16,7 @@ const code = ts.transpileModule(readFileSync(path.join(process.cwd(), "src/app/a
 function loadRoute(fetch: typeof globalThis.fetch) {
   const dependencies: Record<string, unknown> = {
     "next/server": { NextResponse },
+    "@/lib/api-timing": apiTiming,
     "@/lib/supabaseAdmin": { supabaseAdmin: createClient("https://vendas.example.test", "test-key", { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch } }) },
     "@/lib/vendas/busca": busca,
     "@/lib/auth": { auth: async () => ({ user: { id: "vendedor-logado" } }) },
@@ -83,4 +85,26 @@ test("busca longa recebe orientação antes de estourar os cabeçalhos HTTP", as
   const response = await GET(new Request(`https://app.test/api/venda?search=${"aeiou".repeat(20)}`));
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /trecho/);
+});
+
+test("historico resumido preserva filtros e paginacao sem consultar enriquecimentos financeiros", async () => {
+  const urls: URL[] = [];
+  const GET = loadRoute(async (input) => {
+    const url = new URL(String(input)); urls.push(url);
+    assert.equal(url.pathname, "/rest/v1/venda");
+    return Response.json([{ id: 7, status: "PAGO", valortotal: 50, busca_produtos: [{}] }], { headers: { "content-range": "0-0/1" } });
+  });
+  const response = await GET(new Request("https://app.test/api/venda?view=historico&status=PAGO&search=peca&limit=10"));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.pagination.total, 1);
+  assert.equal(body.pagination.limit, 10);
+  assert.equal(body.data[0].id, 7);
+  assert.equal(body.data[0].busca_produtos, undefined);
+  assert.equal(urls.length, 1);
+  assert.equal(urls[0].searchParams.get("status"), "eq.PAGO");
+  const select = urls[0].searchParams.get("select") ?? "";
+  assert.ok(select.includes("busca_produtos:"));
+  assert.ok(!select.includes("itens:"));
+  assert.ok(!select.includes("transacoes:"));
 });

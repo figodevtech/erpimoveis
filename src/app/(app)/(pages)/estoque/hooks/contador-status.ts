@@ -38,7 +38,8 @@ export default function useContadorStatus(opts?: { auto?: boolean }) {
   useEffect(() => {
     // só NÃO busca se o dev passar auto: false
     if (opts?.auto !== false) {
-      fetchStatusCounts();
+      const timer = window.setTimeout(() => void fetchStatusCounts(), 0);
+      return () => window.clearTimeout(timer);
     }
   }, [opts?.auto, fetchStatusCounts]);
 

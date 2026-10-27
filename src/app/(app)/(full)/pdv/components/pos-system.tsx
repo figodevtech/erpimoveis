@@ -200,8 +200,11 @@ export function POSSystem() {
   }, [submittedSearch, selectedCategory]);
 
   useEffect(() => {
-    void fetchProdutos(1);
-    return () => productsRequest.current?.abort();
+    const timer = window.setTimeout(() => void fetchProdutos(1), 0);
+    return () => {
+      window.clearTimeout(timer);
+      productsRequest.current?.abort();
+    };
   }, [fetchProdutos]);
 
   useEffect(() => {
@@ -232,7 +235,8 @@ export function POSSystem() {
       }
     };
 
-    fetchCategoriasVenda();
+    const timer = window.setTimeout(() => void fetchCategoriasVenda(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const filteredProducts = produtos;

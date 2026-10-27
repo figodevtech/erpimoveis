@@ -88,7 +88,12 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import formatarEmReal from "@/utils/formatarEmReal";
 import { traduzStatusNfe } from "@/lib/nfe/statusNfe";
 import { ehRejeicaoIndIeDestIsentoNaoPermitido, MENSAGEM_REJEICAO_805 } from "@/lib/nfe/indIEDest";
-import { EntradaFiscalDialog } from "@/components/entrada-fiscal/entrada-fiscal-dialog";
+import { MountOnDemand } from "@/components/mount-on-demand";
+
+const EntradaFiscalDialog = dynamic(
+  () => import("@/components/entrada-fiscal/entrada-fiscal-dialog").then((module) => module.EntradaFiscalDialog),
+  { loading: () => <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulario...</p> },
+);
 
 import {
   EMPTY_FISCAL_FILTERS,
@@ -1726,6 +1731,7 @@ export default function FiscalTable({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    <MountOnDemand active={Boolean(notaGerarEntrada)}>
     <EntradaFiscalDialog
       open={Boolean(notaGerarEntrada)}
       onOpenChange={(open) => {
@@ -1734,6 +1740,7 @@ export default function FiscalTable({
       notaFiscalRecebidaId={notaGerarEntrada?.id}
       onSaved={() => handleGetNotas(pagination.page, pagination.limit)}
     />
+    </MountOnDemand>
     {documentoAberto?.tipo === "OS" && (
       <OSDetalhesDialog
         open

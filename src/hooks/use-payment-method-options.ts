@@ -20,7 +20,7 @@ const PADRAO: PaymentMethodItem[] = METODOS_PAGAMENTO_PADRAO.map((value) => ({
   label: formatPaymentMethodLabel(value),
 }));
 
-export function usePaymentMethodOptions() {
+export function usePaymentMethodOptions(enabled = true) {
   const [options, setOptions] = useState<PaymentMethodItem[]>(PADRAO);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,8 +52,10 @@ export function usePaymentMethodOptions() {
   }, []);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    if (!enabled) return;
+    const timer = window.setTimeout(() => void reload(), 0);
+    return () => window.clearTimeout(timer);
+  }, [enabled, reload]);
 
   return { options, isLoading, error, reload };
 }

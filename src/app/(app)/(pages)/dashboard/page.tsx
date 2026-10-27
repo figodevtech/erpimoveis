@@ -1,12 +1,21 @@
+"use client";
+
+import dynamic from "next/dynamic";
 import { Tabs, TabsContent, TabsList } from "@/components/ui/tabs";
 
 import OpcoesAbas from "./components/tabs";
-import ConteudoGeral from "./components/dashboard-ordemservico/page";
-import ConteudoUsuarios from "./components/dashboard-clientes/components/dashboard-clientes";
-import ConteudoFinanceiro from "./components/dashboard-financeiro/page";
-import ConteudoResumoDiario from "./components/dashboard-resumo-diario/page";
-import ConteudoRendimentos from "./components/dashboard-rendimentos/page";
-import ConteudoEstoque from "./components/dashboard-estoque/page";
+
+function DashboardLoading() {
+  return <p role="status" className="p-6 text-sm text-muted-foreground">Carregando indicadores...</p>;
+}
+
+// TabsContent monta somente a aba ativa, que carrega seu proprio modulo.
+const ConteudoGeral = dynamic(() => import("./components/dashboard-ordemservico/page"), { loading: DashboardLoading });
+const ConteudoUsuarios = dynamic(() => import("./components/dashboard-clientes/components/dashboard-clientes"), { loading: DashboardLoading });
+const ConteudoFinanceiro = dynamic(() => import("./components/dashboard-financeiro/page"), { loading: DashboardLoading });
+const ConteudoResumoDiario = dynamic(() => import("./components/dashboard-resumo-diario/page"), { loading: DashboardLoading });
+const ConteudoRendimentos = dynamic(() => import("./components/dashboard-rendimentos/page"), { loading: DashboardLoading });
+const ConteudoEstoque = dynamic(() => import("./components/dashboard-estoque/page"), { loading: DashboardLoading });
 
 export default function PaginaDashboard() {
   return (

@@ -27,7 +27,7 @@ import { SearchCombobox } from "../../../(financeiro)/fluxodecaixa/components/se
 import { useCategoriasTransacao } from "../../../(financeiro)/fluxodecaixa/hooks/use-categoria-transacao";
 import { useCentrosCusto } from "../../../(financeiro)/fluxodecaixa/hooks/use-centros-custo";
 import { usePlanosDeConta } from "../../../(financeiro)/fluxodecaixa/hooks/use-planos-de-conta";
-import { Metodo_pagamento, Tipo_transacao, type Banco } from "../../../(financeiro)/fluxodecaixa/types";
+import { Tipo_transacao, type Banco } from "../../../(financeiro)/fluxodecaixa/types";
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 type Situacao = "TODAS" | "REALIZADAS" | "PENDENTES";
@@ -37,7 +37,7 @@ const initialRelations = { categoriaId: "", bancoId: "", planoContaId: "", centr
 
 export default function DialogFluxo() {
   const [open, setOpen] = useState(false);
-  const { options: metodosPagamento } = usePaymentMethodOptions();
+  const { options: metodosPagamento } = usePaymentMethodOptions(open);
   const [customerOpen, setCustomerOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -57,9 +57,9 @@ export default function DialogFluxo() {
   const [banks, setBanks] = useState<Banco[]>([]);
   const [loadingBanks, setLoadingBanks] = useState(true);
 
-  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao();
-  const { gruposPlanosDeConta, loadingPlanos, errorPlanos } = usePlanosDeConta();
-  const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto();
+  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao(open);
+  const { gruposPlanosDeConta, loadingPlanos, errorPlanos } = usePlanosDeConta(open);
+  const { centrosCusto, loadingCentrosCusto, errorCentrosCusto } = useCentrosCusto(open);
 
   useEffect(() => {
     if (!open || banks.length > 0) return;

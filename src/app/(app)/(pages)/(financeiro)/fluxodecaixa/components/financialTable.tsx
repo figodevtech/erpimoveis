@@ -54,7 +54,8 @@ import {
 } from "lucide-react";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { formatDate } from "@/utils/formatDate";
-import TransactionDialog from "./transactionDialog/transactionDialog";
+import dynamic from "next/dynamic";
+import { MountOnDemand } from "@/components/mount-on-demand";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -101,11 +102,16 @@ import {
 } from "@/lib/financeiro/transacao";
 import { getCategoryIcon, getTypeColor } from "../utils";
 import { ExportTransactionsButton } from "./ExportTransactionsButton";
-import { TransferenciaDialog } from "./transferencia-dialog";
-import { ConciliacaoOfxDialog } from "./conciliacao-ofx/conciliacao-ofx-dialog";
-import { VendaDetailsDialog } from "../../../(vendas)/historicovendas/components/venda-detail-dialog";
-import { OSDetalhesDialog } from "../../../ordens/components/dialogs/detalhes-os-dialog";
-import { DialogEntradaGeral } from "../../../estoque/components/dialog-entrada-geral/dialog-entrada-geral";
+function DialogLoading() {
+  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulário...</p>;
+}
+
+const TransactionDialog = dynamic(() => import("./transactionDialog/transactionDialog"), { loading: DialogLoading });
+const TransferenciaDialog = dynamic(() => import("./transferencia-dialog").then((module) => module.TransferenciaDialog), { loading: DialogLoading });
+const ConciliacaoOfxDialog = dynamic(() => import("./conciliacao-ofx/conciliacao-ofx-dialog").then((module) => module.ConciliacaoOfxDialog), { loading: DialogLoading });
+const VendaDetailsDialog = dynamic(() => import("../../../(vendas)/historicovendas/components/venda-detail-dialog").then((module) => module.VendaDetailsDialog), { loading: DialogLoading });
+const OSDetalhesDialog = dynamic(() => import("../../../ordens/components/dialogs/detalhes-os-dialog").then((module) => module.OSDetalhesDialog), { loading: DialogLoading });
+const DialogEntradaGeral = dynamic(() => import("../../../estoque/components/dialog-entrada-geral/dialog-entrada-geral").then((module) => module.DialogEntradaGeral), { loading: DialogLoading });
 import ConcluidoAlert from "./concluidoAlert";
 import SearchFilter from "./searchFilter";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
@@ -726,6 +732,7 @@ export default function FinancialTable({
               </DropdownMenu>
 
               {canCreate ? (
+                <MountOnDemand active={isOpen}>
                 <TransactionDialog
                   open={isOpen}
                   setOpen={setIsOpen}
@@ -737,6 +744,7 @@ export default function FinancialTable({
                     revalidarIndicadores();
                   }}
                 />
+                </MountOnDemand>
               ) : null}
             </div>
           </div>
@@ -1498,6 +1506,7 @@ export default function FinancialTable({
       )}
 
       {canCreate ? (
+        <MountOnDemand active={transferenciaAberta}>
         <TransferenciaDialog
           aberto={transferenciaAberta}
           setAberto={setTransferenciaAberta}
@@ -1506,9 +1515,11 @@ export default function FinancialTable({
             revalidarIndicadores();
           }}
         />
+        </MountOnDemand>
       ) : null}
 
       {canCreate ? (
+        <MountOnDemand active={conciliacaoAberta}>
         <ConciliacaoOfxDialog
           aberto={conciliacaoAberta}
           setAberto={setConciliacaoAberta}
@@ -1517,8 +1528,10 @@ export default function FinancialTable({
             revalidarIndicadores();
           }}
         />
+        </MountOnDemand>
       ) : null}
 
+      <MountOnDemand active={vendaDetalhesAberta}>
       <VendaDetailsDialog
         vendaId={vendaDetalhesId}
         open={vendaDetalhesAberta}
@@ -1531,7 +1544,9 @@ export default function FinancialTable({
           }
         }}
       />
+      </MountOnDemand>
 
+      <MountOnDemand active={osDetalhesAberta}>
       <OSDetalhesDialog
         open={osDetalhesAberta}
         osId={osDetalhesId}
@@ -1544,7 +1559,9 @@ export default function FinancialTable({
           }
         }}
       />
+      </MountOnDemand>
 
+      <MountOnDemand active={entradaDetalhesAberta}>
       <DialogEntradaGeral
         selectedEntradaId={entradaDetalhesId ?? undefined}
         open={entradaDetalhesAberta}
@@ -1557,6 +1574,7 @@ export default function FinancialTable({
           }
         }}
       />
+      </MountOnDemand>
 
       {modoSelecao ? (
         <>

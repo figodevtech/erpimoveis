@@ -108,7 +108,10 @@ export default function ClientesPage() {
   }, [selectedCustomerId]);
 
   useEffect(() => {
-    handleGetCustomers(1, pagination.limit, search, status, devedores);
+    const timer = window.setTimeout(() => {
+      void handleGetCustomers(1, pagination.limit, search, status, devedores);
+    }, 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, search, devedores]);
 

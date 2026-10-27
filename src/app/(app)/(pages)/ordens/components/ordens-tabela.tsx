@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { MountOnDemand } from "@/components/mount-on-demand";
 import { useSession } from "next-auth/react";
 import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
 
@@ -58,7 +60,6 @@ import { toast } from "@/lib/toast";
 
 import type { StatusOS } from "./ordens-tabs";
 import { LinkAprovacaoDialog } from "./dialogs/link-aprovacao-dialog";
-import { OSDetalhesDialog } from "./dialogs/detalhes-os-dialog";
 import { ChecklistDialog } from "./dialogs/checklist-dialog";
 import { ChecklistEditDialog } from "./dialogs/checklist-edit-dialog";
 import { RegistrarSaidaDialog } from "./dialogs/registrar-saida-dialog";
@@ -71,8 +72,6 @@ import { estiloDestaque } from "@/lib/ordens/destaque";
 import { useConfig } from "../../config-context";
 import { informarCondicoesPagamentoOs } from "@/lib/ordens/financeiro";
 import { RowActions } from "./row-actions";
-import OsFinancialDialog from "../../(financeiro)/pagamentodeordens/components/osFinancialDialog/osFinancialDialog";
-import OsStonePaymentDialog from "../../(financeiro)/pagamentodeordens/components/osStonePaymentDialog/osStonePaymentDialog";
 
 import {
   OrdemComDatas,
@@ -85,7 +84,6 @@ import {
   buildPolicy,
 } from "./ordens-tabela-helpers";
 import { OrdensFilterSheet } from "./ordens-filtros";
-import { EmissaoNotaDialog } from "./dialogs/emissao-nota-dialog/emissao-nota-dialog";
 import { Label } from "@/components/ui/label";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import type { PaymentMethodOption, PlannedPayment } from "@/lib/payment-methods";
@@ -97,6 +95,14 @@ import {
 } from "./dialogs/impacto-exclusao-financeira-os";
 
 const MAX_ALVO_CHARS = 48;
+
+function DialogLoading() {
+  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulário...</p>;
+}
+
+const OSDetalhesDialog = dynamic(() => import("./dialogs/detalhes-os-dialog").then((module) => module.OSDetalhesDialog), { loading: DialogLoading });
+const OsFinancialDialog = dynamic(() => import("../../(financeiro)/pagamentodeordens/components/osFinancialDialog/osFinancialDialog"), { loading: DialogLoading });
+const EmissaoNotaDialog = dynamic(() => import("./dialogs/emissao-nota-dialog/emissao-nota-dialog").then((module) => module.EmissaoNotaDialog), { loading: DialogLoading });
 
 /** Parâmetros que a listagem envia ao banco. Filtro e ordenação são server-side. */
 type FetchParams = {
@@ -175,12 +181,13 @@ export function OrdensTabela({
   onNovaOS: () => void;
 }) {
   const { data: session } = useSession();
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const {
     options: paymentMethodOptions,
     isLoading: isLoadingPaymentMethods,
     error: paymentMethodsError,
     reload: reloadPaymentMethods,
-  } = usePaymentMethodOptions();
+  } = usePaymentMethodOptions(confirmOpen);
   const [rows, setRows] = useState<OrdemComDatas[]>([]);
   const [destaqueTooltipId, setDestaqueTooltipId] = useState<number | null>(null);
   const [usarPopoverDestaque, setUsarPopoverDestaque] = useState(false);
@@ -196,6 +203,7 @@ export function OrdensTabela({
   const [total, setTotal] = useState(0);
 
   const [localSearch, setLocalSearch] = useState("");
+  const buscaAgendada = useRef({ texto: localSearch, ate: 0 });
 
   const isFinalizadas = useMemo(
     () => statuses.includes("CONCLUIDO") || statuses.includes("SEM_COBRANCA") || statuses.includes("CANCELADO"),
@@ -438,7 +446,12 @@ export function OrdensTabela({
   }
 
   useEffect(() => {
-    const t = setTimeout(() => fetchNow(currentParamsRef.current), 300);
+    // Mantem o debounce mesmo se a digitacao tambem reiniciar a pagina.
+    if (buscaAgendada.current.texto !== localSearch) {
+      buscaAgendada.current = { texto: localSearch, ate: performance.now() + 300 };
+    }
+    const atraso = Math.max(0, buscaAgendada.current.ate - performance.now());
+    const t = setTimeout(() => fetchNow(currentParamsRef.current), atraso);
     return () => clearTimeout(t);
   }, [
     statusesKey,
@@ -499,6 +512,7 @@ export function OrdensTabela({
   const end = limit * (page - 1) + pageCount;
 
   useEffect(() => {
+    if (!filtroAberto) return;
     async function loadSetores() {
       try {
         const r = await fetch("/api/tipos/setores?all=1", { cache: "no-store" });
@@ -517,11 +531,12 @@ export function OrdensTabela({
       }
     }
     loadSetores();
-  }, []);
+  }, [filtroAberto]);
 
   // Mesma lista que o diálogo de realizadores usa. Existe fora de /api/users
   // justamente porque quem opera a oficina não tem a permissão de Usuários.
   useEffect(() => {
+    if (!filtroAberto) return;
     async function loadPessoas() {
       try {
         const r = await fetch("/api/ordens/realizadores", { cache: "no-store" });
@@ -536,7 +551,7 @@ export function OrdensTabela({
       }
     }
     loadPessoas();
-  }, []);
+  }, [filtroAberto]);
 
   const setoresFromRows = useMemo(() => {
     const map = new Map<string, string>();
@@ -565,7 +580,6 @@ export function OrdensTabela({
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkRow, setLinkRow] = useState<OrdemComDatas | null>(null);
 
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmRow, setConfirmRow] = useState<OrdemComDatas | null>(null);
   const confirmDestino = config?.habilitar_faturamento_os && confirmRow?.status === "PAGAMENTO"
     ? "FATURAMENTO" : "PAGAMENTO";
@@ -742,8 +756,6 @@ export function OrdensTabela({
   const [checklistRow, setChecklistRow] = useState<OrdemComDatas | null>(null);
   const [saidaRow, setSaidaRow] = useState<OrdemComDatas | null>(null);
 
-  const [stoneDialogOpen, setStoneDialogOpen] = useState(false);
-  const [stoneDialogRow, setStoneDialogRow] = useState<OrdemComDatas | null>(null);
 
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [approveRow, setApproveRow] = useState<OrdemComDatas | null>(null);
@@ -1568,8 +1580,6 @@ export function OrdensTabela({
                             setDetailsOpen={setDetailsOpen}
                             setChecklistRow={setChecklistRow}
                             setChecklistOpen={setChecklistOpen}
-                            setStoneRow={setStoneDialogRow}
-                            setStoneOpen={setStoneDialogOpen}
                             setEmissaoId={setEmissaoId}
                             setEmissaoOpen={setEmissaoOpen}
                             onRegistrarSaida={setSaidaRow}
@@ -1874,8 +1884,6 @@ export function OrdensTabela({
                             setDetailsOpen={setDetailsOpen}
                             setChecklistRow={setChecklistRow}
                             setChecklistOpen={setChecklistOpen}
-                            setStoneRow={setStoneDialogRow}
-                            setStoneOpen={setStoneDialogOpen}
                             setEmissaoId={setEmissaoId}
                             setEmissaoOpen={setEmissaoOpen}
                             onRegistrarSaida={setSaidaRow}
@@ -2536,6 +2544,7 @@ export function OrdensTabela({
           </AlertDialogContent>
         </AlertDialog>
 
+        <MountOnDemand active={payOpen}>
         <OsFinancialDialog
           open={payOpen}
           onOpenChange={(v) => {
@@ -2545,19 +2554,14 @@ export function OrdensTabela({
           osId={payRow?.id || 0}
           handleGetOrdens={() => fetchNow(currentParamsRef.current)}
         />
+        </MountOnDemand>
 
+        <MountOnDemand active={emissaoOpen}>
         <EmissaoNotaDialog osId={emissaoId} open={emissaoOpen} onOpenChange={setEmissaoOpen} />
+        </MountOnDemand>
 
-        <OsStonePaymentDialog
-          open={stoneDialogOpen}
-          onOpenChange={(v) => {
-            setStoneDialogOpen(v);
-            if (!v) setStoneDialogRow(null);
-          }}
-          osId={stoneDialogRow?.id || 0}
-          handleGetOrdens={() => fetchNow(currentParamsRef.current)}
-        />
 
+        <MountOnDemand active={detailsOpen}>
         <OSDetalhesDialog
           open={detailsOpen}
           onOpenChange={(v) => {
@@ -2567,6 +2571,7 @@ export function OrdensTabela({
           osId={detailsId ?? 0}
           onDestaqueChange={() => fetchNow(currentParamsRef.current, { silent: true })}
         />
+        </MountOnDemand>
 
         <RealizadoresOSDialog
           open={pendenciaRealizadores !== null}

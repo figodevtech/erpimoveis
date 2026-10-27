@@ -149,15 +149,17 @@ export default function BancosFinanceiroPage() {
   const [transacaoPage, setTransacaoPage] = React.useState(1);
   const [transacaoLimit, setTransacaoLimit] = React.useState(10);
 
-  const carregarResumo = React.useCallback(async () => {
+  const carregarResumo = React.useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
     try {
       const response = await axios.get<{ items: BancoResumo[]; totals: TotaisResumo }>("/api/bancos/resumo", {
+        signal,
         params: {
           dateFrom: dataInicio ? formatarDataYYYYMMDD(dataInicio) : undefined,
           dateTo: dataFim ? formatarDataYYYYMMDD(dataFim) : undefined,
         },
       });
+      if (signal?.aborted) return;
       const bancos = response.data.items ?? [];
       setItems(bancos);
       setTotals(response.data.totals ?? totaisVazios);
@@ -166,16 +168,18 @@ export default function BancosFinanceiroPage() {
         return bancos[0]?.id ?? null;
       });
     } catch (error: any) {
+      if (signal?.aborted) return;
       toast.error("Erro ao carregar bancos", {
         description: error?.response?.data?.error ?? error?.message,
       });
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) setIsLoading(false);
     }
   }, [dataFim, dataInicio]);
 
-  const carregarTransacoes = React.useCallback(async () => {
+  const carregarTransacoes = React.useCallback(async (signal?: AbortSignal) => {
     if (!selectedBancoId) {
+      setIsLoadingTransacoes(false);
       setTransacoesPageData(transacoesVazias);
       return;
     }
@@ -183,6 +187,7 @@ export default function BancosFinanceiroPage() {
     setIsLoadingTransacoes(true);
     try {
       const response = await axios.get<{ transacoes: TransacoesPaginadas }>("/api/bancos/resumo", {
+        signal,
         params: {
           onlyTransactions: true,
           bancoId: selectedBancoId,
@@ -193,23 +198,29 @@ export default function BancosFinanceiroPage() {
         },
       });
 
+      if (signal?.aborted) return;
       setTransacoesPageData(response.data.transacoes ?? transacoesVazias);
     } catch (error: any) {
+      if (signal?.aborted) return;
       setTransacoesPageData(transacoesVazias);
       toast.error("Erro ao carregar transações", {
         description: error?.response?.data?.error ?? error?.message,
       });
     } finally {
-      setIsLoadingTransacoes(false);
+      if (!signal?.aborted) setIsLoadingTransacoes(false);
     }
   }, [dataFim, dataInicio, selectedBancoId, transacaoLimit, transacaoPage]);
 
   React.useEffect(() => {
-    void carregarResumo();
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void carregarResumo(controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
   }, [carregarResumo]);
 
   React.useEffect(() => {
-    void carregarTransacoes();
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void carregarTransacoes(controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
   }, [carregarTransacoes]);
 
   function recarregarDados() {

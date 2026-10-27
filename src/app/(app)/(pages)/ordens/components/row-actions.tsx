@@ -63,7 +63,6 @@ type Policy = {
   showStart: boolean;
   showSendToPayment: boolean;
   showReceivePayment: boolean;
-  showStonePayment: boolean;
 };
 
 export function RowActions<TRow extends RowBase>({
@@ -115,8 +114,6 @@ export function RowActions<TRow extends RowBase>({
   setDetailsOpen: (open: boolean) => void;
   setChecklistRow: (row: TRow | null) => void;
   setChecklistOpen: (open: boolean) => void;
-  setStoneRow: (row: TRow | null) => void;
-  setStoneOpen: (open: boolean) => void;
   setEmissaoId: (id: number) => void;
   setEmissaoOpen: (open: boolean) => void;
   onRegistrarSaida: (row: TRow) => void;
@@ -318,17 +315,7 @@ export function RowActions<TRow extends RowBase>({
           </DropdownMenuItem>
         )}
 
-        {/* {showStonePayment && (
-          <DropdownMenuItem
-            onClick={() => {
-              setStoneRow(row);
-              setStoneOpen(true);
-            }}
-          >
-            <CreditCard className="mr-2 h-4 w-4" />
-            Cobrar na maquineta
-          </DropdownMenuItem>
-        )} */}
+
 
         {canNotasFiscais && config?.habilitar_emissao_nfe && showEmissaoDeNota && config?.emissao_nf_no_modulo_ordens && (
           <DropdownMenuItem

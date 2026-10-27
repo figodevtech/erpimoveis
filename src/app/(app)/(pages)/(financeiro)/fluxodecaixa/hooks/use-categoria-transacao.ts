@@ -12,12 +12,13 @@ export type CategoriaFromApi = {
   ativo: boolean;
 };
 
-export function useCategoriasTransacao() {
+export function useCategoriasTransacao(enabled = true) {
   const [categorias, setCategorias] = useState<CategoriaFromApi[]>([]);
   const [loadingCategorias, setLoadingCategorias] = useState(false);
   const [errorCategorias, setErrorCategorias] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     const fetchUnidades = async () => {
       try {
         setLoadingCategorias(true);
@@ -34,8 +35,9 @@ export function useCategoriasTransacao() {
       }
     };
 
-    fetchUnidades();
-  }, []);
+    const timer = window.setTimeout(() => void fetchUnidades(), 0);
+    return () => window.clearTimeout(timer);
+  }, [enabled]);
 
   return { categorias, loadingCategorias, errorCategorias };
 }

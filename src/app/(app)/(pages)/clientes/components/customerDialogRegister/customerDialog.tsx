@@ -1,11 +1,15 @@
 "use client";
 
-import type React from "react";
-import { ReactNode, useEffect, useState } from "react";
-import axios from "axios";
+import { type ReactNode, useState } from "react";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
-import EditContent from "./editContent";
-import RegisterContent from "./registerContent";
+import dynamic from "next/dynamic";
+import { MountOnDemand } from "@/components/mount-on-demand";
+
+function FormLoading() {
+  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulario...</p>;
+}
+const EditContent = dynamic(() => import("./editContent"), { loading: FormLoading });
+const RegisterContent = dynamic(() => import("./registerContent"), { loading: FormLoading });
 import { Customer } from "../../types";
 import { NewCustomer } from "./types";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -36,8 +40,6 @@ export function CustomerDialog({
   const open = isOpen ?? internalOpen;
   const setOpen = setIsOpen ?? setInternalOpen;
 
-  const [, setSelectedCustomer] = useState<Customer | undefined>(undefined);
-  const [, setIsLoading] = useState(false);
   const [newCustomer, setNewCustomer] = useState<NewCustomer>({
     tipopessoa: "FISICA",
     bairro: "",
@@ -58,28 +60,6 @@ export function CustomerDialog({
     foto: "",
   });
 
-  const handleGetCustomer = async (id: number) => {
-    setIsLoading(true);
-    try {
-      const response = await axios.get(`/api/customers/${id}`);
-      if (response.status === 200) {
-        const { data } = response;
-        setSelectedCustomer(data.data);
-      }
-    } catch (error) {
-      console.log("Erro ao buscar cliente:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Busca o cliente sempre que o dialog abrir e existir um customerId
-  useEffect(() => {
-    if (open && customerId) {
-      handleGetCustomer(customerId);
-    }
-  }, [open, customerId]);
-
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const config = useConfig();
 
@@ -93,7 +73,6 @@ export function CustomerDialog({
 
           if (!nextOpen) {
             setSelectedCustomerId?.(undefined);
-            setSelectedCustomer(undefined);
             setNewCustomer({
               tipopessoa: "FISICA",
               cpfcnpj: "",
@@ -120,16 +99,18 @@ export function CustomerDialog({
           {children}
         </DialogTrigger>
 
-        {customerId ? (
-          <EditContent customerId={customerId} onUpdate={onUpdate} />
-        ) : (
-          <RegisterContent
-            setSelectedCustomerId={setSelectedCustomerId}
-            newCustomer={newCustomer}
-            setNewCustomer={setNewCustomer}
-            onRegister={onRegister}
-          />
-        )}
+        <MountOnDemand active={open}>
+          {customerId ? (
+            <EditContent customerId={customerId} onUpdate={onUpdate} />
+          ) : (
+            <RegisterContent
+              setSelectedCustomerId={setSelectedCustomerId}
+              newCustomer={newCustomer}
+              setNewCustomer={setNewCustomer}
+              onRegister={onRegister}
+            />
+          )}
+        </MountOnDemand>
       </Dialog>
     );
   }
@@ -143,7 +124,6 @@ export function CustomerDialog({
 
         if (!nextOpen) {
           setSelectedCustomerId?.(undefined);
-          setSelectedCustomer(undefined);
           setNewCustomer({
             tipopessoa: "FISICA",
             cpfcnpj: "",
@@ -170,17 +150,19 @@ export function CustomerDialog({
         {children}
       </DrawerTrigger>
 
-      {customerId ? (
-        <EditContent isDesktop={isDesktop} customerId={customerId} onUpdate={onUpdate} />
-      ) : (
-        <RegisterContent
-          isDesktop={isDesktop}
-          setSelectedCustomerId={setSelectedCustomerId}
-          newCustomer={newCustomer}
-          setNewCustomer={setNewCustomer}
-          onRegister={onRegister}
-        />
-      )}
+      <MountOnDemand active={open}>
+        {customerId ? (
+          <EditContent isDesktop={isDesktop} customerId={customerId} onUpdate={onUpdate} />
+        ) : (
+          <RegisterContent
+            isDesktop={isDesktop}
+            setSelectedCustomerId={setSelectedCustomerId}
+            newCustomer={newCustomer}
+            setNewCustomer={setNewCustomer}
+            onRegister={onRegister}
+          />
+        )}
+      </MountOnDemand>
     </Drawer>
   );
 }

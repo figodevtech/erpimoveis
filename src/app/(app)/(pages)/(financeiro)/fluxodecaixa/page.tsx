@@ -231,7 +231,8 @@ export default function FinanceiroPage() {
   // efeito refaz a consulta a partir da primeira página — a atual pode nem
   // existir no novo resultado.
   useEffect(() => {
-    handleGetTransactions(1, pagination.limit);
+    const timer = window.setTimeout(() => void handleGetTransactions(1, pagination.limit), 0);
+    return () => window.clearTimeout(timer);
   }, [handleGetTransactions, pagination.limit]);
 
   useEffect(() => {

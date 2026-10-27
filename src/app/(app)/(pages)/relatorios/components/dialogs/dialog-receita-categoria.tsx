@@ -14,10 +14,11 @@ import { ReportFiltersPanel, ReportPeriod, ReportTrigger, isInvalidPeriod } from
 import { SpreadsheetPdfButton } from "../spreadsheet-pdf-button";
 
 export default function DialogReceitaCategoria() {
+  const [open, setOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [categoriaId, setCategoriaId] = useState("");
-  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao();
+  const { categorias, loadingCategorias, errorCategorias } = useCategoriasTransacao(open);
   const invalid = isInvalidPeriod(dateFrom, dateTo);
   const reportParams = new URLSearchParams({ tipo: Tipo_transacao.RECEITA });
   if (categoriaId) reportParams.set("categoriaId", categoriaId);
@@ -25,7 +26,7 @@ export default function DialogReceitaCategoria() {
   if (dateTo) reportParams.set("dateTo", dateTo);
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <ReportTrigger icon={<PieChart className="h-4 w-4" />} title="Receitas por categoria" description="Detalhamento das receitas por classificação financeira" tone="bg-emerald-500/10 text-emerald-600" />
       </DialogTrigger>

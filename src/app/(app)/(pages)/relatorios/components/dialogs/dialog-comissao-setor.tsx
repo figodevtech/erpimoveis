@@ -45,6 +45,7 @@ function toYYYYMMDD(date?: Date) {
 }
 
 export default function DialogComissaoSetor() {
+  const [open, setOpen] = useState(false);
   const [setores, setSetores] = useState<Setor[]>([]);
   const [loadingSetores, setLoadingSetores] = useState(false);
   const [selectedSetorId, setSelectedSetorId] = useState<string>("all");
@@ -70,6 +71,7 @@ export default function DialogComissaoSetor() {
   };
 
   useEffect(() => {
+    if (!open) return;
     const loadSetores = async () => {
       try {
         setLoadingSetores(true);
@@ -92,7 +94,7 @@ export default function DialogComissaoSetor() {
     };
 
     loadSetores();
-  }, []);
+  }, [open]);
 
   const handlePrint = () => {
     const params = new URLSearchParams();
@@ -138,7 +140,7 @@ export default function DialogComissaoSetor() {
   };
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
           variant="outline"

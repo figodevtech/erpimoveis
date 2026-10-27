@@ -4,12 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { Plano_de_conta, Plano_de_conta_grupo } from "../types";
 
-export function usePlanosDeConta() {
+export function usePlanosDeConta(enabled = true) {
   const [planosDeConta, setPlanosDeConta] = useState<Plano_de_conta[]>([]);
   const [loadingPlanos, setLoadingPlanos] = useState(false);
   const [errorPlanos, setErrorPlanos] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     const fetchPlanos = async () => {
       try {
         setLoadingPlanos(true);
@@ -26,8 +27,9 @@ export function usePlanosDeConta() {
       }
     };
 
-    fetchPlanos();
-  }, []);
+    const timer = window.setTimeout(() => void fetchPlanos(), 0);
+    return () => window.clearTimeout(timer);
+  }, [enabled]);
 
   const gruposPlanosDeConta = useMemo(() => {
     const groups = new Map<number, { grupo: Plano_de_conta_grupo; planos: Plano_de_conta[] }>();

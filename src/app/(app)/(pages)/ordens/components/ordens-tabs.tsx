@@ -160,7 +160,9 @@ export function OrdensTabs({
   };
 
   useEffect(() => {
-    void Promise.resolve().then(loadStats);
+    // A montagem de verificacao do Strict Mode e desmontada antes da tarefa.
+    const timer = window.setTimeout(() => void loadStats(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Canal privado e evento local compartilhados com a listagem.

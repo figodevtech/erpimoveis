@@ -181,7 +181,8 @@ export function AlugueisTabela({
   }, [aba, buscaAplicada, page, limit, ordenacao, direcao]);
 
   useEffect(() => {
-    void carregar();
+    const timer = window.setTimeout(() => void carregar(), 0);
+    return () => window.clearTimeout(timer);
   }, [carregar]);
 
   useEffect(() => {

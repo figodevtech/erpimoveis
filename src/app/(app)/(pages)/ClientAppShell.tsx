@@ -2,6 +2,7 @@
 "use client";
 
 import * as React from "react";
+import dynamic from "next/dynamic";
 import axios from "axios";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
@@ -14,13 +15,18 @@ import { Separator } from "@/components/ui/separator";
 import { AppSidebar } from "../components/sidebar/sidebar";
 import { ModeToggle } from "../components/mode-toggle";
 import DateTimeBadge from "../components/date-time-badge";
-import { HeaderRadioPlayer } from "../components/header-radio-player";
 import { useUserPreferences } from "../components/user-preferences-provider";
 import { useConfig } from "./config-context";
 import { ChatCenter } from "@/components/chat/chat-center";
 import { NotificationCenter } from "@/components/notifications/notification-center";
 import { onAppResume } from "@/lib/app-resume";
 import { PinchLock } from "@/components/pinch-lock";
+
+// O player (incluindo HLS) so e carregado quando a preferencia habilita o radio.
+const HeaderRadioPlayer = dynamic(
+  () => import("../components/header-radio-player").then((module) => module.HeaderRadioPlayer),
+  { ssr: false },
+);
 
 const PLANO_REVALIDACAO_NO_RETORNO_MS = 5 * 60 * 1000;
 
