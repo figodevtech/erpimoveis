@@ -56,10 +56,13 @@ type BancoResumo = {
   tipo: string;
   proprietario: string | null;
   ativo: boolean;
+  /** Saldo na abertura do período; sem data inicial, é o saldo inicial da conta. */
+  saldoAnterior: number;
   entradas: number;
   saidas: number;
   pendenteEntrada: number;
   pendenteSaida: number;
+  /** saldoAnterior + entradas − saídas: o saldo no fim do período. */
   saldoAtual: number;
   totalTransacoes: number;
   ultimaMovimentacao: string | null;
@@ -67,6 +70,7 @@ type BancoResumo = {
 
 type TotaisResumo = {
   valorinicial: number;
+  saldoAnterior: number;
   entradas: number;
   saidas: number;
   pendenteEntrada: number;
@@ -76,6 +80,7 @@ type TotaisResumo = {
 
 const totaisVazios: TotaisResumo = {
   valorinicial: 0,
+  saldoAnterior: 0,
   entradas: 0,
   saidas: 0,
   pendenteEntrada: 0,
@@ -261,6 +266,10 @@ export default function BancosFinanceiroPage() {
           ? `Até ${formatarDataCompleta(dataFim)}`
           : "Todo o período";
 
+  // Com data inicial, o ponto de partida é o saldo da conta naquele dia, não o do cadastro.
+  const rotuloSaldoAnterior = dataInicio ? "Saldo anterior" : "Saldo inicial";
+  const tituloSaldo = dataFim ? `Saldo em ${formatarDataCompleta(dataFim)}` : "Saldo em bancos";
+
   const transacoesSelecionadas = transacoesPageData.items;
   const transacaoTotal = transacoesPageData.total;
   const transacaoTotalPages = transacoesPageData.totalPages;
@@ -273,7 +282,12 @@ export default function BancosFinanceiroPage() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <ResumoCard titulo="Saldo em bancos" valor={totals.saldoAtual} Icone={Wallet} detalhe="Saldo inicial + movimentos" />
+        <ResumoCard
+          titulo={tituloSaldo}
+          valor={totals.saldoAtual}
+          Icone={Wallet}
+          detalhe={`${rotuloSaldoAnterior} ${formatarEmReal(totals.saldoAnterior)} + entradas − saídas`}
+        />
         <ResumoCard titulo="Entradas concluídas" valor={totals.entradas} Icone={ArrowUp} detalhe="Receitas e depósitos" />
         <ResumoCard titulo="Saídas concluídas" valor={totals.saidas} Icone={ArrowDown} detalhe="Despesas e saques" />
         <ResumoCard
@@ -287,7 +301,9 @@ export default function BancosFinanceiroPage() {
       <Card>
         <CardHeader className="min-w-0 border-b-2 pb-4">
           <CardTitle>Contas bancárias</CardTitle>
-          <CardDescription>Valores por banco, considerando movimentações vinculadas a cada conta.</CardDescription>
+          <CardDescription>
+            Por conta: {rotuloSaldoAnterior.toLowerCase()} + entradas − saídas = saldo.
+          </CardDescription>
         </CardHeader>
         <CardContent className="px-3 pb-3 pt-2">
           <Table>
@@ -295,6 +311,7 @@ export default function BancosFinanceiroPage() {
               <TableRow>
                 <TableHead>Banco</TableHead>
                 <TableHead className="hidden lg:table-cell">Conta</TableHead>
+                <TableHead className="hidden md:table-cell text-right">{rotuloSaldoAnterior}</TableHead>
                 <TableHead className="hidden md:table-cell text-right">Entradas</TableHead>
                 <TableHead className="hidden md:table-cell text-right">Saídas</TableHead>
                 <TableHead className="hidden lg:table-cell">Última movimentação</TableHead>
@@ -305,14 +322,14 @@ export default function BancosFinanceiroPage() {
               {isLoading ? (
                 Array.from({ length: 4 }).map((_, index) => (
                   <TableRow key={index}>
-                    <TableCell colSpan={6}>
+                    <TableCell colSpan={7}>
                       <div className="h-10 animate-pulse rounded-md bg-muted" />
                     </TableCell>
                   </TableRow>
                 ))
               ) : items.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                     Nenhum banco cadastrado.
                   </TableCell>
                 </TableRow>
@@ -345,6 +362,9 @@ export default function BancosFinanceiroPage() {
                             {banco.proprietario ? ` - ${banco.proprietario}` : ""}
                           </div>
                           <div className="text-xs text-muted-foreground md:hidden">
+                            {rotuloSaldoAnterior} {formatarEmReal(banco.saldoAnterior)}
+                          </div>
+                          <div className="text-xs text-muted-foreground md:hidden">
                             Entradas {formatarEmReal(banco.entradas)} / Saídas {formatarEmReal(banco.saidas)}
                           </div>
                         </div>
@@ -352,6 +372,14 @@ export default function BancosFinanceiroPage() {
                     </TableCell>
                     <TableCell className="hidden lg:table-cell text-muted-foreground">
                       {[banco.agencia, banco.contanumero].filter(Boolean).join(" / ") || "-"}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        "hidden md:table-cell text-right tabular-nums",
+                        banco.saldoAnterior < 0 ? "text-red-600" : "text-muted-foreground",
+                      )}
+                    >
+                      {formatarEmReal(banco.saldoAnterior)}
                     </TableCell>
                     <TableCell className="hidden md:table-cell text-right text-emerald-600">
                       {formatarEmReal(banco.entradas)}

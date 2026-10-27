@@ -258,6 +258,30 @@ test("bancos, saldos acumulados e indicadores excluem caixa administrativo", asy
   }
 });
 
+test("saldo do período parte do saldo anterior, fecha no centavo e bate com a coluna Saldo", async () => {
+  const h = montar();
+  const liquidada = { pendente: false, banco_id: 1 };
+  h.state.transacoes.push(
+    transacao(41, ESTOQUE, { ...liquidada, tipo: "DESPESA", valor: 30, valorLiquido: 30, data: "2026-10-20T15:00:00Z" }),
+    transacao(42, ESTOQUE, { ...liquidada, tipo: "RECEITA", valor: 0.1, valorLiquido: 0.1, data: "2026-10-21T15:00:00Z" }),
+    transacao(43, null, { ...liquidada, tipo: "RECEITA", valor: 0.2, valorLiquido: 0.2, data: "2026-10-22T15:00:00Z" }),
+  );
+  const bancos = h.load("src/app/api/bancos/resumo/route.ts");
+  const response = await bancos.GET(
+    new Request("https://app.test/api/bancos/resumo?bancoId=1&dateFrom=2026-10-10&dateTo=2026-10-31"),
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  // 1000 do cadastro + 75 + 5 liquidados antes de 10/10; os 250 administrativos ficam fora.
+  assert.equal(body.totals.saldoAnterior, 1080);
+  assert.equal(body.totals.entradas, 0.3);
+  assert.equal(body.totals.saidas, 30);
+  assert.equal(body.totals.saldoAtual, 1050.3);
+  assert.equal(body.items[0].saldoAnterior, 1080);
+  assert.deepEqual(body.transacoes.items.map((item: Row) => item.id), [43, 42, 41]);
+  assert.equal(body.transacoes.items[0].saldoApos, body.totals.saldoAtual);
+});
+
 test("exportação contém os lançamentos compartilhados e exclui os administrativos", async () => {
   const h = montar();
   const route = h.load("src/app/api/transaction/export/route.ts");
