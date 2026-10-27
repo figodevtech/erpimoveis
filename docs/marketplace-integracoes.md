@@ -23,14 +23,14 @@ https://central.figosoftwares.com.br/api/integracoes/mercadolivre/webhook
 
 A Central roteia o evento pelo `user_id` do vendedor para a instalação correta. Após o OAuth, o ERP registra essa associação usando `PLATFORM_INSTALLATION_ID` e `PLATFORM_API_SECRET`. A entrega interna é assinada e aceita somente por `/api/integracoes/mercadolivre/webhook/platform`.
 
-Os tópicos mínimos são `orders_v2`, `items` e `shipments`. Para toda a operação do ERP, habilite também `messages`, `questions`, `items_prices`, `stock-locations`, `user-products-families` e reclamações/devoluções.
+Os tópicos mínimos são `orders_v2`, `items` e `shipments`. Para toda a operação do ERP, habilite também `messages`, `questions`, `items_prices`, `stock-locations`, `user-products-families`, `public_offers`, `public_candidates` e reclamações/devoluções.
 
 Dois tópicos não devem ser habilitados:
 
 - `payments` — o estado financeiro é reconciliado por `orders_v2` e pelo cron, mantendo os aplicativos Mercado Livre e Mercado Pago separados.
 - `invoices` — não há processador para ele. A nota fiscal é conciliada pelo cron `?job=invoices`. Habilitá-lo só acumula eventos `IGNORADA`.
 
-Tópicos conhecidos e ainda sem processador: `flex-handshakes`, `fbm_stock_operations`, `catalog_item_competition_status`, `public_offers`, `catalog_suggestions` e `quotations`. Se algum for habilitado no painel, o dashboard do Mercado Livre passa a exibir o aviso **Tópicos sem processador** com a contagem por tópico — é o sinal de que vale implementar o handler.
+Tópicos conhecidos e ainda sem processador: `flex-handshakes`, `fbm_stock_operations`, `catalog_item_competition_status`, `catalog_suggestions` e `quotations`. Se algum for habilitado no painel, o dashboard do Mercado Livre passa a exibir o aviso **Tópicos sem processador** com a contagem por tópico — é o sinal de que vale implementar o handler.
 
 ### Quando o ERP avisa a equipe
 
@@ -39,6 +39,8 @@ Nem todo evento processado vira notificação. Um webhook é sincronizado sempre
 1. **A alteração não veio do próprio ERP.** Toda escrita do ERP num anúncio é registrada em `mercadolivre_outbound_touch`; o webhook que o Mercado Livre devolve nos 10 minutos seguintes é reconhecido como eco e fica em silêncio.
 2. **A mudança é material.** No tópico `items`, só status, preço, título e estoque cruzando o zero geram aviso — não um atributo ou uma foto. Em `stock-locations`, só esgotar ou repor; a baixa por venda já foi anunciada pela notificação do pedido.
 3. **O evento está ligado.** Em **Configurações Gerais > Integrações de marketplace > Mercado Livre**, cada empresa escolhe o que gera aviso. Por padrão, vendas e atendimento vêm ligados e anúncios desligados. No Telegram, a escolha é por usuário, na aba Marketplace do destinatário.
+
+Convite para promoção (`public_candidates`) não altera nada no ERP: só avisa, e uma vez por convite — o Mercado Livre reenvia o mesmo convite a cada poucos dias. Convite já aceito, recusado ou vencido fica em silêncio; o aceite chega depois como oferta, por `public_offers`.
 
 Um evento suprimido fica registrado em `mercadolivre_notification.raw_payload._erp_notification_suppressed`, com o motivo.
 

@@ -1,6 +1,7 @@
 import { normalizeMercadoLivreTopic } from "./mercadolivre-notification-topic";
 import type { SystemNotificationInput } from "@/lib/system-notifications";
 import { mercadoLivreNotificationEventForTopic } from "@/lib/integrations/mercadolivre-notification-events";
+import { publicCandidateStatus } from "@/lib/integrations/mercadolivre-public-candidates";
 
 type NotificationDetails = Record<string, any> | null | undefined;
 
@@ -119,6 +120,39 @@ export function mercadoLivreSystemNotification(input: {
         `O anúncio ${itemId ?? ""} foi excluído no Mercado Livre e o vínculo com o produto foi removido.`.trim(),
       ),
       href: "/marketplace?canal=mercadolivre&secao=products",
+    };
+  }
+
+  if (topic === "public_candidates") {
+    const candidate = details.candidate;
+    if (publicCandidateStatus(candidate) !== "candidate") return null;
+
+    const item = details.item;
+    const promotion = details.promotion;
+    const itemId = text(candidate?.item_id ?? item?.id);
+    const candidateId = text(candidate?.id);
+    const startsAt = formatDay(promotion?.start_date);
+    const endsAt = formatDay(promotion?.finish_date);
+    return {
+      ...base,
+      // O Mercado Livre reenvia o mesmo convite de tempos em tempos; um aviso
+      // por convite basta, e a chave única por usuário descarta as repetições.
+      sourceEventId: candidateId ? `public_candidates:${candidateId}` : base.sourceEventId,
+      title: "Anúncio convidado para promoção no Mercado Livre",
+      message: compactLines([
+        clean(item?.title),
+        joinParts([
+          labelValue("Promoção", promotion?.name),
+          labelValue("Tipo", promotionTypeLabel(candidate?.type ?? promotion?.type)),
+        ]),
+        joinParts([labelValue("Anúncio", itemId), ...promotionPrice(promotion, item?.currency_id)]),
+        joinParts([
+          labelValue("Desconto do Mercado Livre", formatPercent(promotion?.meli_percentage)),
+          labelValue("Seu desconto", formatPercent(promotion?.seller_percentage)),
+        ]),
+        labelValue("Período", startsAt && endsAt ? `${startsAt} a ${endsAt}` : startsAt ? `a partir de ${startsAt}` : endsAt ? `até ${endsAt}` : null),
+      ], itemId ? `O anúncio ${itemId} foi convidado para uma promoção.` : "Um anúncio foi convidado para uma promoção."),
+      href: "/marketplace?canal=mercadolivre&secao=listings",
     };
   }
 
@@ -251,6 +285,54 @@ function listingChangeTitle(changes: Record<string, any>, topic: string) {
   if (changes.title) return "Título do anúncio alterado no Mercado Livre";
   if (topic === "user-products-families") return "Ficha do produto atualizada no Mercado Livre";
   return "Anúncio do Mercado Livre atualizado";
+}
+
+const PROMOTION_TYPES: Record<string, string> = {
+  SMART: "co-participação", DEAL: "campanha", MARKETPLACE_CAMPAIGN: "campanha do Mercado Livre",
+  LIGHTNING: "oferta relâmpago", DOD: "oferta do dia", VOLUME: "desconto por quantidade",
+  PRE_NEGOTIATED: "desconto pré-acordado", PRICE_MATCHING: "preço competitivo",
+  PRICE_MATCHING_MELI_ALL: "preço competitivo", UNHEALTHY_STOCK: "liquidação de estoque Full",
+  SELLER_CAMPAIGN: "campanha do vendedor", SELLER_COUPON_CAMPAIGN: "cupom do vendedor",
+  PRICE_DISCOUNT: "desconto no preço",
+};
+
+function promotionTypeLabel(value: unknown) {
+  const type = clean(value);
+  return type ? PROMOTION_TYPES[type.toUpperCase()] ?? type.replaceAll("_", " ").toLowerCase() : null;
+}
+
+/**
+ * Co-participação já vem com o preço calculado; campanha só traz a faixa que
+ * o vendedor pode escolher e um valor sugerido.
+ */
+function promotionPrice(promotion: any, currency: unknown) {
+  const original = positiveMoney(promotion?.original_price, currency);
+  const price = positiveMoney(promotion?.price, currency);
+  if (price) return [labelValue("Preço", `${original ?? "—"} → ${price}`)];
+  const suggested = positiveMoney(promotion?.suggested_discounted_price, currency);
+  const min = positiveMoney(promotion?.min_discounted_price, currency);
+  const max = positiveMoney(promotion?.max_discounted_price, currency);
+  return [
+    suggested ? labelValue("Preço sugerido", `${original ?? "—"} → ${suggested}`) : labelValue("Preço", original),
+    min && max ? labelValue("Faixa permitida", `${min} a ${max}`) : null,
+  ];
+}
+
+function positiveMoney(value: unknown, currency: unknown) {
+  return Number(value) > 0 ? formatMoney(value, clean(currency) ?? undefined) : null;
+}
+
+function formatPercent(value: unknown) {
+  const percent = Number(value);
+  if (value == null || value === "" || !Number.isFinite(percent)) return null;
+  return `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(percent)}%`;
+}
+
+function formatDay(value: unknown) {
+  if (!value) return null;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeZone: "America/Fortaleza" }).format(date);
 }
 
 function stockQuantity(value: unknown) {

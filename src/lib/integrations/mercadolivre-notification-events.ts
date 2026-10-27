@@ -33,6 +33,7 @@ export const MERCADOLIVRE_NOTIFICATION_EVENT_GROUPS = [
       ["PRECO", "Preço alterado no Mercado Livre"],
       ["ESTOQUE", "Anúncio esgotado ou reposto"],
       ["FAMILIA", "Ficha do produto ou catálogo"],
+      ["PROMOCAO", "Anúncio convidado para promoção"],
     ],
   },
 ] as const;
@@ -74,6 +75,7 @@ export function mercadoLivreNotificationEventForTopic(topic: string): MercadoLiv
   if (normalized.includes("claim") || normalized.includes("reclama")) return "RECLAMACAO";
   if (normalized === "items") return "ANUNCIO";
   if (normalized === "items_prices" || normalized === "public_offers") return "PRECO";
+  if (normalized === "public_candidates") return "PROMOCAO";
   if (normalized === "stock-locations") return "ESTOQUE";
   if ((normalized === "user-products-families" || normalized === "user-products")) return "FAMILIA";
   return null;
