@@ -5,7 +5,7 @@ import { z } from "zod";
 const CreateTarefaSchema = z.object({
   tipo: z.enum(["TAREFA", "NOTA"]).default("TAREFA"),
   titulo: z
-    .string({ required_error: "O título é obrigatório." })
+    .string({ error: (issue) => issue.input === undefined ? "O título é obrigatório." : undefined })
     .trim()
     .min(1, "O título é obrigatório.")
     .max(255, "O título deve ter no máximo 255 caracteres."),

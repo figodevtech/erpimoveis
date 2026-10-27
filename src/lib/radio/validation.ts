@@ -13,7 +13,10 @@ const nullableHttpUrl = z.preprocess(
     .trim()
     .url()
     .max(2_048)
-    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), "Use uma URL HTTP ou HTTPS.")
+    .refine((value) => {
+      try { return ["http:", "https:"].includes(new URL(value).protocol); }
+      catch { return false; }
+    }, "Use uma URL HTTP ou HTTPS.")
     .nullable(),
 );
 
@@ -24,26 +27,46 @@ const slug = z
   .max(100)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug invalido.");
 
+const radioFields = {
+  name: z.string().trim().min(1).max(160),
+  slug: slug.optional(),
+  type: z.enum(["RADIO", "THEMATIC"]),
+  frequency: nullableText(40),
+  city: nullableText(100),
+  state: nullableText(40),
+  country: z.string().trim().min(1).max(80),
+  neighborhood: nullableText(120),
+  description: nullableText(1_000),
+  genres: z.array(z.string().trim().min(1).max(60)).max(20),
+  logoUrl: nullableHttpUrl,
+  websiteUrl: nullableHttpUrl,
+  sourcePage: nullableHttpUrl,
+  streamUrl: nullableHttpUrl,
+  playlistUrl: nullableHttpUrl,
+  playlistFormat: z.enum(["M3U", "M3U8", "PLS"]).nullable(),
+  active: z.boolean(),
+  notes: nullableText(1_000),
+};
+
 export const radioCreateSchema = z
   .object({
-    name: z.string().trim().min(1).max(160),
-    slug: slug.optional(),
-    type: z.enum(["RADIO", "THEMATIC"]).optional().default("RADIO"),
-    frequency: nullableText(40).optional().default(null),
-    city: nullableText(100).optional().default(null),
-    state: nullableText(40).optional().default(null),
-    country: z.string().trim().min(1).max(80).optional().default("Brasil"),
-    neighborhood: nullableText(120).optional().default(null),
-    description: nullableText(1_000).optional().default(null),
-    genres: z.array(z.string().trim().min(1).max(60)).max(20).optional().default([]),
-    logoUrl: nullableHttpUrl.optional().default(null),
-    websiteUrl: nullableHttpUrl.optional().default(null),
-    sourcePage: nullableHttpUrl.optional().default(null),
-    streamUrl: nullableHttpUrl.optional().default(null),
-    playlistUrl: nullableHttpUrl.optional().default(null),
-    playlistFormat: z.enum(["M3U", "M3U8", "PLS"]).nullable().optional().default(null),
-    active: z.boolean().optional().default(true),
-    notes: nullableText(1_000).optional().default(null),
+    ...radioFields,
+    type: radioFields.type.default("RADIO"),
+    frequency: radioFields.frequency.default(null),
+    city: radioFields.city.default(null),
+    state: radioFields.state.default(null),
+    country: radioFields.country.default("Brasil"),
+    neighborhood: radioFields.neighborhood.default(null),
+    description: radioFields.description.default(null),
+    genres: radioFields.genres.default([]),
+    logoUrl: radioFields.logoUrl.default(null),
+    websiteUrl: radioFields.websiteUrl.default(null),
+    sourcePage: radioFields.sourcePage.default(null),
+    streamUrl: radioFields.streamUrl.default(null),
+    playlistUrl: radioFields.playlistUrl.default(null),
+    playlistFormat: radioFields.playlistFormat.default(null),
+    active: radioFields.active.default(true),
+    notes: radioFields.notes.default(null),
   })
   .superRefine((value, context) => {
     if (value.active && !value.streamUrl && !value.playlistUrl) {
@@ -55,7 +78,8 @@ export const radioCreateSchema = z
     }
   });
 
-export const radioPatchSchema = radioCreateSchema._def.schema.partial().refine(
+// PATCH nao aplica defaults de criacao aos campos ausentes.
+export const radioPatchSchema = z.object(radioFields).partial().refine(
   (value) => Object.keys(value).length > 0,
   "Informe ao menos um campo para atualizar.",
 );

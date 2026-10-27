@@ -38,8 +38,11 @@ try {
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 45_000 }); await cancel();
   });
   await check('Edicao carrega detalhes ao abrir e cancela sem gravar', async () => {
+    // Cadastros marcados como Sistema nao permitem edicao.
+    const editable = page.locator('table tbody tr').filter({ hasNot: page.getByText('Sistema', { exact: true }) }).first();
+    await expect(editable).toBeVisible();
     const loaded = page.waitForResponse((r) => /^\/api\/customers\/\d+$/.test(new URL(r.url()).pathname) && r.status() === 200, { timeout: 45_000 });
-    await Promise.all([loaded, page.locator('table tbody tr').first().dblclick()]);
+    await Promise.all([loaded, editable.dblclick()]);
     await expect(page.getByRole('dialog')).toBeVisible(); await cancel();
   });
   await check('Cadastro tambem abre e cancela no tamanho de celular', async () => {

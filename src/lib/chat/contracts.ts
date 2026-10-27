@@ -171,7 +171,7 @@ export const messageEditSchema = z.object({
 });
 
 export const messageReactionSchema = z.object({
-  reaction: z.enum(CHAT_REACTIONS, { errorMap: () => ({ message: "CHAT_INVALID_REACTION" }) }),
+  reaction: z.enum(CHAT_REACTIONS, { error: "CHAT_INVALID_REACTION" }),
 });
 
 export const voiceMessageSchema = z.object({

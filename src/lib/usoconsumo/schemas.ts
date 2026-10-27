@@ -74,11 +74,11 @@ export const usoConsumoItemPatchSchema = z.object({
 }).strict().refine((value) => Object.keys(value).some((key) => key !== "expectedUpdatedAt"), "Nada para atualizar.");
 
 const valorDoItem = (campo: string) =>
-  z.coerce.number({ invalid_type_error: `${campo} inválido.` }).min(0, `${campo} não pode ser negativo.`);
+  z.coerce.number({ error: `${campo} inválido.` }).min(0, `${campo} não pode ser negativo.`);
 
 export const entradaItemSchema = z.object({
   item_id: z.coerce
-    .number({ invalid_type_error: "vincule o item ao cadastro." })
+    .number({ error: "vincule o item ao cadastro." })
     .int("vincule o item ao cadastro.")
     .positive("vincule o item ao cadastro."),
   numero_item_fiscal: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
@@ -86,7 +86,7 @@ export const entradaItemSchema = z.object({
   // O saldo dos estoques e inteiro. A tela e a rota hibrida ja arredondam a
   // fracao da NF-e (ver linhaEmQuantidadeInteira); aqui fica so a guarda.
   quantidade: z.coerce
-    .number({ invalid_type_error: "quantidade inválida." })
+    .number({ error: "quantidade inválida." })
     .int("a quantidade precisa ser um número inteiro.")
     .positive("a quantidade precisa ser maior que zero."),
   valor_unitario_compra: valorDoItem("valor unitário"),
