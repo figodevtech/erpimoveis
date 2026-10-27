@@ -78,6 +78,49 @@ async function carregarConfigs(empresaId: number | null) {
   };
 }
 
+/**
+ * Cria a linha do modelo 65 na primeira vez que a série da NFC-e é salva.
+ *
+ * A migration que separou a configuração por modelo criou a linha da NFC-e só
+ * para as empresas que já tinham NF-e naquele dia. Banco provisionado depois
+ * ficava com a NF-e apenas: o PUT descartava a série digitada aqui e a emissão
+ * de NFC-e não tinha configuração para ler.
+ *
+ * O resto vem da linha da NF-e: o ambiente é espelho de `empresa.ambiente`, e o
+ * contador nasce zerado porque a série do modelo 65 tem sequência própria.
+ */
+async function criarConfigNFCe(
+  configNFeId: number,
+  serie: number,
+  natureza: string | null | undefined,
+): Promise<ConfigRow | null> {
+  const { data: base, error: baseError } = await supabase
+    .from("nfe_config")
+    .select("empresaid, ambiente, permitir_homologacao, permitir_producao")
+    .eq("id", configNFeId)
+    .single();
+  if (baseError) throw baseError;
+
+  // ignoreDuplicates: dois salvamentos ao mesmo tempo não viram erro de chave.
+  const { error } = await supabase.from("nfe_config").upsert(
+    {
+      empresaid: base.empresaid,
+      modelo: "NFCE",
+      serie,
+      ultimo_numero: 0,
+      ambiente: base.ambiente,
+      tipo_impressao_danfe: 4, // DANFE NFC-e
+      permitir_homologacao: base.permitir_homologacao,
+      permitir_producao: base.permitir_producao,
+      natureza_operacao: natureza || "VENDA AO CONSUMIDOR",
+    },
+    { onConflict: "empresaid,modelo", ignoreDuplicates: true },
+  );
+  if (error) throw error;
+
+  return (await carregarConfigs(Number(base.empresaid))).nfce;
+}
+
 function serializar(configs: Awaited<ReturnType<typeof carregarConfigs>>) {
   return {
     serieNFe: configs.nfe?.serie != null ? String(configs.nfe.serie) : "",
@@ -211,9 +254,13 @@ export async function PUT(req: NextRequest) {
     }
 
     // ---- modelo 65 -------------------------------------------------------
+    const serieNFCe = parseSerie(nfe.serieNFCe);
+    const naturezaNFCe = parseTexto(nfe.naturezaOperacaoNFCe);
+    if (!configs.nfce && serieNFCe !== undefined) {
+      configs.nfce = await criarConfigNFCe(configs.nfe.id, serieNFCe, naturezaNFCe);
+    }
+
     if (configs.nfce) {
-      const serieNFCe = parseSerie(nfe.serieNFCe);
-      const naturezaNFCe = parseTexto(nfe.naturezaOperacaoNFCe);
       const cscHomologacao = parseSegredo(nfe.cscHomologacao);
       const cscProducao = parseSegredo(nfe.cscProducao);
       const idCscHomologacao = parseTexto(nfe.idCscHomologacao);
