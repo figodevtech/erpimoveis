@@ -30,6 +30,7 @@ export const dynamic = "force-dynamic";
 
 type ConfigRow = {
   id: number;
+  empresaid: number;
   modelo: "NFE" | "NFCE";
   serie: number | null;
   natureza_operacao: string | null;
@@ -44,7 +45,7 @@ type ConfigRow = {
 };
 
 const CAMPOS =
-  "id, modelo, serie, natureza_operacao, csc_homologacao, csc_id_homologacao, csc_producao, csc_id_producao, qrcode_versao, padroes_emissao, incluir_garantia_venda, incluir_garantia_os";
+  "id, empresaid, modelo, serie, natureza_operacao, csc_homologacao, csc_id_homologacao, csc_producao, csc_id_producao, qrcode_versao, padroes_emissao, incluir_garantia_venda, incluir_garantia_os";
 
 function padroesDoModelo(config: ConfigRow | null) {
   const valor = config?.padroes_emissao;
@@ -119,6 +120,37 @@ async function criarConfigNFCe(
   if (error) throw error;
 
   return (await carregarConfigs(Number(base.empresaid))).nfce;
+}
+
+/**
+ * `ultimo_numero` da série que passa a valer.
+ *
+ * A numeração é sequencial por série, mas `nfe_config` guarda um contador só
+ * por modelo. Trocar a série mantinha o contador da anterior: a NFC-e passou da
+ * série 3 para a 4 e a primeira nota da 4 saiu com o nº 2, deixando o 1 para
+ * inutilizar. A série nova continua do maior número que o próprio ERP já
+ * alocou nela — zero, se nunca usou. Nota excluída entra na conta: número
+ * definitivo pode já estar registrado na SEFAZ.
+ */
+async function ultimoNumeroDaSerie(config: ConfigRow, serie: number): Promise<number> {
+  const { data, error } = await supabase
+    .from("nfe")
+    .select("numero")
+    .eq("empresaid", config.empresaid)
+    .eq("modelo", config.modelo)
+    .eq("serie", serie)
+    .eq("numero_definitivo", true)
+    .order("numero", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return Number(data?.numero ?? 0);
+}
+
+/** Patch de série com o contador que acompanha a troca; vazio quando a série não muda. */
+async function patchDeSerie(config: ConfigRow, serie: number | undefined) {
+  if (serie === undefined || serie === config.serie) return {};
+  return { serie, ultimo_numero: await ultimoNumeroDaSerie(config, serie) };
 }
 
 function serializar(configs: Awaited<ReturnType<typeof carregarConfigs>>) {
@@ -239,7 +271,7 @@ export async function PUT(req: NextRequest) {
     const serieNFe = parseSerie(nfe.serieNFe);
     const naturezaNFe = parseTexto(nfe.naturezaOperacao);
     const patchNFe = {
-      ...(serieNFe !== undefined ? { serie: serieNFe } : {}),
+      ...(await patchDeSerie(configs.nfe, serieNFe)),
       ...(naturezaNFe !== undefined ? { natureza_operacao: naturezaNFe } : {}),
       ...patchesGarantia.nfe,
       ...(padroesNFe ? { padroes_emissao: padroesNFe.padroes } : {}),
@@ -271,7 +303,7 @@ export async function PUT(req: NextRequest) {
         : undefined;
 
       const patchNFCe = {
-        ...(serieNFCe !== undefined ? { serie: serieNFCe } : {}),
+        ...(await patchDeSerie(configs.nfce, serieNFCe)),
         ...(naturezaNFCe !== undefined ? { natureza_operacao: naturezaNFCe } : {}),
         ...patchesGarantia.nfce,
         ...(qrCodeVersao !== undefined ? { qrcode_versao: qrCodeVersao } : {}),
