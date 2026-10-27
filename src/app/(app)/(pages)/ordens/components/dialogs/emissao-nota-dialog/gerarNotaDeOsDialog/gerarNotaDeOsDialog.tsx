@@ -102,7 +102,8 @@ import { PB_NFCE_PISO_IDENTIFICACAO } from "@/lib/nfe/fiscalRules";
 import type { ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { NFE_XNOME_MAX_LENGTH, sanitizeString } from "@/lib/nfe/xmlUtils";
 import { ConfirmarIndicadorIe } from "@/components/fiscal/confirmar-indicador-ie";
-import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
+import { formatCnpj, normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
+import { exigeIndicadorIntermediador } from "@/lib/nfe/intermediador";
 import { novoEscopoCiencia, registrarCienciaNoServidor } from "@/lib/nfe/cienciaCliente";
 
 import {
@@ -262,6 +263,11 @@ type AssistedFiscalConfig = {
    */
   freteIntegraBaseIcms: boolean | null;
   indicadorPresenca: string;
+  /**
+   * Marketplace que trouxe a venda, só para exibir: o servidor resolve de novo
+   * pela origem ao gravar o rascunho.
+   */
+  intermediador?: { cnpj: string; idCadIntTran: string } | null;
   pagamentos: Array<{ meio: string; valor: number }>;
   cobranca: NFeCobrancaInput | null;
   modFrete: string;
@@ -2178,6 +2184,13 @@ export function GerarNotaDeOsDialog({
                               ))}
                           </SelectContent>
                         </Select>
+                        {fiscalConfig.intermediador ? (
+                          <p className="text-xs text-muted-foreground">
+                            {exigeIndicadorIntermediador(fiscalConfig.indicadorPresenca)
+                              ? `Intermediador: Mercado Livre (CNPJ ${formatCnpj(fiscalConfig.intermediador.cnpj)}), conta ${fiscalConfig.intermediador.idCadIntTran}.`
+                              : "Venda presencial: a nota sai sem intermediador."}
+                          </p>
+                        ) : null}
                       </div>}
                       <div className="min-w-0 space-y-1.5">
                         <Label>Métodos de pagamento</Label>

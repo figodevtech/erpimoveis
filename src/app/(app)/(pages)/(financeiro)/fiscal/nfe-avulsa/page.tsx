@@ -76,6 +76,7 @@ import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import { aplicarClassificacaoAtualAoRascunho } from "@/lib/nfe/revisarDestinatarioRejeitado";
 import type { Fornecedor, Produto } from "@/app/(app)/(pages)/estoque/types";
 import { NFE_HOMOLOGACAO_DESTINATARIO_NOME } from "@/lib/nfe/constants";
+import { exigeIndicadorIntermediador } from "@/lib/nfe/intermediador";
 import { isValidCnpj } from "@/lib/nfe/recipientNormalization";
 import {
   formatCnpj,
@@ -392,6 +393,8 @@ type DraftPayload = {
     /** Lido na entrada e quando o destino é "OUTRO". */
     consumidorFinal: boolean | null;
     indicadorPresenca: string;
+    /** Marketplace da venda não presencial. Em branco = site ou canal próprio. */
+    intermediador: { cnpj: string; idCadIntTran: string } | null;
     observacaoInterna: string;
     observacoesFiscais: string;
   };
@@ -668,6 +671,7 @@ const initialDraft: DraftPayload = {
     destinoMercadoria: "",
     consumidorFinal: null,
     indicadorPresenca: "1",
+    intermediador: null,
     observacaoInterna: "",
     observacoesFiscais: "",
   },
@@ -2632,6 +2636,46 @@ export default function NFeAvulsaPage() {
                     </SelectContent>
                   </Select>
                 </Field>
+                {exigeIndicadorIntermediador(draft.operacao.indicadorPresenca) ? (
+                  <>
+                    <Field label="CNPJ do intermediador (marketplace)">
+                      <Input
+                        value={draft.operacao.intermediador?.cnpj ?? ""}
+                        placeholder="Em branco: site ou canal próprio. Mercado Livre: 03.007.331/0001-41"
+                        onChange={(event) =>
+                          updateDraft((current) => ({
+                            ...current,
+                            operacao: {
+                              ...current.operacao,
+                              intermediador: {
+                                cnpj: event.target.value,
+                                idCadIntTran: current.operacao.intermediador?.idCadIntTran ?? "",
+                              },
+                            },
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Identificador do vendedor no intermediador">
+                      <Input
+                        value={draft.operacao.intermediador?.idCadIntTran ?? ""}
+                        placeholder="Ex.: apelido da conta no Mercado Livre"
+                        onChange={(event) =>
+                          updateDraft((current) => ({
+                            ...current,
+                            operacao: {
+                              ...current.operacao,
+                              intermediador: {
+                                cnpj: current.operacao.intermediador?.cnpj ?? "",
+                                idCadIntTran: event.target.value,
+                              },
+                            },
+                          }))
+                        }
+                      />
+                    </Field>
+                  </>
+                ) : null}
                 {draft.operacao.tipoOperacao === "SAIDA" ? (
                   <DestinoMercadoriaField
                     destino={draft.operacao.destinoMercadoria}

@@ -63,6 +63,29 @@ function valorDoMovimento(transacao: Pick<TransacaoRow, "valor" | "valorLiquido"
   return toMoney(transacao.valorLiquido ?? transacao.valor);
 }
 
+/** Os totais somam em centavos para que saldo anterior + entradas − saídas feche no centavo exibido. */
+function centavos(valor: number) {
+  return Math.round(valor * 100);
+}
+
+const CAMPOS_EM_CENTAVOS = [
+  "valorinicial",
+  "saldoAnterior",
+  "entradas",
+  "saidas",
+  "pendenteEntrada",
+  "pendenteSaida",
+  "saldoAtual",
+] as const;
+
+type ValoresEmCentavos = Record<(typeof CAMPOS_EM_CENTAVOS)[number], number>;
+
+function emReais<T extends ValoresEmCentavos>(valores: T): T {
+  const copia = { ...valores };
+  for (const campo of CAMPOS_EM_CENTAVOS) (copia as ValoresEmCentavos)[campo] = valores[campo] / 100;
+  return copia;
+}
+
 function applyDateFilters<T>(query: T, dateFrom?: string | null, dateTo?: string | null) {
   let nextQuery = query as any;
   if (dateFrom) nextQuery = nextQuery.gte("data", localDayStartToUtcIso(dateFrom));
@@ -97,7 +120,9 @@ async function fetchAllTransactions(recorte: RecorteDeAutoria, dateFrom?: string
       .select("banco_id, tipo, valor, valorLiquido, pendente, data")
       .not("banco_id", "is", null)
       .eq("is_deleted", false)
-      .order("data", { ascending: false });
+      .order("data", { ascending: false })
+      // Sem desempate, páginas de `data` repetida podem pular ou repetir linhas.
+      .order("id", { ascending: false });
 
     query = applyDateFilters(query, dateFrom, dateTo);
     query = aplicarRecorteDeAutoria(query, recorte);
@@ -113,6 +138,44 @@ async function fetchAllTransactions(recorte: RecorteDeAutoria, dateFrom?: string
   }
 
   return rows;
+}
+
+/**
+ * Centavos que cada conta movimentou antes de `dateFrom`, por banco.
+ *
+ * Somados ao saldo inicial, dão o saldo da conta na abertura do período. Sem
+ * isso, o saldo de um período que começa em março ignoraria tudo até fevereiro e
+ * não fecharia com a coluna "Saldo" das transações, que acumula a história toda.
+ * Usa o mesmo corte de dia (`data` em -03:00) que o filtro do período.
+ */
+async function fetchMovimentoAntesDoPeriodo(recorte: RecorteDeAutoria, dateFrom: string) {
+  const porBanco = new Map<number, number>();
+
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const query = supabaseAdmin
+      .from("transacao")
+      .select("id, banco_id, tipo, valor, valorLiquido")
+      .not("banco_id", "is", null)
+      .eq("is_deleted", false)
+      .not("pendente", "is", true)
+      .lt("data", localDayStartToUtcIso(dateFrom))
+      .order("id", { ascending: true });
+
+    const { data, error } = await aplicarRecorteDeAutoria(query, recorte).range(from, from + PAGE_SIZE - 1);
+
+    if (error) throw error;
+
+    const batch = (data ?? []) as Pick<TransacaoRow, "id" | "banco_id" | "tipo" | "valor" | "valorLiquido">[];
+    for (const row of batch) {
+      const bancoId = Number(row.banco_id);
+      const valor = centavos(valorAssinadoNoBanco(String(row.tipo), valorDoMovimento(row)));
+      porBanco.set(bancoId, (porBanco.get(bancoId) ?? 0) + valor);
+    }
+
+    if (batch.length < PAGE_SIZE) break;
+  }
+
+  return porBanco;
 }
 
 /**
@@ -261,17 +324,19 @@ export async function GET(req: Request) {
       });
     }
 
-    const [{ data: bancos, error: bancosError }, transacoes, transacoesPaginadas] = await Promise.all([
+    const [{ data: bancos, error: bancosError }, transacoes, movimentoAntes, transacoesPaginadas] = await Promise.all([
       supabaseAdmin
         .from("bancoconta")
         .select("id, titulo, valorinicial, agencia, contanumero, tipo, proprietario, ativo")
         .order("titulo", { ascending: true }),
       fetchAllTransactions(recorte, dateFrom, dateTo),
+      dateFrom ? fetchMovimentoAntesDoPeriodo(recorte, dateFrom) : new Map<number, number>(),
       fetchTransactionsPage({ bancoId: Number.isFinite(bancoId) ? bancoId : null, dateFrom, dateTo, page, limit, recorte }),
     ]);
 
     if (bancosError) throw bancosError;
 
+    // Valores em centavos até a montagem da resposta.
     const resumoPorBanco = new Map<
       number,
       {
@@ -299,7 +364,7 @@ export async function GET(req: Request) {
           ultimaMovimentacao: null,
         };
 
-      const signed = valorAssinadoNoBanco(String(transacao.tipo), valorDoMovimento(transacao));
+      const signed = centavos(valorAssinadoNoBanco(String(transacao.tipo), valorDoMovimento(transacao)));
       const isEntrada = signed >= 0;
       const abs = Math.abs(signed);
 
@@ -335,8 +400,11 @@ export async function GET(req: Request) {
         totalTransacoes: 0,
         ultimaMovimentacao: null,
       };
-      const valorInicial = toMoney(banco.valorinicial);
-      const saldoAtual = valorInicial + resumo.entradas - resumo.saidas;
+      const valorInicial = centavos(toMoney(banco.valorinicial));
+      // Saldo na abertura do período; sem início de período, é o saldo inicial.
+      const saldoAnterior = valorInicial + (movimentoAntes.get(Number(banco.id)) ?? 0);
+      // Saldo no fim do período: o mesmo da coluna "Saldo" na última transação dele.
+      const saldoAtual = saldoAnterior + resumo.entradas - resumo.saidas;
 
       return {
         id: Number(banco.id),
@@ -347,6 +415,7 @@ export async function GET(req: Request) {
         tipo: banco.tipo,
         proprietario: banco.proprietario,
         ativo: banco.ativo !== false,
+        saldoAnterior,
         entradas: resumo.entradas,
         saidas: resumo.saidas,
         pendenteEntrada: resumo.pendenteEntrada,
@@ -360,6 +429,7 @@ export async function GET(req: Request) {
     const totals = items.reduce(
       (acc, item) => ({
         valorinicial: acc.valorinicial + item.valorinicial,
+        saldoAnterior: acc.saldoAnterior + item.saldoAnterior,
         entradas: acc.entradas + item.entradas,
         saidas: acc.saidas + item.saidas,
         pendenteEntrada: acc.pendenteEntrada + item.pendenteEntrada,
@@ -368,6 +438,7 @@ export async function GET(req: Request) {
       }),
       {
         valorinicial: 0,
+        saldoAnterior: 0,
         entradas: 0,
         saidas: 0,
         pendenteEntrada: 0,
@@ -377,8 +448,8 @@ export async function GET(req: Request) {
     );
 
     return NextResponse.json({
-      items,
-      totals,
+      items: items.map(emReais),
+      totals: emReais(totals),
       transacoes: transacoesPaginadas,
       filters: {
         dateFrom,

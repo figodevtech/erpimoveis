@@ -87,6 +87,11 @@ import { MarketplaceAttentionCenter, MarketplaceChatLauncher, MarketplaceHeader,
 import { MarketplaceConversationPanel } from "./marketplace-conversation-panel";
 import { MercadoLivreContactDialog } from "./mercadolivre-contact-dialog";
 import { conversationBlockedMessage } from "@/lib/integrations/mercadolivre-contact-options";
+import {
+  readShipmentLogistics,
+  readShipmentReceiverAddress,
+  resolveMercadoLivreInvoiceChannel,
+} from "@/lib/integrations/mercadolivre-shipment-format";
 import { MercadoLivreListingQuality } from "./mercadolivre/listing-quality";
 import { MercadoLivreEditListingDialog } from "./mercadolivre/edit-listing/edit-listing-dialog";
 import {
@@ -168,6 +173,16 @@ type MlOrder = {
   invoice_sent_at?: string | null;
   invoice_updated_at?: string | null;
   raw_invoice?: any;
+  /** NF-e mais recente da venda no ERP (modelo 55), anexada pelo painel. */
+  venda_nfe?: {
+    id: number;
+    numero: number | null;
+    serie: number | null;
+    status: string | null;
+    ambiente: string | null;
+    codigo_rejeicao: string | null;
+    motivo_rejeicao: string | null;
+  } | null;
   import_status?: string | null;
   import_locked_at?: string | null;
   import_error?: string | null;
@@ -1464,20 +1479,44 @@ function getOrderItemQuantity(order: MlOrder) {
   return Number(getPrimaryOrderItem(order)?.quantity ?? 1);
 }
 
+function getOrderShippingMode(order: MlOrder) {
+  return String(order.shipping_mode ?? readShipmentLogistics(order.raw_shipment).mode ?? order.raw_order?.shipping?.mode ?? "").toLowerCase();
+}
+
+function getOrderLogisticType(order: MlOrder) {
+  return String(order.logistic_type ?? readShipmentLogistics(order.raw_shipment).logisticType ?? "").trim().toLowerCase();
+}
+
 function isMercadoEnviosOrder(order: MlOrder) {
-  const mode = String(order.shipping_mode ?? order.raw_shipment?.mode ?? order.raw_order?.shipping?.mode ?? "").toLowerCase();
-  const logisticType = String(order.logistic_type ?? order.raw_shipment?.logistic_type ?? "").trim();
-  return Boolean(order.ml_shipment_id && mode === "me2" && logisticType);
+  return Boolean(order.ml_shipment_id && getOrderShippingMode(order) === "me2" && getOrderLogisticType(order));
 }
 
 function canSendInvoiceToMercadoLivre(order: MlOrder) {
-  const supportedLogistics = new Set(["drop_off", "xd_drop_off", "xd_same_day", "cross_docking"]);
-  return isMercadoEnviosOrder(order) && supportedLogistics.has(String(order.logistic_type ?? "").toLowerCase());
+  const channel = resolveMercadoLivreInvoiceChannel(order);
+  return channel === "shipment" || channel === "pack";
+}
+
+/** Coleta/agência importa a nota no envio; Flex, ME1 e personalizado anexam ao pedido. */
+function isInvoiceAttachedToPack(order: MlOrder) {
+  return resolveMercadoLivreInvoiceChannel(order) === "pack";
+}
+
+function invoiceActionLabel(order: MlOrder) {
+  if (isInvoiceAttachedToPack(order)) return isInvoiceSent(order) ? "NF-e anexada" : "Anexar NF-e";
+  return isInvoiceSent(order) ? "NF-e enviada" : "Enviar NF-e";
+}
+
+function invoiceChannelHint(order: MlOrder) {
+  const channel = resolveMercadoLivreInvoiceChannel(order);
+  if (channel === "pack") return "Neste envio a NF-e é anexada ao pedido para o comprador; ela não libera etiqueta.";
+  if (channel === "shipment") return "Neste envio o XML é importado no shipment e libera a etiqueta.";
+  if (channel === "fulfillment") return "No Full a NF-e é emitida pelo próprio Mercado Livre.";
+  return "Sincronize o envio para o ERP saber como a NF-e entra neste pedido.";
 }
 
 function isInvoiceSent(order: MlOrder) {
   const status = String(order.invoice_status ?? "").toLowerCase();
-  return Boolean(order.invoice_sent_at || order.ml_invoice_id || ["sent", "accepted", "approved", "ready_to_print", "processed"].includes(status));
+  return Boolean(order.invoice_sent_at || order.ml_invoice_id || ["sent", "accepted", "approved", "ready_to_print", "processed", "attached"].includes(status));
 }
 
 function canPrintMercadoLivreLabel(order: MlOrder) {
@@ -1625,6 +1664,33 @@ function getOrderOperationalState(order: MlOrder, claim?: MlClaim | null) {
       action: "Enviar NF-e",
       actionType: "invoice" as const,
     };
+  }
+
+  // Flex, ME1 e personalizado: a nota não trava a etiqueta, então o passo só
+  // aparece quando há o que fazer com ela — anexar a autorizada ou corrigir a
+  // rejeitada. Sem nota no ERP, segue o fluxo do envio.
+  if (isInvoiceAttachedToPack(order) && order.venda_id && !isInvoiceSent(order) && order.venda_nfe) {
+    const nota = order.venda_nfe;
+    const statusNota = String(nota.status ?? "").toUpperCase();
+    const numeroNota = nota.numero ? `${nota.numero}${nota.serie ? `/${nota.serie}` : ""}` : `#${nota.id}`;
+    if (statusNota === "AUTORIZADA" && String(nota.ambiente ?? "").toUpperCase() === "PRODUCAO") {
+      return {
+        title: "NF-e autorizada, falta anexar ao pedido",
+        description: `NF-e ${numeroNota} da venda #${order.venda_id}. Anexe o XML para o comprador ter a nota no Mercado Livre.`,
+        tone: "warning" as const,
+        action: "Anexar NF-e",
+        actionType: "invoice" as const,
+      };
+    }
+    if (statusNota === "REJEITADA") {
+      return {
+        title: "NF-e da venda rejeitada",
+        description: `${[nota.codigo_rejeicao, nota.motivo_rejeicao].filter(Boolean).join(" - ") || "Rejeitada pela SEFAZ"}. Abra a nota da venda #${order.venda_id}, salve e transmita de novo.`,
+        tone: "danger" as const,
+        action: "Ver detalhes",
+        actionType: "details" as const,
+      };
+    }
   }
 
   if (isMercadoEnviosOrder(order)) {
@@ -2967,13 +3033,15 @@ export default function MarketplacePage() {
 
   async function sendOrderInvoice(order: MlOrder) {
     if (!canSendInvoiceToMercadoLivre(order)) {
-      toast.error("Este envio não aceita importação de NF-e pelo Mercado Livre.", {
-        description: "A nota continua vinculada à venda no ERP, mas a importação no shipment exige uma logística compatível do Mercado Envios.",
-      });
+      toast.error("Este pedido não recebe NF-e pelo ERP agora.", { description: invoiceChannelHint(order) });
       return;
     }
 
-    if (!window.confirm(`Enviar a NF-e autorizada da venda #${order.venda_id} ao pedido Mercado Livre #${order.ml_order_id}?`)) return;
+    const anexar = isInvoiceAttachedToPack(order);
+    const pergunta = anexar
+      ? `Anexar a NF-e autorizada da venda #${order.venda_id} ao pedido Mercado Livre #${order.ml_order_id}?`
+      : `Enviar a NF-e autorizada da venda #${order.venda_id} ao pedido Mercado Livre #${order.ml_order_id}?`;
+    if (!window.confirm(pergunta)) return;
 
     setActionKey(`invoice:${order.id}`);
     try {
@@ -2985,7 +3053,7 @@ export default function MarketplacePage() {
       const updates: Partial<MlOrder> = {
         nfe_id: json.data?.nfe?.id ?? order.nfe_id,
         ml_invoice_id: invoice.id ?? order.ml_invoice_id,
-        invoice_status: invoice.status ?? "sent",
+        invoice_status: invoice.status ?? (anexar ? "attached" : "sent"),
         invoice_fiscal_key: invoice.fiscalKey ?? order.invoice_fiscal_key,
         invoice_error: null,
         invoice_sent_at: invoice.sentAt ?? new Date().toISOString(),
@@ -2993,10 +3061,14 @@ export default function MarketplacePage() {
       };
       setOrders((current) => current.map((item) => (item.id === order.id ? { ...item, ...updates } : item)));
       setSelectedOrderDetails((current) => (current?.id === order.id ? { ...current, ...updates } : current));
-      toast.success("NF-e enviada ao Mercado Livre.", { description: "Sincronize o envio para acompanhar a liberação da etiqueta." });
+      if (anexar) {
+        toast.success("NF-e anexada ao pedido no Mercado Livre.", { description: "O comprador já consegue ver a nota na compra." });
+      } else {
+        toast.success("NF-e enviada ao Mercado Livre.", { description: "Sincronize o envio para acompanhar a liberação da etiqueta." });
+      }
       await loadDashboard();
     } catch (e: any) {
-      toast.error("Erro ao enviar NF-e", { description: marketplaceErrorMessage(e) });
+      toast.error(anexar ? "Erro ao anexar NF-e" : "Erro ao enviar NF-e", { description: marketplaceErrorMessage(e) });
       await loadDashboard();
     } finally {
       setActionKey(null);
@@ -5366,7 +5438,7 @@ export default function MarketplacePage() {
                                     disabled={!hasVenda || !canSendInvoiceToMercadoLivre(order) || isInvoiceSent(order) || actionKey === `invoice:${order.id}`}
                                   >
                                     {actionKey === `invoice:${order.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
-                                    {isInvoiceSent(order) ? "NF-e enviada" : "Enviar NF-e"}
+                                    {invoiceActionLabel(order)}
                                   </DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => setSelectedOrderDetails(order)}>
                                     <ClipboardList className="mr-2 h-4 w-4" />
@@ -6802,8 +6874,8 @@ export default function MarketplacePage() {
                     <div className="mt-3 space-y-1 text-sm">
                       <div>Shipment ID: <span className="font-mono">{selectedOrderDetails.ml_shipment_id ?? "-"}</span></div>
                       <div>Status: {selectedOrderDetails.shipment_status ? statusBadge(selectedOrderDetails.shipment_status) : "-"}</div>
-                      <div>Modo: {optionalStatusLabel(selectedOrderDetails.shipping_mode || selectedOrderDetails.raw_shipment?.mode)}</div>
-                      <div>Logística: {optionalStatusLabel(selectedOrderDetails.logistic_type)}</div>
+                      <div>Modo: {optionalStatusLabel(getOrderShippingMode(selectedOrderDetails) || null)}</div>
+                      <div>Logística: {optionalStatusLabel(getOrderLogisticType(selectedOrderDetails) || null)}</div>
                       <div>Rastreio: <span className="font-mono">{selectedOrderDetails.tracking_number || "-"}</span></div>
                       <div>Custo do frete: {selectedOrderDetails.shipment_cost != null ? formatCurrency(selectedOrderDetails.shipment_cost) : "-"}</div>
                       <div>Itens no envio: {Array.isArray(selectedOrderDetails.raw_shipment_items) ? selectedOrderDetails.raw_shipment_items.length : "-"}</div>
@@ -6952,9 +7024,9 @@ export default function MarketplacePage() {
                   <div className="rounded-md border p-4">
                     <h3 className="text-sm font-semibold">Endereço de entrega</h3>
                     <div className="mt-3 space-y-1 text-sm">
-                      <div>{formatOrderAddress(selectedOrderDetails.raw_shipment?.receiver_address)}</div>
+                      <div>{formatOrderAddress(readShipmentReceiverAddress(selectedOrderDetails.raw_shipment))}</div>
                       <div className="text-xs text-muted-foreground">
-                        {selectedOrderDetails.raw_shipment?.receiver_address
+                        {readShipmentReceiverAddress(selectedOrderDetails.raw_shipment)
                           ? "Endereço retornado pelo Mercado Envios."
                           : "Sincronize o envio para tentar buscar o endereço do shipment."}
                       </div>
@@ -7156,16 +7228,32 @@ export default function MarketplacePage() {
                       <h3 className="text-sm font-semibold">Nota fiscal do pedido</h3>
                       <div className="mt-2 space-y-1 text-sm text-muted-foreground">
                         <div>
-                          Status no Mercado Livre: {selectedOrderDetails.invoice_status ? rawStatusLabel(selectedOrderDetails.invoice_status) : "Não enviada"}
+                          NF-e da venda no ERP:{" "}
+                          {selectedOrderDetails.venda_nfe
+                            ? `${selectedOrderDetails.venda_nfe.numero ? `nº ${selectedOrderDetails.venda_nfe.numero}${selectedOrderDetails.venda_nfe.serie ? `/${selectedOrderDetails.venda_nfe.serie}` : ""} - ` : ""}${rawStatusLabel(selectedOrderDetails.venda_nfe.status)}`
+                            : "não emitida"}
+                        </div>
+                        {String(selectedOrderDetails.venda_nfe?.status ?? "").toUpperCase() === "REJEITADA" && (
+                          <div className="text-destructive">
+                            {[selectedOrderDetails.venda_nfe?.codigo_rejeicao, selectedOrderDetails.venda_nfe?.motivo_rejeicao].filter(Boolean).join(" - ")}
+                          </div>
+                        )}
+                        <div>
+                          Status no Mercado Livre:{" "}
+                          {String(selectedOrderDetails.invoice_status ?? "").toLowerCase() === "attached"
+                            ? "Anexada ao pedido"
+                            : selectedOrderDetails.invoice_status
+                              ? rawStatusLabel(selectedOrderDetails.invoice_status)
+                              : isInvoiceAttachedToPack(selectedOrderDetails) ? "Não anexada" : "Não enviada"}
                         </div>
                         <div>
                           Chave de acesso: <span className="font-mono text-xs text-foreground">{selectedOrderDetails.invoice_fiscal_key || "-"}</span>
                         </div>
-                        {selectedOrderDetails.invoice_sent_at && <div>Enviada em: {formatDate(selectedOrderDetails.invoice_sent_at)}</div>}
-                        {selectedOrderDetails.invoice_error && <div className="text-destructive">{marketplaceTextLabel(selectedOrderDetails.invoice_error)}</div>}
-                        {!canSendInvoiceToMercadoLivre(selectedOrderDetails) && (
-                          <div>A importação automática do XML no shipment está disponível apenas para logísticas compatíveis do Mercado Envios.</div>
+                        {selectedOrderDetails.invoice_sent_at && (
+                          <div>{isInvoiceAttachedToPack(selectedOrderDetails) ? "Anexada em" : "Enviada em"}: {formatDate(selectedOrderDetails.invoice_sent_at)}</div>
                         )}
+                        {selectedOrderDetails.invoice_error && <div className="text-destructive">{marketplaceTextLabel(selectedOrderDetails.invoice_error)}</div>}
+                        <div>{invoiceChannelHint(selectedOrderDetails)}</div>
                       </div>
                     </div>
                     <Button
@@ -7181,7 +7269,7 @@ export default function MarketplacePage() {
                       }
                     >
                       {actionKey === `invoice:${selectedOrderDetails.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                      {isInvoiceSent(selectedOrderDetails) ? "NF-e enviada" : "Enviar NF-e"}
+                      {invoiceActionLabel(selectedOrderDetails)}
                     </Button>
                   </div>
                 </div>
@@ -7221,7 +7309,7 @@ export default function MarketplacePage() {
                       disabled={!selectedOrderDetails.venda_id || !canSendInvoiceToMercadoLivre(selectedOrderDetails) || isInvoiceSent(selectedOrderDetails) || actionKey === `invoice:${selectedOrderDetails.id}`}
                     >
                       {actionKey === `invoice:${selectedOrderDetails.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                      Enviar NF-e
+                      {isInvoiceAttachedToPack(selectedOrderDetails) ? "Anexar NF-e" : "Enviar NF-e"}
                     </Button>
                   </div>
                 </div>

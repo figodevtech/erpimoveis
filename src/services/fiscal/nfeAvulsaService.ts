@@ -29,6 +29,7 @@ import { calcularTotaisNFe, validarPisCofinsStSuportado } from "@/lib/nfe/fiscal
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { resolverCobrancaNFe, type NFeCobrancaInput } from "@/lib/nfe/duplicatas";
 import { validarNfce } from "@/lib/nfe/nfce/validator";
+import { exigeIndicadorIntermediador, normalizarIntermediador, validarIntermediador } from "@/lib/nfe/intermediador";
 import type {
   CRT,
   ClassificacaoTributariaRtc,
@@ -210,6 +211,11 @@ export type NFeAvulsaDraftInput = {
      */
     consumidorFinal?: boolean | null;
     indicadorPresenca: string;
+    /**
+     * Plataforma que intermediou a venda (marketplace). Só vai para a nota em
+     * operação não presencial; nela, vazio declara "sem intermediador".
+     */
+    intermediador?: { cnpj?: string | null; idCadIntTran?: string | null } | null;
     observacaoInterna?: string | null;
     observacoesFiscais?: string | null;
   };
@@ -991,6 +997,13 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       field: "naturezaOperacao",
       message: "Natureza da operação é obrigatória.",
     });
+  }
+
+  if (exigeIndicadorIntermediador(input.operacao?.indicadorPresenca)) {
+    const erroIntermediador = validarIntermediador(normalizarIntermediador(input.operacao?.intermediador));
+    if (erroIntermediador) {
+      errors.push({ step: "operation", field: "intermediador", message: erroIntermediador });
+    }
   }
 
   // NF-e de devolução (finNFe=4) sem documento referenciado é rejeição 321.
@@ -2200,6 +2213,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
       natOp: cleanText(input.operacao.naturezaOperacao),
       indFinal,
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,
+      intermediador: normalizarIntermediador(input.operacao.intermediador),
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
       modelo,
@@ -2351,6 +2365,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
       natOp: cleanText(input.operacao.naturezaOperacao),
       indFinal,
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,
+      intermediador: normalizarIntermediador(input.operacao.intermediador),
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
       modelo,

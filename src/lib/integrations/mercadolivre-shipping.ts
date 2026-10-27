@@ -1,4 +1,5 @@
 import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";
+import { readShipmentLogistics, readShipmentReceiverAddress } from "@/lib/integrations/mercadolivre-shipment-format";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -122,6 +123,11 @@ export async function getMercadoLivreShipmentLabelForVenda(vendaId: number, empr
   };
 }
 
+// No formato novo (`x-format-new`) a promessa de entrega vem em `lead_time`.
+function readShippingOption(shipment: MercadoLivreShipment) {
+  return (shipment.shipping_option ?? shipment.lead_time ?? null) as unknown;
+}
+
 export function normalizeShipment(shipment: MercadoLivreShipment) {
   const status = shipment.status ?? null;
   const substatus = shipment.substatus ?? null;
@@ -131,24 +137,25 @@ export function normalizeShipment(shipment: MercadoLivreShipment) {
   const lastUpdated = shipment.last_updated ?? new Date().toISOString();
   const events = buildShipmentEvents(shipment);
   const deadlines = extractShipmentDeadlines(shipment);
+  const { mode, logisticType } = readShipmentLogistics(shipment);
   const label = getShipmentLabelReadiness({
     status,
     substatus,
-    mode: shipment.mode,
-    logisticType: shipment.logistic_type,
+    mode,
+    logisticType,
   });
 
   return {
     id: Number(shipment.id),
     status,
     substatus,
-    mode: shipment.mode ?? null,
-    logisticType: shipment.logistic_type ?? null,
+    mode,
+    logisticType,
     trackingNumber,
     trackingMethod,
     lastUpdated,
-    receiverAddress: shipment.receiver_address ?? null,
-    shippingOption: shipment.shipping_option ?? null,
+    receiverAddress: readShipmentReceiverAddress(shipment),
+    shippingOption: readShippingOption(shipment),
     statusEntrega: mapShipmentStatusToEntrega(status, substatus),
     statusRastreio: mapShipmentStatusToRastreio(status, substatus),
     lastEventTitle: formatShipmentStatus(status, substatus),
@@ -377,7 +384,10 @@ async function persistShipment(
   };
 
   if (effectiveShipment.statusEntrega) vendaPatch.status_entrega = effectiveShipment.statusEntrega;
-  if (effectiveShipment.receiverAddress) vendaPatch.endereco_entrega_snapshot = effectiveShipment.receiverAddress;
+  // `endereco_entrega_snapshot` é o contrato da loja virtual (logradouro,
+  // cidade...) e o diálogo da NF-e o usa no lugar do endereço do cliente. O
+  // endereço do ML tem outro formato e fica no pedido (`raw_shipment`), que é
+  // onde a tela do marketplace o mostra.
 
   const { error: vendaError } = await supabaseAdmin.from("venda").update(vendaPatch).eq("id", order.venda_id);
   if (vendaError) throw vendaError;
@@ -433,10 +443,15 @@ function buildShipmentEvents(shipment: MercadoLivreShipment) {
 }
 
 function extractShipmentDeadlines(shipment: MercadoLivreShipment) {
-  const option = (shipment.shipping_option ?? {}) as any;
+  const option = (readShippingOption(shipment) ?? {}) as any;
   const estimated = option.estimated_delivery_time ?? option.estimated_delivery ?? {};
   return {
-    handling: firstDate(shipment.estimated_handling_limit, option.estimated_handling_limit, estimated.shipping),
+    handling: firstDate(
+      shipment.estimated_handling_limit,
+      option.estimated_handling_limit,
+      option.estimated_handling_limit?.date,
+      estimated.shipping,
+    ),
     from: firstDate(estimated.date, estimated.from, estimated.estimated_delivery_from, shipment.estimated_delivery_from),
     to: firstDate(
       estimated.to,
@@ -444,6 +459,8 @@ function extractShipmentDeadlines(shipment: MercadoLivreShipment) {
       shipment.estimated_delivery_limit,
       shipment.estimated_delivery_final,
       shipment.estimated_delivery_to,
+      option.estimated_delivery_limit?.date,
+      option.estimated_delivery_final?.date,
     ),
   };
 }

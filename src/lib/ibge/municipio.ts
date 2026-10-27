@@ -71,3 +71,31 @@ export async function resolverNomeMunicipioIbge(codigo: string, uf?: string | nu
 export async function nomeOficialMunicipioIbge(codigo: string): Promise<string> {
   return buscarNomeOficial(codigoDoMunicipio(codigo));
 }
+
+function chaveDeNome(nome: unknown) {
+  return String(nome ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, " ")
+    .trim()
+    .toUpperCase();
+}
+
+const codigoPorUfENome = new Map<string, string>(
+  Object.entries(municipiosPorUf as Record<string, Array<{ id: number; nome: string }>>).flatMap(([uf, municipios]) =>
+    municipios.map((municipio) => [`${uf}|${chaveDeNome(municipio.nome)}`, String(municipio.id)] as const),
+  ),
+);
+
+/**
+ * Código IBGE a partir de cidade e UF, como o combo de cidade do cadastro faz.
+ * O nome é único dentro da UF; a comparação ignora acento, caixa e pontuação
+ * ("JOAO PESSOA" = "João Pessoa"). Nome que não bate exatamente fica sem
+ * código — nunca se adivinha município parecido.
+ */
+export function codigoMunicipioIbgePorNome(nome: unknown, uf: unknown): string | null {
+  const sigla = String(uf ?? "").trim().toUpperCase().replace(/^BR-/, "");
+  const chave = chaveDeNome(nome);
+  if (sigla.length !== 2 || !chave) return null;
+  return codigoPorUfENome.get(`${sigla}|${chave}`) ?? null;
+}
