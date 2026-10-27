@@ -42,6 +42,7 @@ import CustomerSelect from "@/app/(app)/components/customerSelect";
 import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
 import { formatCpfCnpj } from "../../utils";
 import axios, { isAxiosError } from "axios";
+import { DOCUMENTO_NAO_INFORMADO } from "@/lib/clientes/consumidor-final";
 import { toast } from "@/lib/toast";
 import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import {
@@ -445,7 +446,7 @@ export default function RegisterContent({
         const transactionCustomer = {
           id: cliente.id,
           nome: cliente.nomerazaosocial ?? cliente.nome ?? "",
-          cpfcnpj: cliente.cpfcnpj ?? "",
+          cpfcnpj: cliente.cpfcnpj ?? DOCUMENTO_NAO_INFORMADO,
         };
 
         setClienteMesmoCache(transactionCustomer);
@@ -460,7 +461,7 @@ export default function RegisterContent({
         const transactionCustomer = {
           id: cliente.id,
           nome: cliente.nomerazaosocial ?? cliente.nome ?? "",
-          cpfcnpj: cliente.cpfcnpj ?? "",
+          cpfcnpj: cliente.cpfcnpj ?? DOCUMENTO_NAO_INFORMADO,
         };
 
         setClienteMesmoCache(transactionCustomer);
@@ -475,7 +476,7 @@ export default function RegisterContent({
         const transactionCustomer = {
           id: cliente.id,
           nome: cliente.nomerazaosocial ?? cliente.nome ?? "",
-          cpfcnpj: cliente.cpfcnpj ?? "",
+          cpfcnpj: cliente.cpfcnpj ?? DOCUMENTO_NAO_INFORMADO,
         };
 
         setClienteMesmoCache(transactionCustomer);
@@ -510,7 +511,7 @@ export default function RegisterContent({
         const transactionCustomer = {
           id: cliente.id,
           nome: cliente.nomerazaosocial ?? cliente.nome ?? "",
-          cpfcnpj: cliente.cpfcnpj ?? "",
+          cpfcnpj: cliente.cpfcnpj ?? DOCUMENTO_NAO_INFORMADO,
         };
 
         setSelectedCustomer(transactionCustomer);
@@ -531,7 +532,7 @@ export default function RegisterContent({
         const transactionCustomer = {
           id: cliente.id,
           nome: cliente.nomerazaosocial ?? cliente.nome ?? "",
-          cpfcnpj: cliente.cpfcnpj ?? "",
+          cpfcnpj: cliente.cpfcnpj ?? DOCUMENTO_NAO_INFORMADO,
         };
 
         setSelectedCustomer(transactionCustomer);

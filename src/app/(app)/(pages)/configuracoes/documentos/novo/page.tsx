@@ -28,6 +28,7 @@ export default async function NovoDocumentoPage({ searchParams }: PageProps) {
           html: origem.html,
           ativo: origem.ativo,
           ordem: origem.ordem,
+          impressao_rapida: origem.impressao_rapida,
         }}
       />
     );
@@ -43,6 +44,7 @@ export default async function NovoDocumentoPage({ searchParams }: PageProps) {
         html: MODELO_EM_BRANCO,
         ativo: true,
         ordem: 0,
+        impressao_rapida: false,
       }}
     />
   );

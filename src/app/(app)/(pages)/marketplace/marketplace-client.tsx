@@ -86,6 +86,7 @@ import {
 import { MarketplaceAttentionCenter, MarketplaceChatLauncher, MarketplaceHeader, MarketplaceListToolbar, MarketplaceLoadingLine, MarketplacePagination, MarketplaceSectionNav, useMarketplaceQueryValue, useMarketplaceSection, type MarketplaceAttentionItem } from "./marketplace-layout";
 import { MarketplaceConversationPanel } from "./marketplace-conversation-panel";
 import { MercadoLivreContactDialog } from "./mercadolivre-contact-dialog";
+import { conversationBlockedMessage } from "@/lib/integrations/mercadolivre-contact-options";
 import { MercadoLivreListingQuality } from "./mercadolivre/listing-quality";
 import { MercadoLivreEditListingDialog } from "./mercadolivre/edit-listing/edit-listing-dialog";
 import {
@@ -457,6 +458,7 @@ type MlChatConversation = {
   status?: string | null;
   dateCreated?: string | null;
   messages: MlChatMessage[];
+  conversationStatus?: { status?: string | null; substatus?: string | null } | null;
   error?: string | null;
 };
 
@@ -7261,6 +7263,7 @@ export default function MarketplacePage() {
             onLoadMore={chatNextCursor !== null ? () => void loadChatConversations(undefined, { beforeId: chatNextCursor }) : undefined}
             onSelect={(id) => setSelectedChatOrderId(Number(id))}
             onSend={() => void sendChatMessage()}
+            composerBlockedReason={selectedChatConversation?.conversationStatus?.status === "blocked" ? conversationBlockedMessage(selectedChatConversation.conversationStatus.substatus) : null}
           />
         </SheetContent>
       </Sheet>

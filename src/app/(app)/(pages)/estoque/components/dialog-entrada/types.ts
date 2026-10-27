@@ -74,6 +74,8 @@ export interface ItemNF {
   codigo: string;
   ean: string | number | null;
   descricao: string;
+  /** `det/infAdProd`, quando o emitente informa. */
+  informacaoAdicional?: string | null;
   ncm: string | number | null;
   cest?: string | number | null;
   cfop: string | number | null;

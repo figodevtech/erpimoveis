@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { requireEmissaoFiscalAccess } from "@/app/api/_authz/perms";
 import { listarNotasPorOrigem } from "@/services/fiscal/notasPorOrigemService";
+import { permissoesDeEmissaoDasOrigens } from "@/services/fiscal/nfeOrigemService";
 
 export const runtime = "nodejs";
 
@@ -21,10 +22,13 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   try {
     await requireEmissaoFiscalAccess();
-    const nfes = await listarNotasPorOrigem("VENDA", [vendaId]);
+    const [nfes, emissao] = await Promise.all([
+      listarNotasPorOrigem("VENDA", [vendaId]),
+      permissoesDeEmissaoDasOrigens("VENDA", [vendaId]),
+    ]);
 
     return NextResponse.json(
-      { ok: true, vendaId, nfes },
+      { ok: true, vendaId, nfes, emissao },
       { status: 200, headers: { "Cache-Control": "no-store" } },
     );
   } catch (e: any) {

@@ -86,7 +86,14 @@ export function listaDeDocumentos(modulo: ModuloDocumento) {
 }
 
 function iguais(a: DocumentoEmEdicao, b: DocumentoEmEdicao) {
-  return a.nome === b.nome && a.modulo === b.modulo && a.html === b.html && a.ativo === b.ativo && a.ordem === b.ordem;
+  return (
+    a.nome === b.nome &&
+    a.modulo === b.modulo &&
+    a.html === b.html &&
+    a.ativo === b.ativo &&
+    a.ordem === b.ordem &&
+    a.impressao_rapida === b.impressao_rapida
+  );
 }
 
 /** Cabeçalho de cada painel do espaço de trabalho. */
@@ -146,6 +153,7 @@ export function EditorDocumento({ inicial }: { inicial: DocumentoEmEdicao }) {
       html: rascunho.html,
       ativo: rascunho.ativo,
       ordem: rascunho.ordem,
+      impressao_rapida: rascunho.impressao_rapida,
     };
     setSalvando(true);
     try {
@@ -365,6 +373,19 @@ export function EditorDocumento({ inicial }: { inicial: DocumentoEmEdicao }) {
                   <span className="block text-xs text-muted-foreground">Desativado, some do botão de impressora.</span>
                 </span>
                 <Switch checked={rascunho.ativo} disabled={somenteLeitura} onCheckedChange={(ativo) => alterar({ ativo })} />
+              </label>
+              <label className="flex items-center justify-between gap-3 text-sm">
+                <span>
+                  Impressão rápida
+                  <span className="block text-xs text-muted-foreground">
+                    Botão de imprimir direto no menu, sem abrir a aba do documento.
+                  </span>
+                </span>
+                <Switch
+                  checked={rascunho.impressao_rapida}
+                  disabled={somenteLeitura}
+                  onCheckedChange={(impressao_rapida) => alterar({ impressao_rapida })}
+                />
               </label>
               {padrao && !somenteLeitura ? (
                 <Button

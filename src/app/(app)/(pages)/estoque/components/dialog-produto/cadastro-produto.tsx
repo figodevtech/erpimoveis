@@ -42,7 +42,6 @@ const initialNewProduct: Produto = {
   status_estoque: Estoque_status.OK,
   unidade: Unidade_medida.UN,
   fornecedor: "DESCONHECIDO",
-  grupo_produto_id: 1,
 };
 
 export default function CadastroProduto({
@@ -64,7 +63,7 @@ export default function CadastroProduto({
   const [currentTab, setCurrentTab] = useState<string>("Geral");
   const [lotePendente, setLotePendente] = useState<LoteSelectItem | null>(null);
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
-  const { grupos } = useGruposProduto();
+  const { grupos, loadingGrupos, adicionarGrupo } = useGruposProduto();
   const config = useConfig();
   const precoMedioCompraObrigatorio = config?.produto_preco_medio_compra_obrigatorio === true;
   const ncmObrigatorio = config?.produto_ncm_obrigatorio === true;
@@ -89,12 +88,8 @@ export default function CadastroProduto({
       handleChange("unidade", unidades[0].sigla as Unidade_medida);
     }
   }, [handleChange, newProduct.unidade, unidades]);
-  useEffect(() => {
-    // se não tiver grupo definido ainda, tenta setar uma ativa
-    if (!newProduct.grupo_produto_id && grupos.length > 0) {
-      handleChange("grupo_produto_id", grupos[0].id);
-    }
-  }, [grupos, handleChange, newProduct.grupo_produto_id]);
+  // O grupo nao e preenchido sozinho: o cadastro abre em "Selecione" e quem
+  // cadastra escolhe, em vez de o produto cair calado no primeiro grupo.
 
   const handlePickImages = (files: File[]) => {
     if (files.length === 0) return;
@@ -151,6 +146,14 @@ export default function CadastroProduto({
     setSalvando(true);
 
     try {
+      if (!newProduct.grupo_produto_id) {
+        setCurrentTab("Geral");
+        toast.error("Grupo obrigatório", {
+          description: "Selecione o grupo do produto.",
+        });
+        return;
+      }
+
       if (precoMedioCompraObrigatorio && !(Number(newProduct.precocompra) > 0)) {
         setCurrentTab("Geral");
         toast.error("Valor médio de compra obrigatório", {
@@ -348,6 +351,8 @@ export default function CadastroProduto({
         onChange={handleChange}
         unidades={unidades}
         grupos={grupos}
+        loadingGrupos={loadingGrupos}
+        onGrupoCriado={adicionarGrupo}
         loadingUnidades={loadingUnidades}
         errorUnidades={errorUnidades}
         lotePendente={lotePendente}

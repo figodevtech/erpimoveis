@@ -15,10 +15,15 @@ import { ESTOQUE_STATUS_BADGES } from "../lib/options-fiscais";
 import type { UnidadeFromApi } from "../hooks/use-unidades-medida";
 import { GrupoFromApi } from "../hooks/use-grupo-produtos";
 import { TagInput } from "../tag-input";
-import { Info } from "lucide-react";
+import { Info, Plus } from "lucide-react";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import GrupoProdutoDialog from "@/app/(app)/(pages)/configuracoes/tipos/components/grupoProdutoDialog/grupo-produto-dialog";
+import { useTipoAccess } from "@/app/(app)/(pages)/configuracoes/tipos/components/use-tipo-access";
 import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
 import { DescricaoIA } from "./descricao-ia";
 import { ProdutoLoteCard } from "./produto-lote-card";
+import { SearchCombobox } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/search-combobox";
 
 type Props = {
   mode: "create" | "edit";
@@ -29,6 +34,8 @@ type Props = {
   errorUnidades: string | null;
   showDates?: boolean;
   grupos: GrupoFromApi[];
+  loadingGrupos?: boolean;
+  onGrupoCriado?: (grupo: GrupoFromApi) => void;
   lotePendente?: LoteSelectItem | null;
   onLotePendenteChange?: (lote: LoteSelectItem | null) => void;
   onLoteVinculoAlterado?: () => void;
@@ -41,6 +48,8 @@ export function TabGeral({
   onChange,
   unidades,
   grupos,
+  loadingGrupos = false,
+  onGrupoCriado,
   loadingUnidades,
   errorUnidades,
   showDates,
@@ -56,6 +65,20 @@ export function TabGeral({
   const qtdTitulo = (produto.titulo ?? "").length;
   const qtdDescricao = (produto.descricao ?? "").length;
   const qtdFabricante = (produto.fabricante ?? "").length;
+
+  const { canCreate: podeCriarGrupo } = useTipoAccess("grupos");
+  const [novoGrupoOpen, setNovoGrupoOpen] = useState(false);
+
+  const opcoesGrupo = grupos.map((g) => ({ value: g.id.toString(), label: g.nome }));
+  // A lista traz so grupos ativos: um produto ainda ligado a um grupo inativo
+  // continua mostrando o seu, em vez de parecer sem grupo.
+  if (
+    produto.grupo_produto_id &&
+    produto.grupo?.nome &&
+    !opcoesGrupo.some((o) => o.value === produto.grupo_produto_id?.toString())
+  ) {
+    opcoesGrupo.push({ value: produto.grupo_produto_id.toString(), label: produto.grupo.nome });
+  }
 
   return (
     <TabsContent value="Geral" className="h-full min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-muted-foreground/5 px-4 py-4 md:px-6 md:py-6">
@@ -74,22 +97,42 @@ export function TabGeral({
             </div>
 
             <div className="space-y-2 lg:col-span-2">
-              <Label>Grupo</Label>
-              <Select
-                value={produto.grupo_produto_id?.toString() || "OUTROS"}
-                onValueChange={(v) => onChange("grupo_produto_id", v)}
-              >
-                <SelectTrigger className="h-9 w-full">
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  {grupos.map((g) => (
-                    <SelectItem className="hover:cursor-pointer" key={g.id} value={g.id.toString()}>
-                      {g.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Grupo{mode === "create" && <span className="text-destructive"> *</span>}</Label>
+              <div className="flex min-w-0 gap-2">
+                <div className="min-w-0 flex-1">
+                  <SearchCombobox
+                    value={produto.grupo_produto_id?.toString() ?? ""}
+                    options={opcoesGrupo}
+                    onValueChange={(v) => onChange("grupo_produto_id", v ? Number(v) : undefined)}
+                    loading={loadingGrupos}
+                    placeholder="Selecione"
+                    searchPlaceholder="Buscar grupo..."
+                    emptyMessage="Nenhum grupo encontrado."
+                  />
+                </div>
+                {podeCriarGrupo && onGrupoCriado ? (
+                  <GrupoProdutoDialog
+                    open={novoGrupoOpen}
+                    onOpenChange={setNovoGrupoOpen}
+                    onSaved={(grupo) => {
+                      onGrupoCriado({ ...grupo, ativo: grupo.ativo ?? true });
+                      // Grupo inativo nao entra na lista, entao nao da para seleciona-lo.
+                      if (grupo.ativo !== false) onChange("grupo_produto_id", grupo.id);
+                    }}
+                  >
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="size-9 shrink-0"
+                      aria-label="Cadastrar novo grupo"
+                      title="Cadastrar novo grupo"
+                    >
+                      <Plus className="size-4" aria-hidden="true" />
+                    </Button>
+                  </GrupoProdutoDialog>
+                ) : null}
+              </div>
             </div>
             <div className="space-y-2 lg:col-span-2">
               <Label>Conservação</Label>

@@ -76,6 +76,8 @@ export async function GET(req: Request) {
       ""
     ).trim();
 
+    // O Consumidor Final só serve à venda: as demais telas nem o veem na busca.
+    const incluirConsumidorFinal = searchParams.get("consumidorFinal") === "1";
     const tipopessoaParam = (searchParams.get("tipopessoa") ?? "").toUpperCase();
     const statusParam = (searchParams.get("status") ?? "TODOS").toUpperCase();
     const statusFilter = STATUS_SET.has(statusParam as Status)
@@ -106,7 +108,7 @@ export async function GET(req: Request) {
         id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
         cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
         ind_ie_dest,
-        createdat, updatedat, endereconumero, enderecocomplemento, status, veiculos: veiculo (${VEICULO_FIELDS})
+        createdat, updatedat, endereconumero, enderecocomplemento, status, codigo_sistema, veiculos: veiculo (${VEICULO_FIELDS})
         `,
         { count: "exact" }
       )
@@ -170,6 +172,10 @@ export async function GET(req: Request) {
 
         query = query.or(conditions.join(","));
       }
+    }
+
+    if (!incluirConsumidorFinal) {
+      query = query.is("codigo_sistema", null);
     }
 
     if (tipopessoaParam === "FISICA" || tipopessoaParam === "JURIDICA") {

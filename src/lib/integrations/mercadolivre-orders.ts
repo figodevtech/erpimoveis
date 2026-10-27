@@ -12,6 +12,7 @@ import {
 } from "@/lib/integrations/mercadolivre";
 import { normalizeShipment, reconcileShipmentState, type MercadoLivreShipment } from "@/lib/integrations/mercadolivre-shipping";
 import { shouldWaitForMercadoLivreReturnInspection } from "@/lib/integrations/mercadolivre-return-policy";
+import { isValidCnpj, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 
 type MercadoLivreAccount = {
   id: number;
@@ -157,7 +158,7 @@ export async function importMercadoLivreOrder(account: MercadoLivreAccount, orde
   }
 
   try {
-    const clienteId = await getOrCreateMarketplaceCustomer(order, shipment);
+    const clienteId = await getOrCreateMarketplaceCustomer(accessToken, order, shipment);
     const vendaPayload = buildVendaPayload(clienteId, order);
     const orderItems = Array.isArray(order.order_items) ? order.order_items : [];
     const vendaItems = [];
@@ -327,110 +328,114 @@ async function upsertOrderRecord(
   }
 }
 
-async function getOrCreateMarketplaceCustomer(order?: MercadoLivreOrder, shipment?: MercadoLivreShipment | null) {
-  const buyerId = Number(order?.buyer?.id ?? 0);
-  const buyerName = formatBuyerName(order);
-  const document = buyerId > 0 ? `ML${buyerId}` : "ML0000000001";
+type MercadoLivreBillingInfo = {
+  buyer?: {
+    billing_info?: {
+      name?: string;
+      last_name?: string;
+      identification?: { type?: string; number?: string };
+      address?: {
+        street_name?: string;
+        street_number?: string;
+        city_name?: string;
+        neighborhood?: string;
+        state?: { code?: string; name?: string };
+        zip_code?: string;
+      };
+    };
+  };
+};
 
-  const { data: existingByDocument, error: existingByDocumentError } = await supabaseAdmin
-    .from("cliente")
-    .select("id")
-    .eq("cpfcnpj", document)
-    .maybeSingle();
-
-  if (existingByDocumentError) throw existingByDocumentError;
-  if (existingByDocument?.id) return Number(existingByDocument.id);
-
-  if (!buyerId) {
-    return getOrCreateGenericMarketplaceCustomer();
+/**
+ * O cliente da venda e o comprador identificado pelo CPF/CNPJ dos dados de
+ * faturamento do pedido. Quem ja esta cadastrado com o mesmo documento e
+ * reaproveitado; sem documento valido o pedido nao importa.
+ */
+async function getOrCreateMarketplaceCustomer(accessToken: string, order: MercadoLivreOrder, shipment?: MercadoLivreShipment | null) {
+  const billing = (await fetchBuyerBillingInfo(accessToken, order))?.buyer?.billing_info;
+  const document = readBuyerDocument(billing?.identification);
+  if (!document) {
+    throw new Error("O Mercado Livre nao informou um CPF/CNPJ valido do comprador deste pedido.");
   }
 
+  const existing = await findCustomerByDocument(document.cpfcnpj);
+  if (existing) return existing;
+
   const receiverAddress = shipment?.receiver_address && typeof shipment.receiver_address === "object" ? (shipment.receiver_address as any) : null;
-  const baseCustomer = {
-    tipopessoa: "FISICA",
-    cpfcnpj: document,
-    nomerazaosocial: buyerName,
-    email: `ml-${buyerId}@marketplace.local`,
-    telefone: `ML${buyerId}`,
-    endereco: receiverAddress?.address_line || receiverAddress?.street_name || null,
-    endereconumero: receiverAddress?.street_number ? String(receiverAddress.street_number) : null,
-    bairro: receiverAddress?.neighborhood?.name || receiverAddress?.neighborhood || null,
-    cidade: receiverAddress?.city?.name || receiverAddress?.city || "Nao informado",
-    estado: receiverAddress?.state?.id || receiverAddress?.state?.name || "NI",
-    cep: receiverAddress?.zip_code || null,
-    status: "ATIVO",
-  };
+  const billingAddress = billing?.address;
+  const address = billingAddress
+    ? {
+        endereco: billingAddress.street_name || null,
+        endereconumero: billingAddress.street_number ? String(billingAddress.street_number) : null,
+        bairro: billingAddress.neighborhood || null,
+        cidade: billingAddress.city_name || null,
+        estado: billingAddress.state?.code || null,
+        cep: billingAddress.zip_code || null,
+      }
+    : {
+        endereco: receiverAddress?.address_line || receiverAddress?.street_name || null,
+        endereconumero: receiverAddress?.street_number ? String(receiverAddress.street_number) : null,
+        bairro: receiverAddress?.neighborhood?.name || receiverAddress?.neighborhood || null,
+        cidade: receiverAddress?.city?.name || receiverAddress?.city || null,
+        estado: receiverAddress?.state?.id || receiverAddress?.state?.name || null,
+        cep: receiverAddress?.zip_code || null,
+      };
+  const billingName = [billing?.name, billing?.last_name].map((value) => String(value ?? "").trim()).filter(Boolean).join(" ");
 
   const { data, error } = await supabaseAdmin
     .from("cliente")
-    .insert(baseCustomer)
+    .insert({
+      ...document,
+      nomerazaosocial: billingName || formatBuyerName(order),
+      ...address,
+      cidade: address.cidade || "Nao informado",
+      estado: String(address.estado || "NI").replace(/^BR-/, ""),
+      status: "ATIVO",
+    })
     .select("id")
     .single();
 
   if (!error) return Number(data.id);
 
   if (isUniqueViolation(error)) {
-    const { data: concurrentCustomer, error: concurrentCustomerError } = await supabaseAdmin
-      .from("cliente")
-      .select("id")
-      .eq("cpfcnpj", document)
-      .maybeSingle();
-    if (concurrentCustomerError) throw concurrentCustomerError;
-    if (concurrentCustomer?.id) return Number(concurrentCustomer.id);
-
-    const { data: retryData, error: retryError } = await supabaseAdmin
-      .from("cliente")
-      .insert({
-        ...baseCustomer,
-        nomerazaosocial: `${buyerName} (Mercado Livre #${buyerId})`,
-      })
-      .select("id")
-      .single();
-
-    if (!retryError) return Number(retryData.id);
-    throw retryError;
+    const concurrent = await findCustomerByDocument(document.cpfcnpj);
+    if (concurrent) return concurrent;
   }
 
   throw error;
 }
 
-async function getOrCreateGenericMarketplaceCustomer() {
-  const customerName = "Consumidor Mercado Livre";
-  const { data: existing, error: existingError } = await supabaseAdmin
-    .from("cliente")
-    .select("id")
-    .eq("nomerazaosocial", customerName)
-    .maybeSingle();
+async function fetchBuyerBillingInfo(accessToken: string, order: MercadoLivreOrder) {
+  const billingInfoId = String(order.buyer?.billing_info?.id ?? "").trim();
+  if (!billingInfoId) return null;
+  return mercadoLivreApiGet<MercadoLivreBillingInfo>(
+    accessToken,
+    `/orders/billing-info/MLB/${encodeURIComponent(billingInfoId)}`,
+    { "x-version": "2" },
+  );
+}
 
-  if (existingError) throw existingError;
-  if (existing?.id) return Number(existing.id);
+function readBuyerDocument(identification?: { type?: string; number?: string }) {
+  const type = String(identification?.type ?? "").toUpperCase();
+  if (type === "CPF") {
+    const cpf = normalizeCpf(identification?.number);
+    return cpf.length === 11 ? { tipopessoa: "FISICA", cpfcnpj: cpf } : null;
+  }
+  if (type === "CNPJ") {
+    const cnpj = normalizeCnpj(identification?.number);
+    return isValidCnpj(cnpj) ? { tipopessoa: "JURIDICA", cpfcnpj: cnpj } : null;
+  }
+  return null;
+}
 
+async function findCustomerByDocument(cpfcnpj: string) {
   const { data, error } = await supabaseAdmin
     .from("cliente")
-    .insert({
-      tipopessoa: "FISICA",
-      cpfcnpj: "ML0000000001",
-      nomerazaosocial: customerName,
-      email: "mercadolivre@marketplace.local",
-      telefone: "ML0000000001",
-      cidade: "Nao informado",
-      estado: "NI",
-      status: "ATIVO",
-    })
     .select("id")
-    .single();
-
-  if (error && isUniqueViolation(error)) {
-    const { data: concurrentCustomer, error: concurrentCustomerError } = await supabaseAdmin
-      .from("cliente")
-      .select("id")
-      .eq("cpfcnpj", "ML0000000001")
-      .maybeSingle();
-    if (concurrentCustomerError) throw concurrentCustomerError;
-    if (concurrentCustomer?.id) return Number(concurrentCustomer.id);
-  }
+    .eq("cpfcnpj", cpfcnpj)
+    .maybeSingle();
   if (error) throw error;
-  return Number(data.id);
+  return data?.id ? Number(data.id) : null;
 }
 
 function formatBuyerName(order?: MercadoLivreOrder) {

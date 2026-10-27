@@ -26,12 +26,14 @@ export type DocumentoModelo = {
   html: string;
   ativo: boolean;
   ordem: number;
+  /** Impressora no item do menu de emissão: imprime sem abrir a aba. */
+  impressao_rapida: boolean;
   created_at: string;
   updated_at: string;
 };
 
 /** O que o dropdown de emissão precisa saber de cada modelo. */
-export type DocumentoParaEmitir = Pick<DocumentoModelo, "id" | "nome">;
+export type DocumentoParaEmitir = Pick<DocumentoModelo, "id" | "nome" | "impressao_rapida">;
 
 /**
  * Variável que o modelo pode usar. `html` é marcação montada pelo sistema

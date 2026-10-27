@@ -266,6 +266,10 @@ export function EntradaFiscalDialog({
   const [produtoSelecionadoId, setProdutoSelecionadoId] = useState<
     number | undefined
   >(undefined);
+  // Produto vinculado aberto para edição pelo badge da linha.
+  const [produtoEdicaoId, setProdutoEdicaoId] = useState<number | undefined>(
+    undefined,
+  );
 
   /*
    * Salvar o produto vincula a linha, e o dialog dela desmonta sem passar pelo
@@ -722,6 +726,7 @@ export function EntradaFiscalDialog({
     setProdutoSelectIndex(null);
     setProdutoDialogIndex(null);
     setProdutoSelecionadoId(undefined);
+    setProdutoEdicaoId(undefined);
     setItemSelectIndex(null);
     setItemDialogIndex(null);
     setItemEmEdicao(null);
@@ -1161,6 +1166,27 @@ export function EntradaFiscalDialog({
       toast.error("Não foi possível carregar o item selecionado.", {
         description: textoErro(error),
       });
+    }
+  }
+
+  async function recarregarProdutoVinculado(produtoId: number) {
+    try {
+      const { data } = await axios.get(`/api/products/${produtoId}`);
+      // O mesmo produto pode estar vinculado a mais de uma linha da nota.
+      setParsed((atual) =>
+        atual
+          ? {
+              ...atual,
+              itens: atual.itens.map((linha) =>
+                linha.produtoReferenciaId === produtoId
+                  ? { ...linha, produtoReferencia: data.data }
+                  : linha,
+              ),
+            }
+          : atual,
+      );
+    } catch {
+      // O vínculo continua valendo; só o título do badge fica desatualizado.
     }
   }
 
@@ -2370,8 +2396,23 @@ export function EntradaFiscalDialog({
                                     : "text-red-400"
                               }`}
                             >
+                              {linha.destino === "ESTOQUE" &&
+                              linha.produtoReferenciaId &&
+                              !vinculando &&
+                              !bloqueado ? (
+                                // Cobre o badge inteiro; o "x" vem depois e fica por cima.
+                                <button
+                                  type="button"
+                                  aria-label={`Editar o produto vinculado ao item ${linha.numeroItem}`}
+                                  title="Editar produto"
+                                  className="peer absolute inset-0 rounded-md transition-colors hover:cursor-pointer hover:bg-muted-foreground/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  onClick={() =>
+                                    setProdutoEdicaoId(linha.produtoReferenciaId)
+                                  }
+                                />
+                              ) : null}
                               <span
-                                className="min-w-0 truncate"
+                                className="pointer-events-none min-w-0 truncate peer-hover:text-foreground peer-hover:underline"
                                 title={vinculando ? undefined : rotuloVinculo(linha)}
                               >
                                 {vinculando
@@ -2455,8 +2496,19 @@ export function EntradaFiscalDialog({
                                     }
                                     newProductData={{
                                       titulo: linha.descricao,
+                                      // A descrição do produto aceita 300 caracteres; o infAdProd, até 500.
+                                      descricao:
+                                        linha.informacaoAdicional?.slice(0, 300) ||
+                                        undefined,
                                       referencia: linha.codigo,
+                                      codigobarras: String(
+                                        linha.ean &&
+                                          String(linha.ean) !== "SEM GTIN"
+                                          ? linha.ean
+                                          : "",
+                                      ),
                                       ncm: String(linha.ncm ?? ""),
+                                      cest: String(linha.cest ?? ""),
                                       cfop: String(linha.cfop ?? ""),
                                       precovenda: linha.valorUnitario,
                                       precocompra: linha.valorUnitario,
@@ -2963,6 +3015,17 @@ export function EntradaFiscalDialog({
         onSelectedItemId={(id) => {
           if (itemDialogIndex !== null)
             void selecionarItemUsoPorId(itemDialogIndex, id);
+        }}
+      />
+
+      <DialogProduto
+        productId={produtoEdicaoId}
+        isOpen={produtoEdicaoId !== undefined}
+        setIsOpen={(aberto) => {
+          if (!aberto) setProdutoEdicaoId(undefined);
+        }}
+        onAfterSaveProduct={() => {
+          if (produtoEdicaoId) void recarregarProdutoVinculado(produtoEdicaoId);
         }}
       />
     </>

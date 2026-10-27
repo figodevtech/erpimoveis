@@ -6,6 +6,7 @@ import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireClientesAccess, requireClientesDelete, requireClientesEdit } from "@/app/api/_authz/perms";
 import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
+import { recusaSeClienteDoSistema } from "@/lib/clientes/consumidor-final-server";
 import { mapearItemHistorico } from "@/lib/ordens/itens-historicos";
 import {
   isValidCnpj,
@@ -218,6 +219,8 @@ export async function PATCH(req: Request, ctx: Params) {
   try {
     await requireClientesEdit();
     const id = await parseId(ctx);
+    const recusa = await recusaSeClienteDoSistema(id);
+    if (recusa) return recusa;
     const body = await req.json().catch(() => ({}));
     const payload = sanitizePayload(body, { strict: false });
 
@@ -265,6 +268,8 @@ export async function PUT(req: Request, ctx: Params) {
   try {
     await requireClientesEdit();
     const id = await parseId(ctx);
+    const recusa = await recusaSeClienteDoSistema(id);
+    if (recusa) return recusa;
     const body = await req.json().catch(() => ({}));
     const payload = sanitizePayload(body, { strict: true });
 
@@ -316,6 +321,8 @@ export async function DELETE(_: Request, ctx: Params) {
     if (!id) {
       return NextResponse.json({ error: "ID inválido." }, { status: 400 });
     }
+    const recusa = await recusaSeClienteDoSistema(id);
+    if (recusa) return recusa;
 
     // Com ON DELETE CASCADE, basta deletar o cliente.
     // Usamos .select('id') para saber se encontrou/deletou algo.

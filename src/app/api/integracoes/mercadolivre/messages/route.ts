@@ -3,7 +3,7 @@ import { requireVendasAccess, requireVendasEdit } from "@/app/api/_authz/perms";
 import { errorStatus, requireEmpresaId } from "@/lib/empresa-context";
 import { mercadoLivreApiGet, mercadoLivreApiPost } from "@/lib/integrations/mercadolivre";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { contactOptions, contactPayload } from "@/lib/integrations/mercadolivre-contact-options";
+import { contactOptions, contactPayload, conversationBlockedMessage } from "@/lib/integrations/mercadolivre-contact-options";
 import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";
 import { parseMessagePage, messageOrderPage, MESSAGE_ORDER_PAGE_SIZE } from "@/lib/integrations/mercadolivre-message-page";
 
@@ -225,7 +225,8 @@ function friendlyMercadoLivreError(error: any, fallback: string) {
     const parsed = JSON.parse(raw.slice(jsonStart));
     const causes = Array.isArray(parsed.cause) ? parsed.cause : Array.isArray(parsed.cause_list) ? parsed.cause_list : [];
     const details = causes.map((cause: any) => cause?.message || cause?.msg || cause?.cause || cause?.code).filter(Boolean).join("; ");
-    return details || parsed.message || parsed.error || fallback;
+    const message = details || parsed.message || parsed.error || fallback;
+    return /^blocked_by_\w+$/.test(message) ? conversationBlockedMessage(message) : message;
   } catch {
     return raw || fallback;
   }

@@ -111,6 +111,7 @@ export function DocumentosLista({ moduloInicial }: { moduloInicial: ModuloDocume
         html: doc.html,
         ordem: doc.ordem,
         ativo,
+        impressao_rapida: doc.impressao_rapida,
       });
       setItens((atual) => atual.map((d) => (d.id === salvo.id ? salvo : d)));
       toast.success(ativo ? `“${doc.nome}” ativado.` : `“${doc.nome}” desativado.`);
@@ -260,6 +261,11 @@ export function DocumentosLista({ moduloInicial }: { moduloInicial: ModuloDocume
                     {!doc.ativo ? (
                       <Badge variant="secondary" className="text-[10px]">
                         Desativado
+                      </Badge>
+                    ) : null}
+                    {doc.impressao_rapida ? (
+                      <Badge variant="outline" className="text-[10px]">
+                        Impressão rápida
                       </Badge>
                     ) : null}
                   </div>

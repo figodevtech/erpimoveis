@@ -55,6 +55,8 @@ export interface Customer {
   createdat: string
   updatedat: Timestamp
   status: ClientStatus
+  /** Cadastro do sistema (`consumidor_final`): sem documento e intocável. */
+  codigo_sistema?: string | null
   veiculos: Veiculo[]
   ordens: Ordem[]
   rank?: Cliente_rank | null

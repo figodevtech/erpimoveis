@@ -22,6 +22,7 @@ import {
 import { notifySalesUsers } from "@/lib/system-notifications";
 import { processTelegramMarketplaceNotifications } from "@/lib/integrations/telegram-marketplace-notifications";
 import { processPublicOffer } from "@/lib/integrations/mercadolivre-public-offers";
+import { processPublicCandidate } from "@/lib/integrations/mercadolivre-public-candidates";
 
 
 type NotificationPayload = {
@@ -75,7 +76,7 @@ export async function receiveMercadoLivreNotification(
 export async function maintainMercadoLivreNotificationQueue() {
   await ignoreOrphanedNotifications();
   await requeuePreviouslyUnsupportedOffers();
-  await requeuePreviouslyUnsupportedUserProducts();
+  await requeuePreviouslyUnsupportedTopics();
   await purgeMercadoLivreOutboundTouches();
 }
 
@@ -98,8 +99,8 @@ async function requeuePreviouslyUnsupportedOffers() {
   if (updateError) throw updateError;
 }
 
-async function requeuePreviouslyUnsupportedUserProducts() {
-  for (const topic of ["user_products", "user_products_families"]) {
+async function requeuePreviouslyUnsupportedTopics() {
+  for (const topic of ["user_products", "user_products_families", "public_candidates"]) {
     const reason = `Tópico sem processador configurado: ${topic}.`;
     const { data, error } = await supabaseAdmin.from("mercadolivre_notification")
       .select("id").eq("topic", topic).eq("status", "IGNORADA").eq("error", reason)
@@ -201,6 +202,12 @@ async function processNotification(notificationId: number, attempts: number) {
       notificationDetails = await processPublicOffer(resource,
         (path) => mercadoLivreApiGet(accessToken, path),
         (itemId, offer) => processItem(account, accessToken, `/items/${itemId}`, notificationId, topic, offer));
+    } else if (topic === "public_candidates") {
+      notificationDetails = await processPublicCandidate(resource, account.ml_user_id,
+        (path) => mercadoLivreApiGet(accessToken, path).catch((error: unknown) => {
+          if (isMercadoLivreNotFound(error)) return null;
+          throw error;
+        }));
     } else if (topic === "user-products") {
       notificationDetails = await processUserProduct(account, accessToken, resource, notificationId);
     } else if (topic === "user-products-families") {

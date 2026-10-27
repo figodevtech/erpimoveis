@@ -293,12 +293,13 @@ export default function SearchFilter({
                     id="fluxo-search"
                     value={draftSearch}
                     onChange={(e) => setDraftSearch(e.target.value)}
-                    placeholder="Descrição, pagador, categoria, plano, nota..."
+                    placeholder="Descrição, pagador, valor, categoria, nota..."
                     aria-describedby="fluxo-search-ajuda"
                   />
                   <p id="fluxo-search-ajuda" className="text-xs text-muted-foreground">
-                    Procura em descrição, pagador, CPF/CNPJ, categoria, plano de
-                    conta, centro de custo e dados do documento. Use{" "}
+                    Procura em descrição, pagador, CPF/CNPJ, valor (ex.: 894,19),
+                    categoria, plano de conta, centro de custo e dados do
+                    documento. Use{" "}
                     <span className="font-medium text-foreground">#87</span> para
                     abrir direto o lançamento 87.
                   </p>

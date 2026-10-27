@@ -23,6 +23,15 @@ begin
   ) <> 3 then
     raise exception 'seed: os tres modelos de fabrica deveriam existir, cada um no seu modulo';
   end if;
+  -- O cupom so fica de fora quando a oficina ja tinha um documento de venda
+  -- com o mesmo nome.
+  if not exists (
+    select 1 from public.documento_modelo
+    where modulo = 'venda' and not is_deleted
+      and (codigo_padrao = 'venda_cupom' or lower(btrim(nome)) = 'cupom de venda')
+  ) then
+    raise exception 'seed: o cupom de venda deveria existir no modulo venda';
+  end if;
 
   -- 2) checks
   begin

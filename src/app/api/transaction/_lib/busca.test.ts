@@ -138,3 +138,53 @@ test("numero que nao cabe no integer nao vai para OS nem venda", () => {
 test("# continua procurando so o lancamento, sem OS nem venda", () => {
   assert.equal(filtroDeBusca("#1204"), "id.eq.1204");
 });
+
+test("valor digitado como na tela procura o bruto e o liquido", () => {
+  for (const termo of ["894,19", "R$ 894,19", "r$894,19", "- R$ 894,19", "+894,19", "894.19"]) {
+    const filtro = filtroDeBusca(termo) ?? "";
+    assert.ok(filtro.includes("valor.eq.894.19"), `"${termo}" deveria procurar o valor`);
+    assert.ok(filtro.includes("valorLiquido.eq.894.19"), `"${termo}" deveria procurar o liquido`);
+  }
+});
+
+test("ponto de milhar sai do valor", () => {
+  assert.ok((filtroDeBusca("1.234,56") ?? "").includes("valor.eq.1234.56"));
+  assert.ok((filtroDeBusca("1.234.567,8") ?? "").includes("valor.eq.1234567.8"));
+  assert.ok((filtroDeBusca("1.234") ?? "").includes("valor.eq.1234"));
+});
+
+test("numero puro tambem procura o valor, por igualdade", () => {
+  // Igualdade, nao ilike: "894" nao pode trazer 1.894,00. E soma com o resto.
+  const filtro = filtroDeBusca("894") ?? "";
+  assert.ok(filtro.includes("valor.eq.894"));
+  assert.ok(!filtro.includes("valor.ilike"));
+  assert.ok(filtro.includes("id.eq.894"));
+  assert.ok(filtro.includes("documento_numero.ilike."));
+});
+
+test("valor com virgula nao vira busca de CPF pelos digitos", () => {
+  // "894,19" viraria "89419" e traria CPF com esses digitos no meio.
+  const filtro = filtroDeBusca("894,19") ?? "";
+  assert.equal(filtro.split("cpfcnpjpagador.ilike").length - 1, 1);
+  assert.ok(!filtro.includes('"*89419*"'));
+  assert.ok(!(filtroDeBusca("R$ 1.234,56") ?? "").includes('"*123456*"'));
+});
+
+test("o que nao e dinheiro nao procura valor", () => {
+  for (const termo of [
+    "nota 87",
+    "87a",
+    "894,195",
+    "12.345.678/0001-99",
+    "3".repeat(44),
+    "1.23.456",
+    "R$",
+  ]) {
+    assert.ok(!(filtroDeBusca(termo) ?? "").includes("valor.eq"), `"${termo}" nao e valor`);
+  }
+});
+
+test("documento com pontuacao continua procurando os digitos", () => {
+  // Sem virgula nem R$, ponto e barra sao de documento, nao de dinheiro.
+  assert.ok((filtroDeBusca("12.345") ?? "").includes('cpfcnpjpagador.ilike."*12345*"'));
+});

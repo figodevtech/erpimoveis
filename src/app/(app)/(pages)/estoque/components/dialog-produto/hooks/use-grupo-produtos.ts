@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 
 export type GrupoFromApi = {
@@ -38,5 +38,16 @@ export function useGruposProduto(enabled = true) {
     return () => window.clearTimeout(timer);
   }, [enabled]);
 
-  return { grupos, loadingGrupos, errorGrupos };
+  // Grupo cadastrado na hora (ex.: pelo "+" do cadastro de produto) entra na
+  // lista sem buscar todos de novo.
+  const adicionarGrupo = useCallback((grupo: GrupoFromApi) => {
+    if (!grupo.ativo) return;
+    setGrupos((atual) =>
+      [...atual.filter((g) => g.id !== grupo.id), grupo].sort((a, b) =>
+        a.nome.localeCompare(b.nome, "pt-BR"),
+      ),
+    );
+  }, []);
+
+  return { grupos, loadingGrupos, errorGrupos, adicionarGrupo };
 }

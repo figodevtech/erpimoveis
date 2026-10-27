@@ -52,6 +52,7 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarHeader,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
@@ -411,6 +412,29 @@ function SidebarModulesLoading() {
 
 export function AppSidebar({ user, setOpen, hoverHabilitado, billingBlocked = false, ...props }: AppSidebarProps) {
   const { data: session, status } = useSession();
+  const [empresaNome, setEmpresaNome] = React.useState("Empresa");
+
+  React.useEffect(() => {
+    if (status !== "authenticated") return;
+    const controller = new AbortController();
+
+    async function carregarEmpresa() {
+      try {
+        const response = await fetch("/api/me/empresa", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const empresa: { nome?: string | null } = await response.json();
+        if (!controller.signal.aborted) setEmpresaNome(empresa.nome || "Empresa");
+      } catch {
+        // Mantém o cabeçalho disponível mesmo se a consulta falhar.
+      }
+    }
+
+    void carregarEmpresa();
+    return () => controller.abort();
+  }, [status]);
 
   // Se tiver sessão, usa usuário da sessão; senão, usa o user vindo por props (do layout)
   const effectiveUser = React.useMemo(
@@ -441,6 +465,17 @@ export function AppSidebar({ user, setOpen, hoverHabilitado, billingBlocked = fa
     <Sidebar onMouseOver={()=>{
       if(!hoverHabilitado) return;
       setOpen?.(true)}} collapsible="icon" {...props}>
+      <SidebarHeader className="shrink-0 overflow-hidden border-b border-sidebar-border">
+        <div
+          className="flex min-h-12 w-[calc(var(--sidebar-width)-1rem)] shrink-0 items-center gap-2 px-2"
+          title={empresaNome}
+        >
+          <Building2 className="size-5 shrink-0 text-sidebar-foreground" aria-hidden="true" />
+          <span className="min-w-0 break-words text-sm font-semibold leading-tight transition-opacity duration-200 ease-linear group-data-[collapsible=icon]:opacity-0 motion-reduce:transition-none">
+            {empresaNome}
+          </span>
+        </div>
+      </SidebarHeader>
       <SidebarContent>
         {isSessionLoading ? (
           <SidebarModulesLoading />

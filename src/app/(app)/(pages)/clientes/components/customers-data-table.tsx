@@ -20,6 +20,7 @@ import {
   ChevronRightIcon,
   ChevronsRight,
   Loader,
+  Lock,
   Plus,
 } from "lucide-react";
 
@@ -40,6 +41,7 @@ import { ExportCustomersButton } from "./ExportCustomersButton";
 import { formatCpfCnpj, getRankEmoji } from "./customerDialogRegister/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
+import { ehClienteDoSistema } from "@/lib/clientes/consumidor-final";
 
 interface CustomerDataTableProps {
   handleGetCustomers: (pageNumber?: number, limit?: number, search?: string, status?: Status) => void;
@@ -221,8 +223,9 @@ export default function CustomersDataTable({
             {customerItems.map((customer) => (
               <TableRow
                 key={customer.id}
-                onDoubleClick={() => setSelectedCustomerId(customer.id)}
-                className="hover:cursor-pointer"
+                // O cadastro do sistema não abre para edição.
+                onDoubleClick={() => !ehClienteDoSistema(customer) && setSelectedCustomerId(customer.id)}
+                className={ehClienteDoSistema(customer) ? undefined : "hover:cursor-pointer"}
               >
                 <TableCell>{customer.id}</TableCell>
 
@@ -232,6 +235,11 @@ export default function CustomersDataTable({
                       <TooltipTrigger asChild>
                         <div className="flex max-w-[220px] items-center gap-1.5 font-medium">
                           <span className="truncate">{truncate(customer.nomerazaosocial, 28)}</span>
+                          {ehClienteDoSistema(customer) ? (
+                            <span className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              Sistema
+                            </span>
+                          ) : null}
                           {customer.rank ? (
                             <span className="shrink-0" aria-label={`Classificação: ${customer.rank}`}>
                               {getRankEmoji(customer.rank)}
@@ -274,7 +282,7 @@ export default function CustomersDataTable({
                 </TableCell>
 
                 <TableCell className="font-mono text-sm">
-                  {formatCpfCnpj(customer.cpfcnpj, customer.tipopessoa)}
+                  {customer.cpfcnpj ? formatCpfCnpj(customer.cpfcnpj, customer.tipopessoa) : "-"}
                 </TableCell>
 
                 <TableCell className="text-sm">
@@ -288,7 +296,17 @@ export default function CustomersDataTable({
                 <TableCell>{getStatusBadge(customer.status)}</TableCell>
 
                 <TableCell>
-                  {/* ✅ modal={false} ajuda quando vai abrir Dialog/Alert a partir do menu */}
+                  {ehClienteDoSistema(customer) ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="flex h-8 w-8 items-center justify-center text-muted-foreground" aria-label="Cadastro do sistema">
+                          <Lock className="h-4 w-4" />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>Cadastro do sistema: não pode ser alterado nem excluído.</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                  /* ✅ modal={false} ajuda quando vai abrir Dialog/Alert a partir do menu */
                   <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" className="h-8 w-8 p-0">
@@ -327,6 +345,7 @@ export default function CustomersDataTable({
                       ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

@@ -42,6 +42,9 @@ export const getCategoryIcon = (categoria: string, icone?: string | null) => (
 );
 
 export const formatCpfCnpj = (value: string) => {
+  // "NÃO INFORMADO" e afins: texto, não documento. Um CNPJ alfanumérico não
+  // tem espaço nem letra acentuada.
+  if (/\s|[^A-Za-z0-9./-]/.test(value.trim())) return value;
   const cnpj = normalizeCnpj(value);
   return cnpj.length === 14 || /[A-Z]/.test(cnpj)
     ? formatCnpj(cnpj)

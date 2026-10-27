@@ -13,7 +13,9 @@ export function contactOptions(guide: unknown): ContactOption[] {
   return options.flatMap<ContactOption>((raw) => {
     const option = raw as Record<string, any> | null;
     if (!option || !labels[option.id] || option.enabled !== true || option.actionable !== true || !(option.cap_available > 0)) return [];
-    if (option.id === "DELIVERY_PROMISE" && String(option.type).toLowerCase() === "template") {
+    // A API devolve o tipo em maiúsculas ("FREE_TEXT", "TEMPLATE").
+    const type = String(option.type).toLowerCase();
+    if (option.id === "DELIVERY_PROMISE" && type === "template") {
       const template = Array.isArray(option.templates) ? option.templates.find((t: any) =>
         typeof t?.id === "string" && Array.isArray(t.vars) && t.vars.length === 2 &&
         t.vars.every((v: any) => v?.type === "NUMBER") &&
@@ -22,14 +24,24 @@ export function contactOptions(guide: unknown): ContactOption[] {
       return template ? [{ id: option.id, label: labels[option.id], templateId: template.id, charLimit: 0,
         deliveryVariables: { start: `${template.id}___VAR___INIT`, end: `${template.id}___VAR___LIMIT` } }] : [];
     }
-    if (option.type === "free_text" && ["OTHER", "SEND_INVOICE_LINK"].includes(option.id)) {
+    if (type === "free_text" && ["OTHER", "SEND_INVOICE_LINK"].includes(option.id)) {
       if (!Number.isInteger(option.char_limit) || option.char_limit <= 0) return [];
       return [{ id: option.id, label: labels[option.id], templateId: null, charLimit: Math.min(option.char_limit, 350) }];
     }
-    if (option.type !== "template" || !["REQUEST_VARIANTS", "REQUEST_BILLING_INFO"].includes(option.id)) return [];
+    if (type !== "template" || !["REQUEST_VARIANTS", "REQUEST_BILLING_INFO"].includes(option.id)) return [];
     const template = Array.isArray(option.templates) ? option.templates.find((t: any) => typeof t?.id === "string" && (t.vars == null || (Array.isArray(t.vars) && t.vars.length === 0))) : null;
     return template ? [{ id: option.id, label: labels[option.id], templateId: template.id, charLimit: 0 }] : [];
   });
+}
+
+/** Explica o `conversation_status.substatus` de uma conversa bloqueada para mensagem livre. */
+export function conversationBlockedMessage(substatus: unknown) {
+  const code = String(substatus ?? "");
+  if (code.startsWith("blocked_by_conversation_initiated_by_seller")) {
+    return "O Mercado Livre só deixa o vendedor iniciar a conversa por um motivo de contato. Use “Iniciar contato por motivo”; o campo livre é liberado quando o comprador responder.";
+  }
+  if (code === "blocked_by_time") return "O prazo para mensagens deste pedido no Mercado Livre terminou.";
+  return `O Mercado Livre bloqueou mensagens nesta conversa (${code || "motivo não informado"}).`;
 }
 
 export function contactPayload(guide: unknown, id: string, text: string, delivery?: { start?: unknown; end?: unknown }) {

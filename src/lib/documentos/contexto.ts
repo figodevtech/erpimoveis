@@ -133,10 +133,10 @@ function ehPessoaJuridica(cliente: ClienteDocumento | null) {
   return tipo ? tipo === "JURIDICA" || tipo === "PJ" : digitos.length === 14;
 }
 
-/** Os trechos `{{#se_pessoa_juridica}}` / `{{#se_pessoa_fisica}}`; sem cliente, nenhum. */
+/** Os trechos `{{#se_pessoa_juridica}}` / `{{#se_pessoa_fisica}}`; sem cliente, só `{{#se_sem_cliente}}`. */
 function condicoesDoCliente(cliente: ClienteDocumento | null) {
   const juridica = Boolean(cliente) && ehPessoaJuridica(cliente);
-  return { se_pessoa_juridica: juridica, se_pessoa_fisica: Boolean(cliente) && !juridica };
+  return { se_pessoa_juridica: juridica, se_pessoa_fisica: Boolean(cliente) && !juridica, se_sem_cliente: !cliente };
 }
 
 function contextoCliente(cliente: ClienteDocumento | null) {
@@ -168,9 +168,12 @@ function contextoCliente(cliente: ClienteDocumento | null) {
   };
 }
 
-/** Cliente do cadastro (`cliente`), no formato que os documentos esperam. */
+/**
+ * Cliente do cadastro (`cliente`), no formato que os documentos esperam. O
+ * Consumidor Final é a venda sem cliente identificado: sai como sem cliente.
+ */
 export function clienteDoCadastro(cliente: Linha | null): ClienteDocumento | null {
-  if (!cliente) return null;
+  if (!cliente || cliente.codigo_sistema) return null;
   return {
     ...cliente,
     nome: cliente.nomerazaosocial ?? cliente.nome,
@@ -274,6 +277,7 @@ export function contextoDaVenda({ venda, empresa, pagamentos: resumo, emissao }:
     ], " · ") || texto(entrega.pickupAddress);
   const formas = pagamentos(resumo);
   const cliente = clienteDoCadastro(um(venda.cliente));
+  const descontoTotal = arredondar(descontoItens + descontoGeral);
 
   return {
     empresa: contextoEmpresa(empresa, emissao.logoUrl),
@@ -281,9 +285,13 @@ export function contextoDaVenda({ venda, empresa, pagamentos: resumo, emissao }:
     pagina: contextoPagina(),
     cliente: contextoCliente(cliente),
     ...condicoesDoCliente(cliente),
+    se_desconto: descontoTotal > 0,
+    se_frete: frete > 0,
+    se_acrescimo: acrescimo > 0,
     venda: {
       numero: texto(venda.id),
       data: data(venda.datavenda ?? venda.createdat),
+      data_hora: dataHora(venda.datavenda ?? venda.createdat),
       ano: ano(venda.datavenda ?? venda.createdat),
       ano_curto: ano(venda.datavenda ?? venda.createdat).slice(-2),
       status: rotuloDeEnum(venda.status),
@@ -293,7 +301,7 @@ export function contextoDaVenda({ venda, empresa, pagamentos: resumo, emissao }:
       criado_por: texto(um(venda.criador)?.nome),
       quantidade_itens: String(itens.length),
       subtotal: moeda(subtotal),
-      desconto: moeda(arredondar(descontoItens + descontoGeral)),
+      desconto: moeda(descontoTotal),
       frete: moeda(frete),
       acrescimo: moeda(acrescimo),
       total: moeda(total),

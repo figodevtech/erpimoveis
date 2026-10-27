@@ -19,6 +19,13 @@ test("template usa ID consultado no servidor e não texto do usuário", () => {
   const guide = { options: [{ ...option, id: "REQUEST_VARIANTS", type: "template", templates: [{ id: "official-template", vars: null }] }] };
   assert.deepEqual(contactPayload(guide, "REQUEST_VARIANTS", "ignorar"), { option_id: "REQUEST_VARIANTS", template_id: "official-template" });
 });
+test("tipo em maiúsculas, como a API devolve", () => {
+  const guide = { options: [
+    { ...option, type: "FREE_TEXT", char_limit: 350 },
+    { ...option, id: "REQUEST_VARIANTS", type: "TEMPLATE", char_limit: null, templates: [{ id: "TEMPLATE___REQUEST_VARIANTS___1", vars: [] }] },
+  ] };
+  assert.deepEqual(contactOptions(guide).map(item => item.id), ["OTHER", "REQUEST_VARIANTS"]);
+});
 test("templates com variáveis não são oferecidos sem formulário próprio", () => {
   assert.deepEqual(contactOptions({ options: [{ ...option, id: "REQUEST_VARIANTS", type: "template", templates: [{ id: "template", vars: [{ id: "required" }] }] }] }), []);
 });

@@ -1,12 +1,8 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
-import { auth } from "@/lib/auth";
 import { hasPerm } from "@/app/api/_authz/perms";
-import { CATALOGOS } from "@/lib/documentos/catalogo";
-import { montarContexto } from "@/lib/documentos/contexto-server";
-import { renderizarModelo } from "@/lib/documentos/motor";
-import { PERMISSAO_DO_MODULO, buscarDocumento } from "@/lib/documentos/server";
+import { PERMISSAO_DO_MODULO, buscarDocumento, preencherDocumento } from "@/lib/documentos/server";
 import type { ModuloDocumento } from "@/lib/documentos/tipos";
 
 import { DocumentoView } from "./documento-view";
@@ -56,20 +52,8 @@ export default async function DocumentoPage({ params }: PageProps) {
     return <DocumentoView aviso={`O documento "${modelo.nome}" está desativado em Configurações > Documentos.`} voltar={voltar} />;
   }
 
-  const session = await auth();
-  const usuario = session?.user as { nome?: string | null; name?: string | null; email?: string | null } | undefined;
-  const contexto = await montarContexto(modelo.modulo, idRegistro, {
-    nomeDocumento: modelo.nome,
-    emitidoPor: usuario?.nome ?? usuario?.name ?? usuario?.email ?? null,
-    agora: new Date(),
-  });
-  if (!contexto) notFound();
+  const html = await preencherDocumento(modelo, idRegistro);
+  if (html === null) notFound();
 
-  return (
-    <DocumentoView
-      titulo={`${modelo.nome} #${idRegistro}`}
-      html={renderizarModelo(modelo.html, contexto, CATALOGOS[modelo.modulo])}
-      voltar={voltar}
-    />
-  );
+  return <DocumentoView titulo={`${modelo.nome} #${idRegistro}`} html={html} voltar={voltar} />;
 }

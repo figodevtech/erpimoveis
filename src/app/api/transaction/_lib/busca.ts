@@ -56,6 +56,38 @@ const PREFIXOS_DE_VINCULO: ReadonlyArray<readonly [RegExp, string]> = [
 ] as const;
 
 /**
+ * Colunas de valor comparadas com o termo que se le como dinheiro.
+ *
+ * O bruto e o liquido sao os dois numeros que a linha da tabela mostra — o
+ * liquido grande, o bruto embaixo quando difere. Os dois sao gravados sempre
+ * positivos (o sinal vem do tipo), entao o "-" de "- R$ 894,19" e descartado.
+ */
+const CAMPOS_VALOR = ["valor", "valorLiquido"] as const;
+
+/**
+ * O termo lido como valor em reais, ja no formato do PostgREST ("894.19"), ou
+ * `null` quando ele nao e um valor.
+ *
+ * Aceita o que a tela escreve e o que a pessoa digita: "894,19", "R$ 894,19",
+ * "- R$ 894,19", "1.234,56", "894.19" e "894". Ponto seguido de tres digitos e
+ * milhar ("1.234"); com um ou dois, e o centavo de quem digita no teclado
+ * numerico. Mais de dois centavos nao e dinheiro.
+ *
+ * Doze digitos na parte inteira bastam para qualquer lancamento e deixam de fora
+ * o numero longo de uma chave de acesso.
+ */
+function valorEmReais(termo: string): string | null {
+  const numero = termo.replace(/^[-+]?\s*(?:r\$)?\s*/i, "");
+
+  if (/^(?:\d{1,12}|\d{1,3}(?:\.\d{3}){1,3}),\d{1,2}$/.test(numero)) {
+    return numero.replace(/\./g, "").replace(",", ".");
+  }
+  if (/^\d{1,3}(?:\.\d{3}){1,3}$/.test(numero)) return numero.replace(/\./g, "");
+  if (/^\d{1,12}(?:\.\d{1,2})?$/.test(numero)) return numero;
+  return null;
+}
+
+/**
  * Escapa o termo para dentro de um `or()` do PostgREST.
  *
  * A lista de condicoes e separada por virgula e agrupada por parenteses, entao
@@ -98,15 +130,33 @@ export function filtroDeBusca(termo: string): string | null {
   const padrao = paraPadrao(limpo);
   const condicoes = CAMPOS_TEXTO.map((campo) => `${campo}.ilike.${padrao}`);
 
+  const valor = valorEmReais(limpo);
+
+  /*
+   * Valor digitado como aparece na tela.
+   *
+   * Quem procura um lancamento pelo extrato tem o valor na mao, e ate aqui
+   * "894,19" nao achava nada: valor nao e coluna de texto. Igualdade, como no
+   * id — "894" nao pode trazer 1.894,00. Fica no mesmo `or` dos textos, entao
+   * soma resultado: o "894" continua achando a nota 894.
+   */
+  if (valor) {
+    for (const campo of CAMPOS_VALOR) condicoes.push(`${campo}.eq.${valor}`);
+  }
+
   /*
    * Documento digitado com pontuacao.
    *
    * O CPF/CNPJ e gravado so com digitos, mas ninguem procura assim: digita-se
    * "12.345.678/0001-99". Sem esta linha, colar o documento de um cadastro nao
    * acha o proprio lancamento.
+   *
+   * Virgula e "R$" so aparecem em dinheiro, nunca em documento: "894,19" viraria
+   * "89419" e traria todo CPF que tenha esses digitos no meio.
    */
+  const ehDinheiro = valor !== null && /,|r\$/i.test(limpo);
   const somenteDigitos = limpo.replace(/\D/g, "");
-  if (somenteDigitos.length >= 3 && somenteDigitos !== limpo) {
+  if (somenteDigitos.length >= 3 && somenteDigitos !== limpo && !ehDinheiro) {
     condicoes.push(`cpfcnpjpagador.ilike.${paraPadrao(somenteDigitos)}`);
   }
 

@@ -17,6 +17,7 @@ import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
+import { permissaoDeEmissao, type PermissaoDeEmissao } from "@/lib/nfe/permissaoDeEmissao";
 import type { ClienteRow, ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import type { DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
 import {
@@ -206,6 +207,8 @@ type LoadedSource = {
   observacoesFiscais: string | null;
   garantia: string | null;
   destinatario: NFeAvulsaDraftInput["destinatario"] | null;
+  /** O cliente da venda/OS é o Consumidor Final do sistema (sem documento). */
+  clienteDoSistema?: boolean;
   /**
    * Só a entrada fixa o indicador: é a própria empresa documentando a compra.
    * Venda e OS deixam `null` — quem decide é o destino escolhido na emissão.
@@ -304,10 +307,10 @@ async function getCliente(clienteId: number) {
   const { data, error } = await supabaseAdmin
     .from("cliente")
     .select(
-      "id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, inscricaoestadual, ind_ie_dest, inscricaomunicipal, codigomunicipio",
+      "id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco, endereconumero, enderecocomplemento, bairro, cidade, estado, cep, inscricaoestadual, ind_ie_dest, inscricaomunicipal, codigomunicipio, codigo_sistema",
     )
     .eq("id", clienteId)
-    .maybeSingle<ClienteRow>();
+    .maybeSingle<ClienteRow & { codigo_sistema?: string | null }>();
 
   if (error) throw error;
   if (!data) throw new Error("Cliente da origem não encontrado.");
@@ -410,6 +413,7 @@ async function loadOs(osId: number): Promise<LoadedSource> {
     observacoesFiscais: os.observacoes_fiscais as string | null,
     garantia: os.garantia as string | null,
     destinatario: clienteToDraft(cliente),
+    clienteDoSistema: Boolean(cliente.codigo_sistema),
     consumidorFinal: null,
     indicadorPresenca: "1",
     transporte: { modFrete: freight > 0 ? "0" : "9" },
@@ -488,6 +492,7 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
     observacoesFiscais: venda.observacoes_fiscais as string | null,
     garantia: venda.garantia as string | null,
     destinatario: clienteToDraft(cliente),
+    clienteDoSistema: Boolean(cliente.codigo_sistema),
     consumidorFinal: null,
     indicadorPresenca: mapSalesChannelToPresence(venda.canal),
     transporte: { modFrete: freight > 0 ? "0" : "9" },
@@ -747,6 +752,36 @@ async function vincularResultadoAsOrigens(
   };
 }
 
+/**
+ * Que modelos as origens podem gerar, para a tela decidir os botões antes de
+ * abrir a emissão. É a mesma `permissaoDeEmissao` que `salvarNFeDeOrigem`
+ * aplica; num grupo, basta uma origem do Consumidor Final — o agrupamento já
+ * exige um cliente só.
+ */
+export async function permissoesDeEmissaoDasOrigens(
+  tipo: "OS" | "VENDA",
+  ids: number[],
+): Promise<{ nfe: PermissaoDeEmissao; nfce: PermissaoDeEmissao }> {
+  const { data: origens, error } = await supabaseAdmin
+    .from(tipo === "OS" ? "ordemservico" : "venda")
+    .select("clienteid")
+    .in("id", ids);
+  if (error) throw error;
+  const clienteIds = [...new Set((origens ?? []).map((origem: any) => Number(origem.clienteid)).filter(Boolean))];
+  const { data: clientes, error: clienteError } = clienteIds.length
+    ? await supabaseAdmin.from("cliente").select("codigo_sistema").in("id", clienteIds)
+    : { data: [], error: null };
+  if (clienteError) throw clienteError;
+  const clienteDoSistema = (clientes ?? []).some((cliente: any) => Boolean(cliente.codigo_sistema));
+  // Sem configuração de NF-e a UF não importa para o botão; o texto do limite
+  // estadual só some.
+  const ufEmitente = await getEmpresaUf().catch(() => null);
+  return {
+    nfe: permissaoDeEmissao(MODELO_NFE, { tipo, clienteDoSistema, ufEmitente }),
+    nfce: permissaoDeEmissao(MODELO_NFCE, { tipo, clienteDoSistema, ufEmitente }),
+  };
+}
+
 export async function salvarNFeDeOrigem(
   tipo: NFeOrigemTipo,
   origemId: number,
@@ -858,13 +893,30 @@ export async function salvarNFeDeOrigem(
           })
           .filter(Boolean)
           .join("\n") || null;
+  // A mesma regra que desabilita o botão na tela: Consumidor Final só em NFC-e.
+  if (tipo === "OS" || tipo === "VENDA") {
+    const permissao = permissaoDeEmissao(modelo, {
+      tipo,
+      clienteDoSistema: Boolean(source.clienteDoSistema),
+    });
+    if (!permissao.permitido) {
+      return {
+        ok: false as const,
+        errors: [{ step: "recipient", message: permissao.motivo }],
+      };
+    }
+  }
   // Na NFC-e quem manda é a tela: o operador decide se o consumidor se
   // identifica. Sem bloco de destinatário na requisição, a nota sai sem
   // consumidor identificado — que é o caso normal do balcão. O cadastro do
   // cliente da venda só serve para pré-preencher o campo, nunca para
   // identificar alguém à revelia.
   const rawDestinatario = isNfce
-    ? input.destinatario ?? { clienteId: source.clienteId ?? null }
+    ? source.clienteDoSistema
+      // O CPF digitado no balcão é de quem comprou, não do cadastro: o nome
+      // "CONSUMIDOR FINAL" não acompanha o documento.
+      ? { ...(input.destinatario ?? {}), clienteId: source.clienteId ?? null, nomeRazaoSocial: null }
+      : input.destinatario ?? { clienteId: source.clienteId ?? null }
     : tipo === "ENTRADA"
       ? input.destinatario ?? source.destinatario
       : source.destinatario;
