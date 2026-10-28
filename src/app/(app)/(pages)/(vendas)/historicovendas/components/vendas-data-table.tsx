@@ -24,6 +24,7 @@ import {
   Ban,
   Undo2,
   Send,
+  Wallet,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -69,6 +70,7 @@ const EmissaoNotaDialog = dynamic(() => import("../../../ordens/components/dialo
 const VendaDetailsDialog = dynamic(() => import("./venda-detail-dialog").then((module) => module.VendaDetailsDialog), { loading: DialogLoading });
 const VendaLinkAprovacaoDialog = dynamic(() => import("./venda-link-aprovacao-dialog").then((module) => module.VendaLinkAprovacaoDialog), { loading: DialogLoading });
 const PedidoOnlineDialog = dynamic(() => import("./pedido-online-dialog").then((module) => module.PedidoOnlineDialog), { loading: DialogLoading });
+const VendasFinancialDialog = dynamic(() => import("../../../(financeiro)/pagamentodevendas/components/vendasFinancialDialog/vendasFinancialDialog"), { loading: DialogLoading });
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import { useConfig } from "../../../config-context";
@@ -330,8 +332,11 @@ export default function VendasDataTable({
   const [orcamentoVendaId, setOrcamentoVendaId] = useState<number | null>(null);
   const [revertendoOrcamento, setRevertendoOrcamento] = useState(false);
   const [syncingMercadoLivre, setSyncingMercadoLivre] = useState(false);
+  const [pagamentoAberto, setPagamentoAberto] = useState(false);
+  const [pagamentoVendaId, setPagamentoVendaId] = useState<number | null>(null);
   const config = useConfig();
   const canEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EDITAR);
+  const canFinanceiroEdit = permissionSetHas((session?.user as any)?.permissoes, PERMS.FINANCEIRO_EDITAR);
   const canDelete = permissionSetHas((session?.user as any)?.permissoes, PERMS.VENDAS_EXCLUIR);
   const canNotasFiscais = permissionSetHas(
     (session?.user as any)?.permissoes,
@@ -811,6 +816,19 @@ export default function VendasDataTable({
                           </DropdownMenuItem>
                         )}
 
+                        {/* Mesmo diálogo de Pagamentos de vendas, como a lista de OS faz. */}
+                        {canFinanceiroEdit && ["ABERTA", "PAGAMENTO"].includes(String(p.status)) && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setPagamentoVendaId(p.id);
+                              setPagamentoAberto(true);
+                            }}
+                          >
+                            <Wallet className="h-4 w-4" />
+                            Registrar pagamento
+                          </DropdownMenuItem>
+                        )}
+
                         {canEdit && p.status === "PAGAMENTO" && (
                           <DropdownMenuItem
                             onClick={() => {
@@ -955,6 +973,21 @@ export default function VendasDataTable({
           handleGetVendas(pagination.page, pagination.limit, search, fase, filters);
           fetchStatusCounts();
         }}
+      />
+      </MountOnDemand>
+      <MountOnDemand active={pagamentoAberto}>
+      <VendasFinancialDialog
+        open={pagamentoAberto}
+        onOpenChange={(open) => {
+          setPagamentoAberto(open);
+          if (open) return;
+          setPagamentoVendaId(null);
+          // O pagamento pode mudar status e fase da venda; a lista reflete ao fechar.
+          handleGetVendas(pagination.page, pagination.limit, search, fase, filters);
+          fetchStatusCounts();
+        }}
+        vendaId={pagamentoVendaId ?? 0}
+        handleGetVendas={() => handleGetVendas(pagination.page, pagination.limit, search, fase, filters)}
       />
       </MountOnDemand>
       <MountOnDemand active={openOnline}>
