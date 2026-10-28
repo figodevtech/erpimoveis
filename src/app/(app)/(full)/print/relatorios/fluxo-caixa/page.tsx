@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
+import { PrintA4Paginator } from "@/app/(app)/(full)/components/PrintA4Paginator";
 import { PrintFontSizeControl } from "@/app/(app)/(full)/components/PrintFontSizeControl";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -9,7 +10,7 @@ import {
   agruparPorBanco,
   ehEntrada,
   filtroDeSituacao,
-  paginarAgrupado,
+  itensDaFolhaAgrupada,
   saldosDoBanco,
   totalizarFluxo,
   valorDaLinha,
@@ -25,9 +26,6 @@ type Params = Record<string, string | string[] | undefined>;
 type PageProps = { searchParams: Promise<Params> };
 
 const OFFSET = "-03:00";
-// Orçamento conservador para texto em até 120%, com espaço para cabeçalho, KPIs e totais.
-const FIRST_PAGE_CONTENT_MM = 208;
-const NEXT_PAGE_CONTENT_MM = 236;
 
 function one(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
@@ -67,40 +65,6 @@ function dayStart(value: string) {
 }
 function nextDay(value: string) {
   return new Date(new Date(`${value}T00:00:00${OFFSET}`).getTime() + 86_400_000).toISOString();
-}
-function estimatedTextLines(value: unknown, charactersPerLine: number) {
-  const text = String(value ?? "").trim();
-  if (!text) return 0;
-  return text.split(/\r?\n/).reduce(
-    (lines, paragraph) => lines + Math.max(1, Math.ceil(Array.from(paragraph).length / charactersPerLine)),
-    0,
-  );
-}
-function rowHeightMm(row: any, grouped: boolean) {
-  // A coluna de descrição fica mais estreita no agrupamento. A conta considera
-  // a fonte máxima do controle (120%) e arredonda as linhas para cima.
-  const charactersPerLine = grouped ? 23 : 28;
-  const titleLines = estimatedTextLines(row.nomepagador, charactersPerLine);
-  const descriptionLines = estimatedTextLines(`#${row.id} ${row.descricao || "—"}`, charactersPerLine);
-  return Math.max(9, 1 + (titleLines + descriptionLines) * 4);
-}
-function reportPages<T>(items: T[], heightOf: (item: T) => number) {
-  const pages: T[][] = [];
-  let page: T[] = [];
-  let used = 0;
-  for (const item of items) {
-    const height = heightOf(item);
-    const capacity = pages.length === 0 ? FIRST_PAGE_CONTENT_MM : NEXT_PAGE_CONTENT_MM;
-    if (page.length && used + height > capacity) {
-      pages.push(page);
-      page = [];
-      used = 0;
-    }
-    page.push(item);
-    used += height;
-  }
-  pages.push(page);
-  return pages;
 }
 function origin(row: any) {
   if (row.evento_financeiro_id) return `Evento #${row.evento_financeiro_id}`;
@@ -256,16 +220,9 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
         ]
       : []),
   ];
-  const pages = reportPages(rows, (row) => rowHeightMm(row, false));
-  const folhasAgrupadas = agrupar
-    ? paginarAgrupado(
-        await montarGruposPorBanco(rows),
-        FIRST_PAGE_CONTENT_MM,
-        NEXT_PAGE_CONTENT_MM,
-        (item) => item.tipo === "linha" ? rowHeightMm(item.linha, true) : item.tipo === "espaco" ? 4 : 9,
-      )
-    : null;
-  const quantasFolhas = folhasAgrupadas?.length ?? pages.length;
+  const itensAgrupados = agrupar ? itensDaFolhaAgrupada(await montarGruposPorBanco(rows)) : null;
+  const consulta = new URLSearchParams(params).toString();
+  const geradoEm = dateTime(new Date().toISOString());
   const filters = [
     params.dateFrom || params.dateTo ? `Período: ${params.dateFrom || "início"} a ${params.dateTo || "hoje"}` : "",
     params.tipo ? `Tipo: ${params.tipo}` : "",
@@ -279,12 +236,24 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
     <>
       <style>{`
         @page { size: A4 portrait; margin: 0; }
+        .report-shell { --a4w: 210mm; --a4h: 297mm; }
+        /* Nenhum bloco encolhe para caber: o excesso tem de aparecer como
+           transbordo, que é o que o paginador mede para virar a folha. */
+        .report-sheet .conteudo > * { flex-shrink: 0; }
+        /* Os totais seguem a última linha, e não o pé da folha. */
+        .report-sheet [data-print-final-block] { margin-top: 0; }
+        /* No topo da folha não há conta anterior de que se separar. */
+        .report-sheet tbody > tr.report-espaco:first-child { display: none; }
+        .report-sheet .print-generated-page-number,
+        .report-sheet .print-generated-page-footer { font-size: calc(9px * var(--print-font-scale, 1)); color: #737373; }
+        .report-sheet .print-generated-page-number { right: 10mm; }
+        .report-sheet .print-generated-page-footer { left: 10mm; }
         .report-sheet .report-title { font-size: calc(18px * var(--print-font-scale, 1)); }
         .report-sheet .report-meta { font-size: calc(10px * var(--print-font-scale, 1)); }
-        .report-sheet .report-page-number { font-size: calc(9px * var(--print-font-scale, 1)); }
         .report-sheet .report-kpis { font-size: calc(9px * var(--print-font-scale, 1)); }
         .report-sheet .report-kpi-value { font-size: calc(12px * var(--print-font-scale, 1)); }
-        .report-sheet .report-table { font-size: calc(8px * var(--print-font-scale, 1)); }
+        .report-sheet .report-table,
+        .report-sheet .report-totais { font-size: calc(8px * var(--print-font-scale, 1)); }
         .report-sheet .report-subtext { font-size: calc(7px * var(--print-font-scale, 1)); }
         .report-sheet .report-bank-title { font-size: calc(9px * var(--print-font-scale, 1)); }
         @media print {
@@ -296,29 +265,14 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
           }
           .report-shell {
             width: 210mm !important;
+            min-height: 0 !important;
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
           }
           .report-sheet {
-            box-sizing: border-box !important;
-            width: 208mm !important;
-            height: 295mm !important;
-            min-height: 295mm !important;
-            max-height: 295mm !important;
-            margin: 0 !important;
-            padding: 8mm !important;
-            overflow: hidden !important;
             border: 0 !important;
             box-shadow: none !important;
-            break-inside: avoid-page !important;
-            page-break-inside: avoid !important;
-            break-after: page !important;
-            page-break-after: always !important;
-          }
-          .report-sheet:last-child {
-            break-after: auto !important;
-            page-break-after: auto !important;
           }
           /* Sem isto o navegador descarta os fundos e as faixas somem no papel. */
           .report-sheet, .report-sheet * {
@@ -329,59 +283,54 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
       `}</style>
       <main className="report-shell min-h-screen bg-neutral-200 px-4 py-6 text-black">
         <div className="mx-auto mb-4 flex w-[210mm] items-center justify-between gap-2 print:hidden">
-          <FluxoAgrupamentoMenu
-            consulta={new URLSearchParams(params).toString()}
-            agrupamento={agrupar ? "BANCO" : "NENHUM"}
-          />
+          <FluxoAgrupamentoMenu consulta={consulta} agrupamento={agrupar ? "BANCO" : "NENHUM"} />
           <PrintFontSizeControl />
-          <A4PdfActions filename="relatorio-fluxo-caixa.pdf" backHref="/relatorios" />
+          <A4PdfActions
+            filename="relatorio-fluxo-caixa.pdf"
+            backHref="/relatorios"
+            selector=".print-generated-page.report-sheet"
+          />
         </div>
-        <div className="mx-auto flex w-[210mm] flex-col gap-4 print:gap-0">
-          {Array.from({ length: quantasFolhas }, (_, pageIndex) => {
-            const ultimaFolha = pageIndex === quantasFolhas - 1;
-            const pageRows = pages[pageIndex] ?? [];
-
-            return (
-              <section key={pageIndex} className="report-sheet h-[297mm] w-[210mm] overflow-hidden border border-neutral-300 bg-white p-[10mm] shadow-xl print:break-after-page">
-                {pageIndex === 0 ? (
-                  <header className="mb-3 flex items-end justify-between gap-4 border-b-2 border-black pb-2">
-                    <div className="min-w-0">
-                      <h1 className="report-title font-bold uppercase">Relatório de fluxo de caixa</h1>
-                      <p className="report-meta text-neutral-500">{filters.length ? filters.join(" · ") : "Todos os lançamentos"}</p>
-                    </div>
-                    <div className="report-meta shrink-0 text-right text-neutral-500">
-                      <p>Gerado em {dateTime(new Date().toISOString())}</p>
-                      <p>Página 1 de {quantasFolhas}</p>
-                    </div>
-                  </header>
-                ) : (
-                  // Sem cabeçalho, mas com a numeração: folha solta de relatório
-                  // financeiro sem página vira problema na hora de conferir.
-                  <p className="report-page-number mb-2 text-right text-neutral-500">
-                    Página {pageIndex + 1} de {quantasFolhas}
-                  </p>
-                )}
-
-                {pageIndex === 0 && (
-                  <div
-                    className="report-kpis mb-3 grid gap-3 rounded border border-neutral-300 bg-neutral-100 px-3 py-2"
-                    style={{ gridTemplateColumns: `repeat(${cartoes.length}, minmax(0, 1fr))` }}
-                  >
-                    {cartoes.map((cartao) => (
-                      <Kpi key={cartao.label} label={cartao.label} value={money(cartao.value)} tone={cartao.tone} />
-                    ))}
+        {/* A folha sai inteira do servidor e o paginador a divide medindo cada
+            linha no navegador, na fonte escolhida. Estimar a altura pela
+            contagem de caracteres virava a folha com um terço dela em branco:
+            nome e descrição em maiúsculas têm largura que a conta não acerta.
+            A chave refaz a paginação quando o agrupamento troca o endereço. */}
+        <div
+          key={consulta}
+          data-print-pagination-root
+          data-print-pagination-number-pages
+          data-print-pagination-footer={`Relatório de fluxo de caixa · Gerado em ${geradoEm}`}
+        >
+          <PrintA4Paginator />
+          <div data-print-pagination-source-holder>
+            <section
+              className="report-sheet relative flex h-[297mm] w-[210mm] flex-col overflow-hidden border border-neutral-300 bg-white shadow-xl"
+              data-print-pagination-source
+            >
+              {/* O pé fica livre para o rodapé e a numeração que o paginador põe a 6mm da borda. */}
+              <div className="conteudo flex min-h-0 flex-1 flex-col overflow-hidden px-[10mm] pb-[12mm] pt-[10mm]">
+                <header className="mb-3 flex items-end justify-between gap-4 border-b-2 border-black pb-2">
+                  <div className="min-w-0">
+                    <h1 className="report-title font-bold uppercase">Relatório de fluxo de caixa</h1>
+                    <p className="report-meta text-neutral-500">{filters.length ? filters.join(" · ") : "Todos os lançamentos"}</p>
                   </div>
-                )}
+                  <p className="report-meta shrink-0 text-right text-neutral-500">Gerado em {geradoEm}</p>
+                </header>
 
-                {folhasAgrupadas ? (
-                  <TabelaPorBanco
-                    itens={folhasAgrupadas[pageIndex] ?? []}
-                    ultimaFolha={ultimaFolha}
-                    cartoes={cartoes}
-                    pendente={params.pendente}
-                  />
+                <div
+                  className="report-kpis mb-3 grid gap-3 rounded border border-neutral-300 bg-neutral-100 px-3 py-2"
+                  style={{ gridTemplateColumns: `repeat(${cartoes.length}, minmax(0, 1fr))` }}
+                >
+                  {cartoes.map((cartao) => (
+                    <Kpi key={cartao.label} label={cartao.label} value={money(cartao.value)} tone={cartao.tone} />
+                  ))}
+                </div>
+
+                {itensAgrupados ? (
+                  <TabelaPorBanco itens={itensAgrupados} pendente={params.pendente} />
                 ) : (
-                  <table className="report-table w-full table-fixed border-collapse">
+                  <table className="report-table w-full table-fixed border-collapse" data-print-items-table>
                     {/* O colgroup é quem fixa a largura sob table-fixed; classe no
                         <th> perde para o conteúdo quando o rótulo é maior. */}
                     <colgroup>
@@ -403,7 +352,7 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                       </tr>
                     </thead>
                     <tbody>
-                      {pageRows.length ? pageRows.map((row) => (
+                      {rows.length ? rows.map((row) => (
                         // Escala de cinza: entrada em branco, saída em cinza claro.
                         <tr key={row.id} className={`h-[8mm] break-inside-avoid border-t border-neutral-300 ${ehEntrada(row.tipo) ? "bg-white" : "bg-neutral-50"}`}>
                           <CelulasDoLancamento row={row} />
@@ -416,21 +365,13 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
                         </tr>
                       )}
                     </tbody>
-
-                    {ultimaFolha && pageRows.length > 0 && (
-                      <tfoot>
-                        <tr className="h-[8mm] border-t-2 border-neutral-400 bg-neutral-100">
-                          <Td colSpan={6}>
-                            <TotaisDaFolha cartoes={cartoes} />
-                          </Td>
-                        </tr>
-                      </tfoot>
-                    )}
                   </table>
                 )}
-              </section>
-            );
-          })}
+
+                <div data-print-final-block>{rows.length > 0 && <TotaisDaFolha cartoes={cartoes} />}</div>
+              </div>
+            </section>
+          </div>
         </div>
       </main>
     </>
@@ -463,9 +404,10 @@ function Td({ children, className = "", colSpan }: React.PropsWithChildren<{ cla
   return <td colSpan={colSpan} className={`border-x border-neutral-200 px-2 py-0.5 align-middle ${className}`}>{children}</td>;
 }
 
+/** O fecho do relatório, logo abaixo da última linha da última folha. */
 function TotaisDaFolha({ cartoes }: { cartoes: Cartao[] }) {
   return (
-    <div className="flex items-center justify-end gap-6 pr-1">
+    <div className="report-totais flex h-[8mm] items-center justify-end gap-6 border-x border-t-2 border-neutral-200 border-t-neutral-400 bg-neutral-100 px-2 pr-3">
       {cartoes.map((cartao) => (
         <Total key={cartao.label} label={cartao.label} value={money(cartao.value)} tone={cartao.tone} />
       ))}
@@ -523,23 +465,19 @@ function CelulasDoLancamento({ row, mostrarBanco = true }: { row: any; mostrarBa
  *
  * Cada conta abre com o saldo anterior, cada lançamento traz o saldo da conta
  * logo depois dele, e a conta fecha com os totais e o saldo final. Título em
- * aberto não mexeu no dinheiro e fica sem saldo. Cabeçalho, lançamento e
- * A paginação reserva a altura de cada descrição antes de distribuir as linhas.
+ * aberto não mexeu no dinheiro e fica sem saldo. Respiro e cabeçalho vão
+ * presos à primeira linha da conta, para ela nunca abrir no pé da folha.
  */
 function TabelaPorBanco({
   itens,
-  ultimaFolha,
-  cartoes,
   pendente,
 }: {
   itens: ItemDaFolhaAgrupada<any>[];
-  ultimaFolha: boolean;
-  cartoes: Cartao[];
   /** O filtro de situação: decide quais totais cada conta mostra, como nos cartões. */
   pendente?: string;
 }) {
   return (
-    <table className="report-table w-full table-fixed border-collapse">
+    <table className="report-table w-full table-fixed border-collapse" data-print-items-table>
       <colgroup>
         <col style={{ width: "18mm" }} />
         <col />
@@ -566,7 +504,12 @@ function TabelaPorBanco({
             if (item.tipo === "espaco") {
               // Sem borda nem fundo: é o vão que separa uma conta da seguinte.
               return (
-                <tr key={`espaco-${item.grupo.bancoId}`} aria-hidden className="h-[4mm]">
+                <tr
+                  key={`espaco-${item.grupo.bancoId}`}
+                  aria-hidden
+                  className="report-espaco h-[4mm]"
+                  data-print-row-keep-with-next=""
+                >
                   <td colSpan={7} className="border-0 p-0" />
                 </tr>
               );
@@ -574,7 +517,11 @@ function TabelaPorBanco({
 
             if (item.tipo === "banco") {
               return (
-                <tr key={`banco-${item.grupo.bancoId}`} className="h-[8mm] border-t-2 border-neutral-500 bg-neutral-200">
+                <tr
+                  key={`banco-${item.grupo.bancoId}`}
+                  className="h-[8mm] border-t-2 border-neutral-500 bg-neutral-200"
+                  data-print-row-keep-with-next=""
+                >
                   <Td colSpan={6}>
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
@@ -633,16 +580,6 @@ function TabelaPorBanco({
           </tr>
         )}
       </tbody>
-
-      {ultimaFolha && itens.length > 0 && (
-        <tfoot>
-          <tr className="h-[8mm] border-t-2 border-neutral-400 bg-neutral-100">
-            <Td colSpan={7}>
-              <TotaisDaFolha cartoes={cartoes} />
-            </Td>
-          </tr>
-        </tfoot>
-      )}
     </table>
   );
 }

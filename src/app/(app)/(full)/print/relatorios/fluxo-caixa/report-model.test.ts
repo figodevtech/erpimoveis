@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   agruparPorBanco,
   filtroDeSituacao,
-  paginarAgrupado,
+  itensDaFolhaAgrupada,
   saldosDoBanco,
   totalizarFluxo,
   valorDaLinha,
@@ -135,63 +135,26 @@ test("agrupado por banco, o saldo anterior sai da história da conta, e não do 
   assert.deepEqual(semBanco.linhas.map((item) => item.saldoApos), [null]);
 });
 
-test("folha agrupada: não passa da capacidade, não abre conta no pé e continua crua na virada", () => {
-  const saldos = new Map([[1, saldosDoBanco(0, Array.from({ length: 9 }, (_, i) => movimento(i + 1, "RECEITA", 10)))]]);
+test("folha agrupada: cada conta abre, lista, fecha e fica separada da seguinte por um respiro", () => {
+  const saldos = new Map([[1, saldosDoBanco(0, [1, 2, 3].map((id) => movimento(id, "RECEITA", 10)))]]);
   const grupos = agruparPorBanco(
     [
-      ...Array.from({ length: 9 }, (_, i) => lancamento(i + 1, { valor: 10, banco_id: 1 })),
+      ...[1, 2, 3].map((id) => lancamento(id, { valor: 10, banco_id: 1 })),
       lancamento(99, { valor: 5, pendente: true, banco_id: null }),
     ],
     new Map([[1, { titulo: "Caixa" }]]),
     saldos,
   );
-  const folhas = paginarAgrupado(grupos, 5, 6);
+  const itens = itensDaFolhaAgrupada(grupos);
 
-  folhas.forEach((folha, indice) => {
-    assert.ok(folha.length <= (indice === 0 ? 5 : 6), `folha ${indice + 1} passou da capacidade`);
-    assert.ok(!["banco", "espaco"].includes(folha.at(-1)?.tipo ?? ""), `folha ${indice + 1} abriu uma conta no pé`);
-    assert.notEqual(folha[0]?.tipo, "espaco", `folha ${indice + 1} começou com um respiro`);
-  });
-
-  const itens = folhas.flat();
+  // A folha começa na conta, nunca num respiro.
   assert.deepEqual(
-    itens.flatMap((item) => (item.tipo === "linha" ? [item.linha.id] : [])),
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 99],
+    itens.map((item) => item.tipo),
+    ["banco", "linha", "linha", "linha", "subtotal", "espaco", "banco", "linha", "subtotal"],
   );
-  assert.equal(itens.filter((item) => item.tipo === "subtotal").length, 2);
-
-  // A Caixa atravessa a virada e a segunda folha começa direto nas linhas.
-  assert.equal(folhas[1][0].tipo, "linha");
-  assert.equal(itens.filter((item) => item.tipo === "banco").length, grupos.length, "um cabeçalho por conta");
-
-  // Na mesma folha, uma conta fica separada da seguinte por um respiro.
   assert.deepEqual(
-    paginarAgrupado(grupos, 30, 30)[0].map((item) => item.tipo),
-    ["banco", ...Array<string>(9).fill("linha"), "subtotal", "espaco", "banco", "linha", "subtotal"],
+    itens.flatMap((item) => (item.tipo === "linha" ? [[item.linha.id, item.saldoApos]] : [])),
+    [[1, 10], [2, 20], [3, 30], [99, null]],
   );
-});
-
-test("folha agrupada reserva a altura das descrições antes da virada", () => {
-  const grupos = agruparPorBanco(
-    [1, 2, 3].map((id) => lancamento(id, { banco_id: 1 })),
-    new Map([[1, { titulo: "Caixa" }]]),
-    new Map(),
-  );
-  const folhas = paginarAgrupado(
-    grupos,
-    30,
-    30,
-    (item) => item.tipo === "linha" ? 12 : 9,
-  );
-
-  assert.deepEqual(folhas.map((folha) => folha.map((item) => item.tipo)), [
-    ["banco", "linha"],
-    ["linha", "linha"],
-    ["subtotal"],
-  ]);
-  assert.deepEqual(
-    folhas.flatMap((folha) => folha.flatMap((item) => item.tipo === "linha" ? [item.linha.id] : [])),
-    [1, 2, 3],
-  );
-  assert.ok(folhas.every((folha) => folha.reduce((height, item) => height + (item.tipo === "linha" ? 12 : 9), 0) <= 30));
+  assert.deepEqual(itensDaFolhaAgrupada([]), []);
 });

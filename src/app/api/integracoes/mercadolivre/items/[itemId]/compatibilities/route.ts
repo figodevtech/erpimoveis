@@ -77,27 +77,30 @@ export async function POST(request: NextRequest, context: Params) {
     }
 
     if (action !== "add") return NextResponse.json({ error: "Ação inválida." }, { status: 400 });
-    const attributes = normalizeKnownAttributes(body?.attributes);
-    if (!attributes.some((attribute) => attribute.id === "BRAND") || !attributes.some((attribute) => attribute.id === "MODEL")) {
+    // Uma família por combinação de modelo e ano marcada; todas vão na mesma chamada ao Mercado Livre.
+    const families = (Array.isArray(body?.families) ? body.families : []).map(normalizeKnownAttributes);
+    const incomplete = (attributes: KnownAttribute[]) =>
+      !attributes.some((attribute) => attribute.id === "BRAND") || !attributes.some((attribute) => attribute.id === "MODEL");
+    if (!families.length || families.some(incomplete)) {
       return NextResponse.json({ error: "Selecione ao menos a marca e o modelo do veículo." }, { status: 422 });
     }
     const note = String(body?.note ?? "").trim().slice(0, 500);
     const item = await mercadoLivreApiGet<any>(account.access_token, `/items/${encodeURIComponent(itemId)}`);
-    const family = {
+    const productsFamilies = families.map((attributes: KnownAttribute[]) => ({
       domain_id: VEHICLE_DOMAIN,
       creation_source: "DEFAULT",
       attributes,
       ...(note ? { note } : {}),
       restrictions: [],
-    };
+    }));
     const result = item?.user_product_id
       ? await mercadoLivreApiPost<any>(account.access_token, `/user-products/${encodeURIComponent(String(item.user_product_id))}/compatibilities`, {
           domain_id: VEHICLE_DOMAIN,
           category_id: String(item?.category_id ?? ""),
-          products_families: [family],
+          products_families: productsFamilies,
         })
       : await mercadoLivreApiPost<any>(account.access_token, `/items/${encodeURIComponent(itemId)}/compatibilities`, {
-          products_families: [family],
+          products_families: productsFamilies,
         });
     await registerMercadoLivreOutboundTouch({
       empresaId: account.empresa_id,

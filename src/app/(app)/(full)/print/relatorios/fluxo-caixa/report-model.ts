@@ -187,68 +187,26 @@ export function agruparPorBanco<L extends LinhaAgrupavel>(
 }
 
 export type ItemDaFolhaAgrupada<L extends LinhaAgrupavel> =
-  /** Respiro entre uma conta e a seguinte, na mesma folha. */
+  /** Respiro entre uma conta e a seguinte. No topo da folha ele não aparece. */
   | { tipo: "espaco"; grupo: GrupoDeBanco<L> }
   | { tipo: "banco"; grupo: GrupoDeBanco<L> }
   | { tipo: "linha"; grupo: GrupoDeBanco<L>; linha: L; saldoApos: number | null }
   | { tipo: "subtotal"; grupo: GrupoDeBanco<L> };
 
 /**
- * Distribui os grupos nas folhas. Por padrão, cada item conta como uma linha;
- * o relatório pode informar alturas em milímetros para descrições que quebram.
+ * Os grupos em sequência, na ordem do papel: cabeçalho da conta, as linhas, o
+ * subtotal e um respiro antes da conta seguinte.
  *
- * A conta nunca abre no pé da folha sem nada sob ela. Quando atravessa a
- * virada, a tabela continua crua na folha seguinte: sem reabrir o cabeçalho da
- * conta, só as linhas que faltaram e o subtotal.
- *
- * Entre uma conta e a seguinte na mesma folha vai um respiro. Sem medidas
- * específicas, ele conta como uma linha inteira para deixar espaço no papel.
+ * Quem distribui nas folhas é o `PrintA4Paginator`, medindo cada linha no
+ * navegador. A folha só precisa marcar o que vai junto: respiro e cabeçalho
+ * presos à primeira linha da conta, para ela nunca abrir no pé da folha. Quando
+ * a conta atravessa a virada, a tabela continua crua na folha seguinte.
  */
-export function paginarAgrupado<L extends LinhaAgrupavel>(
-  grupos: GrupoDeBanco<L>[],
-  primeira: number,
-  demais: number,
-  alturaItem: (item: ItemDaFolhaAgrupada<L>) => number = () => 1,
-): ItemDaFolhaAgrupada<L>[][] {
-  const folhas: ItemDaFolhaAgrupada<L>[][] = [];
-  let folha: ItemDaFolhaAgrupada<L>[] = [];
-  let usado = 0;
-  // Pelo menos duas: o cabeçalho da conta e uma linha sob ela, senão o laço não anda.
-  const capacidade = () => Math.max(2, folhas.length === 0 ? primeira : demais);
-  const cabe = (altura: number) => usado + altura <= capacidade();
-  const adicionar = (item: ItemDaFolhaAgrupada<L>) => {
-    folha.push(item);
-    usado += alturaItem(item);
-  };
-  const virar = () => {
-    folhas.push(folha);
-    folha = [];
-    usado = 0;
-  };
-
-  for (const grupo of grupos) {
-    const espaco: ItemDaFolhaAgrupada<L> = { tipo: "espaco", grupo };
-    const banco: ItemDaFolhaAgrupada<L> = { tipo: "banco", grupo };
-    const primeiraLinha: ItemDaFolhaAgrupada<L> = grupo.linhas.length
-      ? { tipo: "linha", grupo, ...grupo.linhas[0] }
-      : { tipo: "subtotal", grupo };
-    // Respiro, cabeçalho e uma linha sob ele vão juntos; no topo da folha não
-    // há o que separar, e o respiro fica de fora.
-    if (folha.length && !cabe(alturaItem(espaco) + alturaItem(banco) + alturaItem(primeiraLinha))) virar();
-    if (folha.length) adicionar(espaco);
-    adicionar(banco);
-
-    for (const { linha, saldoApos } of grupo.linhas) {
-      const item: ItemDaFolhaAgrupada<L> = { tipo: "linha", grupo, linha, saldoApos };
-      if (!cabe(alturaItem(item))) virar();
-      adicionar(item);
-    }
-
-    const subtotal: ItemDaFolhaAgrupada<L> = { tipo: "subtotal", grupo };
-    if (!cabe(alturaItem(subtotal))) virar();
-    adicionar(subtotal);
-  }
-
-  if (folha.length || !folhas.length) folhas.push(folha);
-  return folhas;
+export function itensDaFolhaAgrupada<L extends LinhaAgrupavel>(grupos: GrupoDeBanco<L>[]) {
+  return grupos.flatMap((grupo, indice): ItemDaFolhaAgrupada<L>[] => [
+    ...(indice > 0 ? [{ tipo: "espaco" as const, grupo }] : []),
+    { tipo: "banco", grupo },
+    ...grupo.linhas.map(({ linha, saldoApos }) => ({ tipo: "linha" as const, grupo, linha, saldoApos })),
+    { tipo: "subtotal", grupo },
+  ]);
 }
