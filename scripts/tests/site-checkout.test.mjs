@@ -24,6 +24,41 @@ function load(file,mocks={},extra={}) {
  return exports;
 }
 
+test('Mercado Livre package lookup checks access and product, and exposes only converted measurements',async()=>{
+ const convert=load('src/lib/integrations/product-shipping-package.ts');
+ let allowed=false,exists=true,reads=0;
+ const endpoint=load('src/app/api/integracoes/mercadolivre/products/[produtoId]/package/route.ts',{
+  '@/app/api/_authz/perms':{requireVendasAccess:async()=>{if(!allowed)throw Error('Forbidden');}},
+  '@/lib/empresa-context':{requireEmpresaId:async()=>1,errorStatus:()=>403},
+  '@/lib/integrations/product-shipping-package':convert,
+  '@/lib/supabaseAdmin':{supabaseAdmin:{from(table){reads++;return {select(){return this;},eq(){return this;},maybeSingle:async()=>({data:table==='produto'?(exists?{id:9}:null):{policy:{shippingPackage:{weight:.75,width:15,height:10,length:20},freeShipping:true}},error:null})};}}},
+ });
+ const get=id=>endpoint.GET(new Request('https://erp.test'),{params:Promise.resolve({produtoId:id})});
+ assert.equal((await get('9')).status,403);assert.equal(reads,0);
+ allowed=true;assert.equal((await get('invalid')).status,422);assert.equal(reads,0);
+ exists=false;assert.equal((await get('9')).status,404);
+ exists=true;const result=await get('9');assert.equal(result.headers.get('cache-control'),'no-store');assert.deepEqual(await result.json(),{package:{widthCm:'15',heightCm:'10',lengthCm:'20',weightGrams:'750'}});
+});
+
+test('editing a linked Mercado Livre listing keeps its remote baseline separate from the shared product package',async()=>{
+ const fields=load('src/lib/integrations/product-shipping-package.ts');
+ const calls=[];
+ const mocks={
+  '@/app/api/_authz/perms':{requireVendasAccess:async()=>{}},
+  '@/lib/empresa-context':{requireEmpresaId:async()=>2,errorStatus:()=>500},
+  '@/lib/integrations/product-shipping-package':fields,
+  '@/lib/integrations/mercadolivre':{mercadoLivreApiGet:async(_token,url)=>{calls.push(url);return url.endsWith('/description')?{plain_text:'Descrição'}:{id:'MLB123',price:250,shipping:{mode:'me2',dimensions:'12x18x25,1000'}};}},
+  '@/lib/integrations/mercadolivre-account':{getValidMercadoLivreAccount:async()=>({empresa_id:2,access_token:'test'})},
+  '@/lib/integrations/mercadolivre-price-sync':{getMercadoLivrePriceState:async()=>({standardPrice:250})},
+  '@/lib/integrations/mercadolivre-video':{mercadoLivreVideoInput:()=>''},
+  '@/lib/supabaseAdmin':{supabaseAdmin:{from(table){return {select(){return this;},eq(){return this;},single:async()=>({data:{id:1,empresa_id:2,produto_id:9,ml_item_id:'MLB123'},error:null}),maybeSingle:async()=>({data:{policy:{shippingPackage:{weight:.75,width:15,height:10,length:20}}},error:null}),update(value){assert.equal(table,'mercadolivre_product_link');assert.equal('package_weight_grams' in value,false);return this;}};}}},
+ };
+ for(const name of ['mercadolivre-flex','mercadolivre-listing-validation','mercadolivre-listing-pictures','mercadolivre-pictures','mercadolivre-shipping-preferences','mercadolivre-outbound-touch','mercadolivre-listing-change'])mocks[`@/lib/integrations/${name}`]={};
+ const route=load('src/app/api/integracoes/mercadolivre/items/[itemId]/route.ts',mocks);
+ const response=await route.GET(new Request('https://erp.test'),{params:Promise.resolve({itemId:'MLB123'})});
+ assert.equal(response.status,200);const {data}=await response.json();assert.equal(data.weightGrams,'1000');assert.equal(data.productPackage.weightGrams,'750');assert.equal(data.productPackage.heightCm,'10');assert.equal(data.price,250);assert.equal(calls.length,2);
+});
+
 test('shipping connection uses general-settings permissions for reads and writes',async()=>{
  const calls=[];
  const route=load('src/app/api/integracoes/site/shipping/route.ts',{

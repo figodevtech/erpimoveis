@@ -1,4 +1,5 @@
 "use client";
+import { useProductPackage } from "./mercadolivre/create-listing/use-product-package";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -2142,6 +2143,8 @@ export default function MarketplacePage() {
     weightGrams: "",
     dynamicAttributes: {},
   });
+
+  useProductPackage(listingForm,setListingForm,createDialogOpen);
 
   const activeAccount = accounts[0] ?? null;
   const requiresReconnect = Boolean(activeAccount?.needs_reconnect);
