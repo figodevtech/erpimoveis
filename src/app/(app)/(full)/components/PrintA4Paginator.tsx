@@ -100,6 +100,15 @@ export function PrintA4Paginator() {
 
       const pages: Page[] = [];
 
+      // O esqueleto da tabela (cabeçalho, corpo vazio) é clonado uma vez só:
+      // clonar a tabela inteira a cada folha copiava todas as linhas do documento.
+      let tableTemplate: HTMLElement | null = null;
+      if (items) {
+        tableTemplate = items.cloneNode(true) as HTMLElement;
+        removeIds(tableTemplate);
+        tableTemplate.querySelector("tbody")?.replaceChildren();
+      }
+
       const createPage = (firstPage: boolean, withTable: boolean): Page => {
         const holder = sourceHolder.cloneNode(false) as HTMLElement;
         holder.removeAttribute("data-print-pagination-source-holder");
@@ -128,11 +137,9 @@ export function PrintA4Paginator() {
         }
 
         let tbody: HTMLTableSectionElement | null = null;
-        if (withTable && items) {
-          const tableClone = items.cloneNode(true) as HTMLElement;
-          removeIds(tableClone);
+        if (withTable && tableTemplate) {
+          const tableClone = tableTemplate.cloneNode(true) as HTMLElement;
           tbody = tableClone.querySelector<HTMLTableSectionElement>("tbody");
-          tbody?.replaceChildren();
           content.appendChild(tableClone);
         }
 

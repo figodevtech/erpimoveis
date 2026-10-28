@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Loader2 } from "lucide-react";
 
 import { A4PdfActions } from "@/app/(app)/(full)/components/A4PdfActions";
 import { PrintA4Paginator } from "@/app/(app)/(full)/components/PrintA4Paginator";
@@ -237,6 +238,11 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
       <style>{`
         @page { size: A4 portrait; margin: 0; }
         .report-shell { --a4w: 210mm; --a4h: 297mm; }
+        /* A folha-fonte tem todas as linhas numa folha só, cortada no pé. No
+           relatório completo ela ficava na tela enquanto o HTML chegava e as
+           folhas eram medidas; até o paginador terminar, aparece o aviso. */
+        .report-paginacao:not([data-print-pagination-ready]) > [data-print-pagination-source-holder],
+        .report-paginacao[data-print-pagination-ready] > .report-montando { display: none; }
         /* Nenhum bloco encolhe para caber: o excesso tem de aparecer como
            transbordo, que é o que o paginador mede para virar a folha. */
         .report-sheet .conteudo > * { flex-shrink: 0; }
@@ -298,11 +304,16 @@ export default async function FluxoCaixaPrintPage({ searchParams }: PageProps) {
             A chave refaz a paginação quando o agrupamento troca o endereço. */}
         <div
           key={consulta}
+          className="report-paginacao"
           data-print-pagination-root
           data-print-pagination-number-pages
           data-print-pagination-footer={`Relatório de fluxo de caixa · Gerado em ${geradoEm}`}
         >
           <PrintA4Paginator />
+          <p className="report-montando flex w-[210mm] items-center justify-center gap-2 rounded border border-neutral-300 bg-white py-16 text-sm text-neutral-600 shadow-xl print:hidden">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            Montando as folhas · {rows.length.toLocaleString("pt-BR")} {rows.length === 1 ? "lançamento" : "lançamentos"}
+          </p>
           <div data-print-pagination-source-holder>
             <section
               className="report-sheet relative flex h-[297mm] w-[210mm] flex-col overflow-hidden border border-neutral-300 bg-white shadow-xl"
