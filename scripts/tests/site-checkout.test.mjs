@@ -24,6 +24,27 @@ function load(file,mocks={},extra={}) {
  return exports;
 }
 
+test('ERP middleware lets storefront policy reads reach Bearer validation but keeps writes private',async()=>{
+ const middleware=load('src/middleware.ts',{
+  'next/server':require('next/server'),
+  '@/lib/auth-edge':{auth:handler=>handler},
+  '@/app/api/_authz/permission-constants':{PERMS:{},TIPO_PERMISSIONS:[]},
+  '@/app/api/_authz/tipos-permission':{},
+  '@/app/api/_authz/default-route':{},
+  '@/app/api/_authz/action-permission':{},
+  '@/lib/shared-lookup':{createSharedLookup:()=>()=>{throw Error('Public request must not query sessions');}},
+ }).default;
+ const {NextRequest}=require('next/server');
+ for(const [method,path,expected] of [
+  ['GET','checkout-config',200],['PUT','checkout-config',401],
+  ['POST','checkout-config',401],['GET','checkout-config/other',401],
+ ]){
+  const response=await middleware(new NextRequest(`https://erp.test/api/integracoes/site/${path}?ids=9`,{method,headers:{Authorization:'Bearer own-store'}}));
+  assert.equal(response.status,expected,`${method} ${path}`);
+  if(expected===200)assert.equal(response.headers.get('x-middleware-next'),'1');
+ }
+});
+
 test('installment preview distinguishes an unpublished storefront route from invalid Asaas credentials',async()=>{
  const fees={operationValue:.49,one:2,six:3,twelve:4};
  for(const [upstream,expected,pattern] of [[new Response('not found',{status:404}),503,/Publique a atualização do site/],[Response.json({feesError:'ASAAS_UNAUTHORIZED'},{status:503}),503,/chave de API/],[Response.json({fees}),200,null]]){
@@ -83,6 +104,7 @@ test('store checkout resolves current group membership and ignores caller-suppli
   '@/lib/integrations/site-checkout-inheritance':inheritance,
  },{process:{env:{STOREFRONT_ORDER_SYNC_SECRET:'own-store'}}});
  const request=()=>new Request('https://erp.test/api/integracoes/site/checkout-config?ids=9,10&previewGroupId=999',{headers:{Authorization:'Bearer own-store'}});
+ assert.equal((await endpoint.GET(new Request('https://erp.test/api/integracoes/site/checkout-config?ids=9',{headers:{Authorization:'Bearer wrong-store'}}))).status,401);
  const first=await (await endpoint.GET(request())).json();
  assert.equal(first.policies['9'].maxInstallments,1);assert.equal(first.policies['10'].maxInstallments,6);
  tables.site_group_checkout_config[0].policy.maxInstallments=3;tables.site_group_checkout_config[0].updated_at='c';

@@ -82,13 +82,16 @@ function isPublicPath(pathname: string) {
   );
 }
 
-function isPublicApi(pathname: string) {
+function isPublicApi(pathname: string, method: string) {
   if (!pathname.startsWith("/api")) return false;
   if (pathname.startsWith("/api/auth")) return true; // NextAuth sempre pÃºblico
   if (pathname === "/api/webhooks/focus") return true;
   // Server-to-server endpoint: the handler validates its own Bearer secret.
   if (pathname === "/api/integracoes/site/webhook") return true;
-    if (pathname === "/api/integracoes/site/checkout") return true;
+  if (pathname === "/api/integracoes/site/checkout") return true;
+  // Apenas a leitura aceita o token da loja; a rota valida o Bearer.
+  // A escrita continua exigindo sessao e permissoes do ERP.
+  if (pathname === "/api/integracoes/site/checkout-config" && method === "GET") return true;
   return PUBLIC_API_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(p + "/"),
   );
@@ -361,7 +364,7 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
 
   // Rotas públicas não dependem da consulta adicional ao Supabase. Isso evita
   // que uma oscilação do banco interrompa login, sessão e recuperação.
-  if (isApi && isPublicApi(pathname)) return NextResponse.next();
+  if (isApi && isPublicApi(pathname, req.method)) return NextResponse.next();
   if (!isApi && isPublicPath(pathname)) {
     const response = NextResponse.next();
     if (pathname === "/assinar/checklist" || pathname.startsWith("/assinar/checklist/")) {
