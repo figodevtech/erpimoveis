@@ -395,7 +395,13 @@ export function MercadoLivreEditListingDialog({
           dynamicAttributes,
         };
 
-        setForm(loadedForm);
+        setForm(item.productPackage?{
+          ...loadedForm,
+          widthCm:item.productPackage.widthCm,
+          heightCm:item.productPackage.heightCm,
+          lengthCm:item.productPackage.lengthCm,
+          weightGrams:item.productPackage.weightGrams,
+        }:loadedForm);
         setInitialForm(loadedForm);
         setInitialAttributes(dynamicAttributes);
         setCapabilities((curr) => ({ ...curr, ...(item.capabilities ?? {}) }));

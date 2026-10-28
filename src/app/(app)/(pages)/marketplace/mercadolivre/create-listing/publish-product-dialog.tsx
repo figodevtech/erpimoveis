@@ -1,4 +1,5 @@
 "use client";
+import { useProductPackage } from "./use-product-package";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
@@ -262,6 +263,7 @@ export function MercadoLivrePublishProductDialog({
   const [step, setStep] = useState<CreateListingStep>("product");
   const [chosenProduct, setChosenProduct] = useState<ProductRow | null>(null);
   const [listingForm, setListingForm] = useState<ListingForm>(() => createInitialListingForm(null));
+  useProductPackage(listingForm,setListingForm,open);
   const [listingFieldErrors, setListingFieldErrors] = useState<Record<string, string>>({});
   const [creatingListing, setCreatingListing] = useState(false);
 

@@ -33,6 +33,7 @@ import {
 } from "@/lib/integrations/mercadolivre-outbound-touch";
 import { mercadoLivreVideoInput, normalizeMercadoLivreVideoId } from "@/lib/integrations/mercadolivre-video";
 import { buildMercadoLivreEditConfirmations } from "@/lib/integrations/mercadolivre-listing-change";
+import { productPackageListingFields } from "@/lib/integrations/product-shipping-package";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,10 +49,13 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
     const account = await getValidMercadoLivreAccount(link.empresa_id);
     const accessToken = account.access_token;
 
-    const [item, description] = await Promise.all([
+    const [item, description, packageResult] = await Promise.all([
       mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}`),
       mercadoLivreApiGet<any>(accessToken, `/items/${encodeURIComponent(itemId)}/description`).catch(() => null),
+      supabaseAdmin.from('site_product_checkout_config').select('policy').eq('produto_id',link.produto_id).maybeSingle(),
     ]);
+    if(packageResult.error)throw packageResult.error;
+    const productPackage=productPackageListingFields(packageResult.data?.policy);
     const priceState = await getMercadoLivrePriceState(accessToken, itemId, item);
     const userProduct = item?.user_product_id
       ? await mercadoLivreApiGet<any>(accessToken, `/user-products/${encodeURIComponent(String(item.user_product_id))}`).catch(() => null)
@@ -65,6 +69,7 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
       : null;
     const normalized = {
       ...normalizeItemForEdit(item, description, userProduct, family, link),
+      productPackage,
       price: priceState.standardPrice ?? Number(item?.price ?? 0),
       salePrice: priceState.salePrice,
       regularPrice: priceState.regularPrice,
