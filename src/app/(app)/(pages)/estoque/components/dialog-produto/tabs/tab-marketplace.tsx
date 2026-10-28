@@ -1,4 +1,5 @@
 import { DescricaoIA } from "./descricao-ia";
+import { ProductCheckoutSettings } from './product-checkout-settings';
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -229,6 +230,8 @@ export function TabMarketplace({ produto, onChange, onSiteVisibilityChange }: Pr
         </div>
         {!produtoId && <p className="text-xs text-muted-foreground">Salve o produto para ajustar o preço do site.</p>}
       </div>
+
+        <ProductCheckoutSettings key={`${produtoId}:${produto.grupo_produto_id||0}`} productId={produtoId} assignedGroupId={Number(produto.grupo_produto_id)||0} price={Number(produtoId ? sitePrice : produto.precovenda)||0}/>
 
         <div className="grid gap-4">
           <div className="space-y-2">

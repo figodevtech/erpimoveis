@@ -1,8 +1,8 @@
 // Persist identity, never card details. Same cart/recipient/method resumes the
 // existing operation after a refresh or a lost network response.
-export function checkoutAttempt(userId:string,data:{addressId:unknown;deliveryMethod:unknown;billingType:unknown;items:Array<{productId:unknown;quantity:number}>;savedCardId?:unknown}) {
+export function checkoutAttempt(userId:string,data:{addressId:unknown;deliveryMethod:unknown;billingType:unknown;items:Array<{productId:unknown;quantity:number}>;savedCardId?:unknown;installmentCount?:number;shippingServiceId?:number;expectedShipping?:number}) {
   const key=`checkout-attempt:${userId}`;
-  const fingerprint=JSON.stringify([data.addressId,data.deliveryMethod,data.billingType,data.savedCardId||null,data.items.map(i=>[Number(i.productId),i.quantity]).sort((a,b)=>a[0]-b[0])]);
+  const fingerprint=JSON.stringify([data.addressId,data.deliveryMethod,data.billingType,data.savedCardId||null,data.installmentCount||1,data.shippingServiceId||null,data.expectedShipping??null,data.items.map(i=>[Number(i.productId),i.quantity]).sort((a,b)=>a[0]-b[0])]);
   try {
     const previous=JSON.parse(localStorage.getItem(key)||'null');
     if (previous?.fingerprint===fingerprint && typeof previous.id==='string') return previous.id as string;

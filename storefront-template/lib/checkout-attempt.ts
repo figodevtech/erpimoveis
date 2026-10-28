@@ -5,9 +5,11 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { erpCheckout } from '@/lib/erp-checkout';
 import type { AsaasPayment } from '@/lib/asaas';
 
-export function attemptIdentity(attempt:unknown,customer:number,address:unknown,delivery:string,billing:string,savedCard:unknown,items:Map<number,number>) {
+export function attemptIdentity(attempt:unknown,customer:number,address:unknown,delivery:string,billing:string,savedCard:unknown,items:Map<number,number>,terms?:unknown) {
   if (typeof attempt!=='string' || !/^[a-f\d]{8}(-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(attempt)) throw new Error('Atualize a página para iniciar o pagamento com segurança.');
-  const hash=createHash('sha256').update(JSON.stringify([customer,String(address),delivery,billing,savedCard||null,[...items].sort((a,b)=>a[0]-b[0])])).digest('hex');
+  const identity=[customer,String(address),delivery,billing,savedCard||null,[...items].sort((a,b)=>a[0]-b[0])];
+  if(terms!==undefined)identity.push(terms as never);
+  const hash=createHash('sha256').update(JSON.stringify(identity)).digest('hex');
   return {attempt,hash};
 }
 export async function resumeCheckout(attempt:string,customer:number,hash:string) {
@@ -25,6 +27,12 @@ export async function resumeCheckout(attempt:string,customer:number,hash:string)
   return NextResponse.json({orderId:data.order_id,url:data.payment_data?.url||null,directPayment:true,resumed:true,gatewayStatus:data.payment_data?.status||'PENDING',total:data.checkout_payload?.total,subtotal:data.checkout_payload?.subtotal,paymentMethod:data.checkout_payload?.method},{status:data.phase==='BOUND'||data.phase==='DONE'?200:202});
 }
 export async function bindCheckoutPayment(orderId:number,payment:AsaasPayment) {
+  if(payment.installmentGroupDeleted){
+    // A deleted plan cannot be listed again. Only reuse a previously validated binding.
+    const {data,error}=await supabaseAdmin.from('checkout_attempt').select('payment_id,expected_customer,phase').eq('order_id',orderId).maybeSingle();
+    if(error||!data||data.payment_id!==payment.id||data.expected_customer!==payment.customer||!['BOUND','REVIEW','DONE'].includes(data.phase))throw new Error('Parcelamento removido sem vinculo confirmado. Revisao necessaria.');
+    return true;
+  }
   const {data,error}=await supabaseAdmin.rpc('fn_checkout_bind',{p_order:orderId,p_payment:payment.id,p_customer:payment.customer||'',p_total:payment.value??0,p_billing:payment.billingType||'',p_due:payment.dueDate||null,p_url:payment.invoiceUrl||null,p_status:payment.status||'PENDING'});
   if (error) throw error;
   return Boolean(data);

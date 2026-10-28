@@ -23,6 +23,74 @@ function load(file,mocks={},extra={}) {
  },...extra});
  return exports;
 }
+
+test('installment preview distinguishes an unpublished storefront route from invalid Asaas credentials',async()=>{
+ const fees={operationValue:.49,one:2,six:3,twelve:4};
+ for(const [upstream,expected,pattern] of [[new Response('not found',{status:404}),503,/Publique a atualização do site/],[Response.json({feesError:'ASAAS_UNAUTHORIZED'},{status:503}),503,/chave de API/],[Response.json({fees}),200,null]]){
+  const endpoint=load('src/app/api/integracoes/site/checkout-fees/route.ts',{
+   '@/app/api/_authz/perms':{requireEstoqueAccess:async()=>{}},
+   '@/lib/empresa-context':{requireEmpresaId:async()=>1,errorStatus:(_error,fallback)=>fallback},
+   '@/lib/integrations/storefront-http':{storefrontFetch:async url=>{const parsed=new URL(url);assert.equal(parsed.host,'own-store.test');assert.equal(parsed.searchParams.get('includeFees'),'1');return upstream;}},
+  },{process:{env:{STOREFRONT_API_URL:'https://own-store.test'}}});
+  const response=await endpoint.GET(new Request('https://erp.test/api/integracoes/site/checkout-fees?productId=9'));
+  assert.equal(response.status,expected);const result=await response.json();if(pattern)assert.match(result.message,pattern);else assert.deepEqual(result.fees,fees);
+ }
+});
+
+test('explicit Asaas fee consultation does not turn provider failures into an empty successful response',async()=>{
+ class AsaasApiError extends Error{constructor(status){super('private provider detail');this.status=status;}}
+ const endpoint=load('storefront-template/app/api/checkout/options/route.ts',{
+  '@/lib/erp-checkout-policy':{getCheckoutPolicy:async()=>({policies:{9:{feeMode:'absorbed'}}})},
+  '@/lib/asaas-fees':{getCardFees:async()=>{throw new AsaasApiError(401);}},
+  '@/lib/asaas':{AsaasApiError},
+ });
+ const response=await endpoint.GET(new Request('https://store.test/api/checkout/options?ids=9&includeFees=1'));
+ assert.equal(response.status,503);const body=await response.json();assert.equal(body.feesError,'ASAAS_UNAUTHORIZED');assert.equal(JSON.stringify(body).includes('private provider detail'),false);
+});
+
+test('group payment rules are inherited while individual overrides and packaging remain independent',()=>{
+ const policy=load('src/lib/integrations/site-checkout-policy.ts');
+ const {resolveCheckoutPolicy,paymentFields}=load('src/lib/integrations/site-checkout-inheritance.ts',{'./site-checkout-policy':policy});
+ const pack={weight:1,width:20,height:10,length:30};
+ const individual={policy:{...policy.defaultCheckoutPolicy,maxInstallments:2,shippingPackage:pack},payment_override:true};
+ const group={policy:{maxInstallments:6,minimumInstallment:20,interestFreeInstallments:3,feeMode:'incremental',monthlyInterestPercent:0}};
+ assert.equal(resolveCheckoutPolicy(undefined,group).policy.maxInstallments,6);
+ assert.equal(resolveCheckoutPolicy(individual,group).policy.maxInstallments,2);
+ const inherited=resolveCheckoutPolicy({...individual,payment_override:false},group);
+ assert.equal(inherited.policy.maxInstallments,6);assert.deepEqual(inherited.policy.shippingPackage,pack);
+ assert.equal(inherited.source,'group');assert.equal(inherited.paymentOverride,false);
+ assert.equal(resolveCheckoutPolicy(undefined,undefined).policy.maxInstallments,1);
+ assert.equal(resolveCheckoutPolicy({...individual,payment_override:false},undefined).policy.maxInstallments,1);
+ assert.equal('shippingPackage' in paymentFields(individual.policy),false,'shipping must never become a group rule');
+});
+
+test('store checkout resolves current group membership and ignores caller-supplied preview groups',async()=>{
+ const policy=load('src/lib/integrations/site-checkout-policy.ts');
+ const inheritance=load('src/lib/integrations/site-checkout-inheritance.ts',{'./site-checkout-policy':policy});
+ const tables={
+  produto:[{id:9,grupo_produto_id:2},{id:10,grupo_produto_id:2}],
+  produtogrupo:[{id:2,nome:'Motor'}],
+  site_group_checkout_config:[{grupo_id:2,policy:{...policy.defaultCheckoutPolicy,maxInstallments:6},updated_at:'a'}],
+  site_product_checkout_config:[{produto_id:9,policy:policy.defaultCheckoutPolicy,payment_override:true,updated_at:'b'}],
+  empresa:[{id:1,cep:'58000000'}],
+ };
+ const admin={from(table){let rows=tables[table]||[];return {select(){return this;},in(key,values){rows=rows.filter(row=>values.includes(row[key]));return this;},eq(key,value){rows=rows.filter(row=>row[key]===value);return this;},maybeSingle:async()=>({data:rows[0]||null,error:null}),then(resolve){return Promise.resolve({data:rows,error:null}).then(resolve);}};}};
+ const endpoint=load('src/app/api/integracoes/site/checkout-config/route.ts',{
+  '@/app/api/_authz/perms':{requireEstoqueAccess:async()=>{}},
+  '@/lib/empresa-context':{requireEmpresaId:async()=>1,errorStatus:()=>500},
+  '@/lib/supabaseAdmin':{supabaseAdmin:admin},
+  '@/lib/integrations/site-checkout-policy':policy,
+  '@/lib/integrations/site-checkout-inheritance':inheritance,
+ },{process:{env:{STOREFRONT_ORDER_SYNC_SECRET:'own-store'}}});
+ const request=()=>new Request('https://erp.test/api/integracoes/site/checkout-config?ids=9,10&previewGroupId=999',{headers:{Authorization:'Bearer own-store'}});
+ const first=await (await endpoint.GET(request())).json();
+ assert.equal(first.policies['9'].maxInstallments,1);assert.equal(first.policies['10'].maxInstallments,6);
+ tables.site_group_checkout_config[0].policy.maxInstallments=3;tables.site_group_checkout_config[0].updated_at='c';
+ const changed=await (await endpoint.GET(request())).json();
+ assert.equal(changed.policies['10'].maxInstallments,3);assert.notEqual(first.revision,changed.revision);
+ tables.produto[1].grupo_produto_id=null;
+ const removed=await (await endpoint.GET(request())).json();assert.equal(removed.policies['10'].maxInstallments,1);
+});
 test('ERP order view requires the tenant secret and returns only sanitized checkout details',async()=>{
  const calls=[];
  const query={then(resolve){return Promise.resolve({data:[{order_id:12,phase:'BOUND',billing_type:'PIX',payment_id:'private-id',payment_data:{status:'PENDING',url:'private-url',dueDate:'2026-10-25'},checkout_payload:{total:50,items:[{produtoid:22,quantidade:2,valor_total:50}],address:{}},created_at:'2026-10-22',cliente:{nomerazaosocial:'Cliente'},payment_meta:{secret:'never-expose'}}],error:null}).then(resolve);}};
@@ -81,7 +149,7 @@ function reconcileFixture({phase='BOUND',billing='PIX',status='PENDING',age=1200
  class FixedDate extends Date {constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}}
  const api=load('storefront-template/lib/checkout-reconcile.ts',{
   '@/lib/supabase/admin':{supabaseAdmin:db},
-  '@/lib/asaas':{getAsaasPayment:async()=>payment,asaasRequest:async(path,init)=>{requests.push([path,init]);if(list)return list;if(deleteSucceeds&&init?.method==='DELETE'){payment.deleted=true;return {deleted:true};}throw Error('unexpected provider mutation');}},
+  '@/lib/asaas':{getAsaasPayment:async()=>payment,cancelAsaasPayment:async()=>{requests.push(['/payments/pay_test',{method:'DELETE'}]);if(!deleteSucceeds)throw Error('unexpected provider mutation');payment.deleted=true;return payment;},asaasRequest:async(path,init)=>{requests.push([path,init]);if(list)return list;if(deleteSucceeds&&init?.method==='DELETE'){payment.deleted=true;return {deleted:true};}throw Error('unexpected provider mutation');}},
   '@/lib/erp-checkout':{erpCheckout:async()=>true},
   '@/lib/checkout-attempt':{bindCheckoutPayment:async()=>true,releaseCancelledCheckout:async()=>{requests.push(['release']);}},
  },{Date:FixedDate,fetch:async(_url,init)=>{notifications.push(init);return Response.json({ok:true});},process:{env:{ERP_ORDER_WEBHOOK_URL:'https://erp.test/webhook',ERP_ORDER_SYNC_SECRET:'orders'}}});

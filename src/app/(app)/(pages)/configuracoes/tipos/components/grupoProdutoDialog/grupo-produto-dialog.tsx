@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import { ProductCheckoutSettings } from '@/app/(app)/(pages)/estoque/components/dialog-produto/tabs/product-checkout-settings';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -167,7 +168,7 @@ export default function GrupoProdutoDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
 
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{editing ? "Editar grupo de produto" : "Novo grupo de produto"}</DialogTitle>
         </DialogHeader>
@@ -232,6 +233,8 @@ export default function GrupoProdutoDialog({
             />
           </div>
         </div>
+
+        {open&&editing?<ProductCheckoutSettings key={editing.id} groupId={editing.id}/>:<p className="text-xs text-muted-foreground">Salve o grupo para configurar o parcelamento dos seus produtos.</p>}
 
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>

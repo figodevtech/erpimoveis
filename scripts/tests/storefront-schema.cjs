@@ -22,6 +22,11 @@ const { PGlite } = require('../../central.figosoftwares.com.br/node_modules/@ele
     for (const name of ['status_entrega','nfe_numero','nfe_chave_acesso','danfe_url','separacao_em','entregue_em']) assert.ok(columns.includes(name), name);
     const tables = (await db.query("select tablename from pg_tables where schemaname='public'")).rows.map(r => r.tablename);
     for (const name of ['cliente','cliente_endereco','produto','favorito','venda','vendaproduto','customer_payment_card','order_fulfillment_event','site_order_refund_request']) assert.ok(tables.includes(name), name);
+    for(const name of ['store_shipping_connection','store_shipping_oauth_state']){
+      assert.ok(tables.includes(name));
+      const access=(await db.query("select has_table_privilege('anon',$1,'select') as anon_read,has_table_privilege('authenticated',$1,'update') as client_write",[name])).rows[0];
+      assert.equal(access.anon_read,false);assert.equal(access.client_write,false);
+    }
     for (const name of ['veiculo_compatibilidade','produto_compatibilidade']) assert.ok(!tables.includes(name), `${name} must remain deferred`);
     const alice = '00000000-0000-4000-8000-000000000001', bob = '00000000-0000-4000-8000-000000000002';
     await db.query('insert into auth.users values($1),($2)', [alice, bob]);

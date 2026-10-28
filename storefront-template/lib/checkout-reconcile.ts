@@ -1,6 +1,6 @@
 import 'server-only';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { asaasRequest, getAsaasPayment, type AsaasPayment } from '@/lib/asaas';
+import { asaasRequest, getAsaasPayment, cancelAsaasPayment, type AsaasPayment } from '@/lib/asaas';
 import { bindCheckoutPayment, releaseCancelledCheckout } from '@/lib/checkout-attempt';
 import { erpCheckout } from '@/lib/erp-checkout';
 
@@ -71,16 +71,21 @@ export async function reconcileCheckout(orderId:number,provided?:AsaasPayment,ev
   if(!payment && attempt.expected_customer) {
     const query=new URLSearchParams({customer:attempt.expected_customer,externalReference:String(orderId),limit:'100'});
     const list=await asaasRequest<{data:AsaasPayment[];hasMore?:boolean}>(`/payments?${query}`);
-    if(list.hasMore || list.data.length>1) {
+    if(list.hasMore || (list.data.length>1 && (!list.data[0]?.installment || !list.data.every(p=>p.installment===list.data[0].installment)))) {
       await attemptUpdate(orderId,{phase:'REVIEW',last_error:'Mais de uma cobrança encontrada. Revisão obrigatória.'});
       throw new Error('Cobranças conflitantes.');
     }
-    payment=list.data[0];
+    payment=list.data[0] ? await getAsaasPayment(list.data[0].id) : undefined;
   }
   if(!payment) {
     // Absence from a list is not proof that a timed-out POST cannot commit.
     if(Date.now()-Date.parse(attempt.created_at)>20*60_000)await attemptUpdate(orderId,{phase:'REVIEW',last_error:'Envio sem resposta definitiva. Conferir provedor; estoque permanece reservado.'});
     return true;
+  }
+  if(payment.installmentGroupDeleted&&attempt.payment_id&&attempt.payment_id!==payment.id){
+    const primary=await getAsaasPayment(attempt.payment_id);
+    if(!primary.installmentGroupDeleted||primary.installment!==payment.installment)throw new Error('Parcelamento divergente.');
+    payment=primary;
   }
   if(String(payment.externalReference)!==String(orderId))throw new Error('Referência de pagamento divergente.');
   await bindCheckoutPayment(orderId,payment);
@@ -125,9 +130,7 @@ export async function reconcileCheckout(orderId:number,provided?:AsaasPayment,ev
     : elapsed>(attempt.billing_type==='PIX'?30:60)*60_000;
   if(!canCancel || (!payment.deleted && !['PENDING','OVERDUE'].includes(status))) return true;
   if(!payment.deleted) {
-    const removed=await asaasRequest<{deleted?:boolean}>(`/payments/${encodeURIComponent(payment.id)}`,{method:'DELETE',signal:AbortSignal.timeout(15_000)});
-    if(!removed.deleted)throw new Error('Cancelamento da cobrança não confirmado.');
-    payment=await getAsaasPayment(payment.id);
+    payment=await cancelAsaasPayment(payment);
   }
   if(!payment.deleted || paid.has(payment.status||''))throw new Error('Cancelamento financeiro inconclusivo.');
   const {error:cancelError}=await supabaseAdmin.rpc('fn_checkout_cancel_bound',{p_order:orderId,p_payment:payment.id});
