@@ -6,6 +6,7 @@ export const checkoutPolicySchema = z.object({
   interestFreeInstallments: z.number().int().min(1).max(12),
   monthlyInterestPercent: z.number().min(0).max(30),
   feeMode: z.enum(['absorbed','incremental','full']).default('absorbed'),
+  freeShipping: z.boolean().nullable().default(null),
   shippingPackage: z.object({weight:z.number().positive().max(1000),width:z.number().positive().max(1000),height:z.number().positive().max(1000),length:z.number().positive().max(1000)}).nullable().default(null),
   shippingRates: z.array(z.object({
     name: z.string().trim().min(1).max(80),
@@ -17,7 +18,7 @@ export const checkoutPolicySchema = z.object({
 }).refine(policy=>policy.interestFreeInstallments<=policy.maxInstallments,'As parcelas sem juros não podem ultrapassar o limite.');
 
 export type CheckoutPolicy = z.infer<typeof checkoutPolicySchema>;
-export const defaultCheckoutPolicy: CheckoutPolicy = {maxInstallments:1,minimumInstallment:5,interestFreeInstallments:1,monthlyInterestPercent:0,shippingRates:[],feeMode:'absorbed',shippingPackage:null};
+export const defaultCheckoutPolicy: CheckoutPolicy = {maxInstallments:1,minimumInstallment:5,interestFreeInstallments:1,monthlyInterestPercent:0,shippingRates:[],feeMode:'absorbed',freeShipping:null,shippingPackage:null};
 
 export type CardFees={operationValue:number;one:number;six:number;twelve:number};
 const rate=(fees:CardFees,count:number)=>(count===1?fees.one:count<=6?fees.six:fees.twelve)/100;

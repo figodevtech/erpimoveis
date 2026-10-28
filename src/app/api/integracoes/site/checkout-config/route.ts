@@ -72,7 +72,7 @@ export async function PUT(request:Request){
  if('groupId' in parsed.data){
   const {data:group,error:groupError}=await supabaseAdmin.from('produtogrupo').select('id').eq('id',parsed.data.groupId).maybeSingle();
   if(groupError)throw groupError;if(!group)return NextResponse.json({message:'Grupo não encontrado.'},{status:404});
-  const policy=paymentFields(parsed.data.policy);
+  const policy={...paymentFields(parsed.data.policy),freeShipping:parsed.data.policy.freeShipping};
   const {error}=await supabaseAdmin.from('site_group_checkout_config').upsert({grupo_id:parsed.data.groupId,policy,updated_at:new Date().toISOString()});
   if(error)throw error;
   return NextResponse.json({policy:{...defaultCheckoutPolicy,...policy}});

@@ -20,13 +20,14 @@ export function useCheckoutTerms(items:{productId:number;total:number}[],shippin
 }
 type Terms=ReturnType<typeof useCheckoutTerms>;
 const money=(n:number)=>n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-export function CheckoutTerms({terms,newCard,disabled}:{terms:Terms;newCard:boolean;disabled:boolean}){
- return <div className="space-y-4">
+export function CheckoutTerms({terms,newCard,disabled,compact=false}:{terms:Terms;newCard:boolean;disabled:boolean;compact?:boolean}){
+ return <div className={compact?"space-y-3":"space-y-4"}>
+ {compact&&newCard&&<div className="flex items-center gap-2.5 py-1"><Switch id="checkout-save-card" checked={terms.saveCard} onCheckedChange={terms.setSaveCard} disabled={disabled}/><Label htmlFor="checkout-save-card" className="text-sm font-normal">Salvar cartão</Label></div>}
  {!terms.options.length&&<p role="status" className="text-sm text-muted-foreground">Não foi possível atualizar as condições do cartão. Atualize a página ou escolha Pix.</p>}
  <div className="space-y-2"><Label htmlFor="checkout-installments">Parcelamento</Label><Select value={String(terms.count)} onValueChange={v=>terms.setCount(Number(v))} disabled={disabled||!terms.options.length}><SelectTrigger id="checkout-installments" className="w-full"><SelectValue placeholder="À vista"/></SelectTrigger><SelectContent>{terms.options.map(o=><SelectItem key={o.count} value={String(o.count)}>{o.count}x de {money(o.installment)} {o.interest?'com acréscimo':'sem juros'} · total {money(o.total)}</SelectItem>)}</SelectContent></Select>
  {terms.quote&&terms.quote.lastInstallment!==terms.quote.installment&&<p className="text-xs text-muted-foreground">Última parcela: {money(terms.quote.lastInstallment)}.</p>}
  {Boolean(terms.quote?.interest)&&<p className="text-xs text-muted-foreground">Acréscimo do cartão: {money(terms.quote!.interest)}. Total a pagar: {money(terms.quote!.total)}.</p>}
  </div>
- {newCard&&<div className="flex items-start gap-3 rounded-lg border p-3"><Switch id="checkout-save-card" checked={terms.saveCard} onCheckedChange={terms.setSaveCard} disabled={disabled}/><div className="space-y-1"><Label htmlFor="checkout-save-card">Salvar cartão para compras futuras</Label><p className="text-xs text-muted-foreground">Opcional. Guardamos somente a referência segura fornecida pelo Asaas e os últimos quatro dígitos. Nunca o código de segurança.</p></div></div>}
+ {!compact&&newCard&&<div className="flex items-start gap-3 rounded-lg border p-3"><Switch id="checkout-save-card" checked={terms.saveCard} onCheckedChange={terms.setSaveCard} disabled={disabled}/><div className="space-y-1"><Label htmlFor="checkout-save-card">Salvar cartão para compras futuras</Label><p className="text-xs text-muted-foreground">Opcional. Guardamos somente a referência segura fornecida pelo Asaas e os últimos quatro dígitos. Nunca o código de segurança.</p></div></div>}
  </div>;
 }

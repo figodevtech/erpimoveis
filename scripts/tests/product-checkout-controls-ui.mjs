@@ -23,7 +23,10 @@ for(const site of ['site_brpecaspb','site_demirdiesel']){
  await page.getByLabel('CEP de destino').fill('58108152');await page.getByRole('button',{name:'Simular',exact:true}).click();await page.getByText('Correios · PAC').waitFor();
  await page.getByRole('button',{name:'Adicionar item à vista'}).click();await page.waitForFunction(()=>document.querySelector('[data-testid=total]').textContent==='300');
  await page.getByRole('combobox',{name:'Parcelamento'}).click();assert.equal(await page.getByRole('option').count(),1);await page.keyboard.press('Escape');
- console.log('PASS',site,'installments, mixed cart restriction, opt-in switch and provider shipping quote.');await page.close();
+ await page.evaluate(()=>{window.fetch=async()=>Response.json({options:[{id:999999,name:'Frete grátis',company:'Envio escolhido pela loja',price:0,days:0,merchantSelected:true}],environment:null,quotedAt:new Date().toISOString()});});
+ await page.getByLabel('CEP de destino').fill('01001000');await page.getByRole('button',{name:'Simular',exact:true}).click();await page.getByText('Frete grátis',{exact:true}).waitFor();
+ assert.equal(await page.getByText(/Prazo estimado: 0/).count(),0);await page.getByText('A loja escolhe o serviço e informa o prazo de envio.').waitFor();
+ console.log('PASS',site,'installments, mixed cart restriction, opt-in switch, provider quote and merchant-selected free shipping.');await page.close();
  const automatic=await build({stdin:{contents:`
  import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
  import {ShippingChoices,useShippingQuote} from '@/components/product/ShippingSimulator';

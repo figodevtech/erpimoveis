@@ -274,3 +274,6 @@ Testes isolados, sem autoriza??o ou compra real:
 node --test scripts/tests/shipping-oauth.test.mjs scripts/tests/site-checkout.test.mjs site_brpecaspb/scripts/integration.test.mjs
 node scripts/tests/storefront-schema.cjs
 ```
+
+
+Frete grátis: `policy.freeShipping` aceita `null` (herdar grupo), `true` (loja paga e escolhe o envio) ou `false` (cliente paga). A prioridade de envio é independente de `payment_override`. Não requer migration: usa o JSON das regras existentes. Carrinhos inteiramente gratuitos oferecem envio da loja por R$ 0, sem precisar de cotação. Carrinhos mistos cotam apenas os itens pagos; a loja organiza separadamente os gratuitos, identificados em `merchantShippingProductIds` no snapshot do pedido. A etiqueta continua sendo comprada pela loja. Publique o ERP antes dos dois sites.

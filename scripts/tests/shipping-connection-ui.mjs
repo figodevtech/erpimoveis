@@ -2,7 +2,7 @@ import {build} from 'esbuild';
 import {chromium} from '@playwright/test';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-const source=await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {StorefrontShippingConnection} from '@/app/(app)/(pages)/marketplace/storefront-shipping-connection';createRoot(document.getElementById('app')).render(<StorefrontShippingConnection/>);`,loader:'tsx',resolveDir:process.cwd()},alias:{'@':path.resolve('src')},bundle:true,write:false,platform:'browser',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"'}});
+const source=await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {StorefrontShippingConnection} from '@/app/(app)/(pages)/configuracoes/geral/components/storefront-shipping-connection';createRoot(document.getElementById('app')).render(<StorefrontShippingConnection/>);`,loader:'tsx',resolveDir:process.cwd()},alias:{'@':path.resolve('src')},bundle:true,write:false,platform:'browser',jsx:'automatic',define:{'process.env.NODE_ENV':'"production"'}});
 const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
 try{
  for(const ready of [false,true]){
