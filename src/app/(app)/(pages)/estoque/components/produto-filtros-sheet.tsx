@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import type { CanalAnuncio, ProductListFilters } from "../types";
 import { useGruposProduto } from "./dialog-produto/hooks/use-grupo-produtos";
 import { useUnidadesMedida } from "./dialog-produto/hooks/use-unidades-medida";
@@ -261,13 +261,14 @@ export function ProdutoFiltrosSheet({ filters, onApply }: ProdutoFiltrosSheetPro
                   <Input type="number" min="0" step="0.01" value={draft.precoMax} onChange={(e) => update("precoMax", e.target.value)} placeholder="Máximo" />
                 </div>
               </div>
-
-              <div className="flex justify-end gap-2 border-t pt-4">
-                <Button type="button" variant="outline" onClick={clear}>Limpar</Button>
-                <Button type="button" onClick={() => { onApply(draft); setOpen(false); }}>Aplicar filtros</Button>
-              </div>
             </div>
           </div>
+
+          {/* Fora da área com rolagem: aplicar fica à mão em qualquer altura da lista. */}
+          <SheetFooter className="flex-row justify-end border-t">
+            <Button type="button" variant="outline" onClick={clear}>Limpar</Button>
+            <Button type="button" onClick={() => { onApply(draft); setOpen(false); }}>Aplicar filtros</Button>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
     </div>
