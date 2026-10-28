@@ -16,6 +16,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -482,11 +483,11 @@ export function NfeEntrySupplierEditor({
         </Field>
         <Field label="UF" required error={fieldErrors.estado}>
           {exterior ? (
-            <Input
+            <UppercaseInput
               value={value.estado}
               maxLength={2}
               placeholder="EX"
-              onChange={(event) => update("estado", event.target.value.toUpperCase())}
+              onValueChange={(estado) => update("estado", estado)}
             />
           ) : (
             <Select value={value.estado} onValueChange={changeState}>

@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -145,7 +146,7 @@ export function AdjustmentPanel({
           <div className="space-y-1.5"><Label>Natureza</Label><Select value={nature} onValueChange={setNature} disabled={formDisabled}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{natureOptions.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></div>
           <div className="space-y-1.5"><Label htmlFor="sped-adjustment-code">Código fiscal</Label><Input id="sped-adjustment-code" value={code} onChange={(event) => setCode(event.target.value)} disabled={formDisabled} /></div>
           <div className="space-y-1.5"><Label htmlFor="sped-adjustment-value">Valor</Label><Input id="sped-adjustment-value" value={value} onChange={(event) => setValue(event.target.value)} disabled={formDisabled} inputMode="decimal" placeholder="0,00" /></div>
-          {requiresUf ? <div className="space-y-1.5"><Label htmlFor="sped-adjustment-uf">UF</Label><Input id="sped-adjustment-uf" value={uf} onChange={(event) => setUf(event.target.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2))} disabled={formDisabled} maxLength={2} /></div> : null}
+          {requiresUf ? <div className="space-y-1.5"><Label htmlFor="sped-adjustment-uf">UF</Label><UppercaseInput id="sped-adjustment-uf" value={uf} format={(valor) => valor.replace(/[^A-Z]/g, "").slice(0, 2)} onValueChange={setUf} disabled={formDisabled} maxLength={2} /></div> : null}
           {requiresTax ? <div className="space-y-1.5"><Label>Tributo</Label><Select value={tax} onValueChange={setTax} disabled={formDisabled}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="DIFAL">DIFAL</SelectItem><SelectItem value="FCP">FCP</SelectItem></SelectContent></Select></div> : null}
           {requiresDueDate ? <div className="space-y-1.5"><Label htmlFor="sped-adjustment-due">Vencimento</Label><Input id="sped-adjustment-due" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} disabled={formDisabled} /></div> : null}
           <div className="space-y-1.5 md:col-span-2"><Label htmlFor="sped-adjustment-description">Descrição</Label><Input id="sped-adjustment-description" value={description} onChange={(event) => setDescription(event.target.value)} disabled={formDisabled} /></div>

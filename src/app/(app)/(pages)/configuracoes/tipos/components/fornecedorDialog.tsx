@@ -11,6 +11,7 @@ import { Loader2, Search } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
 import {
@@ -384,9 +385,10 @@ export default function FornecedorDialog({
 
               <div className="space-y-1.5">
                 <Label>Inscrição estadual (opcional)</Label>
-                <Input
-                  value={form.inscricaoestadual || ""}
-                  onChange={(event) => handleChange("inscricaoestadual", event.target.value.trim().toUpperCase())}
+                <UppercaseInput
+                  value={form.inscricaoestadual}
+                  format={(valor) => valor.trim()}
+                  onValueChange={(ie) => handleChange("inscricaoestadual", ie)}
                 />
               </div>
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Camera, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import { CameraScannerDialog } from "./camera-scanner-dialog";
 
@@ -50,13 +51,23 @@ export function QrCodeInput({
       <Label htmlFor={id}>{label}</Label>
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <Input
-            id={id}
-            value={value ?? ""}
-            placeholder={placeholder}
-            className={loading ? "pr-10" : undefined}
-            onChange={(event) => onChange(uppercase ? event.target.value.toUpperCase() : event.target.value)}
-          />
+          {uppercase ? (
+            <UppercaseInput
+              id={id}
+              value={value}
+              placeholder={placeholder}
+              className={loading ? "pr-10" : undefined}
+              onValueChange={onChange}
+            />
+          ) : (
+            <Input
+              id={id}
+              value={value ?? ""}
+              placeholder={placeholder}
+              className={loading ? "pr-10" : undefined}
+              onChange={(event) => onChange(event.target.value)}
+            />
+          )}
           {loading ? (
             <Loader2
               aria-label={loadingLabel ?? "Carregando"}

@@ -15,6 +15,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -422,15 +423,13 @@ export default function LoteFormFields({ lote, setLote, isOpen }: LoteFormFields
             Placa
           </Label>
           <div className="relative">
-            <Input
+            <UppercaseInput
               id="placa"
-              className="w-full pr-9 uppercase"
+              className="w-full pr-9"
               value={formatarPlacaParaExibicao(lote.placa)}
-              onChange={(event) =>
-                handleInputChange(
-                  "placa",
-                  somenteAlphaNumMaiusculo(event.target.value).slice(0, 7),
-                )
+              format={formatarPlacaParaExibicao}
+              onValueChange={(valor) =>
+                handleInputChange("placa", somenteAlphaNumMaiusculo(valor))
               }
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -460,11 +459,11 @@ export default function LoteFormFields({ lote, setLote, isOpen }: LoteFormFields
           <Label htmlFor="chassi" className="text-sm">
             Chassi
           </Label>
-          <Input
+          <UppercaseInput
             id="chassi"
             className="w-full"
-            value={lote.chassi ?? ""}
-            onChange={(event) => handleInputChange("chassi", event.target.value.toUpperCase())}
+            value={lote.chassi}
+            onValueChange={(chassi) => handleInputChange("chassi", chassi)}
             placeholder="Ex.: 9BW..."
           />
         </div>
@@ -476,13 +475,13 @@ export default function LoteFormFields({ lote, setLote, isOpen }: LoteFormFields
             Marca
           </Label>
           {isOffline ? (
-            <Input
+            <UppercaseInput
               id="marca"
-              value={lote.marca ?? ""}
-              onChange={(event) => {
+              value={lote.marca}
+              onValueChange={(marca) => {
                 setLote({
                   ...lote,
-                  marca: event.target.value.toUpperCase(),
+                  marca,
                   modelo: "",
                   versao: "",
                   ano_modelo: undefined,
@@ -624,13 +623,13 @@ export default function LoteFormFields({ lote, setLote, isOpen }: LoteFormFields
             Versão
           </Label>
           {isOffline ? (
-            <Input
+            <UppercaseInput
               id="versao"
-              value={lote.versao ?? ""}
-              onChange={(event) => {
+              value={lote.versao}
+              onValueChange={(versao) => {
                 setLote({
                   ...lote,
-                  versao: event.target.value.toUpperCase(),
+                  versao,
                   ano_modelo: undefined,
                   combustivel: "",
                   fipe: undefined,
@@ -778,11 +777,11 @@ export default function LoteFormFields({ lote, setLote, isOpen }: LoteFormFields
           <Label htmlFor="cor" className="text-sm">
             Cor
           </Label>
-          <Input
+          <UppercaseInput
             className="w-full"
             id="cor"
-            value={lote.cor ?? ""}
-            onChange={(event) => handleInputChange("cor", event.target.value.toUpperCase())}
+            value={lote.cor}
+            onValueChange={(cor) => handleInputChange("cor", cor)}
             placeholder="Ex.: PRATA"
           />
         </div>

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Drawer } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -311,7 +312,7 @@ function ItemDialogContent({ item, grupos, onOpenChange, onSaved, onGroupsChange
                 <div className="space-y-4 rounded-lg border bg-card p-4">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2"><Label htmlFor="usoconsumo-titulo">Título *</Label><span className={`text-xs ${titleLength >= 100 ? "text-destructive" : "text-muted-foreground"}`}>{titleLength}/100</span></div>
-                    <Input id="usoconsumo-titulo" value={String(form.titulo)} onChange={(event) => field("titulo", event.target.value.toLocaleUpperCase("pt-BR"))} placeholder={item ? "Nome do item" : "Título interno"} maxLength={100} />
+                    <UppercaseInput id="usoconsumo-titulo" value={String(form.titulo)} onValueChange={(titulo) => field("titulo", titulo)} placeholder={item ? "Nome do item" : "Título interno"} maxLength={100} />
                   </div>
 
                   <div className="space-y-2">
