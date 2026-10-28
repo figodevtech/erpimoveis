@@ -126,8 +126,8 @@ export function NFeTab({
           {!nfceConfigurada ? (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
               <ShieldAlert className="mt-0.5 h-4 w-4 text-amber-600" />
-              Esta empresa ainda não tem configuração de NFC-e. Rode a migration fiscal antes de
-              preencher os campos abaixo.
+              Esta empresa ainda não tem configuração de NFC-e. Informe a série e salve: a
+              configuração do modelo 65 é criada com numeração própria, começando do 1.
             </div>
           ) : null}
 

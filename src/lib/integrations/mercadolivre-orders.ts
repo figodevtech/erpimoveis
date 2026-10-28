@@ -11,8 +11,10 @@ import {
   type MercadoLivreOrderItem,
 } from "@/lib/integrations/mercadolivre";
 import { normalizeShipment, reconcileShipmentState, type MercadoLivreShipment } from "@/lib/integrations/mercadolivre-shipping";
+import { readShipmentReceiverAddress } from "@/lib/integrations/mercadolivre-shipment-format";
 import { shouldWaitForMercadoLivreReturnInspection } from "@/lib/integrations/mercadolivre-return-policy";
 import { isValidCnpj, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
+import { codigoMunicipioIbgePorNome } from "@/lib/ibge/municipio";
 
 type MercadoLivreAccount = {
   id: number;
@@ -361,7 +363,7 @@ async function getOrCreateMarketplaceCustomer(accessToken: string, order: Mercad
   const existing = await findCustomerByDocument(document.cpfcnpj);
   if (existing) return existing;
 
-  const receiverAddress = shipment?.receiver_address && typeof shipment.receiver_address === "object" ? (shipment.receiver_address as any) : null;
+  const receiverAddress = readShipmentReceiverAddress(shipment) as any;
   const billingAddress = billing?.address;
   const address = billingAddress
     ? {
@@ -381,6 +383,7 @@ async function getOrCreateMarketplaceCustomer(accessToken: string, order: Mercad
         cep: receiverAddress?.zip_code || null,
       };
   const billingName = [billing?.name, billing?.last_name].map((value) => String(value ?? "").trim()).filter(Boolean).join(" ");
+  const estado = String(address.estado || "NI").replace(/^BR-/, "");
 
   const { data, error } = await supabaseAdmin
     .from("cliente")
@@ -389,7 +392,9 @@ async function getOrCreateMarketplaceCustomer(accessToken: string, order: Mercad
       nomerazaosocial: billingName || formatBuyerName(order),
       ...address,
       cidade: address.cidade || "Nao informado",
-      estado: String(address.estado || "NI").replace(/^BR-/, ""),
+      estado,
+      // O ML não manda o código IBGE; sem ele a emissão da NF-e barra o cadastro.
+      codigomunicipio: codigoMunicipioIbgePorNome(address.cidade, estado),
       status: "ATIVO",
     })
     .select("id")
@@ -508,7 +513,8 @@ async function updateVendaShipment(vendaId: number, shipment: ReturnType<typeof 
   };
 
   if (shipment.statusEntrega) patch.status_entrega = shipment.statusEntrega;
-  if (shipment.receiverAddress) patch.endereco_entrega_snapshot = shipment.receiverAddress;
+  // O endereço do ML não vai para `endereco_entrega_snapshot`: ver
+  // `persistShipment` em mercadolivre-shipping.
 
   const { error } = await supabaseAdmin.from("venda").update(patch).eq("id", vendaId);
   if (error) throw error;

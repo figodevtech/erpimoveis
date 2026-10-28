@@ -8,6 +8,8 @@ import type { CfopCandidate } from "@/lib/nfe/cfopOperation";
 import { resolverPadraoFiscalItem } from "@/lib/nfe/padraoFiscalItem";
 import { buscarContextoPadraoFiscal } from "@/services/fiscal/nfeConfigService";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
+import { codigoMunicipioIbgePorNome } from "@/lib/ibge/municipio";
+import { intermediadorDaVendaMercadoLivre, vendaDoMercadoLivre } from "@/lib/integrations/mercadolivre-intermediador";
 
 export const runtime = "nodejs";
 
@@ -313,8 +315,12 @@ export async function GET(
           cidade: String(enderecoPedido?.cidade || cliente.cidade || ""),
           estado: String(enderecoPedido?.estado || cliente.estado || ""),
           cep: String(enderecoPedido?.cep || cliente.cep || ""),
+          // Mesmo critério do rascunho no servidor: cliente sem código (comprador
+          // importado do Mercado Livre, por exemplo) usa o da própria cidade.
+          codigomunicipio: cliente.codigomunicipio || codigoMunicipioIbgePorNome(cliente.cidade, cliente.estado),
         }
       : null;
+    const intermediador = vendaDoMercadoLivre(venda.canal) ? await intermediadorDaVendaMercadoLivre(vendaId) : null;
 
     return NextResponse.json({
       ok: true,
@@ -326,6 +332,8 @@ export async function GET(
         // consome a mercadoria. A tela cobra a escolha.
         destinoMercadoria: null,
         indicadorPresenca: mapSalesChannelToPresence(venda.canal),
+        // Só para exibição: o servidor resolve de novo ao gravar o rascunho.
+        intermediador,
         // O frete cobrado na venda entra na nota (vFrete) e continua editável na
         // tela. Com frete, "sem ocorrência de transporte" (9) não descreve mais
         // a operação, então a modalidade já sugere frete por conta do emitente.

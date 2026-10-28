@@ -56,10 +56,13 @@ type BancoResumo = {
   tipo: string;
   proprietario: string | null;
   ativo: boolean;
+  /** Saldo na abertura do período; sem data inicial, é o saldo inicial da conta. */
+  saldoAnterior: number;
   entradas: number;
   saidas: number;
   pendenteEntrada: number;
   pendenteSaida: number;
+  /** saldoAnterior + entradas − saídas: o saldo no fim do período. */
   saldoAtual: number;
   totalTransacoes: number;
   ultimaMovimentacao: string | null;
@@ -67,6 +70,7 @@ type BancoResumo = {
 
 type TotaisResumo = {
   valorinicial: number;
+  saldoAnterior: number;
   entradas: number;
   saidas: number;
   pendenteEntrada: number;
@@ -76,6 +80,7 @@ type TotaisResumo = {
 
 const totaisVazios: TotaisResumo = {
   valorinicial: 0,
+  saldoAnterior: 0,
   entradas: 0,
   saidas: 0,
   pendenteEntrada: 0,
@@ -261,6 +266,8 @@ export default function BancosFinanceiroPage() {
           ? `Até ${formatarDataCompleta(dataFim)}`
           : "Todo o período";
 
+  const tituloSaldo = dataFim ? `Saldo em ${formatarDataCompleta(dataFim)}` : "Saldo em bancos";
+
   const transacoesSelecionadas = transacoesPageData.items;
   const transacaoTotal = transacoesPageData.total;
   const transacaoTotalPages = transacoesPageData.totalPages;
@@ -273,7 +280,7 @@ export default function BancosFinanceiroPage() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <ResumoCard titulo="Saldo em bancos" valor={totals.saldoAtual} Icone={Wallet} detalhe="Saldo inicial + movimentos" />
+        <ResumoCard titulo={tituloSaldo} valor={totals.saldoAtual} Icone={Wallet} detalhe="Saldo inicial + movimentos" />
         <ResumoCard titulo="Entradas concluídas" valor={totals.entradas} Icone={ArrowUp} detalhe="Receitas e depósitos" />
         <ResumoCard titulo="Saídas concluídas" valor={totals.saidas} Icone={ArrowDown} detalhe="Despesas e saques" />
         <ResumoCard

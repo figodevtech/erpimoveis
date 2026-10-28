@@ -73,6 +73,7 @@ import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
 import { useConfig } from "../../../config-context";
 import { quantidadeFiltros, type VendasListFilters } from "@/lib/vendas/filtros";
+import { FASES_VENDA, type FaseVenda } from "@/lib/vendas/fase";
 import { VendasFiltros } from "./vendas-filtros";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import {
@@ -97,11 +98,12 @@ interface VendasDataTableProps {
     pageNumber?: number,
     limit?: number,
     searchText?: string,
-    status?: vendaStatus | "TODOS",
+    fase?: FaseVenda,
     filters?: VendasListFilters,
   ) => Promise<void>;
   fetchStatusCounts: () => Promise<void>;
-  status: vendaStatus | "TODOS";
+  fase: FaseVenda;
+  setFase: (value: FaseVenda) => void;
 
   // âœ… para ediÃ§Ã£o via duplo clique (controlado no pai)
   selectedVendaId?: number | undefined;
@@ -226,7 +228,7 @@ const getCanalBadge = (canal: VendaCanal | string | null | undefined) => {
   if (c === "ONLINE") {
     return (
       <Badge variant="secondary" className="text-xs bg-sky-600 not-dark:text-white">
-        MARKETPLACE
+        SITE
       </Badge>
     );
   }
@@ -293,7 +295,8 @@ export default function VendasDataTable({
   setFilters,
   handleGetVendas,
   fetchStatusCounts,
-  status,
+  fase,
+  setFase,
 }: VendasDataTableProps) {
   const { data: session } = useSession();
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -339,7 +342,7 @@ export default function VendasDataTable({
   const toggleApenasMinhas = () => {
     const next = { ...filters, apenasMinhas: !filters.apenasMinhas };
     setFilters(next);
-    handleGetVendas(1, pagination.limit, search, status, next);
+    handleGetVendas(1, pagination.limit, search, fase, next);
   };
 
   const handleDeleteVenda = async (id: number) => {
@@ -357,7 +360,7 @@ export default function VendasDataTable({
 
         setIsAlertOpen(false);
         await Promise.all([
-          handleGetVendas(pageAfterDelete, pagination.limit, search, status, filters),
+          handleGetVendas(pageAfterDelete, pagination.limit, search, fase, filters),
           fetchStatusCounts(),
         ]);
         toast.success("Venda deletada");
@@ -436,7 +439,7 @@ export default function VendasDataTable({
         setApproveDialogOpen(false);
         setApproveVendaId(null);
         setApprovalFinancial(dadosParaFinanceiroVazios());
-        handleGetVendas(pagination.page, pagination.limit, search, status, filters);
+        handleGetVendas(pagination.page, pagination.limit, search, fase, filters);
         fetchStatusCounts();
       }
     } catch (error) {
@@ -459,7 +462,7 @@ export default function VendasDataTable({
       await axios.patch(`/api/venda/${vendaId}`, { status: "PAGAMENTO" });
       toast.success("Venda encaminhada para pagamento.");
       await Promise.all([
-        handleGetVendas(pagination.page, pagination.limit, search, status, filters),
+        handleGetVendas(pagination.page, pagination.limit, search, fase, filters),
         fetchStatusCounts(),
       ]);
     } catch (error) {
@@ -485,7 +488,7 @@ export default function VendasDataTable({
       setOrcamentoDialogOpen(false);
       setOrcamentoVendaId(null);
       await Promise.all([
-        handleGetVendas(pagination.page, pagination.limit, search, status, filters),
+        handleGetVendas(pagination.page, pagination.limit, search, fase, filters),
         fetchStatusCounts(),
       ]);
     } catch (error) {
@@ -531,7 +534,7 @@ export default function VendasDataTable({
       setCancelDialogOpen(false);
       setCancelVendaId(null);
       await Promise.all([
-        handleGetVendas(pagination.page, pagination.limit, search, status, filters),
+        handleGetVendas(pagination.page, pagination.limit, search, fase, filters),
         fetchStatusCounts(),
       ]);
     } catch (error) {
@@ -555,7 +558,7 @@ export default function VendasDataTable({
 
       const created = Number(response.data?.created ?? 0);
       toast.success(created > 0 ? `${created} venda(s) importada(s) do Mercado Livre.` : "Nenhuma venda nova no Mercado Livre.");
-      handleGetVendas(1, pagination.limit, search, status, filters);
+      handleGetVendas(1, pagination.limit, search, fase, filters);
       fetchStatusCounts();
     } catch (error) {
       if (isAxiosError(error)) {
@@ -572,13 +575,13 @@ export default function VendasDataTable({
   return (
     <Card>
       <CardHeader className="border-b-2 pb-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="order-1 min-w-0">
             <CardTitle>Lista de Vendas</CardTitle>
             <CardDescription>
               <button
                 onClick={() => {
-                  handleGetVendas(pagination.page, pagination.limit, search, status, filters);
+                  handleGetVendas(pagination.page, pagination.limit, search, fase, filters);
                   fetchStatusCounts();
                 }}
                 className="inline-flex items-center gap-1 text-foreground/50 hover:text-foreground/70 hover:cursor-pointer"
@@ -589,7 +592,28 @@ export default function VendasDataTable({
             </CardDescription>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          {/* As abas de /pagamentodeordens. Ganham linha própria abaixo de 2xl:
+              centralizadas por cima, como lá, cobririam a busca. */}
+          <div className="order-3 flex w-full items-center justify-center 2xl:order-2 2xl:w-auto 2xl:flex-1">
+            <div className="inline-flex h-auto items-center justify-center gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
+              {FASES_VENDA.map(([chave, rotulo]) => (
+                <button
+                  key={chave}
+                  type="button"
+                  aria-pressed={fase === chave}
+                  onClick={() => setFase(chave)}
+                  className={`inline-flex h-8 items-center justify-center whitespace-nowrap rounded-xl border border-transparent px-3 text-xs font-medium text-muted-foreground transition-all hover:cursor-pointer hover:text-foreground ${fase === chave
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "hover:bg-background/50 hover:text-foreground"
+                    }`}
+                >
+                  {rotulo}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="order-2 flex flex-wrap items-center justify-end gap-2 2xl:order-3">
             <div className="relative w-full sm:w-96">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -639,7 +663,7 @@ export default function VendasDataTable({
                 onClick={() => {
                   const cleared = { cliente: "", notaNumero: "" };
                   setFilters(cleared);
-                  handleGetVendas(1, pagination.limit, search, status, cleared);
+                  handleGetVendas(1, pagination.limit, search, fase, cleared);
                 }}
               >
                 Limpar filtros
@@ -647,7 +671,7 @@ export default function VendasDataTable({
             )}
             <VendasFiltros filters={filters} onApply={(next) => {
               setFilters(next);
-              void handleGetVendas(1, pagination.limit, search, status, next);
+              void handleGetVendas(1, pagination.limit, search, fase, next);
             }} />
           </div>
         </div>
@@ -703,6 +727,14 @@ export default function VendasDataTable({
                   </TableCell>
                   <TableCell className="text-center">
                     {getEntregaBadge(p.canal, p.status_entrega)}
+                    {p.pendencias_finalizacao?.includes("NOTA") && (
+                      <span
+                        className="mt-1 block text-[10px] font-semibold uppercase tracking-[0.06em] text-amber-600 dark:text-amber-400"
+                        title="Pedido de marketplace pago: finaliza quando tiver NF-e autorizada e for entregue."
+                      >
+                        Falta NF-e
+                      </span>
+                    )}
                   </TableCell>
 
                   <TableCell>
@@ -836,6 +868,13 @@ export default function VendasDataTable({
                 </TableRow>
               );
             })}
+            {vendas.length === 0 && (
+              <TableRow>
+                <TableCell className="h-20 text-center text-muted-foreground" colSpan={99}>
+                  {fase === "FINALIZADAS" ? "Nenhuma venda finalizada" : "Nenhuma venda aberta"}
+                </TableCell>
+              </TableRow>
+            )}
           </TableBody>
         </Table>
 
@@ -852,7 +891,7 @@ export default function VendasDataTable({
               variant="outline"
               size="sm"
               className="hover:cursor-pointer"
-              onClick={() => handleGetVendas(1, pagination.limit, search, status, filters)}
+              onClick={() => handleGetVendas(1, pagination.limit, search, fase, filters)}
               disabled={pagination.page === 1}
             >
               <ChevronsLeft className="h-4 w-4" />
@@ -861,7 +900,7 @@ export default function VendasDataTable({
               variant="outline"
               size="sm"
               className="hover:cursor-pointer"
-              onClick={() => handleGetVendas(pagination.page - 1, pagination.limit, search, status, filters)}
+              onClick={() => handleGetVendas(pagination.page - 1, pagination.limit, search, fase, filters)}
               disabled={pagination.page === 1}
             >
               <ChevronLeftIcon className="h-4 w-4" />
@@ -873,7 +912,7 @@ export default function VendasDataTable({
               className="hover:cursor-pointer"
               variant="outline"
               size="sm"
-              onClick={() => handleGetVendas(pagination.page + 1, pagination.limit, search, status, filters)}
+              onClick={() => handleGetVendas(pagination.page + 1, pagination.limit, search, fase, filters)}
               disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
             >
               <ChevronRightIcon className="h-4 w-4" />
@@ -882,7 +921,7 @@ export default function VendasDataTable({
               className="hover:cursor-pointer"
               variant="outline"
               size="sm"
-              onClick={() => handleGetVendas(pagination.totalPages, pagination.limit, search, status, filters)}
+              onClick={() => handleGetVendas(pagination.totalPages, pagination.limit, search, fase, filters)}
               disabled={pagination.page === pagination.totalPages || pagination.totalPages === 0}
             >
               <ChevronsRight className="h-4 w-4" />
@@ -913,7 +952,7 @@ export default function VendasDataTable({
         onOpenChange={setOpenDetails}
         open={openDetails}
         onSaved={() => {
-          handleGetVendas(pagination.page, pagination.limit, search, status, filters);
+          handleGetVendas(pagination.page, pagination.limit, search, fase, filters);
           fetchStatusCounts();
         }}
       />
@@ -924,7 +963,7 @@ export default function VendasDataTable({
         open={openOnline}
         onOpenChange={setOpenOnline}
         onSaved={() => {
-          handleGetVendas(pagination.page, pagination.limit, search, status);
+          handleGetVendas(pagination.page, pagination.limit, search, fase);
           fetchStatusCounts();
         }}
       />
@@ -940,7 +979,7 @@ export default function VendasDataTable({
         clienteNome={linkVenda?.cliente?.nomerazaosocial}
         clienteTelefone={linkVenda?.cliente?.telefone}
         onGenerated={() => {
-          void handleGetVendas(pagination.page, pagination.limit, search, status, filters);
+          void handleGetVendas(pagination.page, pagination.limit, search, fase, filters);
         }}
       />
       </MountOnDemand>

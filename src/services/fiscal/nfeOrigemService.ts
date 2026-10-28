@@ -19,6 +19,9 @@ import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/m
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 import { permissaoDeEmissao, type PermissaoDeEmissao } from "@/lib/nfe/permissaoDeEmissao";
 import type { ClienteRow, ModeloDocumentoFiscal } from "@/lib/nfe/types";
+import type { NFeIntermediador } from "@/lib/nfe/intermediador";
+import { codigoMunicipioIbgePorNome } from "@/lib/ibge/municipio";
+import { intermediadorDaVendaMercadoLivre, vendaDoMercadoLivre } from "@/lib/integrations/mercadolivre-intermediador";
 import type { DestinoMercadoria } from "@/lib/nfe/destinoMercadoria";
 import {
   salvarNFeAvulsaDraft,
@@ -215,6 +218,8 @@ type LoadedSource = {
    */
   consumidorFinal: boolean | null;
   indicadorPresenca: string;
+  /** Marketplace que trouxe a venda. Só a venda do Mercado Livre tem. */
+  intermediador?: NFeIntermediador | null;
   transporte: NFeAvulsaDraftInput["transporte"];
   itens: SourceItem[];
 };
@@ -275,7 +280,9 @@ function clienteToDraft(cliente: ClienteRow): NFeAvulsaDraftInput["destinatario"
     cidade: cliente.cidade,
     estado: cliente.estado,
     cep: cliente.cep,
-    codigoMunicipio: cliente.codigomunicipio,
+    // Cadastro sem código (comprador importado de marketplace) usa o da cidade
+    // e UF gravadas; nome que não bate exatamente continua sem código.
+    codigoMunicipio: cliente.codigomunicipio || codigoMunicipioIbgePorNome(cliente.cidade, cliente.estado),
     codigoPais: "1058",
     nomePais: "BRASIL",
   };
@@ -495,6 +502,7 @@ async function loadVenda(vendaId: number): Promise<LoadedSource> {
     clienteDoSistema: Boolean(cliente.codigo_sistema),
     consumidorFinal: null,
     indicadorPresenca: mapSalesChannelToPresence(venda.canal),
+    intermediador: vendaDoMercadoLivre(venda.canal) ? await intermediadorDaVendaMercadoLivre(vendaId) : null,
     transporte: { modFrete: freight > 0 ? "0" : "9" },
     itens: rows.map((row: any, index: number) => {
       const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
@@ -677,6 +685,23 @@ async function loadSourceGrupo(
       "As origens selecionadas têm indicadores de presença diferentes. " +
         'A nota saiu com "9 — Outros"; confira antes de transmitir.',
     );
+  }
+
+  // A nota tem um único <infIntermed>: venda do Mercado Livre não se junta a
+  // venda de balcão nem a pedido de outra conta.
+  const intermediadores = [
+    ...new Set(fontes.map((fonte) => (fonte.intermediador ? `${fonte.intermediador.cnpj}|${fonte.intermediador.idCadIntTran}` : ""))),
+  ];
+  if (intermediadores.length > 1) {
+    return {
+      ok: false,
+      errors: [{
+        step: "operation",
+        message:
+          "Vendas do Mercado Livre não podem ser agrupadas com vendas de outros canais na mesma NF-e. " +
+          "Emita uma nota para cada canal.",
+      }],
+    };
   }
 
   const itens = fontes.flatMap((fonte) => fonte.itens);
@@ -1133,6 +1158,9 @@ export async function salvarNFeDeOrigem(
       // de venda/OS o indicador sai do destino (`resolverIndFinalDaOperacao`).
       consumidorFinal: isNfce ? true : consumidorFinal,
       indicadorPresenca,
+      // Fato da origem, não escolha da tela. Se o operador trocar a presença
+      // para presencial, o montador da nota deixa o grupo de fora.
+      intermediador: source.intermediador ?? null,
       observacoesFiscais,
     },
     pagamento: {

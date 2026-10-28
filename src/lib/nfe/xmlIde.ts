@@ -34,6 +34,7 @@ export function buildIdeXml(
   p.push(`<finNFe>${ide.finNFe}</finNFe>`);
   p.push(`<indFinal>${ide.indFinal}</indFinal>`);
   p.push(`<indPres>${ide.indPres}</indPres>`);
+  if (ide.indIntermed !== undefined) p.push(`<indIntermed>${ide.indIntermed}</indIntermed>`);
   p.push(`<procEmi>${ide.procEmi}</procEmi>`);
   p.push(`<verProc>${escapeXml(ide.verProc)}</verProc>`);
   // No XSD 4.00, NFref é o último grupo do <ide>: vem depois de verProc e,

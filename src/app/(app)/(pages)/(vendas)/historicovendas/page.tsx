@@ -5,11 +5,11 @@ import axios from "axios";
 import {
   Pagination,
   VendaResumo,
-  vendaStatus,
   VendaStatusMetricsData,
 } from "./types";
 import VendasDataTable from "./components/vendas-data-table";
 import { dataDoFiltro, type VendasListFilters } from "@/lib/vendas/filtros";
+import type { FaseVenda } from "@/lib/vendas/fase";
 import { toast } from "@/lib/toast";
 
 function formatMonthFromDate(date: Date): string {
@@ -19,7 +19,7 @@ function formatMonthFromDate(date: Date): string {
 }
 export default function HistoricoVendas() {
   const [loadingStatusCounter, setLoadingStatusCounter] = useState(false);
-  const [status] = useState<vendaStatus | "TODOS">("TODOS");
+  const [fase, setFase] = useState<FaseVenda>("ABERTAS");
 
   const totalVendas = 0;
   const [data, setData] = useState<VendaStatusMetricsData | null>(null);
@@ -49,7 +49,7 @@ export default function HistoricoVendas() {
     pageNumber?: number,
     limit?: number,
     searchText?: string,
-    _statusValue?: vendaStatus | "TODOS",
+    faseValue?: FaseVenda,
     listFilters?: VendasListFilters,
   ) => {
     requisicao.current?.abort();
@@ -65,6 +65,7 @@ export default function HistoricoVendas() {
           page: pageNumber || 1,
           limit: limit || pagination.limit,
           search: searchText || undefined,
+          fase: faseValue,
           status: activeFilters.status || "TODOS",
           statusEntrega: activeFilters.statusEntrega || "",
           cliente: activeFilters.cliente || "",
@@ -118,11 +119,11 @@ export default function HistoricoVendas() {
     const atraso = buscaAnterior.current === search ? 0 : 350;
     buscaAnterior.current = search;
     const timeout = window.setTimeout(() => {
-      handleGetVendas(1, pagination.limit, search, status);
+      handleGetVendas(1, pagination.limit, search, fase);
     }, atraso);
 
     return () => { window.clearTimeout(timeout); requisicao.current?.abort(); };
-  }, [search, status, pagination.limit, handleGetVendas]);
+  }, [search, fase, pagination.limit, handleGetVendas]);
   useEffect(() => {
     const timer = window.setTimeout(() => void fetchMetrics(), 0);
     return () => window.clearTimeout(timer);
@@ -148,7 +149,8 @@ export default function HistoricoVendas() {
         setSearch={setSearch}
         selectedVendaId={selectedVendaId}
         setSelectedVendaId={setSelectedVendaId}
-        status={status}
+        fase={fase}
+        setFase={setFase}
         vendas={vendas}
       />
     </div>

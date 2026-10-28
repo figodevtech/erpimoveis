@@ -136,6 +136,24 @@ export async function GET() {
       }
     }
 
+    // A NF-e mais recente de cada venda: a tela só sugere anexar ao pedido
+    // quando já existe nota autorizada, e mostra a rejeição quando é o caso.
+    const vendaIds = [...new Set((orders ?? []).map((order: any) => Number(order.venda_id)).filter((id) => id > 0))];
+    const notaPorVenda = new Map<number, unknown>();
+    if (vendaIds.length) {
+      const { data: notas, error: notasError } = await supabaseAdmin
+        .from("nfe")
+        .select("id, vendaid, numero, serie, status, ambiente, codigo_rejeicao, motivo_rejeicao, createdat")
+        .in("vendaid", vendaIds)
+        .eq("modelo", "NFE")
+        .eq("is_deleted", false)
+        .order("createdat", { ascending: false });
+      if (notasError) throw notasError;
+      for (const nota of notas ?? []) {
+        if (!notaPorVenda.has(Number(nota.vendaid))) notaPorVenda.set(Number(nota.vendaid), nota);
+      }
+    }
+
     const stockSync = buildStockSyncSummary(stockQueue ?? []);
     const diagnostics = buildDiagnostics({
       accounts: accounts ?? [],
@@ -153,7 +171,7 @@ export async function GET() {
       })),
       sellerProfile,
       shippingAddress,
-      orders: orders ?? [],
+      orders: (orders ?? []).map((order: any) => ({ ...order, venda_nfe: notaPorVenda.get(Number(order.venda_id)) ?? null })),
       notifications: notifications ?? [],
       syncRuns: syncRuns ?? [],
       priceSyncLogs: priceSyncLogs ?? [],

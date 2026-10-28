@@ -14,6 +14,7 @@ import { buscarModoBaixaEstoqueOS } from "@/lib/ordens/estoque-os";
 import { normalizarDadosParaFinanceiro } from "@/lib/financeiro/dados-para-financeiro";
 import type { PlannedPayment } from "@/lib/payment-methods";
 import { applyMarketplaceBuyerNames } from "@/lib/vendas/marketplace-buyer-names";
+import { faseValida, faturadaNaResposta, pendenciasParaFinalizar, planoFaseVendas } from "@/lib/vendas/fase";
 
 type Status =
   | "ORCAMENTO"
@@ -169,7 +170,7 @@ const VENDA_SELECT = `
 // o contrato completo. Nao remove joins auxiliares exigidos pelos filtros.
 const VENDA_LIST_SELECT = `
   id, clienteid, cliente:cliente (id, nomerazaosocial, telefone),
-  status, valortotal, datavenda, canal, status_entrega
+  status, valortotal, datavenda, canal, status_entrega, nfe_chave_acesso
 `;
 
 /* ========================= GET ========================= */
@@ -181,6 +182,7 @@ const VENDA_LIST_SELECT = `
  *      - limit ou pageSize (padrão 20, máx 100)
  *      - clienteId
  *      - status
+ *      - fase (ABERTAS | FINALIZADAS): aba do histórico, ver lib/vendas/fase
  */
 export async function GET(req: Request) {
   const timing = createApiTiming();
@@ -222,6 +224,7 @@ export async function GET(req: Request) {
     const statusFilter = STATUS_SET.has(statusParam as Status)
       ? (statusParam as Status)
       : null;
+    const fase = faseValida(searchParams.get("fase"));
     if (valorMin !== null && valorMax !== null && valorMin > valorMax) {
       return timing.json({ error: "O valor mínimo não pode superar o máximo." }, { status: 400 });
     }
@@ -305,6 +308,12 @@ export async function GET(req: Request) {
     const to = from + limit - 1;
 
     const plano = planoBuscaVendas(q, cliente, notaNumero);
+    if (fase) {
+      const planoFase = planoFaseVendas(fase);
+      plano.select.push(...planoFase.select);
+      plano.filtros.push(...planoFase.filtros);
+      plano.obrigatorias.push(planoFase.expressao);
+    }
     // O PostgREST devolve a consulta em Content-Location. Limita o tamanho
     // antes de exceder o limite de cabeçalhos HTTP do transporte.
     if (encodeURIComponent(JSON.stringify(plano)).length > 10000) {
@@ -378,6 +387,14 @@ export async function GET(req: Request) {
     const items = (data ?? []) as any[];
     // Relações auxiliares de busca não fazem parte da resposta da listagem.
     for (const item of items) {
+      if (fase) {
+        item.pendencias_finalizacao = pendenciasParaFinalizar({
+          status: item.status,
+          canal: item.canal,
+          statusEntrega: item.status_entrega,
+          faturada: faturadaNaResposta(item),
+        });
+      }
       for (const key of Object.keys(item)) {
         if (key.startsWith("busca_") || key.startsWith("filtro_")) delete item[key];
       }

@@ -1,9 +1,14 @@
 import { ensureMercadoLivreToken } from "@/lib/integrations/mercadolivre-token";
+import {
+  resolveMercadoLivreInvoiceChannel,
+  type MercadoLivreInvoiceChannel,
+} from "@/lib/integrations/mercadolivre-shipment-format";
 
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 const ML_API_BASE_URL = "https://api.mercadolibre.com";
-const SUPPORTED_LOGISTIC_TYPES = new Set(["drop_off", "xd_drop_off", "xd_same_day", "cross_docking"]);
+/** Limite do ML para o XML anexado ao pedido. */
+const FISCAL_DOCUMENT_MAX_BYTES = 1024 * 1024;
 
 type MercadoLivreAccount = {
   id: number;
@@ -19,6 +24,7 @@ type StoredOrder = {
   account_id: number | null;
   venda_id: number | null;
   ml_order_id: number;
+  ml_pack_id: number | null;
   ml_shipment_id: number | null;
   shipping_mode: string | null;
   logistic_type: string | null;
@@ -36,18 +42,22 @@ type StoredOrder = {
   invoice_sent_at: string | null;
   invoice_updated_at: string | null;
   raw_invoice: Record<string, unknown> | null;
+  raw_shipment: Record<string, unknown> | null;
 };
 
 export async function getMercadoLivreInvoiceState(orderId: number, empresaId: number, refreshRemote = false) {
   const order = await getOrder(orderId, empresaId);
   const nfe = await getLatestNfe(order);
   let remoteInvoice = order.raw_invoice ?? {};
+  const channel = resolveMercadoLivreInvoiceChannel(order);
 
-  if (refreshRemote && order.ml_shipment_id && isMercadoEnviosInvoiceEligible(order)) {
+  if (refreshRemote && (channel === "pack" || (channel === "shipment" && order.ml_shipment_id))) {
     try {
       const account = await getAccount(order);
       const accessToken = await ensureValidAccessToken(account);
-      remoteInvoice = await fetchInvoiceData(accessToken, order.ml_shipment_id, account.site_id);
+      remoteInvoice = channel === "pack"
+        ? await fetchPackFiscalDocuments(accessToken, packIdOf(order), order.raw_invoice)
+        : await fetchInvoiceData(accessToken, Number(order.ml_shipment_id), account.site_id);
       await persistInvoiceState(order.id, nfe, remoteInvoice, null, false);
     } catch (error: any) {
       if (!isInvoiceNotFound(error)) throw error;
@@ -60,14 +70,28 @@ export async function getMercadoLivreInvoiceState(orderId: number, empresaId: nu
 export async function sendMercadoLivreInvoice(orderId: number, empresaId: number) {
   const order = await getOrder(orderId, empresaId);
   const nfe = await getLatestNfe(order);
+  const channel = resolveMercadoLivreInvoiceChannel(order);
 
   try {
-    validateInvoiceUpload(order, nfe);
+    validateInvoiceUpload(order, nfe, channel);
     const account = await getAccount(order);
     const accessToken = await ensureValidAccessToken(account);
-    const shipmentId = Number(order.ml_shipment_id);
-    const uploadResult = await uploadInvoiceXml(accessToken, shipmentId, nfe.xml_autorizado, account.site_id);
-    const remoteInvoice = await fetchInvoiceData(accessToken, shipmentId, account.site_id).catch(() => uploadResult);
+    let remoteInvoice: Record<string, unknown>;
+    if (channel === "pack") {
+      const packId = packIdOf(order);
+      const upload = await uploadPackFiscalDocument(accessToken, packId, nfe);
+      const ids = Array.isArray(upload?.ids) ? upload.ids : [];
+      remoteInvoice = await fetchPackFiscalDocuments(accessToken, packId, { ids }).catch(() => ({
+        channel: "pack",
+        pack_id: packId,
+        ids,
+        fiscal_documents: [],
+      }));
+    } else {
+      const shipmentId = Number(order.ml_shipment_id);
+      const uploadResult = await uploadInvoiceXml(accessToken, shipmentId, nfe.xml_autorizado, account.site_id);
+      remoteInvoice = await fetchInvoiceData(accessToken, shipmentId, account.site_id).catch(() => uploadResult);
+    }
 
     await persistInvoiceState(order.id, nfe, remoteInvoice, null, true);
     return buildInvoiceState(
@@ -101,7 +125,6 @@ export async function syncRecentMercadoLivreInvoices(limit = 20) {
     .select("id, empresa_id")
     .not("account_id", "is", null)
     .not("invoice_sent_at", "is", null)
-    .not("ml_shipment_id", "is", null)
     .order("invoice_updated_at", { ascending: true, nullsFirst: true })
     .limit(Math.min(Math.max(limit, 1), 100));
   if (error) throw error;
@@ -121,7 +144,7 @@ export async function syncRecentMercadoLivreInvoices(limit = 20) {
 async function getOrder(orderId: number, empresaId: number) {
   const { data, error } = await supabaseAdmin
     .from("mercadolivre_order")
-    .select("id, empresa_id, account_id, venda_id, ml_order_id, status, payment_status, payment_status_detail, order_tags, ml_shipment_id, shipping_mode, logistic_type, shipment_status, shipment_substatus, nfe_id, ml_invoice_id, invoice_status, invoice_fiscal_key, invoice_error, invoice_sent_at, invoice_updated_at, raw_invoice")
+    .select("id, empresa_id, account_id, venda_id, ml_order_id, ml_pack_id, status, payment_status, payment_status_detail, order_tags, ml_shipment_id, shipping_mode, logistic_type, shipment_status, shipment_substatus, nfe_id, ml_invoice_id, invoice_status, invoice_fiscal_key, invoice_error, invoice_sent_at, invoice_updated_at, raw_invoice, raw_shipment")
     .eq("id", orderId)
     .eq("empresa_id", empresaId)
     .single();
@@ -165,11 +188,16 @@ async function ensureValidAccessToken(account: MercadoLivreAccount) {
   return ensureMercadoLivreToken(account);
 }
 
-function validateInvoiceUpload(order: StoredOrder, nfe: any) {
+function validateInvoiceUpload(order: StoredOrder, nfe: any, channel: MercadoLivreInvoiceChannel) {
   if (!order.venda_id) throw new Error("Este pedido ainda não está vinculado a uma venda do ERP.");
-  if (!order.ml_shipment_id) throw new Error("Este pedido não possui um envio do Mercado Livre vinculado.");
-  if (!isMercadoEnviosInvoiceEligible(order)) {
-    throw new Error("A NF-e só pode ser importada no shipment quando o pedido usa uma logística compatível do Mercado Envios.");
+  if (channel === "fulfillment") {
+    throw new Error("Em pedidos do Full a NF-e é emitida pelo próprio Mercado Livre; não há nota para anexar.");
+  }
+  if (channel === "unknown") {
+    throw new Error("A logística deste envio ainda não foi sincronizada. Sincronize o envio e tente de novo.");
+  }
+  if (channel === "shipment" && !order.ml_shipment_id) {
+    throw new Error("Este pedido não possui um envio do Mercado Livre vinculado.");
   }
   const payment = String(order.payment_status ?? "").toLowerCase();
   if (payment && !["paid", "approved", "accredited"].includes(payment)) {
@@ -180,7 +208,9 @@ function validateInvoiceUpload(order: StoredOrder, nfe: any) {
   if (orderState.some((value) => value.includes("cancel") || value.includes("refund") || value.includes("charged_back"))) {
     throw new Error("Este pedido foi cancelado ou reembolsado e não permite enviar NF-e ao shipment.");
   }
-  if (String(order.shipment_substatus ?? "").toLowerCase() !== "invoice_pending" && !order.invoice_sent_at) {
+  // Só a importação no envio depende do momento: o ML a aceita enquanto
+  // espera a nota para liberar a etiqueta. Anexar ao pedido vale a qualquer hora.
+  if (channel === "shipment" && String(order.shipment_substatus ?? "").toLowerCase() !== "invoice_pending" && !order.invoice_sent_at) {
     throw new Error("O envio não está aguardando NF-e. Sincronize o envio antes de tentar novamente.");
   }
   if (!nfe) throw new Error("Nenhuma NF-e foi encontrada para esta venda. Emita e autorize a nota antes de enviá-la ao Mercado Livre.");
@@ -191,10 +221,48 @@ function validateInvoiceUpload(order: StoredOrder, nfe: any) {
   if (!String(nfe.xml_autorizado ?? "").includes("<nfeProc")) {
     throw new Error("O XML autorizado da NF-e não contém o protocolo nfeProc exigido pelo Mercado Livre.");
   }
+  if (channel === "pack" && Buffer.byteLength(xmlComDeclaracao(nfe.xml_autorizado), "utf8") > FISCAL_DOCUMENT_MAX_BYTES) {
+    throw new Error("O XML da NF-e passa de 1 MB, o limite do Mercado Livre para anexar ao pedido.");
+  }
 }
 
-function isMercadoEnviosInvoiceEligible(order: StoredOrder) {
-  return String(order.shipping_mode ?? "").toLowerCase() === "me2" && SUPPORTED_LOGISTIC_TYPES.has(String(order.logistic_type ?? "").toLowerCase());
+/** Pedido sem carrinho não tem pack; o ML manda usar o próprio número do pedido. */
+function packIdOf(order: StoredOrder) {
+  const packId = Number(order.ml_pack_id);
+  return Number.isFinite(packId) && packId > 0 ? packId : Number(order.ml_order_id);
+}
+
+/** O ML exige a declaração XML antes do <nfeProc>. */
+function xmlComDeclaracao(xml: string) {
+  const conteudo = String(xml ?? "").replace(/^\uFEFF/, "").trim();
+  return conteudo.startsWith("<?xml") ? conteudo : `<?xml version="1.0" encoding="UTF-8"?>${conteudo}`;
+}
+
+async function uploadPackFiscalDocument(accessToken: string, packId: number, nfe: any) {
+  const form = new FormData();
+  const nome = `NFe${String(nfe.chave_acesso ?? nfe.numero ?? packId)}.xml`;
+  form.append("fiscal_document", new Blob([xmlComDeclaracao(nfe.xml_autorizado)], { type: "application/xml" }), nome);
+  const response = await fetch(`${ML_API_BASE_URL}/packs/${packId}/fiscal_documents`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    body: form,
+    cache: "no-store",
+  });
+  return parseResponse(response, "anexar a NF-e ao pedido");
+}
+
+async function fetchPackFiscalDocuments(accessToken: string, packId: number, previous?: Record<string, unknown> | null) {
+  const response = await fetch(`${ML_API_BASE_URL}/packs/${packId}/fiscal_documents`, {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    cache: "no-store",
+  });
+  const body = await parseResponse(response, "consultar as notas do pedido");
+  return {
+    channel: "pack",
+    pack_id: packId,
+    ids: Array.isArray(previous?.ids) ? previous.ids : [],
+    fiscal_documents: Array.isArray(body?.fiscal_documents) ? body.fiscal_documents : [],
+  };
 }
 
 async function uploadInvoiceXml(accessToken: string, shipmentId: number, xml: string, siteId?: string | null) {
@@ -256,8 +324,10 @@ async function persistInvoiceState(orderId: number, nfe: any, remoteInvoice: any
 }
 
 function buildInvoiceState(order: StoredOrder, nfe: any, remoteInvoice: any) {
+  const channel = resolveMercadoLivreInvoiceChannel(order);
   return {
-    eligible: isMercadoEnviosInvoiceEligible(order),
+    eligible: channel === "shipment" || channel === "pack",
+    channel,
     orderId: order.id,
     vendaId: order.venda_id,
     shipmentId: order.ml_shipment_id,
@@ -276,11 +346,21 @@ function buildInvoiceState(order: StoredOrder, nfe: any, remoteInvoice: any) {
 }
 
 function extractInvoiceId(value: any) {
-  return value?.id != null ? String(value.id) : value?.invoice_id != null ? String(value.invoice_id) : null;
+  if (value?.id != null) return String(value.id);
+  if (value?.invoice_id != null) return String(value.invoice_id);
+  const anexado = (Array.isArray(value?.ids) ? value.ids[0] : null) ?? (Array.isArray(value?.fiscal_documents) ? value.fiscal_documents[0]?.id : null);
+  return anexado != null ? String(anexado) : null;
 }
 
 function extractInvoiceStatus(value: any) {
-  return value?.status != null ? String(value.status) : value?.invoice_status != null ? String(value.invoice_status) : null;
+  if (value?.status != null) return String(value.status);
+  if (value?.invoice_status != null) return String(value.invoice_status);
+  // Anexo ao pedido não tem status no ML: existir já é o estado final.
+  if (value?.channel === "pack") {
+    const anexos = (Array.isArray(value.ids) ? value.ids.length : 0) + (Array.isArray(value.fiscal_documents) ? value.fiscal_documents.length : 0);
+    return anexos > 0 ? "attached" : null;
+  }
+  return null;
 }
 
 function extractFiscalKey(value: any) {

@@ -21,6 +21,7 @@ import { deveGerarICMSUFDest, validarDifalCanonicoDoItem } from './difal';
 import { escapeXml, truncateNfeXNome } from './xmlUtils';
 import { resolverCobrancaNFe, type NFeCobrancaInput, type NFeCobrancaNormalizada } from './duplicatas';
 import { validarInscricaoEstadualDestinatario } from './indIEDest';
+import { buildInfIntermedXml, indicadorIntermediador, type NFeIntermediador } from './intermediador';
 import { avaliarRegraE16a30Xml } from './regraE16a30Xml';
 import { CODE_E16A30, mensagemBloqueioE16a30 } from './regraE16a30';
 import {
@@ -83,6 +84,11 @@ export interface IdeOptions {
   natOp?: string;
   indFinal?: 0 | 1;
   indPres?: 0 | 1 | 2 | 3 | 4 | 5 | 9;
+  /**
+   * Plataforma de terceiros que intermediou a venda. Só vale em operação não
+   * presencial; nela, ausente significa "sem intermediador" (indIntermed 0).
+   */
+  intermediador?: NFeIntermediador | null;
   finNFe?: 1 | 2 | 3 | 4;
   tpImp?: 1 | 2 | 3 | 4 | 5;
   /** 1 = normal, 9 = contingência offline da NFC-e. */
@@ -459,6 +465,7 @@ export function criarIdeParaEmpresa(
     finNFe: options?.finNFe ?? 1,
     indFinal: nfce ? 1 : options?.indFinal ?? (options?.tpNF === 0 ? 0 : 1),
     indPres: options?.indPres ?? 1,
+    indIntermed: indicadorIntermediador(options?.indPres ?? 1, options?.intermediador ?? null),
     procEmi: 0,
     verProc: 'ERPOficina 2026.1',
   };
@@ -767,6 +774,9 @@ export function buildNFePreviewXml(
   });
   if (cobrancaResolvida.erros.length) throw new Error(cobrancaResolvida.erros[0]);
   const cobrXml = buildCobrancaXml(cobrancaResolvida.cobranca, numeroNota);
+  // O <ide> já decidiu: o grupo só existe quando a nota declara plataforma de
+  // terceiros. Venda que virou presencial na tela sai sem ele.
+  const infIntermedXml = ide.indIntermed === 1 ? buildInfIntermedXml(options?.intermediador ?? null) : '';
 
   const rotulo = nfce ? 'NFC-e' : 'NF-e';
   const natOpText = options?.natOp
@@ -808,6 +818,7 @@ export function buildNFePreviewXml(
     transpXml +
     cobrXml +
     pagXml +
+    infIntermedXml +
     infAdicXml +
     infRespTec +
     '</infNFe>';

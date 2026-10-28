@@ -216,6 +216,8 @@ export type NFeIde = {
   finNFe: 1 | 2 | 3 | 4;
   indFinal: 0 | 1;
   indPres: 0 | 1 | 2 | 3 | 4 | 5 | 9;
+  /** Só existe em operação não presencial (indPres 2, 3, 4 ou 9). */
+  indIntermed?: 0 | 1;
   procEmi: 0 | 1 | 2 | 3;
   verProc: string;
 };

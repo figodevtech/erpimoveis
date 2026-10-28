@@ -30,6 +30,7 @@ export const dynamic = "force-dynamic";
 
 type ConfigRow = {
   id: number;
+  empresaid: number;
   modelo: "NFE" | "NFCE";
   serie: number | null;
   natureza_operacao: string | null;
@@ -44,7 +45,7 @@ type ConfigRow = {
 };
 
 const CAMPOS =
-  "id, modelo, serie, natureza_operacao, csc_homologacao, csc_id_homologacao, csc_producao, csc_id_producao, qrcode_versao, padroes_emissao, incluir_garantia_venda, incluir_garantia_os";
+  "id, empresaid, modelo, serie, natureza_operacao, csc_homologacao, csc_id_homologacao, csc_producao, csc_id_producao, qrcode_versao, padroes_emissao, incluir_garantia_venda, incluir_garantia_os";
 
 function padroesDoModelo(config: ConfigRow | null) {
   const valor = config?.padroes_emissao;
@@ -76,6 +77,80 @@ async function carregarConfigs(empresaId: number | null) {
     nfe: linhas.find((linha) => linha.modelo === "NFE") ?? null,
     nfce: linhas.find((linha) => linha.modelo === "NFCE") ?? null,
   };
+}
+
+/**
+ * Cria a linha do modelo 65 na primeira vez que a série da NFC-e é salva.
+ *
+ * A migration que separou a configuração por modelo criou a linha da NFC-e só
+ * para as empresas que já tinham NF-e naquele dia. Banco provisionado depois
+ * ficava com a NF-e apenas: o PUT descartava a série digitada aqui e a emissão
+ * de NFC-e não tinha configuração para ler.
+ *
+ * O resto vem da linha da NF-e: o ambiente é espelho de `empresa.ambiente`, e o
+ * contador nasce zerado porque a série do modelo 65 tem sequência própria.
+ */
+async function criarConfigNFCe(
+  configNFeId: number,
+  serie: number,
+  natureza: string | null | undefined,
+): Promise<ConfigRow | null> {
+  const { data: base, error: baseError } = await supabase
+    .from("nfe_config")
+    .select("empresaid, ambiente, permitir_homologacao, permitir_producao")
+    .eq("id", configNFeId)
+    .single();
+  if (baseError) throw baseError;
+
+  // ignoreDuplicates: dois salvamentos ao mesmo tempo não viram erro de chave.
+  const { error } = await supabase.from("nfe_config").upsert(
+    {
+      empresaid: base.empresaid,
+      modelo: "NFCE",
+      serie,
+      ultimo_numero: 0,
+      ambiente: base.ambiente,
+      tipo_impressao_danfe: 4, // DANFE NFC-e
+      permitir_homologacao: base.permitir_homologacao,
+      permitir_producao: base.permitir_producao,
+      natureza_operacao: natureza || "VENDA AO CONSUMIDOR",
+    },
+    { onConflict: "empresaid,modelo", ignoreDuplicates: true },
+  );
+  if (error) throw error;
+
+  return (await carregarConfigs(Number(base.empresaid))).nfce;
+}
+
+/**
+ * `ultimo_numero` da série que passa a valer.
+ *
+ * A numeração é sequencial por série, mas `nfe_config` guarda um contador só
+ * por modelo. Trocar a série mantinha o contador da anterior: a NFC-e passou da
+ * série 3 para a 4 e a primeira nota da 4 saiu com o nº 2, deixando o 1 para
+ * inutilizar. A série nova continua do maior número que o próprio ERP já
+ * alocou nela — zero, se nunca usou. Nota excluída entra na conta: número
+ * definitivo pode já estar registrado na SEFAZ.
+ */
+async function ultimoNumeroDaSerie(config: ConfigRow, serie: number): Promise<number> {
+  const { data, error } = await supabase
+    .from("nfe")
+    .select("numero")
+    .eq("empresaid", config.empresaid)
+    .eq("modelo", config.modelo)
+    .eq("serie", serie)
+    .eq("numero_definitivo", true)
+    .order("numero", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return Number(data?.numero ?? 0);
+}
+
+/** Patch de série com o contador que acompanha a troca; vazio quando a série não muda. */
+async function patchDeSerie(config: ConfigRow, serie: number | undefined) {
+  if (serie === undefined || serie === config.serie) return {};
+  return { serie, ultimo_numero: await ultimoNumeroDaSerie(config, serie) };
 }
 
 function serializar(configs: Awaited<ReturnType<typeof carregarConfigs>>) {
@@ -196,7 +271,7 @@ export async function PUT(req: NextRequest) {
     const serieNFe = parseSerie(nfe.serieNFe);
     const naturezaNFe = parseTexto(nfe.naturezaOperacao);
     const patchNFe = {
-      ...(serieNFe !== undefined ? { serie: serieNFe } : {}),
+      ...(await patchDeSerie(configs.nfe, serieNFe)),
       ...(naturezaNFe !== undefined ? { natureza_operacao: naturezaNFe } : {}),
       ...patchesGarantia.nfe,
       ...(padroesNFe ? { padroes_emissao: padroesNFe.padroes } : {}),
@@ -211,9 +286,13 @@ export async function PUT(req: NextRequest) {
     }
 
     // ---- modelo 65 -------------------------------------------------------
+    const serieNFCe = parseSerie(nfe.serieNFCe);
+    const naturezaNFCe = parseTexto(nfe.naturezaOperacaoNFCe);
+    if (!configs.nfce && serieNFCe !== undefined) {
+      configs.nfce = await criarConfigNFCe(configs.nfe.id, serieNFCe, naturezaNFCe);
+    }
+
     if (configs.nfce) {
-      const serieNFCe = parseSerie(nfe.serieNFCe);
-      const naturezaNFCe = parseTexto(nfe.naturezaOperacaoNFCe);
       const cscHomologacao = parseSegredo(nfe.cscHomologacao);
       const cscProducao = parseSegredo(nfe.cscProducao);
       const idCscHomologacao = parseTexto(nfe.idCscHomologacao);
@@ -224,7 +303,7 @@ export async function PUT(req: NextRequest) {
         : undefined;
 
       const patchNFCe = {
-        ...(serieNFCe !== undefined ? { serie: serieNFCe } : {}),
+        ...(await patchDeSerie(configs.nfce, serieNFCe)),
         ...(naturezaNFCe !== undefined ? { natureza_operacao: naturezaNFCe } : {}),
         ...patchesGarantia.nfce,
         ...(qrCodeVersao !== undefined ? { qrcode_versao: qrCodeVersao } : {}),

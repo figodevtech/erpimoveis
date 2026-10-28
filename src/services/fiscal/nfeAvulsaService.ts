@@ -29,6 +29,7 @@ import { calcularTotaisNFe, validarPisCofinsStSuportado } from "@/lib/nfe/fiscal
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { resolverCobrancaNFe, type NFeCobrancaInput } from "@/lib/nfe/duplicatas";
 import { validarNfce } from "@/lib/nfe/nfce/validator";
+import { exigeIndicadorIntermediador, normalizarIntermediador, validarIntermediador } from "@/lib/nfe/intermediador";
 import type {
   CRT,
   ClassificacaoTributariaRtc,
@@ -210,6 +211,11 @@ export type NFeAvulsaDraftInput = {
      */
     consumidorFinal?: boolean | null;
     indicadorPresenca: string;
+    /**
+     * Plataforma que intermediou a venda (marketplace). Só vai para a nota em
+     * operação não presencial; nela, vazio declara "sem intermediador".
+     */
+    intermediador?: { cnpj?: string | null; idCadIntTran?: string | null } | null;
     observacaoInterna?: string | null;
     observacoesFiscais?: string | null;
   };
@@ -954,8 +960,11 @@ function validarEmpresa(
   if (!empresa.regimetributario) erros.push("CRT/regime tributário da empresa ausente.");
   if (!empresa.ambiente) erros.push("Ambiente fiscal da empresa ausente.");
   const rotulo = rotuloModelo(modelo);
-  if (!config) erros.push(`Configuração de ${rotulo} não encontrada.`);
-  if (!config?.serie) erros.push(`Série de ${rotulo} não configurada.`);
+  if (!config) {
+    erros.push(`Configuração de ${rotulo} não encontrada. Cadastre a série em Configurações › Fiscal.`);
+  } else if (!config.serie) {
+    erros.push(`Série de ${rotulo} não configurada.`);
+  }
   if (config && config.modelo !== modeloParaDb(modelo)) {
     erros.push(`Configuração fiscal carregada é do modelo ${config.modelo}, e não de ${rotulo}.`);
   }
@@ -991,6 +1000,13 @@ export function validarDraftAvulso(input: NFeAvulsaDraftInput) {
       field: "naturezaOperacao",
       message: "Natureza da operação é obrigatória.",
     });
+  }
+
+  if (exigeIndicadorIntermediador(input.operacao?.indicadorPresenca)) {
+    const erroIntermediador = validarIntermediador(normalizarIntermediador(input.operacao?.intermediador));
+    if (erroIntermediador) {
+      errors.push({ step: "operation", field: "intermediador", message: erroIntermediador });
+    }
   }
 
   // NF-e de devolução (finNFe=4) sem documento referenciado é rejeição 321.
@@ -1569,9 +1585,13 @@ export async function getNFeAvulsaSetup(modelo: ModeloDocumentoFiscal = MODELO_N
 
   if (configError) throw configError;
 
+  // Sem a configuração do modelo, a empresa ainda é a primeira por id — a mesma
+  // regra de `buscarEmpresaAtual`. Antes ela nem era buscada, e a tela dizia
+  // "Empresa ativa não encontrada." quando o que faltava era a série da NFC-e.
+  const empresaQuery = supabaseAdmin.from("empresa").select("*");
   const { data: empresa, error: empresaError } = config
-    ? await supabaseAdmin.from("empresa").select("*").eq("id", config.empresaid).maybeSingle<EmpresaRow>()
-    : { data: null, error: null };
+    ? await empresaQuery.eq("id", config.empresaid).maybeSingle<EmpresaRow>()
+    : await empresaQuery.order("id", { ascending: true }).limit(1).maybeSingle<EmpresaRow>();
 
   if (empresaError) throw empresaError;
 
@@ -2200,6 +2220,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
       natOp: cleanText(input.operacao.naturezaOperacao),
       indFinal,
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,
+      intermediador: normalizarIntermediador(input.operacao.intermediador),
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
       modelo,
@@ -2351,6 +2372,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
       natOp: cleanText(input.operacao.naturezaOperacao),
       indFinal,
       indPres: Number(input.operacao.indicadorPresenca || 1) as any,
+      intermediador: normalizarIntermediador(input.operacao.intermediador),
       finNFe: finalidadeToFinNFe(input.operacao.finalidade),
       observacoesFiscais: input.operacao.observacoesFiscais,
       modelo,
