@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { requireEstoqueAccess,requireEstoqueEdit } from '@/app/api/_authz/perms';
+import { requireConfigAccess,requireConfigEdit } from '@/app/api/_authz/perms';
 import { requireEmpresaId,errorStatus } from '@/lib/empresa-context';
 import { storefrontFetch } from '@/lib/integrations/storefront-http';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 async function proxy(method:'GET'|'POST'){
  try{
-  if(method==='POST')await requireEstoqueEdit();else await requireEstoqueAccess();
+  if(method==='POST')await requireConfigEdit();else await requireConfigAccess();
   await requireEmpresaId();
   const base=process.env.STOREFRONT_API_URL?.trim(),secret=process.env.STOREFRONT_ORDER_SYNC_SECRET?.trim();
   if(!base||!secret)return NextResponse.json({message:'Configure a conexão do ERP com a loja.'},{status:503});

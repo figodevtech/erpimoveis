@@ -3,7 +3,9 @@ import { shippingAccessToken,ShippingAuthError } from '@/lib/melhor-envio-oauth'
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getCheckoutPolicy } from '@/lib/erp-checkout-policy';
 
-export type ShippingOption={id:number;name:string;company:string;price:number;days:number};
+export const FREE_SHIPPING_ID=999999;
+export function freeShippingOption(){return {id:FREE_SHIPPING_ID,name:'Frete grátis',company:'Envio escolhido pela loja',price:0,days:0,merchantSelected:true};}
+export type ShippingOption={id:number;name:string;company:string;price:number;days:number;merchantSelected?:boolean};
 export class ShippingQuoteError extends Error { constructor(message:string,public status=422){super(message);} }
 export async function quoteShipping(cep:string,items:{productId:number;quantity:number}[]){
  let access;
@@ -17,7 +19,9 @@ export async function quoteShipping(cep:string,items:{productId:number;quantity:
  const [config,catalog]=await Promise.all([getCheckoutPolicy(ids),supabaseAdmin.from('produto').select('id,precovenda,visible,is_deleted').in('id',ids)]);
  if(!config.available||!config.originCep)throw new ShippingQuoteError('A loja precisa conferir o CEP em Configurações → Empresa antes de calcular o frete.',503);
  if(catalog.error)throw new ShippingQuoteError('Não foi possível consultar os produtos para envio.',503);
- const products=ids.map(id=>{
+ const chargedIds=ids.filter(id=>config.policies[String(id)]?.freeShipping!==true);
+ if(!chargedIds.length)return {options:[freeShippingOption()],quotedAt:new Date().toISOString(),environment:null};
+ const products=chargedIds.map(id=>{
   const product=catalog.data?.find(p=>Number(p.id)===id),pack=config.policies[String(id)]?.shippingPackage;
   if(!product||product.visible===false||product.is_deleted||!(Number(product.precovenda)>0))throw new ShippingQuoteError('Um produto não está disponível para envio. Atualize seu carrinho.');
   if(!pack)throw new ShippingQuoteError(`O produto #${id} ainda precisa de peso e dimensões para cotação. Consulte a loja.`);

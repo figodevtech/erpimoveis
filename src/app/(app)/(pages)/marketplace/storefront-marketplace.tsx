@@ -57,7 +57,6 @@ import {
   StorefrontProductFiltersSheet,
   type StorefrontProductFilters,
 } from "./storefront-product-filters";
-import { StorefrontShippingConnection } from "./storefront-shipping-connection";
 import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/dialog-produto";
 
 type StorefrontProduct = {
@@ -349,7 +348,6 @@ export default function StorefrontMarketplace() {
         accountDescription="Catálogo conectado ao ERP"
       />
 
-      <StorefrontShippingConnection/>
 
       <Tabs value={activeTab} onValueChange={changeTab}>
         <Card className="gap-0 overflow-hidden">

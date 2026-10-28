@@ -94,6 +94,7 @@ import {
 } from "@/lib/nfe/elegibilidadeEmissao";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TermosImpressaoOSCard } from "./components/termos-impressao-os-card";
+import { StorefrontShippingConnection } from "./components/storefront-shipping-connection";
 
 const SHOPEE_INTEGRATION_ENABLED =
   process.env.NEXT_PUBLIC_SHOPEE_INTEGRATION_ENABLED === "true";
@@ -1459,6 +1460,8 @@ export default function ConfigGeralPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      <StorefrontShippingConnection />
 
       <MercadoLivreOperationSettingsCard
         account={mercadoLivreAccount}

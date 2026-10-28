@@ -24,6 +24,37 @@ function load(file,mocks={},extra={}) {
  return exports;
 }
 
+test('shipping connection uses general-settings permissions for reads and writes',async()=>{
+ const calls=[];
+ const route=load('src/app/api/integracoes/site/shipping/route.ts',{
+  '@/app/api/_authz/perms':{requireConfigAccess:async()=>{calls.push('read');},requireConfigEdit:async()=>{calls.push('edit');}},
+  '@/lib/empresa-context':{requireEmpresaId:async()=>1,errorStatus:(_error,status)=>status},
+  '@/lib/integrations/storefront-http':{storefrontFetch:async(_url,init)=>init.method==='POST'?Response.json({url:'https://store.test/api/integrations/melhor-envio/authorize?state=test'}):Response.json({configured:true,connected:false,environment:'production'})},
+ },{process:{env:{STOREFRONT_API_URL:'https://store.test',STOREFRONT_ORDER_SYNC_SECRET:'test'}}});
+ assert.equal((await route.GET()).status,200);assert.equal((await route.POST()).status,200);assert.deepEqual(calls,['read','edit']);
+});
+
+test('ERP middleware lets storefront policy reads reach Bearer validation but keeps writes private',async()=>{
+ const middleware=load('src/middleware.ts',{
+  'next/server':require('next/server'),
+  '@/lib/auth-edge':{auth:handler=>handler},
+  '@/app/api/_authz/permission-constants':{PERMS:{},TIPO_PERMISSIONS:[]},
+  '@/app/api/_authz/tipos-permission':{},
+  '@/app/api/_authz/default-route':{},
+  '@/app/api/_authz/action-permission':{},
+  '@/lib/shared-lookup':{createSharedLookup:()=>()=>{throw Error('Public request must not query sessions');}},
+ }).default;
+ const {NextRequest}=require('next/server');
+ for(const [method,path,expected] of [
+  ['GET','checkout-config',200],['PUT','checkout-config',401],
+  ['POST','checkout-config',401],['GET','checkout-config/other',401],
+ ]){
+  const response=await middleware(new NextRequest(`https://erp.test/api/integracoes/site/${path}?ids=9`,{method,headers:{Authorization:'Bearer own-store'}}));
+  assert.equal(response.status,expected,`${method} ${path}`);
+  if(expected===200)assert.equal(response.headers.get('x-middleware-next'),'1');
+ }
+});
+
 test('installment preview distinguishes an unpublished storefront route from invalid Asaas credentials',async()=>{
  const fees={operationValue:.49,one:2,six:3,twelve:4};
  for(const [upstream,expected,pattern] of [[new Response('not found',{status:404}),503,/Publique a atualização do site/],[Response.json({feesError:'ASAAS_UNAUTHORIZED'},{status:503}),503,/chave de API/],[Response.json({fees}),200,null]]){
@@ -62,6 +93,29 @@ test('group payment rules are inherited while individual overrides and packaging
  assert.equal(resolveCheckoutPolicy(undefined,undefined).policy.maxInstallments,1);
  assert.equal(resolveCheckoutPolicy({...individual,payment_override:false},undefined).policy.maxInstallments,1);
  assert.equal('shippingPackage' in paymentFields(individual.policy),false,'shipping must never become a group rule');
+ const freeGroup={policy:{...group.policy,freeShipping:true}};
+ assert.equal(resolveCheckoutPolicy(individual,freeGroup).policy.freeShipping,true,'payment override must not override shipping inheritance');
+ assert.equal(resolveCheckoutPolicy({...individual,policy:{...individual.policy,freeShipping:false}},freeGroup).policy.freeShipping,false,'explicit paid shipping overrides free group');
+ assert.equal(resolveCheckoutPolicy({...individual,payment_override:false,policy:{...individual.policy,freeShipping:true}},undefined).policy.freeShipping,true,'shipping override is independent of payment');
+});
+
+test('free shipping needs no provider account and mixed carts quote only charged products in both stores',async()=>{
+ for(const base of ['site_brpecaspb','site_demirdiesel']){
+  const policy=load(`${base}/lib/checkout-policy.ts`);
+  const policies={'9':{...policy.defaultCheckoutPolicy,freeShipping:true},'10':{...policy.defaultCheckoutPolicy,freeShipping:false,shippingPackage:{weight:1,width:15,height:10,length:20}}};
+  let payload;
+  const config={getCheckoutPolicy:async()=>({available:true,policies,originCep:'58000000'})};
+  const oauth={automaticShippingEnabled:async()=>false,shippingAccessToken:async()=>({token:'test',environment:'production'})};
+  const shipping=load(`${base}/lib/shipping-quote.ts`,{
+   '@/lib/melhor-envio-oauth':oauth,'@/lib/erp-checkout-policy':config,
+   '@/lib/supabase/admin':{supabaseAdmin:{from:()=>({select(){return this;},in:async()=>({data:[{id:9,precovenda:100},{id:10,precovenda:50}],error:null})})}},
+  },{process:{env:{NEXT_PUBLIC_COMPANY_EMAIL:'store@example.test'}},fetch:async(_url,init)=>{payload=JSON.parse(init.body);return Response.json([{id:1,name:'PAC',custom_price:30,custom_delivery_time:5}]);}});
+  const route=load(`${base}/app/api/shipping/quote/route.ts`,{'@/lib/melhor-envio-oauth':oauth,'@/lib/erp-checkout-policy':config,'@/lib/shipping-quote':shipping});
+  const response=await route.POST(new Request('https://store.test/api/shipping/quote',{method:'POST',body:JSON.stringify({cep:'58108152',items:[{productId:9,quantity:1}]})}));
+  const result=await response.json();assert.equal(response.status,200);assert.equal(result.options[0].price,0);assert.equal(result.options[0].merchantSelected,true);assert.equal(result.manual,undefined);assert.equal(payload,undefined);
+  const mixed=await shipping.quoteShipping('58108152',[{productId:9,quantity:2},{productId:10,quantity:3}]);
+  assert.equal(mixed.options[0].price,30);assert.equal(payload.products.length,1);assert.equal(payload.products[0].id,'10');assert.equal(payload.products[0].quantity,3);
+ }
 });
 
 test('store checkout resolves current group membership and ignores caller-supplied preview groups',async()=>{
@@ -83,6 +137,7 @@ test('store checkout resolves current group membership and ignores caller-suppli
   '@/lib/integrations/site-checkout-inheritance':inheritance,
  },{process:{env:{STOREFRONT_ORDER_SYNC_SECRET:'own-store'}}});
  const request=()=>new Request('https://erp.test/api/integracoes/site/checkout-config?ids=9,10&previewGroupId=999',{headers:{Authorization:'Bearer own-store'}});
+ assert.equal((await endpoint.GET(new Request('https://erp.test/api/integracoes/site/checkout-config?ids=9',{headers:{Authorization:'Bearer wrong-store'}}))).status,401);
  const first=await (await endpoint.GET(request())).json();
  assert.equal(first.policies['9'].maxInstallments,1);assert.equal(first.policies['10'].maxInstallments,6);
  tables.site_group_checkout_config[0].policy.maxInstallments=3;tables.site_group_checkout_config[0].updated_at='c';
