@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
@@ -6,7 +7,8 @@ const root = path.resolve(import.meta.dirname, "../..");
 export const raw = await fs.readFile(path.join(root,'.env'),'utf8');
 export const databases = [...raw.matchAll(/^\s*(?:#\s*)?DATABASE_URL\s*=\s*([^\r\n]+)/gm)].map(m=>m[1].trim().replace(/^(['"])(.*)\1$/, '$2'));
 const names = {ozluphhwktyvqfrypjin:'Demonstração',lkpwaiynvnfedvxcjmrp:'Demir',qwvyhtjqjjicjbfiwjfm:'Garage Premium'};
-const cli = path.join(root,'node_modules/supabase/bin/supabase.exe');
+// A CLI 2.1xx trouxe o binário no pacote da plataforma; até a 2.84 ele ficava em supabase/bin.
+const cli = ['node_modules/@supabase/cli-windows-x64/bin/supabase.exe','node_modules/supabase/bin/supabase.exe'].map(p=>path.join(root,p)).find(p=>existsSync(p)) ?? path.join(root,'node_modules/supabase/bin/supabase.exe');
 const temp = process.env.TEMP || process.env.TMP;
 export function clean(s) { for(const url of databases){const u = new URL(url); for(const secret of [url,u.password,decodeURIComponent(u.password)])if(secret)s=s.replaceAll(secret,'[redacted]');} return s; }
 export async function query(url, sql) {

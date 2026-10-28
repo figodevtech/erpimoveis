@@ -625,6 +625,35 @@ function createTemporarySupabaseProject() {
   return directory;
 }
 
+// Até a 2.84 o pacote `supabase` baixava o binário para node_modules/supabase/bin.
+// A partir da 2.1xx ele virou só um shim em JS, e o executável vem do pacote da
+// plataforma (@supabase/cli-windows-x64 etc.). Chamar o executável direto, e não
+// o shim, mantém a captura da saída e o código de saída do push como eram.
+const CLI_PLATFORM_PACKAGES: Record<string, Record<string, string[]>> = {
+  darwin: { arm64: ["darwin-arm64"], x64: ["darwin-x64"] },
+  linux: { arm64: ["linux-arm64", "linux-arm64-musl"], x64: ["linux-x64", "linux-x64-musl"] },
+  win32: { arm64: ["windows-arm64"], x64: ["windows-x64"] },
+};
+
+export function supabaseCliExecutable() {
+  const file = process.platform === "win32" ? "supabase.exe" : "supabase";
+  const candidates = [
+    ...(CLI_PLATFORM_PACKAGES[process.platform]?.[os.arch()] ?? []).map((suffix) =>
+      path.join(projectRoot, "node_modules", "@supabase", `cli-${suffix}`, "bin", file),
+    ),
+    path.join(projectRoot, "node_modules", "supabase", "bin", file),
+  ];
+  const found = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!found) {
+    throw new Error(
+      `CLI do Supabase não encontrada em node_modules (procurado: ${candidates
+        .map((candidate) => path.relative(projectRoot, candidate))
+        .join(", ")}). Rode npm install.`,
+    );
+  }
+  return found;
+}
+
 export async function runDatabasePush(
   database: DatabaseConfig,
   dryRun: boolean,
@@ -633,14 +662,8 @@ export async function runDatabasePush(
   const connectionString = probe.connectionString;
   await probe.client.end();
 
+  const executable = supabaseCliExecutable();
   const temporaryProject = createTemporarySupabaseProject();
-  const executable = path.join(
-    projectRoot,
-    "node_modules",
-    "supabase",
-    "bin",
-    process.platform === "win32" ? "supabase.exe" : "supabase",
-  );
   const args = ["db", "push"];
   if (dryRun) args.push("--dry-run");
   // Sem --include-all a CLI recusa migration cuja versão seja anterior à última
