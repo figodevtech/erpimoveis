@@ -125,8 +125,11 @@
   }
 
   /* Documentos (A4, etiquetas, DANFE) ficam fora da escala: a geometria deles
-     e calibrada em mm e a paginacao e medida na tela antes de imprimir. */
-  html:has([data-ui-scale="off"]) {
+     e calibrada em mm e a paginacao e medida na tela antes de imprimir. A marca
+     vem do UiScaleOff, direto no html. Nada de html:has(...) aqui: o navegador
+     reavalia o seletor a cada mudanca no DOM, e a paginacao de um relatorio
+     com milhares de linhas passava de 20s so em recalculo de estilo. */
+  html[data-ui-scale="off"] {
     font-size: 100%;
   }
 
@@ -676,20 +679,23 @@
    Nas telas do app ([data-pinch="off"]) o PinchLock poe maximum-scale=1 no
    viewport e os campos mantem o tamanho normal. Fora delas (login, assinatura,
    links publicos) os campos usam 16px fixos (px, nao rem, para escapar da
-   escala). Fica fora de @layer para vencer text-sm/text-xs das utilities. */
+   escala). Fica fora de @layer para vencer text-sm/text-xs das utilities.
+   A marca esta no container das telas desde o HTML do servidor e, montado o
+   PinchLock, tambem no html, o que cobre os dialogs que o Radix desenha fora
+   do container. Sem html:has(...): ver a nota de data-ui-scale. */
 @media (hover: none) and (pointer: coarse) {
-  html:not(:has([data-pinch="off"])) :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"]),
+  html :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"]),
   textarea,
   select,
-  [contenteditable]:not([contenteditable="false"])) {
+  [contenteditable]:not([contenteditable="false"])):not([data-pinch="off"] *) {
     font-size: 16px;
   }
 }
 
 /* Pinca travada nas telas do app (shell, PDV, Central Operacional), que levam
-   [data-pinch="off"]. Vai no html para cobrir dialogs e drawers, que o Radix
-   desenha fora do shell. Impressao, DANFE e paginas publicas nao tem a marca e
-   seguem ampliaveis. Rolagem continua; zoom por toque duplo tambem sai. */
-html:has([data-pinch="off"]) {
+   [data-pinch="off"]; no html, o PinchLock estende a trava aos dialogs e
+   drawers. Impressao, DANFE e paginas publicas nao tem a marca e seguem
+   ampliaveis. Rolagem continua; zoom por toque duplo tambem sai. */
+[data-pinch="off"] {
   touch-action: pan-x pan-y;
 }
