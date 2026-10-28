@@ -4,6 +4,7 @@ import type React from "react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -130,13 +131,7 @@ export default function RegisterContent({
     field: keyof NewCustomer,
     value: string | number | null,
   ) => {
-    setNewCustomer({
-      ...newCustomer,
-      [field]:
-        field === "nomerazaosocial" && typeof value === "string"
-          ? value.toLocaleUpperCase("pt-BR")
-          : value,
-    });
+    setNewCustomer({ ...newCustomer, [field]: value });
   };
 
   const handleGetCep = async () => {
@@ -615,12 +610,11 @@ export default function RegisterContent({
                   : "Razão Social"}{" "}
                 *
               </Label>
-              <Input
+              <UppercaseInput
                 id="nomerazaosocial"
-                className=""
-                value={newCustomer.nomerazaosocial || ""}
-                onChange={(e) =>
-                  handleInputChange("nomerazaosocial", e.target.value)
+                value={newCustomer.nomerazaosocial}
+                onValueChange={(nome) =>
+                  handleInputChange("nomerazaosocial", nome)
                 }
                 placeholder={
                   newCustomer.tipopessoa === "FISICA"

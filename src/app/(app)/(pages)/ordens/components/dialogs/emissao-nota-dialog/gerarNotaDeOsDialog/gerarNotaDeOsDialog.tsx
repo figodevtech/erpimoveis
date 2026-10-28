@@ -51,6 +51,7 @@ import {
 } from "../components/fiscal-dialog-chrome";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
@@ -2431,12 +2432,13 @@ export function GerarNotaDeOsDialog({
                           </div>
                           <div className="min-w-0 space-y-1.5">
                             <Label>UF *</Label>
-                            <Input
+                            <UppercaseInput
                               value={fiscalConfig.transportadora.uf}
                               maxLength={2}
-                              onChange={(event) => setFiscalConfig((current) => ({
+                              format={(valor) => valor.slice(0, 2)}
+                              onValueChange={(uf) => setFiscalConfig((current) => ({
                                 ...current,
-                                transportadora: { ...current.transportadora, uf: event.target.value.toUpperCase().slice(0, 2) },
+                                transportadora: { ...current.transportadora, uf },
                               }))}
                             />
                           </div>

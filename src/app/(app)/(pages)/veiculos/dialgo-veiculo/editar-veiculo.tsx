@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -812,17 +813,15 @@ export default function EditContent({
                         Placa *
                       </Label>
                       <div className="relative">
-                        <Input
+                        <UppercaseInput
                           id="placa"
-                          className="w-full pr-9 uppercase"
+                          className="w-full pr-9"
                           value={formatarPlacaParaExibicao(
                             selectedVeiculo?.placa || "",
                           )}
-                          onChange={(e) => {
-                            const digitado = e.target.value;
-                            const semHifen = somenteAlphaNumMaiusculo(
-                              digitado,
-                            ).slice(0, 7);
+                          format={formatarPlacaParaExibicao}
+                          onValueChange={(valor) => {
+                            const semHifen = somenteAlphaNumMaiusculo(valor);
                             setSelectedVeiculo((prev) =>
                               prev ? { ...prev, placa: semHifen } : prev,
                             );
@@ -915,15 +914,15 @@ export default function EditContent({
                         Marca *
                       </Label>
                       {isOffline ? (
-                        <Input
+                        <UppercaseInput
                           id="marca"
-                          value={selectedVeiculo?.marca || ""}
-                          onChange={(e) => {
+                          value={selectedVeiculo?.marca}
+                          onValueChange={(marca) => {
                             setSelectedVeiculo((prev) => {
                               if (!prev) return prev;
                               return {
                                 ...prev,
-                                marca: e.target.value.toUpperCase(),
+                                marca,
                                 modelo: "",
                                 versao: "",
                                 ano_modelo: undefined,
@@ -1027,15 +1026,15 @@ export default function EditContent({
                         Modelo *
                       </Label>
                       {isOffline ? (
-                        <Input
+                        <UppercaseInput
                           id="modelo"
-                          value={selectedVeiculo?.modelo || ""}
-                          onChange={(e) => {
+                          value={selectedVeiculo?.modelo}
+                          onValueChange={(modelo) => {
                             setSelectedVeiculo((prev) =>
                               prev
                                 ? {
                                     ...prev,
-                                    modelo: e.target.value.toUpperCase(),
+                                    modelo,
                                     versao: "",
                                     ano_modelo: undefined,
                                     fipe: undefined,
@@ -1283,15 +1282,12 @@ export default function EditContent({
                       <Label htmlFor="chassi" className="text-sm">
                         Chassi
                       </Label>
-                      <Input
+                      <UppercaseInput
                         className="w-full"
                         id="chassi"
-                        value={selectedVeiculo?.chassi || ""}
-                        onChange={(e) =>
-                          handleInputChange(
-                            "chassi",
-                            e.target.value.toUpperCase(),
-                          )
+                        value={selectedVeiculo?.chassi}
+                        onValueChange={(chassi) =>
+                          handleInputChange("chassi", chassi)
                         }
                         placeholder="Ex.: 9BW..."
                         disabled={disabledForm}

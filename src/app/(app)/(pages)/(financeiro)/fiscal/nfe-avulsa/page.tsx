@@ -41,6 +41,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -3101,11 +3102,10 @@ export default function NFeAvulsaPage() {
                     />
                   </Field>
                   <Field label="UF" required>
-                    <Input
+                    <UppercaseInput
                       value={draft.destinatario.estado}
                       maxLength={2}
-                      onChange={(event) => {
-                        const estado = event.target.value.toUpperCase();
+                      onValueChange={(estado) => {
                         updateDraft((current) => ({
                           ...current,
                           destinatario: { ...current.destinatario, estado },
@@ -4560,9 +4560,10 @@ function TransporteStep({
                   />
                 </Field>
                 <Field label="UF">
-                  <Input
+                  <UppercaseInput
                     value={draft.transporte.transportadora.uf}
-                    onChange={(event) => updateTransportadora({ uf: event.target.value.toUpperCase().slice(0, 2) })}
+                    format={(valor) => valor.slice(0, 2)}
+                    onValueChange={(uf) => updateTransportadora({ uf })}
                     maxLength={2}
                   />
                 </Field>
@@ -4583,18 +4584,18 @@ function TransporteStep({
             <p className="text-sm font-medium">Veiculo</p>
             <div className="grid gap-4 md:grid-cols-3">
               <Field label="Placa">
-                <Input
+                <UppercaseInput
                   value={draft.transporte.veiculo.placa}
-                  onChange={(event) =>
-                    updateVeiculo({ placa: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7) })
-                  }
+                  format={(valor) => valor.replace(/[^A-Z0-9]/g, "").slice(0, 7)}
+                  onValueChange={(placa) => updateVeiculo({ placa })}
                   maxLength={7}
                 />
               </Field>
               <Field label="UF" required={Boolean(draft.transporte.veiculo.placa)}>
-                <Input
+                <UppercaseInput
                   value={draft.transporte.veiculo.uf}
-                  onChange={(event) => updateVeiculo({ uf: event.target.value.toUpperCase().slice(0, 2) })}
+                  format={(valor) => valor.slice(0, 2)}
+                  onValueChange={(uf) => updateVeiculo({ uf })}
                   maxLength={2}
                 />
               </Field>
@@ -4960,10 +4961,10 @@ function EntregaStep({
                 />
               </Field>
               <Field label="UF" required>
-                <Input
+                <UppercaseInput
                   value={draft.entrega.estado}
                   maxLength={2}
-                  onChange={(event) => updateEntrega({ estado: event.target.value.toUpperCase() })}
+                  onValueChange={(estado) => updateEntrega({ estado })}
                 />
               </Field>
               <Field label="CEP">

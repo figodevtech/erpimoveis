@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -718,18 +719,17 @@ export default function RegisterContent({
                 Placa *
               </Label>
               <div className="relative">
-                <Input
+                <UppercaseInput
                   id="placa"
-                  className="w-full pr-9 uppercase"
+                  className="w-full pr-9"
                   value={formatarPlacaParaExibicao(novoVeiculo.placa || "")}
-                  onChange={(e) => {
-                    const digitado = e.target.value;
-                    const semHifen = somenteAlphaNumMaiusculo(digitado).slice(
-                      0,
-                      7,
-                    );
-                    setNovoVeiculo({ ...novoVeiculo, placa: semHifen });
-                  }}
+                  format={formatarPlacaParaExibicao}
+                  onValueChange={(valor) =>
+                    setNovoVeiculo({
+                      ...novoVeiculo,
+                      placa: somenteAlphaNumMaiusculo(valor),
+                    })
+                  }
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -808,13 +808,13 @@ export default function RegisterContent({
                 Marca *
               </Label>
               {isOffline ? (
-                <Input
+                <UppercaseInput
                   id="marca"
-                  value={novoVeiculo.marca || ""}
-                  onChange={(e) => {
+                  value={novoVeiculo.marca}
+                  onValueChange={(marca) => {
                     setNovoVeiculo({
                       ...novoVeiculo,
-                      marca: e.target.value.toUpperCase(),
+                      marca,
                       modelo: "",
                       versao: "",
                       ano_modelo: undefined,
@@ -1084,13 +1084,11 @@ export default function RegisterContent({
               <Label htmlFor="chassi" className="text-sm">
                 Chassi
               </Label>
-              <Input
+              <UppercaseInput
                 className="w-full"
                 id="chassi"
-                value={novoVeiculo.chassi || ""}
-                onChange={(e) =>
-                  handleInputChange("chassi", e.target.value.toUpperCase())
-                }
+                value={novoVeiculo.chassi}
+                onValueChange={(chassi) => handleInputChange("chassi", chassi)}
                 placeholder="Ex.: 9BW..."
               />
             </div>

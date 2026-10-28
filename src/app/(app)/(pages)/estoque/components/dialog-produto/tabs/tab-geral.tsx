@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -177,12 +178,10 @@ export function TabGeral({
               </span>
             </div>
 
-            <Input
+            <UppercaseInput
               id="titulo"
-              value={produto.titulo || ""}
-              onChange={(e) =>
-                onChange("titulo", e.target.value.toLocaleUpperCase("pt-BR"))
-              }
+              value={produto.titulo}
+              onValueChange={(valor) => onChange("titulo", valor)}
               placeholder={mode === "edit" ? "Nome comercial / vitrine" : "Título interno"}
               maxLength={LIMITE_TITULO}
             />

@@ -4,6 +4,7 @@ export const runtime = 'nodejs';
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { idDeBusca } from '@/lib/busca-numerica';
+import { getProductSearchTokens, matchesProductSearch } from '@/lib/product-search';
 import { requireEstoqueAccess, requireEstoqueCreate } from "@/app/api/_authz/perms";
 
 /** Status de estoque (para filtros do GET) */
@@ -118,30 +119,7 @@ function sanitizeProdutoPayload(body: any, { strict }: { strict: boolean }) {
 
 /* ========================= GET (lista paginada) ========================= */
 
-export async function GET(req: Request) {
-  try {
-    await requireEstoqueAccess();
-    const { searchParams } = new URL(req.url);
-
-    const page = Math.max(Number(searchParams.get('page') ?? 1), 1);
-    const limitRaw =
-      searchParams.get('limit') ?? searchParams.get('pageSize') ?? '20';
-    const limit = Math.min(Math.max(Number(limitRaw), 1), 100);
-
-    const q = (searchParams.get('search') ?? searchParams.get('q') ?? '').trim();
-
-    const statusParam = (searchParams.get('status') ?? 'TODOS').toUpperCase();
-    const statusFilter = STATUS_SET.has(statusParam as Status)
-      ? (statusParam as Status)
-      : null;
-
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-
-    let query = supabaseAdmin
-      .from('produto')
-      .select(
-  `
+const SELECT_COLUMNS = `
   id,
   descricao,
   precovenda,
@@ -185,9 +163,49 @@ export async function GET(req: Request) {
   grupo_produto_id,
   tipo_unidade_id,
   conservacao
-  `,
-  { count: "exact" }
-)
+  `;
+
+const SEARCH_BATCH_SIZE = 1000;
+
+function paginatedResponse<T>(items: T[], total: number, page: number, limit: number, q: string) {
+  return NextResponse.json({
+    data: items,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      pageCount: items.length,
+      hasPrevPage: page > 1,
+      hasNextPage: page * limit < total,
+    },
+    filters: { search: q },
+  });
+}
+
+export async function GET(req: Request) {
+  try {
+    await requireEstoqueAccess();
+    const { searchParams } = new URL(req.url);
+
+    const page = Math.max(Number(searchParams.get('page') ?? 1), 1);
+    const limitRaw =
+      searchParams.get('limit') ?? searchParams.get('pageSize') ?? '20';
+    const limit = Math.min(Math.max(Number(limitRaw), 1), 100);
+
+    const q = (searchParams.get('search') ?? searchParams.get('q') ?? '').trim();
+
+    const statusParam = (searchParams.get('status') ?? 'TODOS').toUpperCase();
+    const statusFilter = STATUS_SET.has(statusParam as Status)
+      ? (statusParam as Status)
+      : null;
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    let query = supabaseAdmin
+      .from('produto')
+      .select(SELECT_COLUMNS, { count: "exact" })
       .eq('is_deleted', false)
       .order('id', { ascending: false })
       .range(from, to);
@@ -217,6 +235,43 @@ export async function GET(req: Request) {
       cleanQ = rawQ.replace(/^tag:\s*/i, '');
     }
 
+    // Texto livre segue a regra da lista de produtos: cada palavra precisa
+    // aparecer em algum campo, em qualquer ordem e sem diferenciar acento —
+    // "oleo 90" acha "ÓLEO SAE 90". O ilike procurava o termo inteiro, com
+    // acento, e não achava. Número, código e referência continuam indo direto
+    // ao banco, como na lista; o resto é filtrado aqui, em lotes.
+    const searchTokens = getProductSearchTokens(cleanQ);
+    const isDirectSearch =
+      /^\d+$/.test(cleanQ) ||
+      (/[a-z]/i.test(cleanQ) && /\d/.test(cleanQ) && /^[a-z0-9]+$/i.test(cleanQ)) ||
+      (searchTokens.length === 1 && searchTokens[0]?.structured);
+
+    if (cleanQ && !isExactIdOnly && !isExactEtiquetaOnly && !isDirectSearch) {
+      const matched: Record<string, unknown>[] = [];
+
+      for (let batchFrom = 0; ; batchFrom += SEARCH_BATCH_SIZE) {
+        let batchQuery = supabaseAdmin
+          .from('produto')
+          .select(SELECT_COLUMNS)
+          .eq('is_deleted', false)
+          .order('id', { ascending: false })
+          .range(batchFrom, batchFrom + SEARCH_BATCH_SIZE - 1);
+
+        if (statusFilter) {
+          batchQuery = batchQuery.eq('status_estoque', statusFilter);
+        }
+
+        const { data: batch, error: batchError } = await batchQuery;
+        if (batchError) throw batchError;
+        for (const product of (batch ?? []) as Record<string, unknown>[]) {
+          if (matchesProductSearch(product, searchTokens)) matched.push(product);
+        }
+        if ((batch?.length ?? 0) < SEARCH_BATCH_SIZE) break;
+      }
+
+      return paginatedResponse(matched.slice(from, from + limit), matched.length, page, limit, q);
+    }
+
     if (cleanQ) {
       if (isExactIdOnly) {
         query = query.eq('id', Number(cleanQ));
@@ -244,7 +299,7 @@ export async function GET(req: Request) {
     const { data, error, count } = await query;
     if (error) throw error;
 
-    let items = data ?? [];
+    const items = data ?? [];
 
     // Prioriza o produto com ID exato no topo da lista se a busca for por ID
     if (cleanQ && /^\d+$/.test(cleanQ) && !isExactEtiquetaOnly) {
@@ -265,26 +320,8 @@ export async function GET(req: Request) {
         items.unshift(exactItem);
       }
     }
-    const total = count ?? 0;
-    const totalPages = Math.max(1, Math.ceil(total / limit));
 
-    const pageCount = items.length;
-    const hasPrevPage = page > 1;
-    const hasNextPage = page * limit < total;
-
-    return NextResponse.json({
-      data: items,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages,
-        pageCount,
-        hasPrevPage,
-        hasNextPage,
-      },
-      filters: { search: q },
-    });
+    return paginatedResponse(items, count ?? 0, page, limit, q);
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || 'Erro ao listar produtos' },

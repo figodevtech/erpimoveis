@@ -5,6 +5,7 @@ import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { UppercaseInput } from "@/components/ui/uppercase-input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LABEL_SIZES, type LabelSizeKey } from "@/lib/etiquetas/label-sizes";
@@ -65,7 +66,7 @@ export default function EtiquetasPage() {
           <div className="grid gap-8 md:grid-cols-3">
             <div className="space-y-2">
               <Label htmlFor="prefixo">Prefixo</Label>
-              <Input id="prefixo" value={prefixo} onChange={(event) => setPrefixo(event.target.value.toLocaleUpperCase("pt-BR"))} placeholder="CX" className="rounded-none border-x-0 border-t-0 px-0 shadow-none focus-visible:ring-0" />
+              <UppercaseInput id="prefixo" value={prefixo} onValueChange={setPrefixo} placeholder="CX" className="rounded-none border-x-0 border-t-0 px-0 shadow-none focus-visible:ring-0" />
             </div>
             {apenasPrefixo ? (
               <div className="space-y-2">
