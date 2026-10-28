@@ -336,9 +336,73 @@ type QuantityPricingDetails = {
 
 type QuantityTierForm = { quantity: string; percentage: string };
 
-type CompatibilityOption = { id: string; name: string; metric: number };
+type CompatibilityOption = {
+  id: string;
+  name: string;
+  metric: number;
+  /** Só nos anos: modelos marcados que têm este ano no catálogo. */
+  modelIds?: string[];
+};
 type VehicleAttributeId = "BRAND" | "MODEL" | "VEHICLE_YEAR" | "SHORT_VERSION" | "ENGINE";
-type CompatibilitySelection = Partial<Record<VehicleAttributeId, CompatibilityOption>>;
+/** Modelo e ano aceitam mais de um valor; os demais atributos guardam no máximo um. */
+type CompatibilitySelection = Partial<Record<VehicleAttributeId, CompatibilityOption[]>>;
+
+const VEHICLE_ATTRIBUTE_ORDER: VehicleAttributeId[] = ["BRAND", "MODEL", "VEHICLE_YEAR", "SHORT_VERSION", "ENGINE"];
+const MULTIPLE_VEHICLE_ATTRIBUTES: VehicleAttributeId[] = ["MODEL", "VEHICLE_YEAR"];
+const VEHICLE_ATTRIBUTE_LABELS: Record<VehicleAttributeId, string> = {
+  BRAND: "Marca",
+  MODEL: "Modelo",
+  VEHICLE_YEAR: "Ano",
+  SHORT_VERSION: "Versão",
+  ENGINE: "Motor",
+};
+const VEHICLE_ATTRIBUTE_PREREQUISITE: Partial<Record<VehicleAttributeId, VehicleAttributeId>> = {
+  MODEL: "BRAND",
+  VEHICLE_YEAR: "MODEL",
+  SHORT_VERSION: "VEHICLE_YEAR",
+  ENGINE: "VEHICLE_YEAR",
+};
+
+function compatibilityAttributes(selection: CompatibilitySelection, except?: VehicleAttributeId) {
+  return VEHICLE_ATTRIBUTE_ORDER
+    .filter((id) => id !== except && selection[id]?.length)
+    .map((id) => ({ id, value_id: selection[id]![0].id, value_name: selection[id]![0].name }));
+}
+
+/**
+ * Cada combinação de modelo e ano vira uma família própria no Mercado Livre.
+ * Ano que não existe num modelo fica de fora só para esse modelo.
+ */
+function splitCompatibilitySelection(selection: CompatibilitySelection): CompatibilitySelection[] {
+  const models = selection.MODEL?.length ? selection.MODEL : [undefined];
+  return models.flatMap((model) => {
+    const single = model ? { ...selection, MODEL: [model] } : selection;
+    if (!selection.VEHICLE_YEAR?.length) return [single];
+    return selection.VEHICLE_YEAR
+      .filter((year) => !model || !year.modelIds || year.modelIds.includes(model.id))
+      .map((year) => ({ ...single, VEHICLE_YEAR: [year] }));
+  });
+}
+
+function compareYearsDesc(a: CompatibilityOption, b: CompatibilityOption) {
+  return b.name.localeCompare(a.name, "pt-BR", { numeric: true });
+}
+
+/** "2008 a 2011, 2014": anos seguidos viram intervalo. */
+function formatCompatibilityYears(years: CompatibilityOption[]) {
+  const numbers = years.map((year) => Number(year.name));
+  if (numbers.some((year) => !Number.isInteger(year))) return years.map((year) => year.name).join(", ");
+  const sorted = [...numbers].sort((a, b) => a - b);
+  const ranges: string[] = [];
+  for (let start = 0; start < sorted.length; ) {
+    let end = start;
+    while (end + 1 < sorted.length && sorted[end + 1] === sorted[end] + 1) end += 1;
+    ranges.push(end > start ? `${sorted[start]} a ${sorted[end]}` : String(sorted[start]));
+    start = end + 1;
+  }
+  return ranges.join(", ");
+}
+
 type CompatibilityDetails = {
   itemId: string;
   title: string;
@@ -955,17 +1019,26 @@ function CompatibilityOptionInput({
   label,
   options,
   selected,
+  multiple = false,
+  summary,
+  describe,
   disabled,
   loading,
   placeholder,
+  onOpen,
   onSelect,
 }: {
   label: string;
   options: CompatibilityOption[];
-  selected?: CompatibilityOption;
+  selected: CompatibilityOption[];
+  /** Mantém a lista aberta e alterna cada opção clicada. */
+  multiple?: boolean;
+  summary?: string;
+  describe?: (option: CompatibilityOption) => string | undefined;
   disabled: boolean;
   loading: boolean;
   placeholder: string;
+  onOpen?: () => void;
   onSelect: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -976,13 +1049,22 @@ function CompatibilityOptionInput({
     .slice(0, 120);
 
   return (
-    <Popover open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) setQuery(""); }}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) onOpen?.();
+        else setQuery("");
+      }}
+    >
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" className="h-10 w-full justify-between px-3 font-normal" disabled={disabled || loading}>
           {loading ? (
             <span className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Carregando...</span>
           ) : (
-            <span className={cn("truncate", !selected && "text-muted-foreground")}>{selected?.name || placeholder}</span>
+            <span className={cn("truncate", !selected.length && "text-muted-foreground")}>
+              {selected.length ? summary || selected.map((option) => option.name).join(", ") : placeholder}
+            </span>
           )}
           {!loading ? <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" /> : null}
         </Button>
@@ -991,21 +1073,45 @@ function CompatibilityOptionInput({
         <Command shouldFilter={false}>
           <CommandInput value={query} onValueChange={setQuery} placeholder={`Buscar ${label.toLowerCase()}`} />
           <CommandList className="max-h-72">
-            <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando...
+              </div>
+            ) : (
+              <CommandEmpty>Nenhuma opção encontrada.</CommandEmpty>
+            )}
             <CommandGroup>
-              {filtered.map((option) => (
-                <CommandItem
-                  key={option.id}
-                  value={`${option.name} ${option.id}`}
-                  onSelect={() => { onSelect(option.id); setOpen(false); setQuery(""); }}
-                >
-                  <Check className={cn("mr-2 h-4 w-4", selected?.id === option.id ? "opacity-100" : "opacity-0")} />
-                  <span className="truncate">{option.name}</span>
-                </CommandItem>
-              ))}
+              {filtered.map((option) => {
+                const hint = describe?.(option);
+                return (
+                  <CommandItem
+                    key={option.id}
+                    value={`${option.name} ${option.id}`}
+                    onSelect={() => {
+                      onSelect(option.id);
+                      if (multiple) return;
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                  >
+                    <Check className={cn("mr-2 h-4 w-4 shrink-0", selected.some((candidate) => candidate.id === option.id) ? "opacity-100" : "opacity-0")} />
+                    <span className="truncate">{option.name}</span>
+                    {hint ? <span className="ml-auto truncate pl-2 text-xs text-muted-foreground">{hint}</span> : null}
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>
+        {multiple ? (
+          <div className="flex items-center justify-between gap-2 border-t px-3 py-2">
+            <span className="text-xs text-muted-foreground">{selected.length} selecionado(s)</span>
+            <Button type="button" size="sm" onClick={() => { setOpen(false); setQuery(""); }}>
+              Concluir
+            </Button>
+          </div>
+        ) : null}
       </PopoverContent>
     </Popover>
   );
@@ -1941,7 +2047,13 @@ export default function MarketplacePage() {
   const [quantityTiers, setQuantityTiers] = useState<QuantityTierForm[]>([]);
   const [compatibilityDialogOpen, setCompatibilityDialogOpen] = useState(false);
   const [loadingCompatibilities, setLoadingCompatibilities] = useState(false);
+  const [refreshingCompatibilities, setRefreshingCompatibilities] = useState(false);
   const [savingCompatibility, setSavingCompatibility] = useState(false);
+  // Opções do catálogo de veículos não dependem do anúncio; a promessa fica guardada
+  // para que marcar vários anos não repita a mesma consulta ao Mercado Livre.
+  const compatibilityOptionsCacheRef = useRef(new Map<string, Promise<CompatibilityOption[]>>());
+  const compatibilityOptionsSeqRef = useRef(0);
+  const compatibilityOptionsLatestRef = useRef<Partial<Record<VehicleAttributeId, number>>>({});
   const [compatibilityDetails, setCompatibilityDetails] = useState<CompatibilityDetails | null>(null);
   const [compatibilitySelection, setCompatibilitySelection] = useState<CompatibilitySelection>({});
   const [compatibilityOptions, setCompatibilityOptions] = useState<Partial<Record<VehicleAttributeId, CompatibilityOption[]>>>({});
@@ -3769,51 +3881,114 @@ export default function MarketplacePage() {
     }
   }
 
+  const compatibilityApplications = splitCompatibilitySelection(compatibilitySelection);
+  const modelsWithoutYear = compatibilitySelection.VEHICLE_YEAR?.length
+    ? (compatibilitySelection.MODEL ?? []).filter(
+        (model) => !compatibilityApplications.some((application) => application.MODEL?.[0]?.id === model.id),
+      )
+    : [];
+
+  function fetchCompatibilityOptions(
+    itemId: string,
+    attributeId: VehicleAttributeId,
+    knownAttributes: ReturnType<typeof compatibilityAttributes>,
+  ) {
+    const key = JSON.stringify([attributeId, knownAttributes.map((attribute) => [attribute.id, attribute.value_id])]);
+    const cache = compatibilityOptionsCacheRef.current;
+    const cached = cache.get(key);
+    if (cached) return cached;
+    const request = fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}/compatibilities`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "options", attributeId, knownAttributes }),
+    }).then(async (response) => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.error || "Falha ao consultar opções de veículos.");
+      return (Array.isArray(data?.options) ? data.options : []) as CompatibilityOption[];
+    });
+    cache.set(key, request);
+    request.catch(() => {
+      if (cache.get(key) === request) cache.delete(key);
+    });
+    return request;
+  }
+
+  function discardCompatibilityOptions(attributeIds: VehicleAttributeId[]) {
+    for (const attributeId of attributeIds) delete compatibilityOptionsLatestRef.current[attributeId];
+    const drop = <T,>(current: Partial<Record<VehicleAttributeId, T>>) => {
+      const next = { ...current };
+      for (const attributeId of attributeIds) delete next[attributeId];
+      return next;
+    };
+    setCompatibilityOptions(drop);
+    setLoadingCompatibilityOptions(drop);
+  }
+
   async function loadCompatibilityOptions(
     itemId: string,
     attributeId: VehicleAttributeId,
     selection: CompatibilitySelection,
   ) {
+    const request = ++compatibilityOptionsSeqRef.current;
+    compatibilityOptionsLatestRef.current[attributeId] = request;
+    const isLatest = () => compatibilityOptionsLatestRef.current[attributeId] === request;
     setLoadingCompatibilityOptions((current) => ({ ...current, [attributeId]: true }));
     try {
-      const knownAttributes = (["BRAND", "MODEL", "VEHICLE_YEAR", "SHORT_VERSION", "ENGINE"] as VehicleAttributeId[])
-        .filter((id) => id !== attributeId && selection[id])
-        .map((id) => ({ id, value_id: selection[id]!.id, value_name: selection[id]!.name }));
-      const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}/compatibilities`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "options", attributeId, knownAttributes }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.error || "Falha ao consultar opções de veículos.");
-      setCompatibilityOptions((current) => ({ ...current, [attributeId]: Array.isArray(data?.options) ? data.options : [] }));
+      const combinations = splitCompatibilitySelection(selection);
+      const lists = await Promise.all(
+        combinations.map((single) => fetchCompatibilityOptions(itemId, attributeId, compatibilityAttributes(single, attributeId))),
+      );
+      if (!isLatest()) return;
+      let options: CompatibilityOption[];
+      if (attributeId === "VEHICLE_YEAR") {
+        // Ano vale se existir em qualquer modelo marcado; guarda em quais existe para montar as combinações.
+        const years = new Map<string, CompatibilityOption>();
+        lists.forEach((list, index) => {
+          const modelId = combinations[index].MODEL?.[0]?.id;
+          for (const option of list) {
+            const year = years.get(option.id) ?? { ...option, modelIds: [] };
+            if (modelId) year.modelIds!.push(modelId);
+            years.set(option.id, year);
+          }
+        });
+        options = [...years.values()].sort(compareYearsDesc);
+      } else {
+        // Versão e motor só servem se existirem em todas as combinações de modelo e ano.
+        const [first = [], ...rest] = lists;
+        options = first.filter((option) => rest.every((list) => list.some((candidate) => candidate.id === option.id)));
+      }
+      setCompatibilityOptions((current) => ({ ...current, [attributeId]: options }));
     } catch (error) {
-      toast.error(marketplaceErrorMessage(error, "Falha ao consultar opções de veículos."));
+      if (isLatest()) toast.error(marketplaceErrorMessage(error, "Falha ao consultar opções de veículos."));
     } finally {
-      setLoadingCompatibilityOptions((current) => ({ ...current, [attributeId]: false }));
+      if (isLatest()) setLoadingCompatibilityOptions((current) => ({ ...current, [attributeId]: false }));
     }
   }
 
-  async function loadCompatibilities(itemId: string) {
-    setLoadingCompatibilities(true);
+  /** Em segundo plano a lista atual continua na tela e o cadastro segue liberado. */
+  async function loadCompatibilities(itemId: string, background = false) {
+    if (background) setRefreshingCompatibilities(true);
+    else setLoadingCompatibilities(true);
     try {
       const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}/compatibilities`, { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || "Falha ao consultar compatibilidades.");
-      setCompatibilityDetails(data);
+      setCompatibilityDetails((current) => (background && current?.itemId !== itemId ? current : data));
       return data as CompatibilityDetails;
     } catch (error) {
       toast.error(marketplaceErrorMessage(error, "Falha ao consultar compatibilidades."));
-      setCompatibilityDialogOpen(false);
+      if (!background) setCompatibilityDialogOpen(false);
       return null;
     } finally {
-      setLoadingCompatibilities(false);
+      if (background) setRefreshingCompatibilities(false);
+      else setLoadingCompatibilities(false);
     }
   }
 
   async function openCompatibilities(product: ProductRow) {
     const itemId = product.mercadolivre?.ml_item_id;
     if (!itemId) return;
+    compatibilityOptionsLatestRef.current = {};
     setCompatibilityDetails(null);
     setCompatibilitySelection({});
     setCompatibilityOptions({});
@@ -3824,46 +3999,57 @@ export default function MarketplacePage() {
     if (details?.available) void loadCompatibilityOptions(itemId, "BRAND", {});
   }
 
-  async function selectCompatibilityOption(attributeId: VehicleAttributeId, optionId: string) {
+  function selectCompatibilityOption(attributeId: VehicleAttributeId, optionId: string) {
     const option = compatibilityOptions[attributeId]?.find((candidate) => candidate.id === optionId);
     if (!option || !compatibilityDetails) return;
-    const order: VehicleAttributeId[] = ["BRAND", "MODEL", "VEHICLE_YEAR", "SHORT_VERSION", "ENGINE"];
-    const index = order.indexOf(attributeId);
-    const nextSelection = { ...compatibilitySelection, [attributeId]: option };
-    for (const dependent of order.slice(index + 1)) delete nextSelection[dependent];
+    const index = VEHICLE_ATTRIBUTE_ORDER.indexOf(attributeId);
+    const dependents = VEHICLE_ATTRIBUTE_ORDER.slice(index + 1);
+    const current = compatibilitySelection[attributeId] ?? [];
+    const values = !MULTIPLE_VEHICLE_ATTRIBUTES.includes(attributeId)
+      ? [option]
+      : current.some((candidate) => candidate.id === option.id)
+        ? current.filter((candidate) => candidate.id !== option.id)
+        : [...current, option];
+    if (attributeId === "VEHICLE_YEAR") values.sort(compareYearsDesc);
+    const nextSelection = { ...compatibilitySelection, [attributeId]: values };
+    for (const dependent of dependents) delete nextSelection[dependent];
     setCompatibilitySelection(nextSelection);
-    setCompatibilityOptions((current) => {
-      const next = { ...current };
-      for (const dependent of order.slice(index + 1)) delete next[dependent];
-      return next;
-    });
-    const nextAttribute = order[index + 1];
-    if (nextAttribute) void loadCompatibilityOptions(compatibilityDetails.itemId, nextAttribute, nextSelection);
-    if (attributeId === "VEHICLE_YEAR") {
-      void loadCompatibilityOptions(compatibilityDetails.itemId, "ENGINE", nextSelection);
+    discardCompatibilityOptions(dependents);
+    if (!values.length) return;
+    const toLoad = attributeId === "VEHICLE_YEAR" ? (["SHORT_VERSION", "ENGINE"] as VehicleAttributeId[]) : dependents.slice(0, 1);
+    // Versão e motor custam uma consulta por combinação de modelo e ano; com mais de uma, esperam a lista ser aberta.
+    const combined = splitCompatibilitySelection(nextSelection).length > 1;
+    for (const dependent of toLoad) {
+      if (combined && (dependent === "SHORT_VERSION" || dependent === "ENGINE")) continue;
+      void loadCompatibilityOptions(compatibilityDetails.itemId, dependent, nextSelection);
     }
   }
 
+  /** Busca ao abrir a lista o que ainda não foi carregado (ou falhou da última vez). */
+  function openCompatibilityOptions(attributeId: VehicleAttributeId) {
+    if (!compatibilityDetails || compatibilityOptions[attributeId] || loadingCompatibilityOptions[attributeId]) return;
+    void loadCompatibilityOptions(compatibilityDetails.itemId, attributeId, compatibilitySelection);
+  }
+
   async function addCompatibility() {
-    if (!compatibilityDetails || !compatibilitySelection.BRAND || !compatibilitySelection.MODEL) return;
+    if (!compatibilityDetails || !compatibilitySelection.BRAND?.length || !compatibilitySelection.MODEL?.length) return;
+    const itemId = compatibilityDetails.itemId;
     setSavingCompatibility(true);
     try {
-      const attributes = (["BRAND", "MODEL", "VEHICLE_YEAR", "SHORT_VERSION", "ENGINE"] as VehicleAttributeId[])
-        .filter((id) => compatibilitySelection[id])
-        .map((id) => ({ id, value_id: compatibilitySelection[id]!.id, value_name: compatibilitySelection[id]!.name }));
-      const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(compatibilityDetails.itemId)}/compatibilities`, {
+      const families = compatibilityApplications.map((single) => compatibilityAttributes(single));
+      const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}/compatibilities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add", attributes, note: compatibilityNote }),
+        body: JSON.stringify({ action: "add", families, note: compatibilityNote }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || "Falha ao adicionar compatibilidade.");
       toast.success(data?.created > 1 ? `${data.created} veículos compatíveis foram adicionados.` : "Compatibilidade adicionada.");
-      setCompatibilitySelection({});
-      setCompatibilityOptions({});
+      // Marca e modelo ficam para o próximo cadastro; ano, versão e motor recomeçam.
+      setCompatibilitySelection({ BRAND: compatibilitySelection.BRAND, MODEL: compatibilitySelection.MODEL });
+      discardCompatibilityOptions(["SHORT_VERSION", "ENGINE"]);
       setCompatibilityNote("");
-      await loadCompatibilities(compatibilityDetails.itemId);
-      void loadCompatibilityOptions(compatibilityDetails.itemId, "BRAND", {});
+      void loadCompatibilities(itemId, true);
     } catch (error) {
       toast.error(marketplaceErrorMessage(error, "Falha ao adicionar compatibilidade."));
     } finally {
@@ -3873,9 +4059,10 @@ export default function MarketplacePage() {
 
   async function removeCompatibility(catalogProductId: string) {
     if (!compatibilityDetails) return;
+    const itemId = compatibilityDetails.itemId;
     setSavingCompatibility(true);
     try {
-      const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(compatibilityDetails.itemId)}/compatibilities`, {
+      const response = await fetch(`/api/integracoes/mercadolivre/items/${encodeURIComponent(itemId)}/compatibilities`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ catalogProductId }),
@@ -3883,7 +4070,12 @@ export default function MarketplacePage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error || "Falha ao remover compatibilidade.");
       toast.success("Compatibilidade removida.");
-      await loadCompatibilities(compatibilityDetails.itemId);
+      setCompatibilityDetails((current) =>
+        current?.itemId === itemId
+          ? { ...current, products: current.products.filter((entry) => entry.catalogProductId !== catalogProductId) }
+          : current,
+      );
+      void loadCompatibilities(itemId, true);
     } catch (error) {
       toast.error(marketplaceErrorMessage(error, "Falha ao remover compatibilidade."));
     } finally {
@@ -6251,38 +6443,60 @@ export default function MarketplacePage() {
                       <h3 className="font-medium">Adicionar aplicação</h3>
                       <p className="text-xs text-muted-foreground">
                         Marca e modelo são obrigatórios. Ano, versão e motor refinam a aplicação e evitam indicar veículos incorretos.
+                        Marque vários modelos e anos de uma vez: cada modelo recebe os anos marcados que existem nele.
                       </p>
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                      {([
-                        ["BRAND", "Marca", true],
-                        ["MODEL", "Modelo", true],
-                        ["VEHICLE_YEAR", "Ano", false],
-                        ["SHORT_VERSION", "Versão", false],
-                        ["ENGINE", "Motor", false],
-                      ] as Array<[VehicleAttributeId, string, boolean]>).map(([attributeId, label, required]) => {
-                        const prerequisite: Partial<Record<VehicleAttributeId, VehicleAttributeId>> = {
-                          MODEL: "BRAND",
-                          VEHICLE_YEAR: "MODEL",
-                          SHORT_VERSION: "VEHICLE_YEAR",
-                          ENGINE: "VEHICLE_YEAR",
-                        };
-                        const disabled = Boolean(prerequisite[attributeId] && !compatibilitySelection[prerequisite[attributeId]!]);
+                      {VEHICLE_ATTRIBUTE_ORDER.map((attributeId) => {
+                        const label = VEHICLE_ATTRIBUTE_LABELS[attributeId];
+                        const required = attributeId === "BRAND" || attributeId === "MODEL";
+                        const multiple = MULTIPLE_VEHICLE_ATTRIBUTES.includes(attributeId);
+                        const prerequisite = VEHICLE_ATTRIBUTE_PREREQUISITE[attributeId];
+                        const disabled = Boolean(prerequisite && !compatibilitySelection[prerequisite]?.length);
                         const options = compatibilityOptions[attributeId] ?? [];
+                        const selected = compatibilitySelection[attributeId] ?? [];
+                        const models = compatibilitySelection.MODEL ?? [];
                         return (
                           <div key={attributeId} className="min-w-0 space-y-2">
                             <Label>{label}{required ? <span className="ml-1 text-destructive">*</span> : null}</Label>
                             <CompatibilityOptionInput
                               label={label}
                               options={options}
-                              selected={compatibilitySelection[attributeId]}
+                              selected={selected}
+                              multiple={multiple}
+                              summary={attributeId === "VEHICLE_YEAR" ? formatCompatibilityYears(selected) : undefined}
+                              describe={
+                                attributeId === "VEHICLE_YEAR" && models.length > 1
+                                  ? (option) => {
+                                      const owners = models.filter((model) => option.modelIds?.includes(model.id));
+                                      return owners.length < models.length ? `só ${owners.map((model) => model.name).join(", ")}` : undefined;
+                                    }
+                                  : undefined
+                              }
                               disabled={disabled || savingCompatibility}
                               loading={Boolean(loadingCompatibilityOptions[attributeId])}
-                              placeholder={disabled ? `Selecione ${String(prerequisite[attributeId] ?? "").toLowerCase()} antes` : `Selecione ${label.toLowerCase()}`}
-                              onSelect={(value) => void selectCompatibilityOption(attributeId, value)}
+                              placeholder={
+                                prerequisite && disabled
+                                  ? `Selecione ${VEHICLE_ATTRIBUTE_LABELS[prerequisite].toLowerCase()} antes`
+                                  : multiple ? `Selecione um ou mais ${label.toLowerCase()}s` : `Selecione ${label.toLowerCase()}`
+                              }
+                              onOpen={() => openCompatibilityOptions(attributeId)}
+                              onSelect={(value) => selectCompatibilityOption(attributeId, value)}
                             />
-                            {!disabled && !loadingCompatibilityOptions[attributeId] && options.length === 0 ? (
-                              <p className="text-xs text-muted-foreground">Nenhuma opção retornada para este filtro.</p>
+                            {!disabled && !loadingCompatibilityOptions[attributeId] && compatibilityOptions[attributeId]?.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                {compatibilityApplications.length > 1 && (attributeId === "SHORT_VERSION" || attributeId === "ENGINE")
+                                  ? "Nenhuma opção comum a todos os modelos e anos marcados."
+                                  : "Nenhuma opção retornada para este filtro."}
+                              </p>
+                            ) : null}
+                            {attributeId === "VEHICLE_YEAR" && modelsWithoutYear.length ? (
+                              <p className="text-xs text-amber-600">
+                                {modelsWithoutYear.map((model) => model.name).join(", ")}{" "}
+                                {modelsWithoutYear.length > 1
+                                  ? "não têm nenhum dos anos marcados e ficarão de fora."
+                                  : "não tem nenhum dos anos marcados e ficará de fora."}
+                              </p>
                             ) : null}
                           </div>
                         );
@@ -6300,9 +6514,9 @@ export default function MarketplacePage() {
                       <p className="text-right text-xs text-muted-foreground">{compatibilityNote.length}/500</p>
                     </div>
                     <div className="flex justify-end">
-                      <Button className="w-full sm:w-auto" onClick={addCompatibility} disabled={savingCompatibility || !compatibilitySelection.BRAND || !compatibilitySelection.MODEL}>
+                      <Button className="w-full sm:w-auto" onClick={addCompatibility} disabled={savingCompatibility || !compatibilitySelection.BRAND?.length || !compatibilitySelection.MODEL?.length || !compatibilityApplications.length}>
                         {savingCompatibility ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                        Adicionar compatibilidade
+                        {compatibilityApplications.length > 1 ? `Adicionar ${compatibilityApplications.length} aplicações` : "Adicionar compatibilidade"}
                       </Button>
                     </div>
                   </section>
@@ -6316,7 +6530,10 @@ export default function MarketplacePage() {
                         As criadas pelo vendedor podem ser removidas no ERP. As originadas do catálogo são somente leitura.
                       </p>
                     </div>
-                    <Badge variant="outline">{compatibilityDetails.products.reduce((total, entry) => total + Math.max(entry.total, 1), 0)} veículo(s)</Badge>
+                    <div className="flex items-center gap-2">
+                      {refreshingCompatibilities ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label="Atualizando lista" /> : null}
+                      <Badge variant="outline">{compatibilityDetails.products.reduce((total, entry) => total + Math.max(entry.total, 1), 0)} veículo(s)</Badge>
+                    </div>
                   </div>
                   {compatibilityDetails.products.length ? (
                     <div className="divide-y rounded-lg border">

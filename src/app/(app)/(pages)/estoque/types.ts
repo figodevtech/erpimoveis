@@ -186,6 +186,9 @@ export interface Pagination {
   pageCount?: number;
 }
 
+/** Valores de produto.canais_anuncio no banco. */
+export type CanalAnuncio = "SITE" | "MERCADO_LIVRE" | "SHOPEE";
+
 export interface ProductListFilters {
   grupoId: string;
   conservacao: string;
@@ -198,4 +201,6 @@ export interface ProductListFilters {
   estoqueMax: string;
   precoMin: string;
   precoMax: string;
+  /** Anunciado em pelo menos um destes canais. Vazio: todos os produtos. */
+  canais: CanalAnuncio[];
 }

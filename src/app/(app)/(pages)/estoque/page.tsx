@@ -61,6 +61,7 @@ export default function EstoquePage() {
           estoqueMax: filters?.estoqueMax || undefined,
           precoMin: filters?.precoMin || undefined,
           precoMax: filters?.precoMax || undefined,
+          canais: filters?.canais?.length ? filters.canais.join(",") : undefined,
         },
       });
       if (response.status === 200 && requestId === latestProductsRequestRef.current) {

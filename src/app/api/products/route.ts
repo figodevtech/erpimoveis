@@ -12,6 +12,8 @@ import { auth } from "@/lib/auth";
 type Status = 'OK' | 'CRITICO' | 'BAIXO' | 'SEM_ESTOQUE';
 const STATUS_SET = new Set<Status>(['OK', 'CRITICO', 'BAIXO', 'SEM_ESTOQUE']);
 const CONSERVACAO_SET = new Set(['NOVO', 'USADO', 'RECONDICIONADO']);
+/** Valores de produto.canais_anuncio (campo calculado no banco). */
+const CANAL_ANUNCIO_SET = new Set(['SITE', 'MERCADO_LIVRE', 'SHOPEE']);
 
 type ProductQueryFilters = {
   grupoId: number | null;
@@ -26,6 +28,8 @@ type ProductQueryFilters = {
   estoqueMax: number | null;
   precoMin: number | null;
   precoMax: number | null;
+  /** Anunciado em pelo menos um destes canais. Vazio: não filtra. */
+  canais: string[];
 };
 
 function finiteNumber(value: string | null) {
@@ -49,6 +53,9 @@ function applyProductFilters(query: any, filters: ProductQueryFilters) {
   if (filters.estoqueMax != null) query = query.lte('estoque', filters.estoqueMax);
   if (filters.precoMin != null) query = query.gte('precovenda', filters.precoMin);
   if (filters.precoMax != null) query = query.lte('precovenda', filters.precoMax);
+  // O site publica todo produto novo, entao a lista de ids anunciados cresce com
+  // o catalogo: o filtro vai pelo campo calculado, sem ids na URL.
+  if (filters.canais.length) query = query.overlaps('canais_anuncio', filters.canais);
   return query;
 }
 
@@ -355,6 +362,12 @@ export async function GET(req: Request) {
       estoqueMax: finiteNumber(searchParams.get('estoqueMax')),
       precoMin: finiteNumber(searchParams.get('precoMin')),
       precoMax: finiteNumber(searchParams.get('precoMax')),
+      canais: Array.from(new Set(
+        (searchParams.get('canais') ?? '')
+          .split(',')
+          .map((canal) => canal.trim().toUpperCase())
+          .filter((canal) => CANAL_ANUNCIO_SET.has(canal)),
+      )),
     };
 
     if (q) {

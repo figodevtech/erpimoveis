@@ -1,13 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { SlidersHorizontal } from "lucide-react";
+import { Check, ChevronsUpDown, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Command, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import type { ProductListFilters } from "../types";
+import type { CanalAnuncio, ProductListFilters } from "../types";
 import { useGruposProduto } from "./dialog-produto/hooks/use-grupo-produtos";
 import { useUnidadesMedida } from "./dialog-produto/hooks/use-unidades-medida";
 import { SearchCombobox } from "../../(financeiro)/fluxodecaixa/components/search-combobox";
@@ -24,7 +27,71 @@ export const EMPTY_PRODUCT_FILTERS: ProductListFilters = {
   estoqueMax: "",
   precoMin: "",
   precoMax: "",
+  canais: [],
 };
+
+const SHOPEE_ATIVA = process.env.NEXT_PUBLIC_SHOPEE_INTEGRATION_ENABLED === "true";
+
+// O que conta como anunciado vem de produto.canais_anuncio no banco: site com a
+// publicação ativa, Mercado Livre e Shopee pelo vínculo do anúncio. A Shopee só
+// aparece com a integração ligada, como no Marketplace.
+const CANAIS_ANUNCIO: { value: CanalAnuncio; label: string }[] = [
+  { value: "SITE", label: "Site" },
+  { value: "MERCADO_LIVRE", label: "Mercado Livre" },
+  ...(SHOPEE_ATIVA ? [{ value: "SHOPEE" as const, label: "Shopee" }] : []),
+];
+
+function CanaisAnuncioSelect({
+  value,
+  onChange,
+}: {
+  value: CanalAnuncio[];
+  onChange: (value: CanalAnuncio[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selecionados = new Set(value);
+  const resumo = value.length
+    ? CANAIS_ANUNCIO.filter((canal) => selecionados.has(canal.value)).map((canal) => canal.label).join(", ")
+    : "Todos os produtos";
+
+  const alternar = (canal: CanalAnuncio) =>
+    onChange(selecionados.has(canal) ? value.filter((item) => item !== canal) : [...value, canal]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen} modal>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" role="combobox" aria-expanded={open} className="w-full justify-between font-normal">
+          <span className="truncate">{resumo}</span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="p-0" align="start" style={{ width: "var(--radix-popover-trigger-width)" }}>
+        <Command>
+          <CommandList>
+            <CommandGroup>
+              <CommandItem value="todos" className="hover:cursor-pointer" onSelect={() => onChange([])}>
+                <span className={value.length === 0 ? "font-medium" : ""}>Todos os produtos</span>
+                <Check className={`ml-auto h-4 w-4 ${value.length === 0 ? "opacity-100" : "opacity-0"}`} />
+              </CommandItem>
+              {CANAIS_ANUNCIO.map((canal) => (
+                <CommandItem
+                  key={canal.value}
+                  value={canal.label}
+                  className="flex items-center gap-2 hover:cursor-pointer"
+                  onSelect={() => alternar(canal.value)}
+                >
+                  {/* Só mostra o estado: o clique é do item, senão alternaria duas vezes. */}
+                  <Checkbox checked={selecionados.has(canal.value)} tabIndex={-1} className="pointer-events-none" />
+                  <span className={selecionados.has(canal.value) ? "font-medium" : ""}>{canal.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 interface ProdutoFiltrosSheetProps {
   filters: ProductListFilters;
@@ -38,11 +105,14 @@ export function ProdutoFiltrosSheet({ filters, onApply }: ProdutoFiltrosSheetPro
   const { unidades, loadingUnidades } = useUnidadesMedida(open);
 
   const activeCount = useMemo(
-    () => Object.values(filters).filter((value) => value.trim() !== "").length,
+    () =>
+      Object.values(filters).filter((value) =>
+        Array.isArray(value) ? value.length > 0 : value.trim() !== "",
+      ).length,
     [filters],
   );
 
-  const update = (field: keyof ProductListFilters, value: string) => {
+  const update = (field: Exclude<keyof ProductListFilters, "canais">, value: string) => {
     setDraft((current) => ({ ...current, [field]: value }));
   };
 
@@ -139,6 +209,17 @@ export function ProdutoFiltrosSheet({ filters, onApply }: ProdutoFiltrosSheetPro
               <div className="space-y-2">
                 <Label htmlFor="produto-local">Localização</Label>
                 <Input id="produto-local" value={draft.local} onChange={(e) => update("local", e.target.value)} placeholder="Prateleira, corredor..." />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Anunciado em</Label>
+                <CanaisAnuncioSelect
+                  value={draft.canais}
+                  onChange={(canais) => setDraft((current) => ({ ...current, canais }))}
+                />
+                {draft.canais.length > 1 && (
+                  <p className="text-xs text-muted-foreground">Mostra os produtos anunciados em qualquer um dos canais marcados.</p>
+                )}
               </div>
 
               <div className="space-y-2">
