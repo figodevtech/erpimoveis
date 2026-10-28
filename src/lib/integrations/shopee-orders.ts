@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getShopeeAccount, type ShopeeAccount } from "@/lib/integrations/shopee-account";
 import { shopeeShopApi } from "@/lib/integrations/shopee";
+import { entregaAvancada, entregaDoPedidoShopee } from "@/lib/integrations/shopee-order-delivery";
 
 type ShopeeOrder = {
   order_sn: string;
@@ -141,7 +142,7 @@ export async function importShopeeOrder(account: ShopeeAccount, order: ShopeeOrd
         clienteId,
         status,
         canal: "SHOPEE",
-        statusEntrega: status === "FINALIZADA" ? "SEPARACAO" : null,
+        statusEntrega: status === "FINALIZADA" ? entregaDoPedidoShopee(order.order_status) : null,
         valorTotal: total,
         subTotal: total,
         descontoTipo: null,
@@ -260,9 +261,9 @@ async function getPlaceholderProduct() {
 
 async function updateVendaStatus(vendaId: number, order: ShopeeOrder) {
   const status = mapOrderStatus(order.order_status);
+  const atual = await supabaseAdmin.from("venda").select("status, status_entrega").eq("id", vendaId).maybeSingle();
+  if (atual.error) throw atual.error;
   if (status === "CANCELADA") {
-    const atual = await supabaseAdmin.from("venda").select("status").eq("id", vendaId).maybeSingle();
-    if (atual.error) throw atual.error;
     if (!["CANCELADA", "CANCELADO"].includes(String(atual.data?.status ?? "").toUpperCase())) {
       const cancelamento = await supabaseAdmin.rpc("cancelar_venda", {
         p_venda_id: vendaId,
@@ -272,8 +273,13 @@ async function updateVendaStatus(vendaId: number, order: ShopeeOrder) {
       if (cancelamento.error) throw cancelamento.error;
     }
   }
+  // A venda só finaliza entregue, e a Shopee é quem sabe da entrega.
+  const entrega = status === "FINALIZADA"
+    ? entregaAvancada(atual.data?.status_entrega, entregaDoPedidoShopee(order.order_status))
+    : null;
   const { error } = await supabaseAdmin.from("venda").update({
     status,
+    ...(entrega ? { status_entrega: entrega } : {}),
     ...(status === "CANCELADA"
       ? {
           status_entrega: null,

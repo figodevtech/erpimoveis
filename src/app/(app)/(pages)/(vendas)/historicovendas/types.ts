@@ -1,6 +1,7 @@
 import { Customer } from "../../clientes/types";
 import { Produto } from "../../estoque/types";
 import { Transaction } from "../../(financeiro)/fluxodecaixa/types";
+import type { PendenciaFinalizacao } from "@/lib/vendas/fase";
 
 export interface StatusMetrics {
   totalValor: number;
@@ -130,4 +131,6 @@ export interface Pagination {
 /** Dados usados pela tabela; formularios consultam a venda completa por id. */
 export type VendaResumo = Pick<VendaComItens, "id" | "status" | "valortotal" | "datavenda" | "canal" | "status_entrega"> & {
   cliente: Pick<Customer, "id" | "nomerazaosocial" | "telefone">;
+  /** O que falta para a venda paga sair de "Abertas"; ver lib/vendas/fase. */
+  pendencias_finalizacao?: PendenciaFinalizacao[];
 };

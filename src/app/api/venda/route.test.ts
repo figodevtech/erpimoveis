@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import ts from "typescript";
 import * as busca from "@/lib/vendas/busca";
+import * as fase from "@/lib/vendas/fase";
 import * as apiTiming from "@/lib/api-timing";
 
 const code = ts.transpileModule(readFileSync(path.join(process.cwd(), "src/app/api/venda/route.ts"), "utf8"), {
@@ -19,6 +20,7 @@ function loadRoute(fetch: typeof globalThis.fetch) {
     "@/lib/api-timing": apiTiming,
     "@/lib/supabaseAdmin": { supabaseAdmin: createClient("https://vendas.example.test", "test-key", { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch } }) },
     "@/lib/vendas/busca": busca,
+    "@/lib/vendas/fase": fase,
     "@/lib/auth": { auth: async () => ({ user: { id: "vendedor-logado" } }) },
     "@/app/api/_authz/perms": { requireVendasAccess: async () => {} },
     "@/lib/movement-authors": { carregarAutores: async () => new Map() },
@@ -107,4 +109,34 @@ test("historico resumido preserva filtros e paginacao sem consultar enriquecimen
   assert.ok(select.includes("busca_produtos:"));
   assert.ok(!select.includes("itens:"));
   assert.ok(!select.includes("transacoes:"));
+});
+
+test("aba do historico filtra antes da paginacao e diz o que falta ao pedido do Mercado Livre", async () => {
+  const urls: URL[] = [];
+  const GET = loadRoute(async (input) => {
+    const url = new URL(String(input)); urls.push(url);
+    return Response.json([
+      { id: 9, status: "FINALIZADA", canal: "MERCADO_LIVRE", status_entrega: "ENVIO", nfe_chave_acesso: null, filtro_fase_nota: [{ id: 3 }], filtro_fase_grupo: [] },
+      { id: 8, status: "PAGAMENTO", canal: "PDV", status_entrega: null, nfe_chave_acesso: null, filtro_fase_nota: [], filtro_fase_grupo: [] },
+    ], { headers: { "content-range": "0-1/2" } });
+  });
+  const response = await GET(new Request("https://app.test/api/venda?view=historico&fase=abertas&statusEntrega=ENVIO"));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.data.map((venda: any) => venda.pendencias_finalizacao), [["ENTREGA"], []]);
+  assert.equal(body.data[0].filtro_fase_nota, undefined);
+  const query = urls[0].searchParams;
+  assert.ok(query.getAll("or").includes(`(${fase.planoFaseVendas("ABERTAS").expressao})`));
+  assert.equal(query.get("filtro_fase_nota.or"), "(status.eq.AUTORIZADA)");
+  assert.equal(query.get("filtro_fase_grupo.nota.or"), "(status.eq.AUTORIZADA)");
+  assert.equal(query.get("status_entrega"), "eq.ENVIO");
+  assert.ok((query.get("select") ?? "").includes("filtro_fase_grupo:nfe_origem_vinculo!venda_id(nota:nfe_id!inner(id))"));
+});
+
+test("sem aba a lista continua com todas as vendas", async () => {
+  let query: URLSearchParams | undefined;
+  const GET = loadRoute(async (input) => { query = new URL(String(input)).searchParams; return Response.json([], { headers: { "content-range": "*/0" } }); });
+  await GET(new Request("https://app.test/api/venda?view=historico&fase=TODAS"));
+  assert.ok(!(query?.get("select") ?? "").includes("filtro_fase_"));
+  assert.deepEqual(query?.getAll("or"), []);
 });
