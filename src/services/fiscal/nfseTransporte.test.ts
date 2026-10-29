@@ -7,7 +7,6 @@ import { afterEach, describe, it, mock } from "node:test";
 import { NextRequest } from "next/server";
 
 import { BancoFalso } from "./__bancoFalso";
-import { POST as emitirDeOs } from "@/app/api/nfse/de-os/[id]/route";
 import { POST as reemitir } from "@/app/api/nfse/[id]/reemitir/route";
 import { POST as consultar } from "@/app/api/nfse/consultar/[id]/route";
 import { POST as cancelar } from "@/app/api/nfse/cancelar/[id]/route";
@@ -115,32 +114,6 @@ const DEMIR = {
   cnpj: "12260723000109", inscricaomunicipal: "1094653",
 };
 
-const CLIENTE = {
-  id: 1517, tipopessoa: "JURIDICA", cpfcnpj: "11444777000161", nomerazaosocial: "TOMADOR DE TESTE LTDA",
-  endereco: "RUA DE TESTE", endereconumero: "100", bairro: "CENTRO", codigomunicipio: "2933307", estado: "BA", cep: "45065075",
-};
-
-const OS_525 = {
-  id: 525, status: "CONCLUIDO", clienteid: CLIENTE.id, observacoes_fiscais: null, garantia: null, cliente: CLIENTE,
-  osservico: [
-    { servicoid: 12, quantidade: 1, precounitario: 300, subtotal: 300, servico: { id: 12, descricao: "TESTE COMPUTADORIZADO", itemlistaservico: "14.01" } },
-    { servicoid: 15, quantidade: 1, precounitario: 3500, subtotal: 3500, servico: { id: 15, descricao: "MAO DE OBRA PARTE ELETRICA", itemlistaservico: "14.01" } },
-  ],
-};
-
-const CODIGOS_DPS = {
-  codigo_tributacao_nacional_iss: "140101",
-  codigo_nbs: "120013110",
-  tributacao_iss: 1,
-  tipo_retencao_iss: 1,
-  finalidade_emissao: 0,
-  consumidor_final: 0,
-  indicador_destinatario: 0,
-  codigo_indicador_operacao: "050101",
-  ibs_cbs_situacao_tributaria: "000",
-  ibs_cbs_classificacao_tributaria: "000001",
-};
-
 function banco(semente: { empresa?: Record<string, unknown>; nfse?: Record<string, unknown>[] } = {}) {
   return new BancoFalso(
     {
@@ -151,12 +124,9 @@ function banco(semente: { empresa?: Record<string, unknown>; nfse?: Record<strin
         padroes_emissao: { NACIONAL: PADRAO_NACIONAL_DEMIR, MUNICIPAL_JOAO_PESSOA: PADRAO_JOAO_PESSOA },
         incluir_garantia_os: false,
       }],
-      ordemservico: [OS_525],
       config_geral: [],
       nfse: semente.nfse ?? [],
-      nfse_os_servico_vinculo: [],
     },
-    { vincular_nfse_os: () => ({}) },
   ).instalar();
 }
 
@@ -201,39 +171,6 @@ describe("Caso 1 — João Pessoa CRT 3 não vai para o Emissor Público Naciona
     assert.equal(transporte.motivoIndisponivel, null);
     assert.equal(transporte.autorizador, "FOCUS_FORMATO_NACIONAL_MUNICIPAL");
     assert.equal(transporte.modeloEmissao, "NACIONAL");
-  });
-
-  it("nova emissão da OS 525: PROCESSANDO → AUTORIZADA sem alterar a nota histórica 139", async () => {
-    fixarHoje();
-    const db = banco({ nfse: [structuredClone(NOTA_139)] });
-    const chamadas = focusFalsa({
-      POST: { status: "processando_autorizacao" },
-      GET: { ref: "x", status: "autorizado", numero: "999" },
-    });
-
-    const resposta = await emitirDeOs(
-      post("http://localhost/api/nfse/de-os/525", {
-        servicos: [{ osservicoId: 12, valor: 284.93 }, { osservicoId: 15, valor: 3324.11 }],
-        codigosFiscais: CODIGOS_DPS,
-      }),
-      { params: Promise.resolve({ id: "525" }) },
-    );
-    assert.equal(resposta.status, 202, JSON.stringify(await resposta.clone().json()));
-    assert.match(chamadas[0].url, /\/v2\/nfsen\?ref=OS_525_SRVS_12-15_/);
-
-    const nova = db.tabela("nfse").find((linha) => Number(linha.id) !== 139)!;
-    assert.equal(nova.status, "PROCESSANDO");
-    const id = Number(nova.id);
-    await consultar(post(`http://localhost/api/nfse/consultar/${id}`, {}), { params: Promise.resolve({ id: String(id) }) });
-    const linha = db.tabela("nfse").find((linha) => Number(linha.id) === id)!;
-    assert.equal(linha.modelo_emissao, "NACIONAL");
-    assert.equal(linha.status, "AUTORIZADA");
-    assert.equal(linha.erros, null);
-    assert.deepEqual(db.tabela("nfse").find((linha) => Number(linha.id) === 139), NOTA_139);
-    assert.deepEqual((linha.tentativas as Array<Record<string, unknown>>).map((t) => t.tipo), ["EMISSAO", "CONSULTA"]);
-    assert.deepEqual(chamadas.map((c) => c.metodo), ["POST", "GET"]);
-    assert.ok(chamadas.every((c) => c.url.includes("/v2/nfsen")));
-    assert.doesNotMatch(JSON.stringify(linha.tentativas), /token-de-teste/);
   });
 
   it("reenvio de tentativa sem E0039 aceita o autorizador municipal com formato nacional", () => {
@@ -354,41 +291,6 @@ describe("Caso 4 — E0039", () => {
 });
 
 describe("Caso 5 — observabilidade: cada chamada externa entra em tentativas", () => {
-  it("POST, GET, GET → 3 interações em ordem, sem token", async () => {
-    fixarHoje();
-    // MEI de Cabedelo: o caminho que de fato chega à Focus.
-    const db = banco({ empresa: { codigomunicipio: "2503209", regimetributario: "4" } });
-    const chamadas = focusFalsa({
-      POST: { status: "processando_autorizacao" },
-      GET: { status: "processando_autorizacao" },
-    });
-
-    const emissao = await emitirDeOs(
-      post("http://localhost/api/nfse/de-os/525", {
-        servicos: [{ osservicoId: 12, valor: 300 }],
-        codigosFiscais: CODIGOS_DPS,
-      }),
-      { params: Promise.resolve({ id: "525" }) },
-    );
-    assert.equal(emissao.status, 202, JSON.stringify(await emissao.clone().json()));
-    const id = Number(db.tabela("nfse")[0].id);
-
-    for (let i = 0; i < 2; i += 1) {
-      mock.timers.tick(60_000);
-      await consultar(post(`http://localhost/api/nfse/consultar/${id}`, {}), { params: Promise.resolve({ id: String(id) }) });
-    }
-
-    const tentativas = db.tabela("nfse")[0].tentativas as Array<Record<string, unknown>>;
-    assert.equal(chamadas.length, 3);
-    assert.equal(tentativas.length, 3);
-    assert.deepEqual(tentativas.map((t) => t.tipo), ["EMISSAO", "CONSULTA", "CONSULTA"]);
-    assert.deepEqual(tentativas.map((t) => t.metodo), ["POST", "GET", "GET"]);
-    assert.ok(tentativas[0].payload, "o POST guarda o payload enviado");
-    assert.equal(tentativas[0].http_status, 202);
-    const instantes = tentativas.map((t) => Date.parse(String(t.timestamp)));
-    assert.deepEqual([...instantes].sort((a, b) => a - b), instantes, "ordem cronológica");
-    assert.doesNotMatch(JSON.stringify(tentativas), /token-de-teste/);
-  });
 
   it("acrescentar nunca apaga o histórico, inclusive o arquivo antigo dos reenvios", () => {
     const antigo = [{ referencia: "OS_1_SRVS_1_1", status: "REJEITADA" }];

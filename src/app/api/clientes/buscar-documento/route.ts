@@ -30,15 +30,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ cliente: null, veiculos: [] });
     }
 
-    const { data: veiculos, error: errVei } = await supabase
-      .from("veiculo")
-      .select("id, placa, modelo, marca, ano, cor, kmatual")
-      .eq("clienteid", cliente.id)
-      .order("modelo", { ascending: true });
 
-    if (errVei) throw errVei;
-
-    return NextResponse.json({ cliente, veiculos: veiculos ?? [] }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ cliente, veiculos: [] }, { headers: { "Cache-Control": "no-store" } });
   } catch (err: any) {
     console.error("GET /api/clientes/by-document", err);
     return NextResponse.json({ error: "Falha ao buscar cliente" }, { status: 500 });

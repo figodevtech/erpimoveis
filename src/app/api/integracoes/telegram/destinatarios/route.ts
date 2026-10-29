@@ -304,7 +304,6 @@ export async function DELETE(request: Request) {
     const now = new Date().toISOString();
     const results = await Promise.all([
       supabaseAdmin.from("telegram_vinculo_token").update({ used_at: now }).eq("usuario_id", usuarioId).is("used_at", null),
-      supabaseAdmin.from("os_notificacao_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
       supabaseAdmin.from("telegram_estoque_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
       supabaseAdmin.from("telegram_fiscal_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),
       supabaseAdmin.from("telegram_financeiro_entrega").update({ status: "DESCARTADO", updated_at: now }).eq("usuario_id", usuarioId).in("status", ["PENDENTE", "ENVIANDO", "ERRO"]),

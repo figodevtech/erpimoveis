@@ -3,7 +3,7 @@
  *
  * Uso:
  *   npm run db:test:classificacao-resultado
- *   npm run db:test:classificacao-resultado -- demir
+ *   npm run db:test:classificacao-resultado -- cespedes
  *
  * Alem de rodar as verificacoes de `supabase/tests/`, este runner prova o
  * criterio de saida da Fase 1: instalar o catalogo nao muda a DRE. Para isso
@@ -50,7 +50,7 @@ function serializar(rows: Record<string, unknown>[]) {
 }
 
 async function main() {
-  const chave = (process.argv[2] ?? "demo") as DatabaseKey;
+  const chave = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!BANCOS.includes(chave)) {
     throw new Error(`Banco invalido: ${chave}. Use um de: ${BANCOS.join(", ")}.`);
   }

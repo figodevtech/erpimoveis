@@ -365,15 +365,7 @@ type TransacaoComOrigem = {
  * fato econômico ainda não foi reconhecido.
  */
 async function competenciaEfetivaDaOrigem(transacao: TransacaoComOrigem) {
-  if (transacao.ordemservicoid != null) {
-    const { data, error } = await supabaseAdmin
-      .from("ordemservico")
-      .select("execucao_fim_em")
-      .eq("id", transacao.ordemservicoid)
-      .maybeSingle();
-    if (error) throw error;
-    return data ? data.execucao_fim_em ?? null : transacao.competencia_em ?? null;
-  }
+
 
   if (transacao.vendaid != null) {
     const { data, error } = await supabaseAdmin

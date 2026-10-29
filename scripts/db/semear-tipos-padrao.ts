@@ -9,8 +9,8 @@
  * enum unidade_medida, e a UN precisa ser o id 1 (ver abaixo).
  * Sem --aplicar, tudo roda numa transação desfeita no final.
  *
- *   npm run db:semear:tipos -- jeancar             # simula
- *   npm run db:semear:tipos -- jeancar --aplicar   # grava
+ *   npm run db:semear:tipos -- cespedes             # simula
+ *   npm run db:semear:tipos -- cespedes --aplicar   # grava
  */
 import { DATABASE_KEYS, connectDatabase, loadDatabaseConfigs, type DatabaseKey } from "./lib";
 

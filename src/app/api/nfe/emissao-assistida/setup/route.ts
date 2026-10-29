@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   try {
-    await requireAny([PERMS.ORDENS, PERMS.VENDAS, PERMS.FINANCEIRO, PERMS.ESTOQUE]);
+    await requireAny([PERMS.VENDAS, PERMS.FINANCEIRO, PERMS.ESTOQUE]);
 
     // Sem `?modelo=`, responde a NF-e — é o que todos os chamadores anteriores
     // esperam. A tela de NFC-e informa 65 e recebe a série, o número e o

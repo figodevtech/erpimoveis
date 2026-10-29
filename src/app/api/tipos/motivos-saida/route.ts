@@ -3,7 +3,6 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticated } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { MOTIVO_SAIDA_ALUGUEL } from "@/lib/alugueis/status";
 
 const ESCOPOS = new Set(["PRODUTO", "USOCONSUMO", "AMBOS"]);
 
@@ -49,9 +48,9 @@ export async function GET(req: NextRequest) {
     if (escopo === "PRODUTO" || escopo === "USOCONSUMO") {
       query = query.in("escopo", [escopo, "AMBOS"]);
     }
-    // A saída por aluguel nasce no módulo Aluguéis; o diálogo de saída manual
-    // não a oferece. O filtro do histórico continua listando o motivo.
-    if (searchParams.get("saidaManual") === "1") query = query.neq("codigo", MOTIVO_SAIDA_ALUGUEL);
+    // ALUGUEL é motivo legado do módulo de aluguéis, que não existe mais: a
+    // saída manual não o oferece, e o filtro do histórico continua listando.
+    if (searchParams.get("saidaManual") === "1") query = query.neq("codigo", "ALUGUEL");
 
     const { data, error } = await query;
     if (error) throw error;

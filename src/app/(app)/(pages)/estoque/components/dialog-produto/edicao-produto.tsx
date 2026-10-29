@@ -1,7 +1,7 @@
 "use client";
 
 import { TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Package, Store, Image as ImageIcon, FileText, Boxes, ShoppingCart, ClipboardList, ArrowRightLeft, Tag, Printer } from "lucide-react";
+import { Upload, Package, Store, Image as ImageIcon, FileText, Boxes, ShoppingCart, ArrowRightLeft, Tag, Printer } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import axios, { isAxiosError } from "axios";
 import { toast } from "@/lib/toast";
@@ -14,7 +14,6 @@ import { TabEtiquetas } from "./tabs/tab-etiquetas";
 import { TabFiscal } from "./tabs/tab-fiscal";
 import { TabEstoque } from "./tabs/tab-estoque";
 import { TabVendas } from "./tabs/tab-vendas";
-import { TabOrdens } from "./tabs/tab-ordens";
 import { TabFluxo } from "./tabs/tab-fluxo";
 import { useUnidadesMedida } from "./hooks/use-unidades-medida";
 import { useProdutoImagens } from "./hooks/use-produto-imagens";
@@ -113,7 +112,7 @@ export default function EdicaoProduto({
   };
 
   // Depois de salvar, a tela ja mostra o que o PATCH devolveu; falta so o que
-  // ele nao traz (vendas, ordens, movimentos, imagem principal). Busca sem
+  // ele nao traz (vendas, movimentos, imagem principal). Busca sem
   // overlay e sem desmontar as abas. Se o usuario voltou a editar enquanto a
   // busca andava, a edicao dele fica e so a base de comparacao e atualizada.
   const handleRefreshSilencioso = async (id: number, exibido: Produto) => {
@@ -338,12 +337,6 @@ export default function EdicaoProduto({
           Vendas
         </span>
       </TabsTrigger>
-      <TabsTrigger onClick={()=>setCurrentTab("Ordens")} value="Ordens" className={"hover:cursor-pointer" + tabTheme}>
-        <span className="flex items-center gap-2">
-          <ClipboardList className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
-          Ordens
-        </span>
-      </TabsTrigger>
       <TabsTrigger onClick={()=>setCurrentTab("Fluxo")} value="Fluxo" className={"hover:cursor-pointer" + tabTheme}>
         <span className="flex items-center gap-2">
           <ArrowRightLeft className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -391,7 +384,6 @@ export default function EdicaoProduto({
               loadingUnidades={loadingUnidades}
               errorUnidades={errorUnidades}
               showDates
-              onLoteVinculoAlterado={onAfterSaveProduct}
               precoMedioCompraObrigatorio={precoMedioCompraObrigatorio}
             />
 
@@ -425,7 +417,6 @@ export default function EdicaoProduto({
             <TabFiscal produto={selectedProduct} onChange={handleChange} ncmObrigatorio={ncmObrigatorio} />
             <TabEstoque mode="edit" produto={selectedProduct} onChange={handleChange} />
             <TabVendas produto={selectedProduct} />
-            <TabOrdens produto={selectedProduct} />
             <TabFluxo
               produto={selectedProduct}
               onAfterChange={async () => {

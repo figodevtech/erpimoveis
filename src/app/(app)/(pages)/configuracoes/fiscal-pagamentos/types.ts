@@ -1,12 +1,38 @@
 "use client";
 
 import type { Empresa } from "@/app/(app)/(pages)/configuracoes/empresa/types";
-import type {
-  CodigosFiscaisForm,
-  ModeloEmissao,
-} from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
+import type { NFSeModeloEmissao as ModeloEmissao } from "@/lib/services/fiscais/nfse-politica";
 
 export type { Empresa };
+
+/** Códigos fiscais de um padrão de emissão de NFS-e, como campos de formulário. */
+export type CodigosFiscaisForm = {
+  itemListaServico: string;
+  codigoCnae: string;
+  codigoTributacaoNacionalIss: string;
+  /** cTribMun do padrão Nacional (3 dígitos), quando o município exige. */
+  codigoTributacaoMunicipalIss: string;
+  situacaoTributariaPisCofins: string;
+  codigoNbs: string;
+  aliquotaIss: string;
+  naturezaOperacao: string;
+  issRetido: string;
+  tributacaoIss: string;
+  tipoRetencaoIss: string;
+  finalidadeEmissao: string;
+  consumidorFinal: string;
+  indicadorDestinatario: string;
+  codigoIndicadorOperacao: string;
+  ibsCbsSituacaoTributaria: string;
+  ibsCbsClassificacaoTributaria: string;
+  informacoesComplementares: string;
+  /**
+   * Como o prestador se declara na DPS Nacional. Só existem no padrão da
+   * empresa: a emissão lê do padrão, nunca da tela.
+   */
+  regimeEspecialTributacao?: string;
+  regimeApuracaoSimplesNacional?: string;
+};
 
 /** Um conjunto de padrões fiscais. Tudo string: são campos de formulário. */
 export type PadraoFiscalForm = {

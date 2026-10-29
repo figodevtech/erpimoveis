@@ -6,10 +6,8 @@ import { carregarFatiasRateadas, fatiaComoTransacao } from "@/lib/financeiro/rat
 import { requireFinanceirosAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getPaymentMethodValues } from "@/lib/payment-methods-server";
-import { calculateFinancialTotal } from "@/lib/financial-surcharge";
-import { valorDeFace } from "@/lib/financeiro/transacao";
 
-type Origem = "OS" | "VENDA";
+type Origem = "VENDA";
 
 type MetodoPagamentoResumo = {
   metodo: string;
@@ -37,17 +35,6 @@ type Cobranca = {
   pagamentosPrevistos: MetodoPagamentoResumo[] | null;
   pagamentosExecutados: MetodoPagamentoResumo[] | null;
 };
-
-const OS_SELECT = `
-  id, descricao, status, orcamentototal, dataentrada, datasaida, updatedat,
-  forma_pagamento, parcelas_pagamento, pagamentos_previstos,
-  acrescimo_financeiro_tipo, acrescimo_financeiro_valor,
-  cliente:clienteid ( id, nomerazaosocial ),
-  setor:setorid ( id, nome ),
-  veiculo:veiculoid ( placa, modelo, marca ),
-  peca:pecaid ( titulo, lacre ),
-  responsavel:usuariocriadorid ( id, nome )
-`;
 
 const VENDA_SELECT = `
   id, status, valortotal, datavenda, updatedat, canal, forma_pagamento,
@@ -179,82 +166,36 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const setorId = numero(searchParams.get("setorId")) || null;
     const origemParam = String(searchParams.get("origem") || "TODAS").toUpperCase();
-    const origem = origemParam === "OS" || origemParam === "VENDA" ? origemParam : "TODAS";
+    const origem = origemParam === "VENDA" ? origemParam : "TODAS";
     const horasRecentes = Math.min(168, Math.max(1, numero(searchParams.get("horasRecentes")) || 24));
     const limite = Math.min(1000, Math.max(10, numero(searchParams.get("limit")) || 500));
     const desde = new Date(Date.now() - horasRecentes * 60 * 60 * 1000).toISOString();
 
-    const osPromise =
-      origem === "VENDA"
-        ? Promise.resolve({ data: [], error: null })
-        : supabaseAdmin
-            .from("ordemservico")
-            .select(OS_SELECT)
-            .in("status", ["ORCAMENTO_APROVADO", "EM_ANDAMENTO", "PAGAMENTO", "FATURAMENTO", "CONCLUIDO"])
-            .eq("is_deleted", false)
-            .is("migracao_referencia", null)
-            .order("updatedat", { ascending: false })
-            .limit(limite);
-
-    const vendasPromise =
-      origem === "OS"
-        ? Promise.resolve({ data: [], error: null })
-        : supabaseAdmin
-            .from("venda")
-            .select(VENDA_SELECT)
-            .in("status", ["PAGAMENTO", "PAGO", "FINALIZADA"])
-            .order("updatedat", { ascending: false })
-            .limit(limite);
-
-    const [osResult, vendasResult] = await Promise.all([osPromise, vendasPromise]);
-    if (osResult.error) throw osResult.error;
+    const vendasResult = await supabaseAdmin
+      .from("venda")
+      .select(VENDA_SELECT)
+      .in("status", ["PAGAMENTO", "PAGO", "FINALIZADA"])
+      .order("updatedat", { ascending: false })
+      .limit(limite);
     if (vendasResult.error) throw vendasResult.error;
 
-    const ordens = (osResult.data ?? []) as any[];
     const vendas = (vendasResult.data ?? []) as any[];
-    const ordemIds = ordens.map((item) => Number(item.id)).filter(Number.isFinite);
     const vendaIds = vendas.map((item) => Number(item.id)).filter(Number.isFinite);
 
-    const transacoesOsPromise = ordemIds.length
-      ? supabaseAdmin
-          .from("transacao")
-          .select("id, ordemservicoid, valor, valor_acrescimos, pendente, data, tipo, metodopagamento")
-          .in("ordemservicoid", ordemIds)
-          .eq("is_deleted", false)
-          .eq("tipo", "RECEITA")
-          .is("evento_financeiro_id", null)
-      : Promise.resolve({ data: [], error: null });
-
-    const transacoesVendasPromise = vendaIds.length
-      ? supabaseAdmin
+    const transacoesVendasResult = vendaIds.length
+      ? await supabaseAdmin
           .from("transacao")
           .select("id, vendaid, valor, data, tipo, metodopagamento")
           .in("vendaid", vendaIds)
           .eq("is_deleted", false)
           .eq("tipo", "RECEITA")
-      : Promise.resolve({ data: [], error: null });
-
-    const [transacoesOsResult, transacoesVendasResult] = await Promise.all([
-      transacoesOsPromise,
-      transacoesVendasPromise,
-    ]);
-    if (transacoesOsResult.error) throw transacoesOsResult.error;
+      : { data: [], error: null };
     if (transacoesVendasResult.error) throw transacoesVendasResult.error;
 
     // As fatias do pagamento múltiplo entram na mesma lista: a transação de
-    // grupo não aponta para documento nenhum, e sem elas a OS ou venda paga em
-    // grupo apareceria como não recebida.
-    const [fatiasOs, fatiasVendas] = await Promise.all([
-      carregarFatiasRateadas("OS", ordemIds),
-      carregarFatiasRateadas("VENDA", vendaIds),
-    ]);
-    const transacoesOs = [
-      ...((transacoesOsResult.data ?? []) as any[]),
-      ...[...fatiasOs.values()].flat().map((fatia) => ({
-        ...fatiaComoTransacao(fatia),
-        ordemservicoid: fatia.documentoId,
-      })),
-    ];
+    // grupo não aponta para documento nenhum, e sem elas a venda paga em grupo
+    // apareceria como não recebida.
+    const fatiasVendas = await carregarFatiasRateadas("VENDA", vendaIds);
     const transacoesVendas = [
       ...((transacoesVendasResult.data ?? []) as any[]),
       ...[...fatiasVendas.values()].flat().map((fatia) => ({
@@ -264,21 +205,8 @@ export async function GET(req: NextRequest) {
     ];
 
     // Transações pendentes (lançadas mas ainda não baixadas) contam como pagas aqui:
-    // a OS/Venda já foi marcada como concluída pelo valor lançado, então o painel
+    // a venda já foi marcada como concluída pelo valor lançado, então o painel
     // precisa refletir isso para o item não ficar "preso" em Aguardando.
-    const pagamentosOs = new Map<number, { total: number; ultimo: string | null }>();
-    const transacoesPorOs = new Map<number, Array<{ metodopagamento: string | null; valor: unknown }>>();
-    for (const transacao of transacoesOs) {
-      const id = Number(transacao.ordemservicoid);
-      const atual = pagamentosOs.get(id) ?? { total: 0, ultimo: null };
-      atual.total += valorDeFace(transacao);
-      if (transacao.data && (!atual.ultimo || transacao.data > atual.ultimo)) atual.ultimo = transacao.data;
-      pagamentosOs.set(id, atual);
-      const lista = transacoesPorOs.get(id) ?? [];
-      lista.push({ metodopagamento: transacao.metodopagamento ?? null, valor: valorDeFace(transacao) });
-      transacoesPorOs.set(id, lista);
-    }
-
     const pagamentosVendas = new Map<number, { total: number; ultimo: string | null }>();
     const transacoesPorVenda = new Map<number, Array<{ metodopagamento: string | null; valor: unknown }>>();
     for (const transacao of transacoesVendas) {
@@ -293,65 +221,6 @@ export async function GET(req: NextRequest) {
     }
 
     const cobrancas: Cobranca[] = [];
-
-    for (const ordem of ordens) {
-      const temLancamento = transacoesPorOs.has(Number(ordem.id));
-      if (["ORCAMENTO_APROVADO", "EM_ANDAMENTO"].includes(String(ordem.status)) && !temLancamento) {
-        continue;
-      }
-      const pagamento = pagamentosOs.get(Number(ordem.id)) ?? { total: 0, ultimo: null };
-      const total = moeda(calculateFinancialTotal(
-        ordem.orcamentototal,
-        ordem.acrescimo_financeiro_tipo,
-        ordem.acrescimo_financeiro_valor,
-      ));
-      const pago = moeda(pagamento.total);
-      const concluida = ordem.status === "CONCLUIDO";
-      const atualizadoEm = ordem.datasaida ?? ordem.updatedat ?? null;
-      if (concluida && (!atualizadoEm || new Date(atualizadoEm).getTime() < new Date(desde).getTime())) continue;
-      if (setorId && Number(ordem.setor?.id) !== setorId) continue;
-
-      const veiculo = ordem.veiculo
-        ? [ordem.veiculo.marca, ordem.veiculo.modelo, ordem.veiculo.placa].filter(Boolean).join(" • ")
-        : null;
-      const peca = ordem.peca
-        ? [ordem.peca.titulo, ordem.peca.lacre].filter(Boolean).join(" • ")
-        : null;
-
-      const pagamentosPrevistos: MetodoPagamentoResumo[] | null = Array.isArray(ordem.pagamentos_previstos) && ordem.pagamentos_previstos.length
-        ? ordem.pagamentos_previstos.map((item: any) => ({
-            metodo: String(item?.metodo ?? "NAO_INFORMADO"),
-            valor: moeda(numero(item?.valor)),
-            parcelas: item?.parcelas ?? null,
-          }))
-        : parseFormaPagamentoTexto(
-            ordem.forma_pagamento,
-            total,
-            ordem.parcelas_pagamento ?? null,
-            metodosPagamentoValidos,
-          );
-
-      cobrancas.push({
-        chave: `OS-${ordem.id}`,
-        origem: "OS",
-        id: Number(ordem.id),
-        status: String(ordem.status),
-        cliente: ordem.cliente?.nomerazaosocial || "Cliente não informado",
-        setor: ordem.setor ? { id: Number(ordem.setor.id), nome: ordem.setor.nome } : null,
-        responsavel: ordem.responsavel?.nome ?? null,
-        descricao: ordem.descricao ?? null,
-        referencia: veiculo || peca,
-        data: ordem.dataentrada ?? null,
-        atualizadoEm,
-        total,
-        pago,
-        saldo: moeda(Math.max(0, total - pago)),
-        percentual: total > 0 ? Math.min(100, Math.round((pago / total) * 100)) : 0,
-        ultimoPagamentoEm: pagamento.ultimo,
-        pagamentosPrevistos,
-        pagamentosExecutados: agruparPagamentosExecutados(transacoesPorOs.get(Number(ordem.id)) ?? []),
-      });
-    }
 
     for (const venda of vendas) {
       const pagamento = pagamentosVendas.get(Number(venda.id)) ?? { total: 0, ultimo: null };

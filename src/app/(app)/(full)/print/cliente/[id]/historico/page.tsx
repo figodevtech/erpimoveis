@@ -3,14 +3,13 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import Script from "next/script";
 import Link from "next/link";
-import { Car, ClipboardList, Power, ShoppingBag, WalletCards } from "lucide-react";
+import { Power, ShoppingBag, WalletCards } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import { PrintShareMenu } from "../../../../components/PrintShareMenu";
 import { fetchPrintColors } from "@/lib/print-config";
 import { calcularScoreCliente, type ResumoFinanceiroCliente } from "@/lib/financeiro/score-cliente";
 import { carregarTitulosDoCliente } from "@/lib/financeiro/titulos-cliente";
-import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 import { formatCpfCnpj } from "@/lib/nfe/recipientNormalization";
 
 export const runtime = "nodejs";
@@ -22,7 +21,7 @@ type PageProps = {
 const EMPTY = "-";
 
 /**
- * Teto por seção. Um cliente antigo pode ter centenas de OS e o documento
+ * Teto por seção. Um cliente antigo pode ter centenas de vendas e o documento
  * viraria um calhamaço — quando o corte acontece, a folha diz explicitamente
  * quantos itens ficaram de fora em vez de mentir por omissão.
  */
@@ -103,7 +102,7 @@ function iniciais(nome?: string | null) {
   return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
 }
 
-/** Classe do selo de status, compartilhada por OS, venda e título. */
+/** Classe do selo de status, compartilhada por venda e título. */
 function classeStatus(status?: string | null) {
   const upper = String(status ?? "").toUpperCase();
   if (["FINALIZADA", "CONCLUIDO", "CONCLUIDA", "PAGO", "PAGO_EM_DIA", "PAGO_A_VISTA", "ORCAMENTO_APROVADO"].includes(upper)) return "selo selo-ok";
@@ -128,40 +127,6 @@ const rotuloClassificacao: Record<ResumoFinanceiroCliente["classificacao"], stri
   CRITICO: "Crítico",
   SEM_HISTORICO: "Sem histórico",
 };
-
-/** Descrição do alvo da OS: veículo, peça ou equipamento. */
-function descreverAlvoOrdem(ordem: any) {
-  if (ordem.alvo_tipo === "PECA") {
-    return fmtText(ordem.peca?.titulo || ordem.peca?.descricao);
-  }
-  if (ordem.alvo_tipo === "EQUIPAMENTO") {
-    return (
-      joinParts(
-        [
-          ordem.equipamento_nome,
-          ordem.equipamento_patrimonio ? `Patrimônio ${ordem.equipamento_patrimonio}` : null,
-        ],
-        " • ",
-      ) || EMPTY
-    );
-  }
-  if (!ordem.veiculo) return EMPTY;
-  return (
-    joinParts(
-      [
-        joinParts([ordem.veiculo.marca, ordem.veiculo.modelo], " "),
-        ordem.veiculo.placa ? `Placa ${ordem.veiculo.placa}` : null,
-      ],
-      " • ",
-    ) || EMPTY
-  );
-}
-
-function tipoAlvo(alvo?: string | null) {
-  if (alvo === "PECA") return "Peça";
-  if (alvo === "EQUIPAMENTO") return "Equipamento";
-  return "Veículo";
-}
 
 /* ========= BLOCOS ========= */
 
@@ -298,28 +263,7 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
     notFound();
   }
 
-  const [veiculosResult, ordensResult, vendasResult, titulos] = await Promise.all([
-    supabaseAdmin
-      .from("veiculo")
-      .select("id, placa, placa_formatada, marca, modelo, ano, cor, kmatual, tipo", {
-        count: "exact",
-      })
-      .eq("clienteid", clienteId)
-      .order("id", { ascending: false })
-      .limit(LIMITE_LINHAS),
-    supabaseAdmin
-      .from("ordemservico")
-      .select(
-        `id, dataentrada, datasaida, status, descricao, orcamentototal, alvo_tipo,
-         migracao_referencia, veiculo_snapshot,
-         equipamento_nome, equipamento_patrimonio,
-         peca:pecaid ( titulo, descricao ),
-         veiculo:veiculoid ( placa, marca, modelo )`,
-        { count: "exact" },
-      )
-      .eq("clienteid", clienteId)
-      .order("id", { ascending: false })
-      .limit(LIMITE_LINHAS),
+  const [vendasResult, titulos] = await Promise.all([
     supabaseAdmin
       .from("venda")
       .select(
@@ -333,26 +277,16 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
     carregarTitulosDoCliente(clienteId),
   ]);
 
-  if (veiculosResult.error) console.error("Erro ao carregar veículos:", veiculosResult.error);
-  if (ordensResult.error) console.error("Erro ao carregar ordens:", ordensResult.error);
   if (vendasResult.error) console.error("Erro ao carregar vendas:", vendasResult.error);
 
-  const veiculos = (veiculosResult.data ?? []) as any[];
-  const ordens = ((ordensResult.data ?? []) as any[]).map((ordem) => ({
-    ...ordem,
-    veiculo: resolveOrdemVehicle(ordem.veiculo, ordem.veiculo_snapshot),
-  }));
   const vendas = (vendasResult.data ?? []) as any[];
   const financeiro = calcularScoreCliente(titulos);
 
   // O `count` vem do banco e ignora o teto de linhas: o contador diz a verdade
   // mesmo quando a tabela impressa está cortada. Já as somas só conseguem
   // percorrer o que foi buscado, então são marcadas como parciais no corte.
-  const totalVeiculos = veiculosResult.count ?? veiculos.length;
-  const totalOrdens = ordensResult.count ?? ordens.length;
   const totalVendas = vendasResult.count ?? vendas.length;
 
-  const somaOrdens = ordens.reduce((acc, o) => acc + toNumber(o.orcamentototal), 0);
   const somaVendas = vendas.reduce((acc, v) => acc + toNumber(v.valortotal), 0);
   const sufixoParcial = (exibidos: number, total: number) =>
     exibidos < total ? " (parcial)" : "";
@@ -361,7 +295,7 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
   const printColors = await fetchPrintColors();
 
   // A empresa saiu do cabeçalho; sobra como assinatura discreta no rodapé.
-  const empresaNome = empresa?.nomefantasia || empresa?.razaosocial || "Oficina Mecânica";
+  const empresaNome = empresa?.nomefantasia || empresa?.razaosocial || "Empresa";
 
   const nomeCliente = fmtText(cliente.nomerazaosocial);
   const contatoCliente = joinParts(
@@ -550,7 +484,7 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
 
   /* ===== KPIs ===== */
 
-  .kpis{ display:grid; grid-template-columns: repeat(6, 1fr); gap:6px; }
+  .kpis{ display:grid; grid-template-columns: repeat(4, 1fr); gap:6px; }
 
   .kpi{
     border:1px solid var(--border);
@@ -841,12 +775,6 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
             </div>
 
             <div className="kpis">
-              <Kpi rotulo="Veículos" valor={String(totalVeiculos)} />
-              <Kpi
-                rotulo="Ordens"
-                valor={String(totalOrdens)}
-                detalhe={fmtMoney(somaOrdens) + sufixoParcial(ordens.length, totalOrdens)}
-              />
               <Kpi
                 rotulo="Vendas"
                 valor={String(totalVendas)}
@@ -871,94 +799,6 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
 
             <Secao
               numero="01"
-              titulo="Veículos"
-              icone={<Car className="w-3.5 h-3.5" />}
-              contador={`${totalVeiculos} registro(s)`}
-            >
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: 44 }}>ID</th>
-                    <th style={{ width: 90 }}>Placa</th>
-                    <th>Marca / Modelo</th>
-                    <th style={{ width: 60 }}>Ano</th>
-                    <th style={{ width: 80 }}>Cor</th>
-                    <th style={{ width: 90 }} className="num">
-                      KM
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {veiculos.length > 0 ? (
-                    veiculos.slice(0, LIMITE_LINHAS).map((veiculo) => (
-                      <tr key={veiculo.id}>
-                        <td className="id">#{veiculo.id}</td>
-                        <td className="nowrap">{fmtText(veiculo.placa || veiculo.placa_formatada)}</td>
-                        <td>{joinParts([veiculo.marca, veiculo.modelo], " ") || EMPTY}</td>
-                        <td>{fmtText(veiculo.ano)}</td>
-                        <td>{fmtText(veiculo.cor)}</td>
-                        <td className="num">
-                          {veiculo.kmatual == null
-                            ? EMPTY
-                            : `${Number(veiculo.kmatual).toLocaleString("pt-BR")} km`}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <LinhaVazia colSpan={6} texto="Nenhum veículo vinculado a este cliente." />
-                  )}
-                </tbody>
-              </table>
-              <NotaCorte exibidos={veiculos.length} total={totalVeiculos} plural="veículos" />
-            </Secao>
-
-            <Secao
-              numero="02"
-              titulo="Ordens de Serviço"
-              icone={<ClipboardList className="w-3.5 h-3.5" />}
-              contador={`${totalOrdens} registro(s) • ${fmtMoney(somaOrdens)}${sufixoParcial(ordens.length, totalOrdens)}`}
-            >
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: 44 }}>ID</th>
-                    <th style={{ width: 62 }}>Entrada</th>
-                    <th style={{ width: 62 }}>Saída</th>
-                    <th style={{ width: 62 }}>Alvo</th>
-                    <th>Objeto</th>
-                    <th>Descrição</th>
-                    <th style={{ width: 74 }}>Status</th>
-                    <th style={{ width: 80 }} className="num">
-                      Total
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ordens.length > 0 ? (
-                    ordens.slice(0, LIMITE_LINHAS).map((ordem) => (
-                      <tr key={ordem.id}>
-                        <td className="id">#{ordem.id}</td>
-                        <td className="nowrap">{fmtDate(ordem.dataentrada)}</td>
-                        <td className="nowrap">{fmtDate(ordem.datasaida)}</td>
-                        <td>{tipoAlvo(ordem.alvo_tipo)}</td>
-                        <td>{descreverAlvoOrdem(ordem)}</td>
-                        <td>{fmtText(ordem.descricao)}</td>
-                        <td>
-                          <span className={classeStatus(ordem.status)}>{fmtEnum(ordem.status)}</span>
-                        </td>
-                        <td className="num">{fmtMoney(ordem.orcamentototal)}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <LinhaVazia colSpan={8} texto="Nenhuma ordem de serviço registrada para este cliente." />
-                  )}
-                </tbody>
-              </table>
-              <NotaCorte exibidos={ordens.length} total={totalOrdens} plural="ordens" />
-            </Secao>
-
-            <Secao
-              numero="03"
               titulo="Vendas"
               icone={<ShoppingBag className="w-3.5 h-3.5" />}
               contador={`${totalVendas} registro(s) • ${fmtMoney(somaVendas)}${sufixoParcial(vendas.length, totalVendas)}`}
@@ -1007,7 +847,7 @@ export default async function ClienteHistoricoPrintPage({ params }: PageProps) {
             </Secao>
 
             <Secao
-              numero="04"
+              numero="02"
               titulo="Financeiro"
               icone={<WalletCards className="w-3.5 h-3.5" />}
               contador={`${financeiro.titulos.length} título(s)`}

@@ -2,13 +2,9 @@
 "use client";
 
 import type {
-  IndicadoresOrdens,
-  IndicadoresServicos,
   IndicadoresVendas,
   MeuPerfil,
   MeuResumo,
-  MeuServico,
-  MinhaOrdem,
   MinhaVenda,
   Paginado,
   Periodo,
@@ -95,23 +91,6 @@ export function buscarMinhasVendas({ signal, ...filtros }: ParametrosLista): Pro
   return buscarJson<Paginado<MinhaVenda>>(`/api/me/vendas?${montarQuery(filtros)}`, signal);
 }
 
-export function buscarMinhasOrdens({ signal, ...filtros }: ParametrosLista): Promise<Paginado<MinhaOrdem>> {
-  return buscarJson<Paginado<MinhaOrdem>>(`/api/me/ordens?${montarQuery(filtros)}`, signal);
-}
-
-/** Totais da aba de ordens: dependem do período, não da página. */
-export function buscarIndicadoresOrdens(
-  { de, ate }: Periodo,
-  usuarioId?: string,
-  signal?: AbortSignal,
-): Promise<IndicadoresOrdens> {
-  const params = new URLSearchParams();
-  if (de) params.set("de", de);
-  if (ate) params.set("ate", ate);
-  comUsuario(params, usuarioId);
-  return buscarJson<IndicadoresOrdens>(`/api/me/ordens/indicadores?${params.toString()}`, signal);
-}
-
 /** Totais da aba de vendas: dependem do período, não da página. */
 export function buscarIndicadoresVendas(
   { de, ate }: Periodo,
@@ -123,21 +102,4 @@ export function buscarIndicadoresVendas(
   if (ate) params.set("ate", ate);
   comUsuario(params, usuarioId);
   return buscarJson<IndicadoresVendas>(`/api/me/vendas/indicadores?${params.toString()}`, signal);
-}
-
-/** Totais da aba de serviços: dependem do período, não da página. */
-export function buscarIndicadoresServicos(
-  { de, ate }: Periodo,
-  usuarioId?: string,
-  signal?: AbortSignal,
-): Promise<IndicadoresServicos> {
-  const params = new URLSearchParams();
-  if (de) params.set("de", de);
-  if (ate) params.set("ate", ate);
-  comUsuario(params, usuarioId);
-  return buscarJson<IndicadoresServicos>(`/api/me/servicos/indicadores?${params.toString()}`, signal);
-}
-
-export function buscarMeusServicos({ signal, ...filtros }: ParametrosLista): Promise<Paginado<MeuServico>> {
-  return buscarJson<Paginado<MeuServico>>(`/api/me/servicos?${montarQuery(filtros)}`, signal);
 }

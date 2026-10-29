@@ -5,7 +5,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticated } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-
 async function ensureAuth() {
   await requireAuthenticated();
 }
@@ -36,7 +35,6 @@ export async function PUT(
       descricao,
       precohora,
       ativo,
-      permite_agendamento,
       gera_comissao,
     } = body ?? {};
 
@@ -55,8 +53,6 @@ export async function PUT(
       );
     }
 
-   
-
     const now = new Date().toISOString();
 
     const payload: Record<string, any> = {
@@ -68,10 +64,6 @@ export async function PUT(
 
     if (typeof ativo === "boolean") {
       payload.ativo = ativo;
-    }
-
-    if (typeof permite_agendamento === "boolean") {
-      payload.permite_agendamento = permite_agendamento;
     }
 
     if (typeof gera_comissao === "boolean") {
@@ -93,7 +85,6 @@ export async function PUT(
         itemlistaservico,
         tiposervicoid,
         ativo,
-        permite_agendamento,
         gera_comissao
       `)
       .maybeSingle();
@@ -120,7 +111,6 @@ export async function PUT(
       itemlistaservico: data.itemlistaservico as string,
       tiposervicoid: (data.tiposervicoid as number | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
-      permite_agendamento: typeof data.permite_agendamento === "boolean" ? data.permite_agendamento : false,
       gera_comissao: typeof data.gera_comissao === "boolean" ? data.gera_comissao : true,
     };
 
@@ -183,7 +173,6 @@ export async function PATCH(
         itemlistaservico,
         tiposervicoid,
         ativo,
-        permite_agendamento,
         gera_comissao
       `)
       .maybeSingle();
@@ -210,7 +199,6 @@ export async function PATCH(
       itemlistaservico: data.itemlistaservico as string,
       tiposervicoid: (data.tiposervicoid as number | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : ativo,
-      permite_agendamento: typeof data.permite_agendamento === "boolean" ? data.permite_agendamento : false,
       gera_comissao: typeof data.gera_comissao === "boolean" ? data.gera_comissao : true,
     };
 

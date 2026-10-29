@@ -43,7 +43,7 @@ export function OperationalCore({
         transition={{ duration: 4.8, ease: "easeInOut", repeat: Infinity }}
       >
         <Activity aria-hidden="true" />
-        <span>ERP OFICINA</span>
+        <span>ERP IMÓVEIS</span>
         <strong>NÚCLEO OPERACIONAL</strong>
         <small><i aria-hidden="true" /> ORQUESTRANDO</small>
       </motion.div>

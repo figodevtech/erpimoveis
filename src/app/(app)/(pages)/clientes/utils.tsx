@@ -1,6 +1,16 @@
 // StatusBadge.tsx
-import { ClientStatus } from "./types"
+import { ClientStatus, type ContaSiteCliente } from "./types"
 import { Badge } from "@/components/ui/badge"
+
+/** Situação da conta do site em linguagem de atendimento; null quando não há conta. */
+export const getContaSiteLabel = (site?: ContaSiteCliente | null) => {
+    if (!site) return null
+    if (site.status === "ATIVO") return "Site: acesso ativo"
+    if (site.status === "BLOQUEADO") return "Site: acesso bloqueado"
+    if (site.motivo_pendencia === "EMAIL_NAO_CONFIRMADO") return "Site: aguardando confirmação do e-mail"
+    if (site.motivo_pendencia === "CADASTRO_DIVERGENTE") return "Site: conferir cadastro"
+    return "Site: acesso pendente"
+  }
 
 export const getStatusBadge = (status: ClientStatus) => {
     switch (status) {

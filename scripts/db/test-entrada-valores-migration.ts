@@ -4,7 +4,7 @@ import path from "node:path";
 import { connectDatabase, loadDatabaseConfigs, projectRoot } from "./lib";
 
 async function main() {
-  const key = process.argv[2] ?? "demo";
+  const key = process.argv[2] ?? "cespedes";
   const database = loadDatabaseConfigs().find((item) => item.key === key);
   if (!database) throw new Error(`Banco ${key} não configurado.`);
   const migration = fs.readFileSync(path.join(projectRoot,

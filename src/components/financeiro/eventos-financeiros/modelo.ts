@@ -1,4 +1,4 @@
-import { competenciaEmMesFechado } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia";
+import { competenciaEmMesFechado } from "@/lib/financeiro/eventos-financeiros/competencia";
 import { eventoTemProvenienciaExcluivel } from "@/lib/ordens/exclusao-evento-financeiro";
 import { ordenarEventosDaOs } from "@/lib/ordens/eventos-financeiros";
 import { eventoEditavelDaVenda, eventoManualDoOperador } from "@/lib/financeiro/documento-evento";

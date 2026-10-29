@@ -22,8 +22,6 @@ import { cn } from "@/lib/utils";
 
 const NOME_NO_PLURAL: Record<ModuloDocumento, string> = {
   venda: "vendas",
-  os: "ordens de serviço",
-  aluguel: "aluguéis",
 };
 
 type Props = {

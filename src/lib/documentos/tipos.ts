@@ -1,14 +1,12 @@
 // Documentos dinâmicos: modelos em HTML que o próprio cliente escreve, com
-// variáveis do registro, emitidos a partir da venda, da OS ou do aluguel.
+// variáveis do registro, emitidos a partir da venda.
 // Sem "use client": o motor roda na emissão (servidor) e na prévia (navegador).
 
-export const MODULOS_DOCUMENTO = ["venda", "os", "aluguel"] as const;
+export const MODULOS_DOCUMENTO = ["venda"] as const;
 export type ModuloDocumento = (typeof MODULOS_DOCUMENTO)[number];
 
 export const ROTULO_MODULO_DOCUMENTO: Record<ModuloDocumento, string> = {
   venda: "Venda",
-  os: "Ordem de serviço",
-  aluguel: "Aluguel",
 };
 
 export function ehModuloDocumento(valor: unknown): valor is ModuloDocumento {

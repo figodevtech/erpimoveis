@@ -3,7 +3,7 @@
  *
  * Uso:
  *   npm run db:test:dashboard-estoque
- *   npm run db:test:dashboard-estoque -- demir
+ *   npm run db:test:dashboard-estoque -- cespedes
  *
  * A função `dashboard_estoque_resumo()` substitui um cálculo que a rota fazia
  * em JavaScript depois de ler o catálogo inteiro. O que precisa ser provado:
@@ -165,7 +165,7 @@ function comparar(cenario: string, esperado: ReturnType<typeof resumoDeReferenci
 }
 
 async function main() {
-  const chave = (process.argv[2] ?? "demo") as DatabaseKey;
+  const chave = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!BANCOS.includes(chave)) throw new Error(`Banco inválido: ${chave}. Use um de: ${BANCOS.join(", ")}.`);
   const banco = loadDatabaseConfigs().find((item) => item.key === chave);
   if (!banco) throw new Error(`Banco ${chave} não configurado.`);

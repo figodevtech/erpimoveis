@@ -84,7 +84,8 @@ export interface VinculoContexto {
   id: number;
   status: string | null;
   total: number;
-  href: string;
+  /** Nulo para OS antiga: o módulo de ordens não existe mais. */
+  href: string | null;
   descricao?: string | null;
   dataentrada?: string | null;
   datasaida?: string | null;
@@ -112,7 +113,8 @@ export interface PagamentoMultiploContexto {
     tipo: "OS" | "VENDA";
     id: number;
     valor: number;
-    href: string;
+    /** Nulo para OS antiga: o módulo de ordens não existe mais. */
+    href: string | null;
   }>;
 }
 

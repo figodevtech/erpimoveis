@@ -3,7 +3,7 @@
  *
  * Uso:
  *   npm run db:test:sped-fiscal
- *   npm run db:test:sped-fiscal -- demir
+ *   npm run db:test:sped-fiscal -- cespedes
  *
  * O SPED chega junto com outras migrations que ainda nao subiram (CNPJ
  * alfanumerico, OS reiniciada, troca do criador). Aplicar so as do SPED nao
@@ -108,7 +108,7 @@ async function exigirTransacaoAberta(client: { query: (sql: string) => Promise<{
 }
 
 async function main() {
-  const chave = (process.argv[2] ?? "demo") as DatabaseKey;
+  const chave = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!BANCOS.includes(chave)) {
     throw new Error(`Banco invalido: ${chave}. Use um de: ${BANCOS.join(", ")}.`);
   }

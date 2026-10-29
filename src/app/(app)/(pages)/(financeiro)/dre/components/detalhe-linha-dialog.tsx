@@ -39,12 +39,8 @@ import {
 
 /*
  * Os diálogos de documento são pesados e só abrem quando alguém clica na origem.
- * Carregar sob demanda evita que abrir a DRE baixe o formulário da OS inteiro.
+ * Carregar sob demanda evita que abrir a DRE baixe o formulário da venda inteiro.
  */
-const OSDetalhesDialog = dynamic(
-  () => import("@/app/(app)/(pages)/ordens/components/dialogs/detalhes-os-dialog").then((m) => m.OSDetalhesDialog),
-  { ssr: false },
-);
 const VendaDetailsDialog = dynamic(
   () =>
     import("@/app/(app)/(pages)/(vendas)/historicovendas/components/venda-detail-dialog").then(
@@ -643,17 +639,6 @@ function Conteudo({
         }}
       />
 
-      {documento?.tipo === "OS" && (
-        <OSDetalhesDialog
-          open
-          osId={documento.id}
-          onOpenChange={(aberto) => {
-            if (aberto) return;
-            setDocumento(null);
-            onAlterado();
-          }}
-        />
-      )}
       {documento?.tipo === "VENDA" && (
         <VendaDetailsDialog
           open
@@ -723,7 +708,7 @@ function LinhaLancamento({
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
             <span className={cn("size-2 shrink-0 rounded-full", cor)} aria-hidden />
-            {documento ? (
+            {documento && documento.tipo !== "OS" ? (
               <button
                 type="button"
                 onClick={() => onAbrirDocumento(documento)}
@@ -736,7 +721,7 @@ function LinhaLancamento({
             ) : (
               <span className="inline-flex items-center gap-1">
                 <Icone className="size-3.5 shrink-0" aria-hidden />
-                Sem documento
+                {documento ? `${DOCUMENTO[documento.tipo].rotulo} #${documento.id}` : "Sem documento"}
               </span>
             )}
             {papel && <span>· {papel}</span>}

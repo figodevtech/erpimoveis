@@ -780,8 +780,8 @@ async function montar(data: DanfeViewData, totalDeclarado: number, fontScale: Da
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
   pdf.setTitle(`DANFE NF-e ${String(data.nfe.numero).padStart(9, "0")}`);
-  pdf.setProducer("ERP Oficina");
-  pdf.setCreator("ERP Oficina");
+  pdf.setProducer("ERP Imóveis");
+  pdf.setCreator("ERP Imóveis");
 
   const larguras = colunas(CONTENT_W, COLUNAS_ITENS.map((coluna) => coluna.peso));
   const itens = data.itensDisplay;

@@ -70,8 +70,3 @@ test('runner propagates failures without a tight retry loop', async () => {
  const { runStorefrontCatalog } = load(runFile, { sync: async () => { calls++; throw Error('offline'); } });
  await assert.rejects(runStorefrontCatalog(1), /offline/); assert.equal(calls, 1);
 });
-test('production schedule invokes the authenticated route every minute and bypasses login middleware', () => {
- const config = JSON.parse(fs.readFileSync(new URL('../../vercel.json', import.meta.url)));
- assert.equal(config.crons.find(job => job.path === '/api/integracoes/site/cron').schedule, '* * * * *');
- assert.match(fs.readFileSync(new URL('../../src/middleware.ts', import.meta.url), 'utf8'), /"\/api\/integracoes\/site\/cron"/);
-});

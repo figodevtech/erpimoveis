@@ -474,53 +474,14 @@ describe("VENDA — regressão da NF-e 136", () => {
   });
 });
 
-describe("OS — mesmo núcleo", () => {
-  const itemOs = (overrides: SemOrigem = {}) => itemDaTela({ sourceItemId: "os:50:1964", ...overrides });
-
-  it("leva Duplicata Mercantil ao XML e ao snapshot", async () => {
+describe("OS removida do ERP", () => {
+  it("recusa emissão de OS sem criar uma nota fiscal", async () => {
     const resultado = await salvarNFeDeOrigem("OS", 50, {
-      itens: [itemOs({ cfop: "6102", cst: "00" })],
-      configuracaoFiscal: { ...configuracaoVenda, pagamentos: [{ meio: "14", valor: 11000 }], cobranca: cobrancaDuplicata },
-    });
-    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
-    confirmarDuplicatas(notaGravada(resultado.nfeId));
-  });
-
-  it("regressão da NF-e 136 pela OS", async () => {
-    const resultado = await comCiencia((input: NFeOrigemDraftInput, opcoes?: OpcoesSalvarNFe) =>
-      salvarNFeDeOrigem("OS", 50, input, undefined, opcoes), {
-      itens: [itemOs({ avisosFiscaisConfirmados: [AVISO_6403_CST60] })],
-      configuracaoFiscal: configuracaoVenda,
-    });
-    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
-    assertRegressao136(notaGravada(resultado.nfeId));
-  });
-
-  it("CST 00 pela OS", async () => {
-    const resultado = await salvarNFeDeOrigem("OS", 50, {
-      itens: [itemOs({ cfop: "6102", cst: "00" })],
-      configuracaoFiscal: { ...configuracaoVenda, destinoMercadoria: "USO_CONSUMO" },
-    });
-    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
-    const nota = notaGravada(resultado.nfeId);
-    assert.equal(numero(nota.itens[0].valor_icms), 2200);
-    // Contribuinte comprando para uso próprio: consumidor final por decisão, não por presunção.
-    assert.match(nota.xml, /<indFinal>1<\/indFinal>/);
-    assertBancoIgualXml(nota);
-  });
-
-  it("CST 60 com base de ICMS próprio informada é recusado com a explicação", async () => {
-    const resultado = await salvarNFeDeOrigem("OS", 50, {
-      itens: [itemOs({
-        cfop: "6404",
-        icms: { proprio: { vBC: 11000, vICMS: 2200 } },
-      })],
+      itens: [itemDaTela({ sourceItemId: "os:50:1964", cfop: "6102", cst: "00" })],
       configuracaoFiscal: configuracaoVenda,
     });
     assert.equal(resultado.ok, false);
-    const erro = resultado.errors.find((item) => (item as { code?: string }).code === "NFE_ICMS_BLOCO_PROIBIDO_PROPRIO");
-    assert.ok(erro);
-    assert.match(erro.message, /O CST 60 utiliza o grupo de ICMS cobrado anteriormente por substituição tributária/);
+    assert.match(resultado.errors[0].message, /módulo de ordens de serviço foi removido/);
   });
 });
 

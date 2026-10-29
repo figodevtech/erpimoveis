@@ -16,7 +16,6 @@ const routes = {
   planos_conta: "planos-de-conta",
   centros_custo: "centros-de-custo",
   categorias_venda: "categorias-venda",
-  cores_veiculos: "cores-veiculos",
   tipos_entrada: "tipos-entrada",
   motivos_saida: "motivos-saida",
 } as const;

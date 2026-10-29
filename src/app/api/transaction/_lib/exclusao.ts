@@ -50,10 +50,8 @@ function toCents(value: unknown) {
 }
 
 export async function revalidarStatusOrdem(osId: number) {
-  const { error } = await supabaseAdmin.rpc("recalcular_status_financeiro_os", {
-    p_ordemservicoid: osId,
-  });
-  if (error) throw error;
+  void osId;
+  throw new Error("O módulo de ordens de serviço foi removido.");
 }
 
 export async function revalidarStatusVenda(vendaId: number) {

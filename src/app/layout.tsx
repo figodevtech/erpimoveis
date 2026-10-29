@@ -7,7 +7,7 @@ import { RouteAwareToaster } from "@/components/route-aware-toaster";
 import { developmentWorkerCleanup } from "@/lib/development-worker-cleanup";
 
 export const metadata: Metadata = {
-  title: "ERP Oficina",
+  title: "ERP Imóveis",
   description: "Sistema de gestão para oficinas",
   manifest: "/manifest.json",
   icons: {
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'ERP Oficina',
+    title: 'ERP Imóveis',
   },
 };
 

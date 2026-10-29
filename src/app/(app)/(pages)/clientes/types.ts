@@ -1,6 +1,4 @@
 import { Timestamp } from "next/dist/server/lib/cache-handlers/types"
-import { Ordem } from "../ordens/types"
-import { Veiculo } from "../veiculos/types"
 
 
 enum TipoPessoa {
@@ -57,8 +55,10 @@ export interface Customer {
   status: ClientStatus
   /** Cadastro do sistema (`consumidor_final`): sem documento e intocável. */
   codigo_sistema?: string | null
-  veiculos: Veiculo[]
-  ordens: Ordem[]
+  /** `SITE` quando o próprio cliente se cadastrou no site. */
+  origem_cadastro?: "ERP" | "SITE"
+  /** Conta do site vinculada ao cliente; só a listagem traz esse resumo. */
+  site?: ContaSiteCliente | null
   rank?: Cliente_rank | null
   /**
    * Dívida em aberto, quando a origem dos dados a calcula — hoje só a listagem
@@ -110,6 +110,12 @@ export interface DividaCliente {
   quantidadeVencida: number
   /** Parte da dívida veio de carga de outro sistema, não foi gerada aqui. */
   temMigrado: boolean
+}
+
+export interface ContaSiteCliente {
+  status: "PENDENTE" | "ATIVO" | "BLOQUEADO"
+  /** Ex.: `EMAIL_NAO_CONFIRMADO`, `CADASTRO_DIVERGENTE`, `BLOQUEADO_PELO_ERP`. */
+  motivo_pendencia: string | null
 }
 
 export interface Pagination {

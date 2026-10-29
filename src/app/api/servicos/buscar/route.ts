@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     let query = supabase
       .from("servico")
       .select(
-        "id,codigo,descricao,precohora,codigoservicomunicipal,aliquotaiss,cnae,itemlistaservico,tiposervicoid,permite_agendamento,gera_comissao,ativo",
+        "id,codigo,descricao,precohora,codigoservicomunicipal,aliquotaiss,cnae,itemlistaservico,tiposervicoid,gera_comissao,ativo",
         { count: "exact" }
       )
       .eq("ativo", true)
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
 
     if (error) throw error;
 
-    let items = data ?? [];
+    const items = data ?? [];
 
     // Reordenar por relevância: se for busca numérica, põe ID exato no topo
     if (cleanQ && /^\d+$/.test(cleanQ)) {
@@ -126,7 +126,6 @@ export async function GET(request: Request) {
       cnae: s.cnae ? String(s.cnae) : null,
       itemlistaservico: s.itemlistaservico ? String(s.itemlistaservico) : null,
       tiposervicoid: s.tiposervicoid ? Number(s.tiposervicoid) : null,
-      permite_agendamento: Boolean(s.permite_agendamento),
       gera_comissao: Boolean(s.gera_comissao ?? true),
       ativo: Boolean(s.ativo ?? true),
     }));

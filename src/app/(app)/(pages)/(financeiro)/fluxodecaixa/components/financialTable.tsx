@@ -110,7 +110,6 @@ const TransactionDialog = dynamic(() => import("./transactionDialog/transactionD
 const TransferenciaDialog = dynamic(() => import("./transferencia-dialog").then((module) => module.TransferenciaDialog), { loading: DialogLoading });
 const ConciliacaoOfxDialog = dynamic(() => import("./conciliacao-ofx/conciliacao-ofx-dialog").then((module) => module.ConciliacaoOfxDialog), { loading: DialogLoading });
 const VendaDetailsDialog = dynamic(() => import("../../../(vendas)/historicovendas/components/venda-detail-dialog").then((module) => module.VendaDetailsDialog), { loading: DialogLoading });
-const OSDetalhesDialog = dynamic(() => import("../../../ordens/components/dialogs/detalhes-os-dialog").then((module) => module.OSDetalhesDialog), { loading: DialogLoading });
 const DialogEntradaGeral = dynamic(() => import("../../../estoque/components/dialog-entrada-geral/dialog-entrada-geral").then((module) => module.DialogEntradaGeral), { loading: DialogLoading });
 import ConcluidoAlert from "./concluidoAlert";
 import SearchFilter from "./searchFilter";
@@ -378,18 +377,12 @@ export default function FinancialTable({
    */
   const [vendaDetalhesId, setVendaDetalhesId] = useState<number | null>(null);
   const [vendaDetalhesAberta, setVendaDetalhesAberta] = useState(false);
-  const [osDetalhesId, setOsDetalhesId] = useState<number | null>(null);
-  const [osDetalhesAberta, setOsDetalhesAberta] = useState(false);
   const [entradaDetalhesId, setEntradaDetalhesId] = useState<number | null>(null);
   const [entradaDetalhesAberta, setEntradaDetalhesAberta] = useState(false);
 
   const abrirVenda = useCallback((id: number) => {
     setVendaDetalhesId(id);
     setVendaDetalhesAberta(true);
-  }, []);
-  const abrirOs = useCallback((id: number) => {
-    setOsDetalhesId(id);
-    setOsDetalhesAberta(true);
   }, []);
   const abrirEntrada = useCallback((id: number) => {
     setEntradaDetalhesId(id);
@@ -858,11 +851,9 @@ export default function FinancialTable({
               const detalhesOrigem =
                 origem === "VENDA"
                   ? { id: Number(t.vendaid), label: `Ver venda #${t.vendaid}`, Icon: ShoppingCart, abrir: abrirVenda }
-                  : origem === "OS"
-                    ? { id: Number(t.ordemservicoid), label: `Ver OS #${t.ordemservicoid}`, Icon: FileText, abrir: abrirOs }
-                    : origem === "ENTRADA"
-                      ? { id: Number(t.entrada_id), label: `Ver entrada #${t.entrada_id}`, Icon: Package, abrir: abrirEntrada }
-                      : null;
+                  : origem === "ENTRADA"
+                    ? { id: Number(t.entrada_id), label: `Ver entrada #${t.entrada_id}`, Icon: Package, abrir: abrirEntrada }
+                    : null;
 
               return (
                 <TableRow
@@ -1546,20 +1537,6 @@ export default function FinancialTable({
       />
       </MountOnDemand>
 
-      <MountOnDemand active={osDetalhesAberta}>
-      <OSDetalhesDialog
-        open={osDetalhesAberta}
-        osId={osDetalhesId}
-        onOpenChange={(open) => {
-          setOsDetalhesAberta(open);
-          if (!open) {
-            setOsDetalhesId(null);
-            handleGetTransactions(pagination.page, pagination.limit);
-            revalidarIndicadores();
-          }
-        }}
-      />
-      </MountOnDemand>
 
       <MountOnDemand active={entradaDetalhesAberta}>
       <DialogEntradaGeral

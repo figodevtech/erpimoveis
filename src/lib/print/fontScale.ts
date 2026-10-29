@@ -6,7 +6,7 @@ export const PRINT_DEFAULT_FONT_SCALE: PrintFontScale = PRINT_FONT_SCALES[0];
 export const PRINT_MAX_FONT_SCALE: PrintFontScale = PRINT_FONT_SCALES.at(-1)!;
 export const PRINT_FONT_SCALE_ATTRIBUTE = "data-print-font-scale";
 export const PRINT_FONT_SCALE_PROPERTY = "--print-font-scale";
-export const PRINT_FONT_SCALE_STORAGE_KEY = "erpoficina:print-font-scale";
+export const PRINT_FONT_SCALE_STORAGE_KEY = "erpimoveis:print-font-scale";
 
 export function lerEscalaFonteImpressao(valor: string | null): PrintFontScale | null {
   if (valor === null) return null;

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuthenticated, requireOSAccess, requireOSEdit, requireEstoqueAccess, requireEstoqueEdit, requireVendasAccess, requireVendasEdit, hasPerm, PERMS } from "@/app/api/_authz/perms";
+import { requireAuthenticated, requireEstoqueAccess, requireEstoqueEdit, requireVendasAccess, requireVendasEdit, hasPerm, PERMS } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { platformConfiguration } from "@/lib/platform-billing/client";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 const schema = z.object({ action: z.enum(["reserve", "complete", "cancel", "access", "delete"]), id: z.string().uuid(),
-  osId: z.number().int().positive(), itemId: z.number().int().positive(), kind: z.enum(["entrada", "saida", "os", "produto", "venda"]),
+  osId: z.number().int().positive(), itemId: z.number().int().positive(), kind: z.enum(["produto", "venda"]),
   name: z.string().max(160).optional(), size: z.number().int().positive().max(250000000).optional(), download: z.boolean().optional(), category: z.string().min(1).max(80).optional() });
 async function central(path: string, body?: unknown) {
   const config = platformConfiguration();
@@ -27,11 +27,11 @@ export async function GET(req: NextRequest) {
   try {
     const session = await requireAuthenticated();
     const id = z.coerce.number().int().positive().parse(req.nextUrl.searchParams.get("osId"));
-    const scope = z.enum(["checklist", "os", "produto", "venda"]).parse(req.nextUrl.searchParams.get("scope") ?? "checklist");
+    const scope = z.enum(["produto", "venda"]).parse(req.nextUrl.searchParams.get("scope"));
     await authorize(scope, id, false);
-    const editPermission = scope === "produto" ? PERMS.ESTOQUE_EDITAR : scope === "venda" ? PERMS.VENDAS_EDITAR : PERMS.ORDENS_EDITAR;
+    const editPermission = scope === "produto" ? PERMS.ESTOQUE_EDITAR : PERMS.VENDAS_EDITAR;
     const listing = await central(`?osId=${id}&scope=${scope}`);
-    if (scope === "os" || scope === "venda") {
+    if (scope === "venda") {
       const ids = (listing.items ?? []).map((item: { id: string }) => item.id);
       if (ids.length) {
         const links = await supabaseAdmin.from("entity_video").select("id,category").in("id", ids);
@@ -49,30 +49,14 @@ export async function POST(req: NextRequest) {
     const body = schema.parse(await req.json());
     await authorize(body.kind, body.osId, body.action !== "access");
     if (body.action === "delete" && !await administrator(session.user.id!)) return NextResponse.json({ error: "Somente administradores podem excluir vídeos." }, { status: 403 });
-    let owner: number | undefined;
-    if (body.kind === "entrada") {
-      const item = await supabaseAdmin.from("checklist").select("ordemservicoid").eq("id", body.itemId).single();
-      owner = item.data?.ordemservicoid;
-    } else if (body.kind === "saida") {
-      const item = await supabaseAdmin.from("os_saida_checklist_item").select("os_saida_id").eq("id", body.itemId).single();
-      if (item.data) {
-        const exit = await supabaseAdmin.from("os_saida").select("ordemservico_id").eq("id", item.data.os_saida_id).single();
-        owner = exit.data?.ordemservico_id;
-      }
-    }
-    if (["os", "produto", "venda"].includes(body.kind) && body.itemId === body.osId) owner = body.osId;
-    if (Number(owner) !== body.osId) return NextResponse.json({ error: "Item não pertence à OS." }, { status: 404 });
+    if (body.itemId !== body.osId) return NextResponse.json({ error: "Item não pertence ao cadastro." }, { status: 404 });
     const data = await central("", { ...body, actor: session.user.id });
-    if (body.action === "complete" && (body.kind === "entrada" || body.kind === "saida")) {
-      const link = await supabaseAdmin.from("checklist_video").upsert({ id: body.id, ordemservicoid: body.osId, kind: body.kind, item_id: body.itemId, created_by: session.user.id }, { onConflict: "id", ignoreDuplicates: true });
-      if (link.error) throw new Error("Vídeo enviado; falha ao vincular. Tente concluir novamente.");
-    }
-    if (body.action === "complete" && ["os", "produto", "venda"].includes(body.kind)) {
-      const column = body.kind === "produto" ? "produto_id" : body.kind === "venda" ? "venda_id" : "ordemservico_id";
+    if (body.action === "complete") {
+      const column = body.kind === "produto" ? "produto_id" : "venda_id";
       const link = await supabaseAdmin.from("entity_video").upsert({ id: body.id, [column]: body.osId, category: body.category ?? null, created_by: session.user.id }, { onConflict: "id", ignoreDuplicates: true });
       if (link.error) throw new Error("Envio concluído; tente novamente para vincular o vídeo.");
     }
-    if (body.action === "delete" && ["os", "produto", "venda"].includes(body.kind)) {
+    if (body.action === "delete") {
       const removed = await supabaseAdmin.from("entity_video").delete().eq("id", body.id);
       if (removed.error) throw new Error("Vídeo excluído; tente novamente para remover o vínculo.");
     }
@@ -81,9 +65,8 @@ export async function POST(req: NextRequest) {
 }
 async function authorize(kind: string, id: number, edit: boolean) {
   if (kind === "produto") { await requireEstoqueAccess(); if (edit) await requireEstoqueEdit(); }
-  else if (kind === "venda") { await requireVendasAccess(); if (edit) await requireVendasEdit(); }
-  else { await requireOSAccess(); if (edit) await requireOSEdit(); }
-  const table = kind === "produto" ? "produto" : kind === "venda" ? "venda" : "ordemservico";
+  else { await requireVendasAccess(); if (edit) await requireVendasEdit(); }
+  const table = kind === "produto" ? "produto" : "venda";
   const entity = await supabaseAdmin.from(table).select("id").eq("id", id).maybeSingle();
   if (entity.error) throw new Error("Falha ao consultar o cadastro.");
   if (!entity.data) throw Object.assign(new Error("Cadastro não encontrado."), { statusCode: 404 });

@@ -4,7 +4,7 @@
  *
  * Uso:
  *   npm run db:test:linha-dre-conta
- *   npm run db:test:linha-dre-conta -- demir
+ *   npm run db:test:linha-dre-conta -- cespedes
  *
  * O que precisa ser provado antes de publicar, porque a migration troca a
  * sincronizacao de todo lancamento avulso:
@@ -92,7 +92,7 @@ function serializar(rows: Record<string, unknown>[]) {
 }
 
 async function main() {
-  const chave = (process.argv[2] ?? "demo") as DatabaseKey;
+  const chave = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!BANCOS.includes(chave)) {
     throw new Error(`Banco invalido: ${chave}. Use um de: ${BANCOS.join(", ")}.`);
   }

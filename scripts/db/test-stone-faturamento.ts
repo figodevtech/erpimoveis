@@ -4,7 +4,7 @@ import path from "node:path";
 import { connectDatabase, loadDatabaseConfigs, projectRoot } from "./lib";
 
 async function main() {
-  const demo = loadDatabaseConfigs().find(item => item.key === "demo")!;
+  const demo = loadDatabaseConfigs().find(item => item.key === "cespedes")!;
   const { client } = await connectDatabase(demo);
   const { client: concorrente } = await connectDatabase(demo);
   try {

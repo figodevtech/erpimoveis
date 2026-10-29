@@ -12,7 +12,7 @@ import { PinchLock } from "@/components/pinch-lock";
 
 export const dynamic = "force-dynamic";
 
-const CONFIG_CACHE_KEY = "erpoficina:config-cache";
+const CONFIG_CACHE_KEY = "erpimoveis:config-cache";
 
 function readCachedConfig(): Config | undefined {
   if (typeof window === "undefined") return undefined;

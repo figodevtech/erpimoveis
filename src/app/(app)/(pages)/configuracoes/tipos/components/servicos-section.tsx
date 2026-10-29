@@ -27,7 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import ServicoDialog from "./servicoDialog/servico-dialog";
-import { formatCurrencyBRL } from "../../../dashboard/components/dashboard-ordemservico/lib/format";
+import { formatCurrencyBRL } from "@/lib/format-currency";
 
 type Servico = {
   id: number;
@@ -40,7 +40,6 @@ type Servico = {
   itemlistaservico: string;
   tiposervicoid?: number | null;
   ativo?: boolean | null;
-  permite_agendamento?: boolean | null;
   gera_comissao?: boolean | null;
 };
 
@@ -49,7 +48,6 @@ type ServicoForm = {
   descricao: string;
   precohora: string;
   ativo: boolean;
-  permite_agendamento: boolean;
   gera_comissao: boolean;
 };
 
@@ -58,7 +56,6 @@ const emptyForm: ServicoForm = {
   descricao: "",
   precohora: "",
   ativo: true,
-  permite_agendamento: false,
   gera_comissao: true,
 };
 
@@ -131,7 +128,6 @@ export default function ServicosSection() {
       const items: Servico[] = (j.items ?? j.data ?? []).map((s: Servico) => ({
         ...s,
         ativo: s.ativo ?? true,
-        permite_agendamento: s.permite_agendamento ?? false,
       }));
 
       setServicos(items);
@@ -162,7 +158,6 @@ export default function ServicosSection() {
       descricao: s.descricao ?? "",
       precohora: s.precohora != null ? String(s.precohora) : "",
       ativo: s.ativo ?? true,
-      permite_agendamento: s.permite_agendamento ?? false,
       gera_comissao: s.gera_comissao ?? true,
     });
     setOpen(true);

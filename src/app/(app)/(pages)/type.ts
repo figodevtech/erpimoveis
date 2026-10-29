@@ -14,10 +14,6 @@ export interface Config {
     /** Status de OS em que a emissão de nota é liberada. */
     emissao_nf_status_os: string[];
     habilitar_drawers: boolean;
-    agendamento_intervalo_minutos: number;
-    agendamento_hora_inicio: string;
-    agendamento_hora_fim: string;
-    agendamento_dias_trabalho: number[];
     impressao_cor_primaria: string;
     impressao_cor_secundaria: string;
     impressao_cor_texto: string;

@@ -16,7 +16,7 @@ import {
   type NfeDetailRow,
   type NfseDetailRow,
   type OperationalDetailSource,
-  type OrdemDetailRow,
+
   type ProdutoDetailRow,
   type TransacaoDetailRow,
   type VendaDetailRow,
@@ -107,44 +107,9 @@ async function carregarOrdem(
   id: string,
   grants: DetailGrants,
 ): Promise<OperationalDetailSource | null> {
-  const [ordem, produtos, servicos] = await Promise.all([
-    supabaseAdmin
-      .from("ordemservico")
-      .select(
-        selecionar(
-          "id, status, descricao, prioridade, dataentrada, datasaida",
-          "execucao_inicio_em, execucao_fim_em, finalizado_em",
-          "orcamentototal, acrescimo_financeiro_tipo, acrescimo_financeiro_valor",
-          "forma_pagamento, parcelas_pagamento, garantia, motivo_cancelamento",
-          "veiculo_snapshot",
-          "setor:setorid ( nome )",
-          "veiculo:veiculoid ( id, placa, placa_formatada, marca, modelo, ano, ano_modelo, cor, kmatual, chassi )",
-          grants.verCliente && "cliente:clienteid ( nomerazaosocial )",
-          "transacoes:transacao!transacao_ordemservicoid_fkey ( tipo, pendente, evento_financeiro_id, valor, valor_acrescimos, valor_baixado, is_deleted )",
-        ),
-      )
-      .eq("id", id)
-      .eq("is_deleted", false)
-      .maybeSingle(),
-    supabaseAdmin
-      .from("osproduto")
-      .select("ordemservicoid", { count: "exact", head: true })
-      .eq("ordemservicoid", id),
-    supabaseAdmin
-      .from("osservico")
-      .select("ordemservicoid", { count: "exact", head: true })
-      .eq("ordemservicoid", id),
-  ]);
-
-  if (ordem.error) throw ordem.error;
-  if (!ordem.data) return null;
-
-  return {
-    entidadeTipo: "ORDEM_SERVICO",
-    ordem: linhaDe<OrdemDetailRow>(ordem.data),
-    produtos: produtos.count ?? 0,
-    servicos: servicos.count ?? 0,
-  };
+  void id;
+  void grants;
+  return null;
 }
 
 async function carregarVenda(
@@ -175,21 +140,8 @@ async function carregarVenda(
 }
 
 async function carregarVinculoOrdem(id: unknown): Promise<VinculoResumo | null> {
-  if (id === null || id === undefined) return null;
-  const resultado = await supabaseAdmin
-    .from("ordemservico")
-    .select("id, status, orcamentototal, descricao")
-    .eq("id", id)
-    .eq("is_deleted", false)
-    .maybeSingle();
-  if (resultado.error || !resultado.data) return null;
-  const linha = linhaDe<Record<string, unknown>>(resultado.data);
-  return {
-    id: Number(linha.id),
-    status: linha.status as string | null,
-    total: linha.orcamentototal as number | null,
-    descricao: linha.descricao as string | null,
-  };
+  void id;
+  return null;
 }
 
 async function carregarVinculoVenda(id: unknown): Promise<VinculoResumo | null> {

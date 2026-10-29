@@ -31,7 +31,7 @@ function ChatPanel() {
         >
           <SheetTitle className="sr-only">Central de conversas</SheetTitle>
           <SheetDescription className="sr-only">
-            Converse por texto com outros usuários ativos do ERP Oficina.
+            Converse por texto com outros usuários ativos do ERP Imóveis.
           </SheetDescription>
           <ChatViewTransition view={view}>
             {view.type === "inbox" ? <ChatInbox /> : null}

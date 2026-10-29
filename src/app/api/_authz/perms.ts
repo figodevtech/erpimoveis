@@ -87,13 +87,6 @@ export async function requireAll(permsToCheck: Permission[]) {
 }
 
 /* -------------------- Atalhos por área (conveniência) -------------------- */
-// Ordens
-export async function hasOSAccess() {
-  return hasPerm(PERMS.ORDENS);
-}
-export async function requireOSAccess() {
-  return requirePerm(PERMS.ORDENS);
-}
 
 // Dashboard
 export async function hasDashboardAccess() {
@@ -224,34 +217,11 @@ export async function requireRadiosDelete() {
   return requirePerm(PERMS.RADIOS_EXCLUIR);
 }
 
-export async function hasAgendamentosAccess() {
-  return hasPerm(PERMS.AGENDAMENTOS);
-}
-export async function requireAgendamentosAccess() {
-  return requirePerm(PERMS.AGENDAMENTOS);
-}
-export async function requireAgendamentosCreate() {
-  return requirePerm(PERMS.AGENDAMENTOS_CRIAR);
-}
-export async function requireAgendamentosEdit() {
-  return requirePerm(PERMS.AGENDAMENTOS_EDITAR);
-}
-export async function requireAgendamentosDelete() {
-  return requirePerm(PERMS.AGENDAMENTOS_EXCLUIR);
-}
 
-export async function requireAlugueisAccess() {
-  return requirePerm(PERMS.ALUGUEIS);
-}
-export async function requireAlugueisCreate() {
-  return requirePerm(PERMS.ALUGUEIS_CRIAR);
-}
-export async function requireAlugueisEdit() {
-  return requirePerm(PERMS.ALUGUEIS_EDITAR);
-}
-export async function requireAlugueisDelete() {
-  return requirePerm(PERMS.ALUGUEIS_EXCLUIR);
-}
+
+
+
+
 
 export async function hasFinanceiroAccess() {
   return hasPerm(PERMS.FINANCEIRO);
@@ -320,86 +290,3 @@ export async function requireSpedAccess() {
 export async function requireSpedManage() {
   return requirePerm(PERMS.FISCAL_SPED_GERENCIAR);
 }
-
-export async function hasVeiculosAccess() {
-  return hasPerm(PERMS.VEICULOS);
-}
-export async function requireVeiculosAccess() {
-  return requirePerm(PERMS.VEICULOS);
-}
-export async function requireVeiculosCreate() {
-  return requirePerm(PERMS.VEICULOS_CRIAR);
-}
-export async function requireVeiculosEdit() {
-  return requirePerm(PERMS.VEICULOS_EDITAR);
-}
-export async function requireVeiculosDelete() {
-  return requirePerm(PERMS.VEICULOS_EXCLUIR);
-}
-
-export async function hasOrcamentosAccess() {
-  return hasPerm(PERMS.ORCAMENTOS);
-}
-export async function requireOrcamentosAccess() {
-  return requirePerm(PERMS.ORCAMENTOS);
-}
-export async function requireOrcamentosCreate() {
-  return requirePerm(PERMS.ORCAMENTOS_CRIAR);
-}
-export async function requireOrcamentosEdit() {
-  return requirePerm(PERMS.ORCAMENTOS_EDITAR);
-}
-export async function requireOrcamentosDelete() {
-  return requirePerm(PERMS.ORCAMENTOS_EXCLUIR);
-}
-
-export async function hasDesmancheAccess() {
-  return hasPerm(PERMS.DESMANCHE);
-}
-export async function requireDesmancheAccess() {
-  return requirePerm(PERMS.DESMANCHE);
-}
-export async function requireDesmancheCreate() {
-  return requirePerm(PERMS.DESMANCHE_CRIAR);
-}
-export async function requireDesmancheEdit() {
-  return requirePerm(PERMS.DESMANCHE_EDITAR);
-}
-export async function requireDesmancheDelete() {
-  return requirePerm(PERMS.DESMANCHE_EXCLUIR);
-}
-
-export async function hasExecucaoOSAccess() {
-  return hasPerm(PERMS.EXECUCAO_OS);
-}
-export async function requireExecucaoOSAccess() {
-  return requirePerm(PERMS.EXECUCAO_OS);
-}
-export async function requireOSCreate() {
-  return requirePerm(PERMS.ORDENS_CRIAR);
-}
-export async function hasOSRentabilidade() {
-  return hasPerm(PERMS.ORDENS_RENTABILIDADE);
-}
-export async function requireOSRentabilidade() {
-  return requirePerm(PERMS.ORDENS_RENTABILIDADE);
-}
-export async function hasOSFinalizarSemCobranca() {
-  return hasPerm(PERMS.ORDENS_FINALIZAR_SEM_COBRANCA);
-}
-export async function requireOSFinalizarSemCobranca() {
-  return requirePerm(PERMS.ORDENS_FINALIZAR_SEM_COBRANCA);
-}
-export async function hasOSEventosFinanceiros() {
-  return hasPerm(PERMS.ORDENS_EVENTOS_FINANCEIROS);
-}
-export async function requireOSEventosFinanceiros() {
-  return requirePerm(PERMS.ORDENS_EVENTOS_FINANCEIROS);
-}
-export async function requireOSEdit() {
-  return requirePerm(PERMS.ORDENS_EDITAR);
-}
-export async function requireOSDelete() {
-  return requirePerm(PERMS.ORDENS_EXCLUIR);
-}
-

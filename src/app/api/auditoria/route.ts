@@ -58,18 +58,15 @@ async function carregarReferencias(eventos: EventoAuditoria[]): Promise<Referenc
     valores.length ? consulta() : Promise.resolve({ data: [] as T[], error: null })
   );
 
-  const [pecas, clientes, veiculos, setores, servicos, produtos, modelosChecklist, usuarios] = await Promise.all([
-    consultar(ids.pecaid, () => supabaseAdmin.from("peca").select("id, titulo, descricao").in("id", ids.pecaid)),
+  const [clientes, setores, servicos, produtos, usuarios] = await Promise.all([
     consultar(ids.clienteid, () => supabaseAdmin.from("cliente").select("id, nomerazaosocial").in("id", ids.clienteid)),
-    consultar(ids.veiculoid, () => supabaseAdmin.from("veiculo").select("id, placa, marca, modelo").in("id", ids.veiculoid)),
     consultar(ids.setorid, () => supabaseAdmin.from("setor").select("id, nome").in("id", ids.setorid)),
     consultar(ids.servicoid, () => supabaseAdmin.from("servico").select("id, codigo, descricao").in("id", ids.servicoid)),
     consultar(ids.produtoid, () => supabaseAdmin.from("produto").select("id, descricao, referencia").in("id", ids.produtoid)),
-    consultar(ids.checklist_modelo_id, () => supabaseAdmin.from("checklist_modelo").select("id, nome").in("id", ids.checklist_modelo_id)),
     consultar(ids.usuarios, () => supabaseAdmin.from("usuario").select("id, nome, email").in("id", ids.usuarios)),
   ]);
 
-  for (const resultado of [pecas, clientes, veiculos, setores, servicos, produtos, modelosChecklist, usuarios]) {
+  for (const resultado of [clientes, setores, servicos, produtos, usuarios]) {
     if (resultado.error) console.warn("[auditoria] Não foi possível resolver uma referência:", resultado.error);
   }
 
@@ -80,16 +77,13 @@ async function carregarReferencias(eventos: EventoAuditoria[]): Promise<Referenc
     referencias[campo][String(id)] = nome;
   };
 
-  for (const item of pecas.data ?? []) adicionar("pecaid", item.id, juntarPartes(item.titulo, item.descricao));
   for (const item of clientes.data ?? []) adicionar("clienteid", item.id, juntarPartes(item.nomerazaosocial));
-  for (const item of veiculos.data ?? []) adicionar("veiculoid", item.id, juntarPartes(`${item.marca} ${item.modelo}`.trim(), item.placa));
   for (const item of setores.data ?? []) {
     adicionar("setorid", item.id, String(item.nome));
     adicionar("setor_padrao_os_id", item.id, String(item.nome));
   }
   for (const item of servicos.data ?? []) adicionar("servicoid", item.id, juntarPartes(item.descricao, item.codigo));
   for (const item of produtos.data ?? []) adicionar("produtoid", item.id, juntarPartes(item.descricao, item.referencia));
-  for (const item of modelosChecklist.data ?? []) adicionar("checklist_modelo_id", item.id, String(item.nome));
   for (const item of usuarios.data ?? []) {
     const nome = juntarPartes(item.nome, item.email);
     for (const campo of ["usuarioid", "usuariocriadorid", "created_by", "updated_by", "deleted_by"]) {

@@ -5,7 +5,7 @@ import { nomeOficialMunicipioIbge } from "@/lib/ibge/municipio";
 import { loadPrintPaymentSummary } from "@/lib/print-payment-display-server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-import { contextoDaOS, contextoDaVenda, contextoDoAluguel, type EmissaoDocumento } from "./contexto";
+import { contextoDaVenda, type EmissaoDocumento } from "./contexto";
 import type { ContextoDocumento, ModuloDocumento } from "./tipos";
 
 const COLUNAS_CLIENTE =
@@ -25,28 +25,6 @@ const SELECT_VENDA = `
     id, quantidade, sub_total, valor_total, tipo_desconto, valor_desconto, valor_frete,
     produto:produtoid ( id, titulo, descricao, unidade, etiqueta, codigobarras )
   )
-`;
-
-const SELECT_OS = `
-  *,
-  cliente:clienteid ( ${COLUNAS_CLIENTE} ),
-  veiculo:veiculoid ( * ),
-  peca:pecaid ( titulo, descricao, lacre ),
-  setor:setorid ( nome ),
-  criador:usuariocriadorid ( nome ),
-  servicos:osservico ( *, servico:servicoid ( codigo, descricao ) ),
-  produtos:osproduto ( *, produto:produtoid ( id, titulo, descricao, unidade, etiqueta ) ),
-  produtosAvulsos:osproduto_avulso ( * ),
-  itensHistoricos:ositem_historico ( * )
-`;
-
-const SELECT_ALUGUEL = `
-  id, status, data_inicio, data_limite, pausado_em, encerrado_em, observacao, valor_total,
-  cliente_nome, cliente_documento, cliente_telefone, cliente_email,
-  cliente:cliente_id ( ${COLUNAS_CLIENTE} ),
-  destinatario:usuario_id ( nome, email ),
-  criador:created_by ( nome ),
-  itens:aluguel_item ( id, tipo, descricao, identificacao, quantidade, quantidade_devolvida, valor, devolvido_em )
 `;
 
 /** Mesmo cadastro que o cabeçalho das demais folhas lê. */
@@ -96,51 +74,18 @@ export async function montarContexto(
   const [empresa, logoUrl] = await Promise.all([lerEmpresa(), fetchPrimeiroLogoEmpresa()]);
   const comLogo: EmissaoDocumento = { ...emissao, logoUrl };
 
-  if (modulo === "venda") {
-    const { data: venda, error } = await supabaseAdmin.from("venda").select(SELECT_VENDA).eq("id", registroId).maybeSingle();
-    if (error) throw error;
-    if (!venda) return null;
-    const v = venda as Record<string, any>;
-    const pagamentos = await loadPrintPaymentSummary({
-      type: "VENDA",
-      documentId: registroId,
-      status: v.status,
-      pagamentosPrevistos: lista(v.pagamentos_previstos),
-      formaPagamento: v.forma_pagamento ?? null,
-      parcelasPagamento: v.parcelas_pagamento ?? null,
-    });
-    return contextoDaVenda({ venda: v, empresa, pagamentos, emissao: comLogo });
-  }
-
-  if (modulo === "os") {
-    const [{ data: os, error }, { data: realizadores, error: erroRealizadores }] = await Promise.all([
-      supabaseAdmin.from("ordemservico").select(SELECT_OS).eq("id", registroId).maybeSingle(),
-      supabaseAdmin.from("osservico_realizador").select("servicoid, usuario:usuarioid ( nome )").eq("ordemservicoid", registroId),
-    ]);
-    if (error) throw error;
-    if (erroRealizadores) throw erroRealizadores;
-    if (!os) return null;
-    const o = os as Record<string, any>;
-    // Pagamento previsto ou registrado, como na folha da OS. Custo e
-    // rentabilidade não entram no documento.
-    const pagamentos = await loadPrintPaymentSummary({
-      type: "OS",
-      documentId: registroId,
-      status: o.status,
-      pagamentosPrevistos: lista(o.pagamentos_previstos),
-      formaPagamento: o.forma_pagamento ?? null,
-      parcelasPagamento: o.parcelas_pagamento ?? null,
-    });
-    return contextoDaOS({ os: o, realizadores: realizadores ?? [], empresa, pagamentos, emissao: comLogo });
-  }
-
-  const { data: aluguel, error } = await supabaseAdmin
-    .from("aluguel")
-    .select(SELECT_ALUGUEL)
-    .eq("id", registroId)
-    .eq("is_deleted", false)
-    .maybeSingle();
+  if (modulo !== "venda") return null; // único módulo com documentos por enquanto
+  const { data: venda, error } = await supabaseAdmin.from("venda").select(SELECT_VENDA).eq("id", registroId).maybeSingle();
   if (error) throw error;
-  if (!aluguel) return null;
-  return contextoDoAluguel({ aluguel: aluguel as Record<string, any>, empresa, emissao: comLogo });
+  if (!venda) return null;
+  const v = venda as Record<string, any>;
+  const pagamentos = await loadPrintPaymentSummary({
+    type: "VENDA",
+    documentId: registroId,
+    status: v.status,
+    pagamentosPrevistos: lista(v.pagamentos_previstos),
+    formaPagamento: v.forma_pagamento ?? null,
+    parcelasPagamento: v.parcelas_pagamento ?? null,
+  });
+  return contextoDaVenda({ venda: v, empresa, pagamentos, emissao: comLogo });
 }

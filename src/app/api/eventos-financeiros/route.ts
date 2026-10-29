@@ -11,7 +11,7 @@ import {
   idValido,
   responder,
   responderFalha,
-} from "@/app/api/ordens/[id]/eventos-financeiros/_lib/servico";
+} from "@/lib/financeiro/eventos-financeiros/servico";
 import {
   excedeLimiteSelecaoDeEventos,
   LIMITE_SELECAO_EVENTOS,
@@ -125,21 +125,8 @@ export async function GET(req: NextRequest) {
 
     // A view traz o contexto da OS em JSON, sem a conclusão. Busca as datas
     // das OS da página em lote, na mesma fonte usada pela Central Pessoal.
-    const osIds = [...new Set(eventos
-      .map((evento) => evento.ordemservicoid as number | null)
-      .filter((id): id is number => id != null))];
+
     const conclusoes = new Map<number, string | null>();
-    if (osIds.length > 0) {
-      const { data: ordens, error: erroOrdens } = await supabaseAdmin
-        .from("ordemservico")
-        .select("id, execucao_fim_em")
-        .in("id", osIds)
-        .eq("is_deleted", false);
-      if (erroOrdens) throw erroOrdens;
-      for (const ordem of ordens ?? []) {
-        conclusoes.set(ordem.id, ordem.execucao_fim_em);
-      }
-    }
 
     // Os totais valem para o filtro inteiro, não para a página: o financeiro abre
     // a tela para saber quanto falta lançar, e o número da página responderia

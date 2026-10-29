@@ -74,12 +74,12 @@ async function main() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!url || !anonKey || !serviceKey) throw new Error("Variáveis Supabase do ERP ausentes.");
 
-  const demo = loadDatabaseConfigs().find((database) => database.key === "demo");
-  if (!demo) throw new Error("Demonstração não configurada.");
+  const banco = loadDatabaseConfigs().find((database) => database.key === "cespedes");
+  if (!banco) throw new Error("Banco do ERP não configurado.");
   assert.equal(
     new URL(url).hostname.split(".")[0],
-    demo.projectRef,
-    "NEXT_PUBLIC_SUPABASE_URL não aponta para a Demonstração",
+    banco.projectRef,
+    "NEXT_PUBLIC_SUPABASE_URL não aponta para o banco do ERP",
   );
 
   const admin = createClient(url, serviceKey, {

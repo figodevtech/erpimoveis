@@ -35,14 +35,10 @@ import { atualizarDocumento, excluirDocumento, listarDocumentos } from "./api";
 
 const ONDE_APARECE: Record<ModuloDocumento, string> = {
   venda: "no botão de impressora do diálogo da venda",
-  os: "no botão de impressora dos detalhes da ordem de serviço",
-  aluguel: "no botão de impressora dos detalhes do aluguel",
 };
 
 const DO_MODULO: Record<ModuloDocumento, string> = {
   venda: "de venda",
-  os: "de ordem de serviço",
-  aluguel: "de aluguel",
 };
 
 function atualizadoEm(valor: string) {
@@ -92,8 +88,6 @@ export function DocumentosLista({ moduloInicial }: { moduloInicial: ModuloDocume
   const contagem = useMemo(() => {
     const total: Record<ModuloDocumento, { todos: number; ativos: number }> = {
       venda: { todos: 0, ativos: 0 },
-      os: { todos: 0, ativos: 0 },
-      aluguel: { todos: 0, ativos: 0 },
     };
     for (const d of itens) {
       total[d.modulo].todos += 1;

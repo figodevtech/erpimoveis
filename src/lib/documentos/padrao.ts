@@ -113,98 +113,6 @@ const CONTRATO_VENDA = pagina(
 </div>`,
 );
 
-const RECIBO_OS = pagina(
-  "Recibo de serviço prestado",
-  `<h1>Recibo de serviço prestado</h1>
-<p class="subtitulo">Ordem de serviço nº {{os.numero}}</p>
-
-<div class="quadro">
-  <p>Recebemos de <strong>{{cliente.nome}}</strong>, CPF/CNPJ {{cliente.documento}}, a importância de <strong>{{os.total}}</strong> ({{os.total_extenso}}), referente às peças e aos serviços executados na ordem de serviço nº {{os.numero}}, conforme descrito abaixo.</p>
-  <p><strong>{{os.alvo}}:</strong> {{os.alvo_descricao}}</p>
-  <p><strong>Entrada:</strong> {{os.data_entrada}} · <strong>Conclusão:</strong> {{os.data_conclusao}}</p>
-</div>
-
-<h2>Peças</h2>
-{{os.pecas_tabela}}
-
-<h2>Serviços</h2>
-{{os.servicos_tabela}}
-
-<table class="totais">
-  <tr><td>Peças</td><td>{{os.total_pecas}}</td></tr>
-  <tr><td>Serviços</td><td>{{os.total_servicos}}</td></tr>
-  <tr><td>Desconto</td><td>{{os.desconto}}</td></tr>
-  <tr><td>Frete</td><td>{{os.frete}}</td></tr>
-  <tr><td>Total</td><td>{{os.total}}</td></tr>
-</table>
-
-<h2>Pagamento</h2>
-{{os.pagamentos}}
-
-<h2>Garantia</h2>
-<p>{{os.garantia}}</p>
-<p>A garantia cobre as peças fornecidas e a mão de obra dos serviços listados neste recibo, e não se estende a danos causados por mau uso, acidentes ou intervenção de terceiros.</p>
-
-<p>Para clareza, firmamos o presente recibo, dando plena e geral quitação do valor acima.</p>
-
-<p class="local-data">{{documento.data_emissao_extenso}}</p>
-
-<div class="assinaturas">
-  <div class="assinatura">{{empresa.nome}}<br />CNPJ {{empresa.cnpj}}</div>
-  <div class="assinatura">{{cliente.nome}}<br />Recebi o serviço em perfeitas condições</div>
-</div>`,
-);
-
-const CONTRATO_ALUGUEL = pagina(
-  "Contrato de locação",
-  `<h1>Contrato de locação de bens móveis</h1>
-<p class="subtitulo">Aluguel nº {{aluguel.numero}}</p>
-
-<h2>1. Das partes</h2>
-<div class="quadro">
-  <p><strong>LOCADORA:</strong> {{empresa.razao_social}}, inscrita no CNPJ sob o nº {{empresa.cnpj}}, com sede em {{empresa.endereco}}.</p>
-  <p><strong>LOCATÁRIO(A):</strong> {{cliente.nome}}, CPF/CNPJ {{cliente.documento}}, endereço {{cliente.endereco_completo}}, telefone {{cliente.telefone}}.</p>
-</div>
-
-<h2>2. Do objeto</h2>
-<p>A LOCADORA cede ao(à) LOCATÁRIO(A), em locação, os bens relacionados abaixo, que este(a) declara receber em perfeito estado de conservação e funcionamento:</p>
-{{aluguel.itens_tabela}}
-
-<h2>3. Do prazo</h2>
-<p>A locação tem início em <strong>{{aluguel.data_inicio}}</strong> e data limite para devolução em <strong>{{aluguel.data_limite}}</strong> ({{aluguel.duracao}}). A permanência com os bens após a data limite, sem acordo com a LOCADORA, sujeita o(a) LOCATÁRIO(A) à cobrança proporcional dos dias excedentes.</p>
-
-<h2>4. Do valor</h2>
-<p>Pela locação, o(a) LOCATÁRIO(A) pagará à LOCADORA o valor de <strong>{{aluguel.valor_total}}</strong> ({{aluguel.valor_total_extenso}}).</p>
-
-<h2>5. Das obrigações do(a) locatário(a)</h2>
-<ul>
-  <li>Usar os bens apenas para o fim a que se destinam, com cuidado e conforme as orientações recebidas;</li>
-  <li>Não emprestar, sublocar ou ceder os bens a terceiros sem autorização por escrito da LOCADORA;</li>
-  <li>Responder pelos danos, perdas, furto ou roubo dos bens enquanto estiverem em sua posse, ressarcindo o valor de reparo ou de reposição;</li>
-  <li>Devolver os bens na data limite, limpos e no mesmo estado em que os recebeu, ressalvado o desgaste natural do uso.</li>
-</ul>
-
-<h2>6. Da devolução</h2>
-<p>Na devolução, os bens serão conferidos pela LOCADORA. Qualquer avaria constatada será informada ao(à) LOCATÁRIO(A) e cobrada conforme a cláusula 5.</p>
-
-<h2>7. Observações</h2>
-{{aluguel.observacao}}
-
-<p>As partes elegem o foro da comarca da sede da LOCADORA para dirimir quaisquer dúvidas oriundas deste contrato. E, por estarem de acordo, assinam o presente em duas vias de igual teor.</p>
-
-<p class="local-data">{{documento.data_emissao_extenso}}</p>
-
-<div class="assinaturas">
-  <div class="assinatura">{{empresa.razao_social}}<br />LOCADORA</div>
-  <div class="assinatura">{{cliente.nome}}<br />LOCATÁRIO(A)</div>
-</div>`,
-);
-
-/**
- * Cupom não fiscal para a impressora térmica de 80 mm: uma tira só
- * (`data-documento-bobina`), com o leiaute do cupom do caixa. Tudo em negrito
- * e numa fonte de traço grosso: a térmica clareia o traço fino do Courier.
- */
 const CUPOM_VENDA = `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -278,8 +186,6 @@ const CUPOM_VENDA = `<!doctype html>
 export const DOCUMENTOS_PADRAO: readonly DocumentoPadrao[] = [
   { codigo: "venda_contrato", modulo: "venda", nome: "Contrato de compra e venda", html: CONTRATO_VENDA },
   { codigo: "venda_cupom", modulo: "venda", nome: "Cupom de venda", html: CUPOM_VENDA },
-  { codigo: "os_recibo", modulo: "os", nome: "Recibo de serviço prestado", html: RECIBO_OS },
-  { codigo: "aluguel_contrato", modulo: "aluguel", nome: "Contrato de locação", html: CONTRATO_ALUGUEL },
 ];
 
 export function documentoPadrao(codigo: string | null | undefined) {

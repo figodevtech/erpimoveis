@@ -11,7 +11,6 @@ import {
   Landmark,
   Tags,
   LayoutPanelLeft,
-  Palette,
   ChevronDown,
   ShoppingBag,
   Building2,
@@ -29,7 +28,6 @@ import CategoriasTransacaoSection from "./categorias-transacao-section";
 import PlanosDeContaSection from "./planos-de-conta-section";
 import CategoriasVendaSection from "./categorias-venda-section";
 import SetoresSection from "./setores-section";
-import CoresVeiculosSection from "./cores-veiculos-section";
 import CentrosCustoSection from "./centros-custo-section";
 import GruposUsoConsumoSection from "./grupos-usoconsumo-section";
 import MotivosSaidaSection from "./motivos-saida-section";
@@ -120,12 +118,6 @@ export default function TiposConfigPage({ permissoes, abaInicial }: { permissoes
       icon: ShoppingBag,
       title: "Categorias de venda",
       subtitle: "Organize as vendas",
-    },
-    {
-      id: "cores_veiculos",
-      icon: Palette,
-      title: "Cores de veículos",
-      subtitle: "Cores para o cadastro",
     },
     {
       id: "tipos_entrada",
@@ -227,7 +219,6 @@ export default function TiposConfigPage({ permissoes, abaInicial }: { permissoes
           {selectedTab === "planos_conta" && <PlanosDeContaSection />}
           {selectedTab === "centros_custo" && <CentrosCustoSection />}
           {selectedTab === "categorias_venda" && <CategoriasVendaSection />}
-          {selectedTab === "cores_veiculos" && <CoresVeiculosSection />}
           {selectedTab === "tipos_entrada" && <TiposEntradaSection />}
           {selectedTab === "motivos_saida" && <MotivosSaidaSection />}
         </div>

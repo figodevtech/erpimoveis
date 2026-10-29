@@ -4,8 +4,6 @@
 import * as React from "react";
 import {
   LayoutDashboard,
-  NotepadText,
-  Tv,
   Package,
   Tags,
   Settings2,
@@ -15,9 +13,7 @@ import {
   Type,
   Settings,
   UsersRound,
-  SquareCheckBig,
   DollarSign,
-  Calculator,
   ArrowDownUp,
   Landmark,
   Receipt,
@@ -27,13 +23,10 @@ import {
   Handbag,
   Boxes,
   Lock,
-  Car,
-  Wrench,
-  CalendarDays,
+
   ShoppingBag,
   MapPinned,
   ScanLine,
-  Repeat2,
   FileClock,
   CreditCard,
   MonitorCheck,
@@ -43,7 +36,6 @@ import {
   FileText,
   Building2,
   RadioTower,
-  KeyRound,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -67,18 +59,11 @@ import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
   user?: { nome: string; email: string };
   setOpen?: (open: boolean) => void;
-  hoverHabilitado?: boolean;
   billingBlocked?: boolean;
 };
 
 const data = {
   navOptions: [
-    {
-      title: "Execução",
-      url: "/execucao",
-      icon: Wrench,
-      perm: PERMS.EXECUCAO_OS,
-    },
     {
       title: "Dashboard",
       url: "/dashboard",
@@ -93,43 +78,11 @@ const data = {
       isActive: true,
       perm: PERMS.CLIENTES,
     },
-    {
-      title: "Ordens de Serviço",
-      url: "/ordens",
-      icon: NotepadText,
-      isActive: true,
-      perm: PERMS.ORDENS,
-    },
-    {
-      title: "Orçamentos",
-      url: "/orcamentos",
-      icon: FileText,
-      perm: PERMS.ORCAMENTOS,
-    },
-    {
-      title: "Agendamentos",
-      url: "/agendamentos",
-      icon: CalendarDays,
-      perm: PERMS.AGENDAMENTOS,
-    },
-    {
-      title: "Aluguéis",
-      url: "/alugueis",
-      icon: KeyRound,
-      perm: PERMS.ALUGUEIS,
-    },
-    {
-      title: "Veículos",
-      url: "/veiculos",
-      icon: Car,
-      perm: PERMS.VEICULOS,
-    },
-    {
-      title: "Desmanche",
-      url: "/desmanche",
-      icon: Repeat2,
-      perm: PERMS.DESMANCHE,
-    },
+    { title: "Imóveis", url: "/imoveis", icon: Building2, isActive: true, perm: PERMS.IMOVEIS },
+    { title: "Proprietários", url: "/proprietarios", icon: Users, isActive: true, perm: PERMS.PROPRIETARIOS },
+    { title: "Reservas", url: "/reservas", icon: FileClock, isActive: true, perm: PERMS.RESERVAS },
+    { title: "Locações", url: "/locacoes-imobiliarias", icon: FileText, isActive: true, perm: PERMS.LOCACOES_IMOBILIARIAS },
+    { title: "Vendas imobiliárias", url: "/vendas-imobiliarias", icon: Landmark, isActive: true, perm: PERMS.VENDAS_IMOBILIARIAS },
     {
       title: "Estoque",
       url: "#",
@@ -237,16 +190,10 @@ const data = {
           perm: PERMS.FISCAL_SPED,
         },
         {
-          title: "Eventos de Ordens",
+          title: "Eventos Financeiros",
           url: "/eventos-financeiros",
           icon: ListChecks,
           perm: PERMS.FINANCEIRO_EVENTOS_DE_ORDENS,
-        },
-        {
-          title: "Pagamento de Ordens",
-          url: "/pagamentodeordens",
-          icon: Calculator,
-          perm: PERMS.FINANCEIRO_PAGAMENTO_DE_ORDENS,
         },
         {
           title: "Pagamento de Vendas",
@@ -267,12 +214,6 @@ const data = {
           perm: PERMS.FINANCEIRO_DRE,
         },
       ],
-    },
-    {
-      title: "Acompanhamento",
-      url: "/acompanhamento",
-      icon: Tv,
-      perm: PERMS.ACOMPANHAMENTO,
     },
     {
       title: "Central Operacional",
@@ -334,12 +275,6 @@ const data = {
           url: "/usuarios",
           icon: Users,
           perm: PERMS.USUARIOS,
-        },
-        {
-          title: "Checklist",
-          url: "/configuracoes/checklist",
-          icon: SquareCheckBig,
-          perm: PERMS.CONFIG,
         },
         {
           title: "Documentos",
@@ -410,7 +345,7 @@ function SidebarModulesLoading() {
   );
 }
 
-export function AppSidebar({ user, setOpen, hoverHabilitado, billingBlocked = false, ...props }: AppSidebarProps) {
+export function AppSidebar({ user, setOpen, billingBlocked = false, ...props }: AppSidebarProps) {
   const { data: session, status } = useSession();
   const [empresaNome, setEmpresaNome] = React.useState("Empresa");
 
@@ -462,9 +397,7 @@ export function AppSidebar({ user, setOpen, hoverHabilitado, billingBlocked = fa
   );
 
   return (
-    <Sidebar onMouseOver={()=>{
-      if(!hoverHabilitado) return;
-      setOpen?.(true)}} collapsible="icon" {...props}>
+    <Sidebar onMouseOver={() => setOpen?.(true)} collapsible="icon" {...props}>
       <SidebarHeader className="shrink-0 overflow-hidden border-b border-sidebar-border">
         <div
           className="flex min-h-12 w-[calc(var(--sidebar-width)-1rem)] shrink-0 items-center gap-2 px-2"

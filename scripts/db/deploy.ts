@@ -1,26 +1,21 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import {
-  inspectAllDatabases,
+  DEFAULT_DATABASE_KEY,
   inspectDatabase,
   loadDatabaseConfigs,
   printInspectionSummary,
   readLocalMigrations,
   runDatabasePush,
-  schemaDifferences,
 } from "./lib";
 
 const flags = new Set(process.argv.slice(2));
-
-function nomesDos(bancos: Array<{ label: string }>) {
-  return bancos.map((banco) => banco.label).join(", ");
-}
 
 async function confirm(expected: string, message: string, bypass: boolean) {
   if (bypass) return;
   if (!process.stdin.isTTY) {
     throw new Error(
-      `Confirmação interativa indisponível. Use a opção correspondente somente após validar: ${expected}.`,
+      `Confirmação interativa indisponível. Use --approve somente após revisar o dry-run.`,
     );
   }
 
@@ -37,94 +32,43 @@ async function confirm(expected: string, message: string, bypass: boolean) {
 
 async function main() {
   const localMigrations = readLocalMigrations();
-  const databases = loadDatabaseConfigs();
-  const demo = databases.find((database) => database.key === "demo");
-  const clients = databases.filter((database) => database.key !== "demo");
-  if (!demo) throw new Error("Banco de Demonstração não configurado.");
+  const database = loadDatabaseConfigs().find((item) => item.key === DEFAULT_DATABASE_KEY);
+  if (!database) throw new Error("Banco do ERP não configurado.");
 
-  console.log(`Pré-validação dos ${databases.length} bancos...`);
-  const initial = await inspectAllDatabases();
-  printInspectionSummary(initial.inspections);
+  const before = await inspectDatabase(database, localMigrations);
+  printInspectionSummary([before]);
 
-  if (initial.inspections.some((inspection) => inspection.remoteOnly.length)) {
+  if (before.remoteOnly.length) {
     throw new Error(
       "Há migrations somente no remoto. Corrija o histórico antes do deploy.",
     );
   }
-
-  let demoStatus = initial.inspections.find(
-    (inspection) => inspection.database.key === "demo",
-  );
-  if (!demoStatus) throw new Error("Status da Demonstração não encontrado.");
-
-  if (demoStatus.pending.length) {
-    console.log("\nDry-run da Demonstração...");
-    await runDatabasePush(demo, true);
-    await confirm(
-      "DEMO",
-      `Aplicar ${demoStatus.pending.length} migration(s) na Demonstração?`,
-      flags.has("--approve-demo"),
-    );
-    await runDatabasePush(demo, false);
-    demoStatus = await inspectDatabase(demo, localMigrations);
-    if (demoStatus.pending.length || demoStatus.remoteOnly.length) {
-      throw new Error("A validação pós-deploy da Demonstração falhou.");
-    }
-    console.log("Demonstração atualizada com sucesso.");
-  } else {
-    console.log("\nDemonstração já está atualizada.");
+  if (!before.pending.length) {
+    console.log(`\n${database.label} já está atualizado.`);
+    return;
   }
 
-  const clientStatuses = await Promise.all(
-    clients.map((database) => inspectDatabase(database, localMigrations)),
+  console.log(`\nDry-run de ${database.label}...`);
+  await runDatabasePush(database, true);
+  await confirm(
+    "APLICAR",
+    `Aplicar ${before.pending.length} migration(s) em ${database.label}?`,
+    flags.has("--approve"),
   );
-  const pendingClients = clientStatuses.filter(
-    (inspection) => inspection.pending.length,
-  );
+  await runDatabasePush(database, false);
 
-  if (pendingClients.length) {
-    console.log(
-      "\nTeste agora o ERP usando a Demonstração. Os bancos dos clientes ainda não foram alterados.",
-    );
-    await confirm(
-      "CLIENTES",
-      `Após validar a Demonstração, deseja atualizar ${nomesDos(clients)}?`,
-      flags.has("--approve-clients"),
-    );
-
-    for (const status of clientStatuses) {
-      if (!status.pending.length) {
-        console.log(`${status.database.label} já está atualizado.`);
-        continue;
-      }
-      console.log(`\nDry-run de ${status.database.label}...`);
-      await runDatabasePush(status.database, true);
-      console.log(`Aplicando em ${status.database.label}...`);
-      await runDatabasePush(status.database, false);
-    }
-  } else {
-    console.log(`${nomesDos(clients)} já estão atualizados.`);
+  const after = await inspectDatabase(database, localMigrations);
+  printInspectionSummary([after]);
+  if (after.pending.length || after.remoteOnly.length) {
+    throw new Error(`A validação pós-deploy de ${database.label} falhou.`);
   }
-
-  console.log("\nValidação final...");
-  const final = await inspectAllDatabases();
-  printInspectionSummary(final.inspections);
-  const hasHistoryDrift = final.inspections.some(
-    (inspection) => inspection.pending.length || inspection.remoteOnly.length,
-  );
-  const differences = schemaDifferences(final.inspections);
-  if (hasHistoryDrift || differences.length) {
-    throw new Error(
-      `Deploy concluído com divergências: ${differences.join(", ") || "histórico"}.`,
-    );
-  }
-  if (final.inspections.some((inspection) => inspection.anonRoutines.length)) {
+  if (after.anonRoutines.length) {
     throw new Error(
       "Deploy concluído, mas há funções do public executáveis por anon. Falta REVOKE em alguma migration.",
     );
   }
 
-  console.log(`\nDeploy concluído: os ${databases.length} bancos estão alinhados.`);
+  console.log(`\nDeploy concluído: ${database.label} está atualizado.`);
 }
 
 main().catch((error) => {

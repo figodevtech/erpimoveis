@@ -1,5 +1,4 @@
 import { VendaComItens } from "../(vendas)/historicovendas/types";
-import { OrdemServico } from "@/types/ordemservico";
 
 export enum Estoque_status {
   CRITICO = "CRITICO",
@@ -85,15 +84,6 @@ export interface Vendaproduto {
   venda: VendaComItens;
 }
 
-export interface OSProduto {
-  id: number;
-  ordemservicoid: number;
-  quantidade: number;
-  precounitario: number;
-  subtotal: number;
-  ordem: OrdemServico;
-}
-
 export interface Fornecedor {
   id: number;
   cpfcnpj?: string;
@@ -162,7 +152,6 @@ export interface Produto {
   entradas?: entrada[];
   saidas?: SaidaEstoqueItem[];
   vendasdoproduto?: Vendaproduto[];
-  ordensdoproduto?: OSProduto[];
   fornecedorid?: number;
   codigofornecedor?: string;
   conservacao?: Conservacao_produto;

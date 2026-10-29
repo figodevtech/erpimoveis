@@ -178,7 +178,7 @@ async function mercadoLivrePublicGet<T>(path: string) {
   const response = await fetch(`${ML_API_BASE_URL}${path}`, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "erpoficina-marketplace/1.0",
+      "User-Agent": "erpimoveis-marketplace/1.0",
     },
     cache: "no-store",
   });

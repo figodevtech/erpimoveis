@@ -106,12 +106,8 @@ import {
 /*
  * Os diálogos de documento são pesados e só abrem quando alguém pede a origem
  * da nota. Carregar sob demanda evita que a lista fiscal baixe o formulário da
- * OS inteiro.
+ * venda inteiro.
  */
-const OSDetalhesDialog = dynamic(
-  () => import("@/app/(app)/(pages)/ordens/components/dialogs/detalhes-os-dialog").then((m) => m.OSDetalhesDialog),
-  { ssr: false },
-);
 const VendaDetailsDialog = dynamic(
   () =>
     import("@/app/(app)/(pages)/(vendas)/historicovendas/components/venda-detail-dialog").then(
@@ -413,8 +409,11 @@ function DocumentosVinculadosItens({
 }) {
   const grupos = new Map<string, DocumentoVinculado[]>();
   for (const documento of documentos) {
+    // A OS não tem mais tela: a origem aparece no selo da nota, mas não abre.
+    if (documento.tipo === "OS") continue;
     grupos.set(documento.grupo, [...(grupos.get(documento.grupo) ?? []), documento]);
   }
+  if (!grupos.size) return null;
 
   return (
     <>
@@ -1108,7 +1107,6 @@ export default function FiscalTable({
                             <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="TODAS">Todas as origens</SelectItem>
-                              <SelectItem value="OS">Ordem de serviço</SelectItem>
                               <SelectItem value="VENDA">Venda</SelectItem>
                               <SelectItem value="ENTRADA">Entrada de estoque</SelectItem>
                               <SelectItem value="SAIDA">Saída de estoque</SelectItem>
@@ -1741,18 +1739,6 @@ export default function FiscalTable({
       onSaved={() => handleGetNotas(pagination.page, pagination.limit)}
     />
     </MountOnDemand>
-    {documentoAberto?.tipo === "OS" && (
-      <OSDetalhesDialog
-        open
-        osId={documentoAberto.id}
-        onOpenChange={(aberto) => {
-          if (aberto) return;
-          setDocumentoAberto(null);
-          // Emitir ou cancelar nota de dentro da OS muda a lista.
-          void handleGetNotas(pagination.page, pagination.limit);
-        }}
-      />
-    )}
     {documentoAberto?.tipo === "VENDA" && (
       <VendaDetailsDialog
         open

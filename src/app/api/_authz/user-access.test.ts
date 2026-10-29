@@ -91,7 +91,7 @@ const ADMIN: Usuario = {
   perfilid: 1,
   setorid: 2,
   ativo: true,
-  permissoes: ["ordens:visualizar", "vendas:visualizar", "estoque:visualizar"],
+  permissoes: ["clientes:visualizar", "vendas:visualizar", "estoque:visualizar"],
 };
 
 test("uma unica consulta traz usuario, perfil e permissoes — nenhuma em perfilpermissao", async () => {
@@ -104,16 +104,16 @@ test("uma unica consulta traz usuario, perfil e permissoes — nenhuma em perfil
   assert.match(requests[0].searchParams.get("select") ?? "", /perfilpermissao\(permissao:permissaoid\(nome\)\)/);
   assert.equal(access.ativo, true);
   assert.equal(access.perfilId, 1);
-  assert.ok(access.permissoes.includes(permissionConstants.normalizePermission(permissionConstants.PERMS.ORDENS)));
+  assert.ok(access.permissoes.includes(permissionConstants.normalizePermission(permissionConstants.PERMS.CLIENTES)));
 });
 
 test("varias checagens na mesma rota fazem uma so leitura", async () => {
   const { requests, perms } = montar([ADMIN], { id: ADMIN.id, email: ADMIN.email });
 
-  await perms.requireOSAccess();
+  await perms.requireClientesAccess();
   await perms.requireVendasAccess();
   assert.equal(await perms.hasEstoqueAccess(), true);
-  await Promise.all([perms.requireOSAccess(), perms.requireVendasAccess()]);
+  await Promise.all([perms.requireClientesAccess(), perms.requireVendasAccess()]);
 
   assert.equal(requests.length, 1);
 });
@@ -132,7 +132,7 @@ test("usuario desativado nao tem permissao nenhuma, mesmo com perfil completo", 
   const access = await userAccess.loadUserAccess({ userId: inativo.id });
   assert.equal(access.ativo, false);
   assert.equal(access.permissoes.length, 0);
-  await assert.rejects(perms.requireOSAccess(), (error: any) => error.statusCode === 403);
+  await assert.rejects(perms.requireClientesAccess(), (error: any) => error.statusCode === 403);
   assert.equal((await perms.getUserPermissionSet()).size, 0);
 });
 

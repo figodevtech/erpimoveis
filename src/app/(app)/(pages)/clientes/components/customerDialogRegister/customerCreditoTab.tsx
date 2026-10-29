@@ -7,7 +7,6 @@ import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
-import { OSDetalhesDialog } from "../../../ordens/components/dialogs/detalhes-os-dialog";
 import { VendaDetailsDialog } from "../../../(vendas)/historicovendas/components/venda-detail-dialog";
 import type { Customer, SaldoMovimentoCliente } from "../../types";
 
@@ -48,7 +47,6 @@ export default function CustomerCreditoTab({ customer }: CustomerCreditoTabProps
   const [salvando, setSalvando] = useState(false);
   const [paraExcluir, setParaExcluir] = useState<SaldoMovimentoCliente | null>(null);
   const [excluindo, setExcluindo] = useState(false);
-  const [osAberta, setOsAberta] = useState<number | null>(null);
   const [vendaAberta, setVendaAberta] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -210,9 +208,9 @@ export default function CustomerCreditoTab({ customer }: CustomerCreditoTabProps
                               podeAjustar={podeAjustar}
                               onEditar={() => setLancamento({ tipo: "editar", movimento })}
                               onExcluir={() => setParaExcluir(movimento)}
-                              onAbrirDocumento={(doc) =>
-                                doc.tipo === "venda" ? setVendaAberta(doc.id) : setOsAberta(doc.id)
-                              }
+                              onAbrirDocumento={(doc) => {
+                                if (doc.tipo === "venda") setVendaAberta(doc.id);
+                              }}
                             />
                           ))}
                         </ul>
@@ -256,14 +254,7 @@ export default function CustomerCreditoTab({ customer }: CustomerCreditoTabProps
         onConfirmar={() => void confirmarExclusao()}
       />
 
-      {/* Diálogos de detalhes de Venda e Ordem de Serviço */}
-      <OSDetalhesDialog
-        open={osAberta !== null}
-        osId={osAberta}
-        onOpenChange={(aberto) => {
-          if (!aberto) setOsAberta(null);
-        }}
-      />
+      {/* Diálogo de detalhes da venda */}
       <VendaDetailsDialog
         vendaId={vendaAberta}
         open={vendaAberta !== null}

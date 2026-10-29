@@ -16,7 +16,6 @@ import { useUnidadesMedida } from "./hooks/use-unidades-medida";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Unidade_medida } from "../../types";
 import { useGruposProduto } from "./hooks/use-grupo-produtos";
-import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
 import { useConfig } from "../../../config-context";
 import {
   prepareProductImageForUpload,
@@ -61,7 +60,6 @@ export default function CadastroProduto({
   const [ordemImagensPendentes, setOrdemImagensPendentes] = useState<string[]>([]);
   const [progressoUploadImagens, setProgressoUploadImagens] = useState<Record<string, number>>({});
   const [currentTab, setCurrentTab] = useState<string>("Geral");
-  const [lotePendente, setLotePendente] = useState<LoteSelectItem | null>(null);
   const { unidades, loadingUnidades, errorUnidades } = useUnidadesMedida();
   const { grupos, loadingGrupos, adicionarGrupo } = useGruposProduto();
   const config = useConfig();
@@ -194,7 +192,6 @@ export default function CadastroProduto({
 
       const response = await axios.post("/api/products", {
         newProduct: payload,
-        loteId: lotePendente?.id,
       });
 
       if (response.status === 201) {
@@ -237,7 +234,6 @@ export default function CadastroProduto({
           handleSearchFornecedor?.();
 
           limparImagensSelecionadas();
-          setLotePendente(null);
           setCurrentTab("Geral");
           // Remonta os campos e a rolagem, sem fechar o dialog.
           setCadastroVersion((version) => version + 1);
@@ -247,7 +243,6 @@ export default function CadastroProduto({
           handleSearchFornecedor?.();
 
           limparImagensSelecionadas();
-          setLotePendente(null);
           await onAfterSaveProduct?.();
         }
 
@@ -355,8 +350,6 @@ export default function CadastroProduto({
         onGrupoCriado={adicionarGrupo}
         loadingUnidades={loadingUnidades}
         errorUnidades={errorUnidades}
-        lotePendente={lotePendente}
-        onLotePendenteChange={setLotePendente}
         precoMedioCompraObrigatorio={precoMedioCompraObrigatorio}
       />
 

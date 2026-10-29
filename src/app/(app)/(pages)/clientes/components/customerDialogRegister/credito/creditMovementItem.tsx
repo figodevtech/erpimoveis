@@ -74,7 +74,7 @@ export function CreditMovementItem({
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
           {manual ? (
             <span>Ajuste manual</span>
-          ) : doc ? (
+          ) : doc?.tipo === "venda" ? (
             <button
               type="button"
               onClick={() => onAbrirDocumento(doc)}
@@ -84,7 +84,7 @@ export function CreditMovementItem({
               {doc.rotulo}
             </button>
           ) : (
-            <span>{movimento.transacao_id ? `Título #${movimento.transacao_id}` : "Baixa de título"}</span>
+            <span>{doc?.rotulo ?? (movimento.transacao_id ? `Título #${movimento.transacao_id}` : "Baixa de título")}</span>
           )}
           {autor && <span>{autor}</span>}
           {movimento.updated_at && (

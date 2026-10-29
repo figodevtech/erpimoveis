@@ -595,11 +595,8 @@ export async function POST(req: Request) {
 
     const fornecedorId = fornecedorIdRaw ? Number(fornecedorIdRaw) : undefined;
     const ultimoValorDeCompra = toNumberOrNull(ultimoValorDeCompraRaw);
-    const loteIdRaw = body.loteId ?? body.lote_id ?? json.loteId ?? json.lote_id;
-    const loteId = loteIdRaw == null || loteIdRaw === "" ? null : toPositiveInt(loteIdRaw);
-
-    if (loteIdRaw != null && loteIdRaw !== "" && !loteId) {
-      return NextResponse.json({ error: "Lote inválido." }, { status: 400 });
+    if (body.loteId != null || body.lote_id != null || json.loteId != null || json.lote_id != null) {
+      return NextResponse.json({ error: "O vínculo com lotes de desmanche foi removido." }, { status: 400 });
     }
 
     const payload = sanitizeProdutoPayload(json, { strict: true });
@@ -686,16 +683,7 @@ export async function POST(req: Request) {
       }
     }
 
-    if (loteId) {
-      const { error: loteError } = await supabaseAdmin
-        .from("lote_pecas")
-        .insert({ lote_id: loteId, produto_id: data.id });
 
-      if (loteError) {
-        console.error("[POST /products] Erro ao vincular produto ao lote:", loteError);
-        warnings.push("Não foi possível vincular o produto ao lote selecionado.");
-      }
-    }
 
     // Se veio fornecedorId + codigoFornecedor, cria vínculo em fornecedorprodutos
     if (fornecedorId && codigoFornecedor) {
@@ -744,4 +732,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: msg }, { status: isBadReq ? 400 : 500 });
   }
 }
-

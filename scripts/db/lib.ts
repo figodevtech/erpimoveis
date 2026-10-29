@@ -35,52 +35,17 @@ export type DatabaseInspection = {
   anonRoutines: string[];
 };
 
+/** Banco padrão dos scripts que aceitam um banco por argumento. */
+export const DEFAULT_DATABASE_KEY: DatabaseKey = "cespedes";
+
+// Único banco deste ERP. Nenhum banco da oficina ou de clientes dela pode
+// constar aqui: os scripts de deploy aplicam migrations em todos os da lista.
 const DATABASES: Omit<DatabaseConfig, "url">[] = [
   {
-    key: "demo",
-    label: "Demonstração",
-    projectRef: "ozluphhwktyvqfrypjin",
-    envName: "ERP_DB_DEMO",
-    poolerHosts: [
-      "aws-0-sa-east-1.pooler.supabase.com",
-      "aws-1-sa-east-1.pooler.supabase.com",
-    ],
-  },
-  {
-    key: "demir",
-    label: "Demir",
-    projectRef: "lkpwaiynvnfedvxcjmrp",
-    envName: "ERP_DB_DEMIR",
-    poolerHosts: [
-      "aws-0-sa-east-1.pooler.supabase.com",
-      "aws-1-sa-east-1.pooler.supabase.com",
-    ],
-  },
-  {
-    key: "garage",
-    label: "Garage Premium",
-    projectRef: "qwvyhtjqjjicjbfiwjfm",
-    envName: "ERP_DB_GARAGE_PREMIUM",
-    poolerHosts: [
-      "aws-0-ca-central-1.pooler.supabase.com",
-      "aws-1-ca-central-1.pooler.supabase.com",
-    ],
-  },
-  {
-    key: "jeancar",
-    label: "Jean Car",
-    projectRef: "jqpcttqzbdtsrlrsaatf",
-    envName: "ERP_DB_JEAN_CAR",
-    poolerHosts: [
-      "aws-0-us-east-1.pooler.supabase.com",
-      "aws-1-us-east-1.pooler.supabase.com",
-    ],
-  },
-  {
-    key: "hg",
-    label: "HG Comércio e Serviços",
-    projectRef: "nxbociyfidsyepkyhcqw",
-    envName: "ERP_DB_HG",
+    key: "cespedes",
+    label: "Cespedes Living",
+    projectRef: "hchntifztkbopchpvstd",
+    envName: "ERP_DB_CESPEDES",
     poolerHosts: [
       "aws-0-us-east-1.pooler.supabase.com",
       "aws-1-us-east-1.pooler.supabase.com",
@@ -88,32 +53,8 @@ const DATABASES: Omit<DatabaseConfig, "url">[] = [
   },
 ];
 
-// Os bancos fixos acima mais os clientes que o db:novo-cliente grava em
-// clientes.json. Relido a cada chamada: o provisionamento cadastra e conecta
-// no mesmo processo.
-function databaseDefinitions(): Omit<DatabaseConfig, "url">[] {
-  const registryFile = path.join(projectRoot, "scripts/db/clientes.json");
-  const clients: Omit<DatabaseConfig, "url">[] = fs.existsSync(registryFile)
-    ? JSON.parse(fs.readFileSync(registryFile, "utf8")) : [];
-  const definitions = [...DATABASES, ...clients];
-  for (const field of ["key", "projectRef", "envName"] as const) {
-    const values = definitions.map((item) => item[field]);
-    const duplicate = values.find((value, index) => values.indexOf(value) !== index);
-    if (duplicate !== undefined) {
-      throw new Error(
-        `Cadastro de bancos duplicado: ${field} "${duplicate}". Banco fixo em lib.ts não pode constar também em scripts/db/clientes.json.`,
-      );
-    }
-  }
-  return definitions;
-}
-
-/**
- * Todos os bancos que recebem as migrations, Demonstração primeiro: o deploy
- * valida nela antes de tocar nos clientes. Os scripts que aceitam um banco por
- * argumento leem esta lista.
- */
-export const DATABASE_KEYS: readonly DatabaseKey[] = databaseDefinitions().map((item) => item.key);
+/** Todos os bancos que recebem as migrations. Os scripts que aceitam um banco por argumento leem esta lista. */
+export const DATABASE_KEYS: readonly DatabaseKey[] = DATABASES.map((item) => item.key);
 
 export function parseSimpleEnv(file: string) {
   if (!fs.existsSync(file)) return new Map<string, string>();
@@ -136,8 +77,8 @@ export function parseSimpleEnv(file: string) {
   return values;
 }
 
-// Os blocos por cliente (ativos ou comentados) ficam no .env e no .env.local;
-// cada DATABASE_URL é casada com o banco pelo projectRef que ela contém.
+// Sem variável própria, vale a DATABASE_URL do .env.local ou do .env (ativa ou
+// comentada) que contenha o projectRef do banco.
 function legacyDatabaseUrls() {
   return [".env.local", ".env"].flatMap((name) => {
     const envFile = path.join(projectRoot, name);
@@ -171,7 +112,7 @@ export function loadDatabaseConfigs(): DatabaseConfig[] {
   );
   const legacyUrls = legacyDatabaseUrls();
 
-  return databaseDefinitions().map((database) => {
+  return DATABASES.map((database) => {
     const explicit = process.env[database.envName] || migrationEnv.get(database.envName) || sharedMigrationEnv.get(database.envName);
     const fallback = legacyUrls.find((url) => url.includes(database.projectRef));
     const url = explicit || fallback;
@@ -226,7 +167,7 @@ const POOLER_CACHE_FILE = path.join(
   projectRoot,
   "node_modules",
   ".cache",
-  "erpoficina-db",
+  "erpimoveis-db",
   "pooler-hosts.json",
 );
 
@@ -607,7 +548,7 @@ function sanitize(text: string, database: DatabaseConfig, connectionString: stri
 
 function createTemporarySupabaseProject() {
   const directory = fs.mkdtempSync(
-    path.join(os.tmpdir(), "erpoficina-supabase-"),
+    path.join(os.tmpdir(), "erpimoveis-supabase-"),
   );
   const supabaseDirectory = path.join(directory, "supabase");
   fs.mkdirSync(path.join(supabaseDirectory, "migrations"), { recursive: true });

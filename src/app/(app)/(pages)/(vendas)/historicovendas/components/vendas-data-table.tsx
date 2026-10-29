@@ -66,7 +66,7 @@ function DialogLoading() {
   return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulário...</p>;
 }
 
-const EmissaoNotaDialog = dynamic(() => import("../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog").then((module) => module.EmissaoNotaDialog), { loading: DialogLoading });
+const EmissaoNotaDialog = dynamic(() => import("@/components/fiscal/emissao-nota-dialog/emissao-nota-dialog").then((module) => module.EmissaoNotaDialog), { loading: DialogLoading });
 const VendaDetailsDialog = dynamic(() => import("./venda-detail-dialog").then((module) => module.VendaDetailsDialog), { loading: DialogLoading });
 const VendaLinkAprovacaoDialog = dynamic(() => import("./venda-link-aprovacao-dialog").then((module) => module.VendaLinkAprovacaoDialog), { loading: DialogLoading });
 const PedidoOnlineDialog = dynamic(() => import("./pedido-online-dialog").then((module) => module.PedidoOnlineDialog), { loading: DialogLoading });

@@ -8,7 +8,7 @@ import {
   responder,
   responderFalha,
   sincronizarUltimoCustoDoEvento,
-} from "@/app/api/ordens/[id]/eventos-financeiros/_lib/servico";
+} from "@/lib/financeiro/eventos-financeiros/servico";
 
 type Params = { eventoId: string };
 

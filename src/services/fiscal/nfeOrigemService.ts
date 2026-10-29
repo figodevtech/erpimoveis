@@ -14,7 +14,7 @@ import {
 } from "@/lib/nfe/originFiscalDefaults";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
-import { inferirDescontoGeralOs } from "@/lib/ordens/totais";
+import {  } from "@/lib/ordens/totais";
 import { MODELO_NFE, MODELO_NFCE, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { comporObservacoesComGarantia } from "@/lib/fiscal/garantiaObservacoes";
 import { permissaoDeEmissao, type PermissaoDeEmissao } from "@/lib/nfe/permissaoDeEmissao";
@@ -358,87 +358,8 @@ async function getEmpresaUf() {
 }
 
 async function loadOs(osId: number): Promise<LoadedSource> {
-  const { data: os, error: osError } = await supabaseAdmin
-    .from("ordemservico")
-    .select("id, clienteid, observacoes_fiscais, garantia, subtotal, orcamentototal, valor_frete")
-    .eq("id", osId)
-    .maybeSingle();
-  if (osError) throw osError;
-  if (!os) throw new Error("Ordem de serviço não encontrada.");
-  if (!os.clienteid) throw new Error("A ordem de serviço não possui cliente cadastrado.");
-
-  const { data, error } = await supabaseAdmin
-    .from("osproduto")
-    .select(`
-      ordemservicoid,
-      produtoid,
-      quantidade,
-      precounitario,
-      subtotal,
-      produto:produtoid (id, titulo, descricao, referencia, codigobarras, unidade)
-    `)
-    .eq("ordemservicoid", osId);
-  if (error) throw error;
-
-  const { data: servicos, error: servicosError } = await supabaseAdmin
-    .from("osservico")
-    .select("subtotal")
-    .eq("ordemservicoid", osId);
-  if (servicosError) throw servicosError;
-
-  const rows = data ?? [];
-  // `osproduto.subtotal` já vem líquido do desconto do item; o bruto é
-  // quantidade × preço unitário. A diferença é o desconto do próprio item.
-  const brutoPorItem = rows.map((row: any) => toNumber(row.quantidade) * toNumber(row.precounitario));
-  const liquidoPorItem = rows.map((row: any, index: number) => {
-    const liquido = toNumber(row.subtotal);
-    return liquido > 0 ? Math.min(liquido, brutoPorItem[index]) : brutoPorItem[index];
-  });
-  // Só deduz o desconto geral quando a OS tem total fechado. Sem essa guarda,
-  // uma OS com `orcamentototal` ainda zerado viraria 100% de desconto.
-  const descontoGeral = inferirDescontoGeralOs({
-    subtotal: os.subtotal,
-    orcamentoTotal: os.orcamentototal,
-    valorFrete: os.valor_frete,
-  });
-  const descontoPorLinha = descontoPorItem(
-    brutoPorItem.map((bruto, index) => ({ bruto, liquido: liquidoPorItem[index] })),
-    descontoGeral,
-    (servicos ?? []).map((servico: any) => toNumber(servico.subtotal)),
-  );
-  const freight = Math.max(0, toNumber(os.valor_frete));
-  const freightByItem = distribuirDinheiro(freight, liquidoPorItem);
-
-  const cliente = await getCliente(Number(os.clienteid));
-  return {
-    clienteId: Number(os.clienteid),
-    fornecedorId: null,
-    partnerUf: cliente.estado ?? null,
-    tipoOperacao: "SAIDA",
-    naturezaOperacao: "VENDA DE MERCADORIA",
-    finalidade: "NORMAL",
-    observacoesFiscais: os.observacoes_fiscais as string | null,
-    garantia: os.garantia as string | null,
-    destinatario: clienteToDraft(cliente),
-    clienteDoSistema: Boolean(cliente.codigo_sistema),
-    consumidorFinal: null,
-    indicadorPresenca: "1",
-    transporte: { modFrete: freight > 0 ? "0" : "9" },
-    itens: rows.map((row: any, index: number) => {
-      const produto = normalizeRelation<ProdutoFiscalRow>(row.produto);
-      return {
-        sourceItemId: `os:${osId}:${row.produtoid}`,
-        produtoId: Number(row.produtoid),
-        codigo: String(produto?.referencia || produto?.codigobarras || row.produtoid),
-        descricao: String(produto?.titulo || produto?.descricao || `Produto #${row.produtoid}`),
-        unidade: String(produto?.unidade || "UN"),
-        quantidade: toNumber(row.quantidade),
-        valorUnitario: toNumber(row.precounitario),
-        valorDesconto: descontoPorLinha[index] ?? 0,
-        valorFrete: freightByItem[index] ?? 0,
-      };
-    }),
-  };
+  void osId;
+  throw new Error("A emissão a partir de ordens de serviço foi removida deste ERP.");
 }
 
 async function loadVenda(vendaId: number): Promise<LoadedSource> {
@@ -787,8 +708,9 @@ export async function permissoesDeEmissaoDasOrigens(
   tipo: "OS" | "VENDA",
   ids: number[],
 ): Promise<{ nfe: PermissaoDeEmissao; nfce: PermissaoDeEmissao }> {
+  if (tipo === "OS") throw new Error("O módulo de ordens de serviço foi removido.");
   const { data: origens, error } = await supabaseAdmin
-    .from(tipo === "OS" ? "ordemservico" : "venda")
+    .from("venda")
     .select("clienteid")
     .in("id", ids);
   if (error) throw error;
@@ -814,6 +736,8 @@ export async function salvarNFeDeOrigem(
   modelo: ModeloDocumentoFiscal = MODELO_NFE,
   opcoes: OpcoesSalvarNFe = {},
 ) {
+  if (tipo === "OS") return { ok: false as const, errors: [{ step: "operation", message: "O módulo de ordens de serviço foi removido deste ERP." }] };
+
   if (!Number.isFinite(origemId) || origemId <= 0) {
     throw new Error("Identificador da origem inválido.");
   }
@@ -872,7 +796,7 @@ export async function salvarNFeDeOrigem(
     const emAndamento = await buscarNotaAtivaDaOrigem(tipo, candidata, modelo, input.nfeId);
     if (emAndamento) {
       const rotuloOrigem =
-        tipo === "OS" ? "ordem de serviço" : tipo === "VENDA" ? "venda" : "entrada";
+        tipo === "VENDA" ? "venda" : "entrada";
       return {
         ok: false as const,
         errors: [{
@@ -891,9 +815,7 @@ export async function salvarNFeDeOrigem(
   const source = grupo.source;
   const fiscalConfig = await buscarFiscalConfig(modelo);
   const incluirGarantia =
-    tipo === "OS"
-      ? Boolean(fiscalConfig?.incluir_garantia_os)
-      : tipo === "VENDA"
+    tipo === "VENDA"
         ? Boolean(fiscalConfig?.incluir_garantia_venda)
         : false;
   // Cada origem traz seu texto fiscal e sua garantia. Com uma só, o resultado
@@ -919,7 +841,7 @@ export async function salvarNFeDeOrigem(
           .filter(Boolean)
           .join("\n") || null;
   // A mesma regra que desabilita o botão na tela: Consumidor Final só em NFC-e.
-  if (tipo === "OS" || tipo === "VENDA") {
+  if (tipo === "VENDA") {
     const permissao = permissaoDeEmissao(modelo, {
       tipo,
       clienteDoSistema: Boolean(source.clienteDoSistema),
@@ -1143,7 +1065,7 @@ export async function salvarNFeDeOrigem(
     modelo,
     origem: {
       tipo,
-      ordemServicoId: tipo === "OS" ? origemId : null,
+      ordemServicoId: null,
       vendaId: tipo === "VENDA" ? origemId : null,
       entradaId: tipo === "ENTRADA" ? origemId : null,
       clienteId: source.clienteId,

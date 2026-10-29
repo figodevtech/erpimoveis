@@ -21,7 +21,6 @@ import { Customer, Pagination } from "../(pages)/clientes/types";
 import {
   ArrowRight,
   Building2,
-  Car,
   ChevronLeftIcon,
   ChevronRightIcon,
   ChevronsLeft,
@@ -108,7 +107,7 @@ export default function CustomerSelect({
     setIsLoading(true);
 
     try {
-      const response = await axios.get("/api/customers/com-veiculos", {
+      const response = await axios.get("/api/customers/busca", {
         signal: controller.signal,
         params: {
           page: pageNumber || 1,
@@ -205,7 +204,7 @@ export default function CustomerSelect({
                   Selecionar Cliente
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground">
-                  Busque por nome, CPF/CNPJ, e-mail, telefone, placa ou veículo.
+                  Busque por nome, CPF/CNPJ, e-mail ou telefone.
                 </DialogDescription>
               </div>
             </div>
@@ -250,13 +249,11 @@ export default function CustomerSelect({
                 onValueChange={setSearchInput}
                 onSearch={executarBusca}
                 onClear={limparBusca}
-                placeholder="Buscar por nome, #12 (ID), CPF/CNPJ, telefone ou placa de veículo..."
+                placeholder="Buscar por nome, #12 (ID), CPF/CNPJ ou telefone..."
               />
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground px-0.5">
                 <span className="font-semibold text-primary">Dicas:</span>
                 <span><code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-foreground">#12</code> ID exato</span>
-                <span>•</span>
-                <span><code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-bold text-foreground">ABC-1234</code> Busca por Placa</span>
               </div>
             </div>
 
@@ -319,7 +316,7 @@ export default function CustomerSelect({
                 <h4 className="text-sm font-semibold">Nenhum cliente encontrado</h4>
                 <p className="text-xs text-muted-foreground max-w-sm">
                   {search
-                    ? `Não encontramos resultados para "${search}". Tente buscar por outros termos como nome, telefone ou placa.`
+                    ? `Não encontramos resultados para "${search}". Tente buscar por outros termos como nome ou telefone.`
                     : "Nenhum cliente encontrado para os filtros selecionados."}
                 </p>
               </div>
@@ -340,7 +337,6 @@ export default function CustomerSelect({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {customerItems.map((c) => {
                 const isPJ = c.tipopessoa === "JURIDICA";
-                const veiculos = c.veiculos ?? [];
 
                 return (
                   <div
@@ -412,32 +408,6 @@ export default function CustomerSelect({
                         ) : null}
                       </div>
 
-                      {/* Veículos vinculados */}
-                      {veiculos.length > 0 ? (
-                        <div className="pt-2 border-t border-border/40 space-y-1">
-                          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider block">
-                            Veículos ({veiculos.length})
-                          </span>
-                          <div className="flex flex-wrap items-center gap-1">
-                            {veiculos.slice(0, 3).map((v) => (
-                              <Badge
-                                key={v.id}
-                                variant="outline"
-                                className="text-[10px] bg-slate-500/10 text-slate-700 dark:text-slate-300 border-slate-500/20 gap-1 px-1.5 py-0 font-mono"
-                              >
-                                <Car className="size-3 text-slate-500 shrink-0" />
-                                <span>{v.placa || "Sem placa"}</span>
-                                {v.modelo ? <span className="font-normal opacity-80">({v.modelo})</span> : null}
-                              </Badge>
-                            ))}
-                            {veiculos.length > 3 ? (
-                              <Badge variant="outline" className="text-[10px] px-1 py-0">
-                                +{veiculos.length - 3}
-                              </Badge>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
                     </div>
 
                     {/* Rodapé do Card */}
@@ -474,7 +444,6 @@ export default function CustomerSelect({
                     <TableHead>Cliente / Nome</TableHead>
                     <TableHead className="hidden sm:table-cell">CPF / CNPJ</TableHead>
                     <TableHead className="hidden md:table-cell">Contato</TableHead>
-                    <TableHead className="hidden lg:table-cell">Veículos</TableHead>
                     <TableHead className="w-24 text-center">Status</TableHead>
                     <TableHead className="w-20 text-center">Ação</TableHead>
                   </TableRow>
@@ -482,7 +451,6 @@ export default function CustomerSelect({
                 <TableBody>
                   {customerItems.map((c) => {
                     const isPJ = c.tipopessoa === "JURIDICA";
-                    const veiculos = c.veiculos ?? [];
 
                     return (
                       <TableRow
@@ -524,25 +492,6 @@ export default function CustomerSelect({
                             <span>{c.telefone || "—"}</span>
                             <span className="text-muted-foreground/70 truncate max-w-[160px]">{c.email || ""}</span>
                           </div>
-                        </TableCell>
-
-                        <TableCell className="hidden lg:table-cell">
-                          {veiculos.length > 0 ? (
-                            <div className="flex flex-wrap items-center gap-1">
-                              {veiculos.slice(0, 2).map((v) => (
-                                <Badge key={v.id} variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
-                                  {v.placa}
-                                </Badge>
-                              ))}
-                              {veiculos.length > 2 ? (
-                                <span className="text-[10px] text-muted-foreground font-medium">
-                                  +{veiculos.length - 2}
-                                </span>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground/60">—</span>
-                          )}
                         </TableCell>
 
                         <TableCell className="text-center">

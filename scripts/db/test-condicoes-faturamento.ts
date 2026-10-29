@@ -3,7 +3,7 @@ import path from "node:path";
 import { connectDatabase, loadDatabaseConfigs, projectRoot } from "./lib";
 
 async function main() {
-  const demo = loadDatabaseConfigs().find((b) => b.key === "demo")!;
+  const demo = loadDatabaseConfigs().find((b) => b.key === "cespedes")!;
   const { client } = await connectDatabase(demo);
   try {
     await client.query("BEGIN");

@@ -14,7 +14,6 @@ const API_TIPO: Record<string, TipoId> = {
   "grupos-planos-de-conta": "planos_conta",
   "centros-de-custo": "centros_custo",
   "categorias-venda": "categorias_venda",
-  "cores-veiculos": "cores_veiculos",
   "tipos-entrada": "tipos_entrada",
   "motivos-saida": "motivos_saida",
 };

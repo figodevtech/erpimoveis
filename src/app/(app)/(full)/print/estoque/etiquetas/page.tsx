@@ -11,7 +11,7 @@ import { PrintButton } from "@/app/(app)/(full)/components/PrintButton";
 import type { LabelSize } from "@/lib/etiquetas/label-sizes";
 import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 
-const ETIQUETAS_PRINT_STORAGE_PREFIX = "erpoficina:etiquetas-print:";
+const ETIQUETAS_PRINT_STORAGE_PREFIX = "erpimoveis:etiquetas-print:";
 
 type EtiquetasPrintDraft = {
   codes: string[];

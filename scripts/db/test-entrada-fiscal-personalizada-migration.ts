@@ -3,7 +3,7 @@
  *
  * Uso:
  *   npm run db:test:entrada-fiscal-personalizada
- *   npm run db:test:entrada-fiscal-personalizada -- demir
+ *   npm run db:test:entrada-fiscal-personalizada -- cespedes
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -36,7 +36,7 @@ function unwrapTransaction(sql: string, closingStatement: "commit" | "rollback")
 }
 
 async function main() {
-  const key = (process.argv[2] ?? "demo") as DatabaseKey;
+  const key = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!VALID_DATABASES.includes(key)) {
     throw new Error(`Banco invalido: ${key}. Use um de: ${VALID_DATABASES.join(", ")}.`);
   }

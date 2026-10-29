@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LABEL_SIZES, type LabelSizeKey } from "@/lib/etiquetas/label-sizes";
 
-const PRINT_STORAGE_PREFIX = "erpoficina:etiquetas-print:";
+const PRINT_STORAGE_PREFIX = "erpimoveis:etiquetas-print:";
 /** Teto de etiquetas por geracao, o mesmo para faixa numerada e apenas prefixo. */
 const MAX_ETIQUETAS = 500;
 

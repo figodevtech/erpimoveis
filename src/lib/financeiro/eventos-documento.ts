@@ -1,10 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { analisarExclusaoEventoFinanceiro } from "@/lib/ordens/exclusao-evento-financeiro";
-import { mesesDeCompetenciaFechada } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia";
+import { mesesDeCompetenciaFechada } from "@/lib/financeiro/eventos-financeiros/competencia";
 import {
   analisarExclusaoDoEvento, editarEventoDaOs, excluirEventoDaOs,
   idValido, type Resultado,
-} from "@/app/api/ordens/[id]/eventos-financeiros/_lib/servico";
+} from "@/lib/financeiro/eventos-financeiros/servico";
 import type { DocumentoFinanceiro } from "./documento-evento";
 
 export async function documentoDoEvento(eventoId: number): Promise<Resultado<DocumentoFinanceiro>> {

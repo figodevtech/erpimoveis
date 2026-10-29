@@ -23,9 +23,7 @@ const CLIENTE_FIELDS = `
   saldo_credito
 `;
 
-const VEICULO_FIELDS = `
-  id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, createdat, updatedat
-`;
+
 
 function onlyDigits(v?: string | null) {
   return (v ?? "").replace(/\D+/g, "");
@@ -138,7 +136,8 @@ export async function GET(req: Request) {
         id, tipopessoa, cpfcnpj, nomerazaosocial, email, telefone, endereco,
         cidade, estado, bairro, cep, inscricaoestadual, inscricaomunicipal, codigomunicipio,
   ind_ie_dest,
-        createdat, updatedat,endereconumero, enderecocomplemento, status, rank, foto_url, codigo_sistema
+        createdat, updatedat,endereconumero, enderecocomplemento, status, rank, foto_url, codigo_sistema,
+        origem_cadastro, site:site_usuario(status, motivo_pendencia)
         `,
         { count: "exact" }
       )
@@ -185,6 +184,8 @@ export async function GET(req: Request) {
     const dividas = await carregarDividas(items.map((item: any) => Number(item.id)));
     const itemsComDivida = items.map((item: any) => ({
       ...item,
+      // Conta do site é 1:1 com o cliente; o PostgREST pode devolver objeto ou lista.
+      site: (Array.isArray(item.site) ? item.site[0] : item.site) ?? null,
       divida: dividas.get(Number(item.id)) ?? null,
     }));
     const total = count ?? 0;
@@ -302,12 +303,7 @@ export async function POST(req: Request) {
     const { data, error } = await supabaseAdmin
       .from("cliente")
       .insert(payload)
-      .select(
-        `
-        ${CLIENTE_FIELDS},
-        veiculos:veiculo ( ${VEICULO_FIELDS} )
-        `
-      )
+      .select(CLIENTE_FIELDS)
       .single();
 
     if (error) {

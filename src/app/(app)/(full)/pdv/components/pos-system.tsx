@@ -61,7 +61,7 @@ import { Customer } from "@/app/(app)/(pages)/clientes/types";
 import { useGruposProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/hooks/use-grupo-produtos";
 import { useRouter } from "next/navigation";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
-import { formatCurrencyBRL } from "@/app/(app)/(pages)/dashboard/components/dashboard-ordemservico/lib/format";
+import { formatCurrencyBRL } from "@/lib/format-currency";
 import { CustomerBlockedAlert } from "@/components/cliente/customer-blocked-alert";
 import { ehClienteDoSistema } from "@/lib/clientes/consumidor-final";
 import {
@@ -72,7 +72,7 @@ import {
   type DadosParaFinanceiro,
 } from "@/components/financeiro/dados-para-financeiro";
 import { VendaConfirmacaoFields } from "@/components/vendas/venda-confirmacao-fields";
-import { DialogShell } from "@/app/(app)/(pages)/ordens/components/dialogs/dialog-shell";
+import { DialogShell } from "@/components/dialog-shell";
 import { CameraScannerDialog } from "@/app/(app)/(pages)/estoque/components/dialog-produto/camera-scanner-dialog";
 import { DialogProduto } from "@/app/(app)/(pages)/estoque/components/dialog-produto/dialog-produto";
 import { criarDetectorDeLeitura, type ResultadoDaLeitura } from "@/lib/leitor-codigo-barras";

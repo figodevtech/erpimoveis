@@ -20,21 +20,19 @@ const CONFIG_SELECT_BASE = `${CONFIG_SELECT_BASE_SEM_NCM_OBRIGATORIO}, produto_n
 const CONFIG_SELECT_BASE_SEM_MODO_BAIXA =
   "id, aviso_pagamento, checklist_obrigatorio, alerta_estoque_pdv, habilitar_emissao_nfe, emissao_nf_no_modulo_ordens, emissao_nf_no_modulo_vendas, emissao_nf_ordens_nao_pagas, emissao_nf_vendas_nao_pagas, created_at, habilitar_drawers";
 
-const CONFIG_SELECT_AGENDAMENTO =
-  "agendamento_intervalo_minutos, agendamento_hora_inicio, agendamento_hora_fim, agendamento_dias_trabalho";
 
 const CONFIG_SELECT_IMPRESSAO_SEM_COR_TEXTO =
   "impressao_cor_primaria, impressao_cor_secundaria";
 
 const CONFIG_SELECT_IMPRESSAO = `${CONFIG_SELECT_IMPRESSAO_SEM_COR_TEXTO}, impressao_cor_texto`;
 
-const CONFIG_SELECT_SEM_IMPRESSAO = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}`;
-const CONFIG_SELECT_SEM_COR_TEXTO = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO_SEM_COR_TEXTO}`;
-const CONFIG_SELECT_COMPLETO_SEM_NCM_OBRIGATORIO = `${CONFIG_SELECT_BASE_SEM_NCM_OBRIGATORIO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
-const CONFIG_SELECT_COMPLETO_SEM_SETOR_PADRAO = `${CONFIG_SELECT_BASE_SEM_SETOR_PADRAO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
-const CONFIG_SELECT_COMPLETO_LEGADO = `${CONFIG_SELECT_BASE_LEGADO}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
-const CONFIG_SELECT_SEM_MODO_BAIXA = `${CONFIG_SELECT_BASE_SEM_MODO_BAIXA}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
-const CONFIG_SELECT_SEM_DESTAQUE_STATUS = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_AGENDAMENTO}, ${CONFIG_SELECT_IMPRESSAO}`;
+const CONFIG_SELECT_SEM_IMPRESSAO = `${CONFIG_SELECT_BASE}`;
+const CONFIG_SELECT_SEM_COR_TEXTO = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_IMPRESSAO_SEM_COR_TEXTO}`;
+const CONFIG_SELECT_COMPLETO_SEM_NCM_OBRIGATORIO = `${CONFIG_SELECT_BASE_SEM_NCM_OBRIGATORIO}, ${CONFIG_SELECT_IMPRESSAO}`;
+const CONFIG_SELECT_COMPLETO_SEM_SETOR_PADRAO = `${CONFIG_SELECT_BASE_SEM_SETOR_PADRAO}, ${CONFIG_SELECT_IMPRESSAO}`;
+const CONFIG_SELECT_COMPLETO_LEGADO = `${CONFIG_SELECT_BASE_LEGADO}, ${CONFIG_SELECT_IMPRESSAO}`;
+const CONFIG_SELECT_SEM_MODO_BAIXA = `${CONFIG_SELECT_BASE_SEM_MODO_BAIXA}, ${CONFIG_SELECT_IMPRESSAO}`;
+const CONFIG_SELECT_SEM_DESTAQUE_STATUS = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_FATURAMENTO = `${CONFIG_SELECT_SEM_DESTAQUE_STATUS}, destaque_os_por_status`;
 const CONFIG_SELECT_SEM_STATUS_EMISSAO = `${CONFIG_SELECT_SEM_FATURAMENTO}, habilitar_faturamento_os`;
 const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_STATUS_EMISSAO}, emissao_nf_status_os`;
@@ -54,21 +52,11 @@ function booleanValido(v: any) {
   return typeof v === "boolean" ? v : undefined;
 }
 
-function numeroValido(v: any) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
-}
 
-function horaValida(v: any) {
-  const s = String(v ?? "").trim();
-  return /^\d{2}:\d{2}(:\d{2})?$/.test(s) ? s.slice(0, 5) : undefined;
-}
 
-function diasValidos(v: any) {
-  if (!Array.isArray(v)) return undefined;
-  const dias = [...new Set(v.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6))];
-  return dias.length > 0 ? dias.sort((a, b) => a - b) : undefined;
-}
+
+
+
 
 function corHexValida(v: any) {
   const s = String(v ?? "").trim();
@@ -80,18 +68,12 @@ function modoBaixaEstoqueOSValido(v: any) {
   return s === "ORCAMENTO" || s === "EXECUCAO" ? s : undefined;
 }
 
-function comPadroesAgendamento(config: any) {
+function comPadroesConfig(config: any) {
   if (!config) return null;
 
   return {
     ...config,
     habilitar_faturamento_os: config.habilitar_faturamento_os === true,
-    agendamento_intervalo_minutos: Number(config.agendamento_intervalo_minutos ?? 60),
-    agendamento_hora_inicio: String(config.agendamento_hora_inicio ?? "08:00").slice(0, 5),
-    agendamento_hora_fim: String(config.agendamento_hora_fim ?? "18:00").slice(0, 5),
-    agendamento_dias_trabalho: Array.isArray(config.agendamento_dias_trabalho)
-      ? config.agendamento_dias_trabalho
-      : [1, 2, 3, 4, 5],
     impressao_cor_primaria: corHexValida(config.impressao_cor_primaria) ?? "#2563eb",
     impressao_cor_secundaria: corHexValida(config.impressao_cor_secundaria) ?? "#0891b2",
     impressao_cor_texto: corHexValida(config.impressao_cor_texto) ?? "#ffffff",
@@ -118,17 +100,17 @@ async function buscarConfigAtual() {
     .limit(1)
     .maybeSingle();
 
-  if (!error) return comPadroesAgendamento(data);
+  if (!error) return comPadroesConfig(data);
   if (!colunaNaoExiste(error)) throw error;
 
   const semStatusEmissao = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_STATUS_EMISSAO).order("id", { ascending: false }).limit(1).maybeSingle();
-  if (!semStatusEmissao.error) return comPadroesAgendamento(semStatusEmissao.data);
+  if (!semStatusEmissao.error) return comPadroesConfig(semStatusEmissao.data);
   if (!colunaNaoExiste(semStatusEmissao.error)) throw semStatusEmissao.error;
 
   const semFaturamento = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_FATURAMENTO).order("id", { ascending: false }).limit(1).maybeSingle();
-  if (!semFaturamento.error) return comPadroesAgendamento(semFaturamento.data);
+  if (!semFaturamento.error) return comPadroesConfig(semFaturamento.data);
   if (!colunaNaoExiste(semFaturamento.error)) throw semFaturamento.error;
 
   const semDestaqueStatus = await supabase
@@ -138,7 +120,7 @@ async function buscarConfigAtual() {
     .limit(1)
     .maybeSingle();
 
-  if (!semDestaqueStatus.error) return comPadroesAgendamento(semDestaqueStatus.data);
+  if (!semDestaqueStatus.error) return comPadroesConfig(semDestaqueStatus.data);
   if (!colunaNaoExiste(semDestaqueStatus.error)) throw semDestaqueStatus.error;
 
   const semCorTexto = await supabase
@@ -148,7 +130,7 @@ async function buscarConfigAtual() {
     .limit(1)
     .maybeSingle();
 
-  if (!semCorTexto.error) return comPadroesAgendamento(semCorTexto.data);
+  if (!semCorTexto.error) return comPadroesConfig(semCorTexto.data);
   if (!colunaNaoExiste(semCorTexto.error)) throw semCorTexto.error;
 
   const semNcmObrigatorio = await supabase
@@ -158,7 +140,7 @@ async function buscarConfigAtual() {
     .limit(1)
     .maybeSingle();
 
-  if (!semNcmObrigatorio.error) return comPadroesAgendamento(semNcmObrigatorio.data);
+  if (!semNcmObrigatorio.error) return comPadroesConfig(semNcmObrigatorio.data);
   if (!colunaNaoExiste(semNcmObrigatorio.error)) throw semNcmObrigatorio.error;
 
   const semSetorPadrao = await supabase
@@ -168,7 +150,7 @@ async function buscarConfigAtual() {
     .limit(1)
     .maybeSingle();
 
-  if (!semSetorPadrao.error) return comPadroesAgendamento(semSetorPadrao.data);
+  if (!semSetorPadrao.error) return comPadroesConfig(semSetorPadrao.data);
   if (!colunaNaoExiste(semSetorPadrao.error)) throw semSetorPadrao.error;
 
   const semPrecoMedioObrigatorio = await supabase
@@ -178,7 +160,7 @@ async function buscarConfigAtual() {
     .limit(1)
     .maybeSingle();
 
-  if (!semPrecoMedioObrigatorio.error) return comPadroesAgendamento(semPrecoMedioObrigatorio.data);
+  if (!semPrecoMedioObrigatorio.error) return comPadroesConfig(semPrecoMedioObrigatorio.data);
   if (!colunaNaoExiste(semPrecoMedioObrigatorio.error)) throw semPrecoMedioObrigatorio.error;
 
   const semModoBaixa = await supabase
@@ -188,7 +170,7 @@ async function buscarConfigAtual() {
     .limit(1)
     .maybeSingle();
 
-  if (!semModoBaixa.error) return comPadroesAgendamento(semModoBaixa.data);
+  if (!semModoBaixa.error) return comPadroesConfig(semModoBaixa.data);
   if (!colunaNaoExiste(semModoBaixa.error)) throw semModoBaixa.error;
 
   const semImpressao = await supabase
@@ -198,7 +180,7 @@ async function buscarConfigAtual() {
     .limit(1)
     .maybeSingle();
 
-  if (!semImpressao.error) return comPadroesAgendamento(semImpressao.data);
+  if (!semImpressao.error) return comPadroesConfig(semImpressao.data);
   if (!colunaNaoExiste(semImpressao.error)) throw semImpressao.error;
 
   const fallback = await supabase
@@ -209,7 +191,7 @@ async function buscarConfigAtual() {
     .maybeSingle();
 
   if (fallback.error) throw fallback.error;
-  return comPadroesAgendamento(fallback.data);
+  return comPadroesConfig(fallback.data);
 }
 
 async function criarConfigPadraoSeNaoExistir() {
@@ -222,17 +204,17 @@ async function criarConfigPadraoSeNaoExistir() {
     .select(CONFIG_SELECT_COMPLETO)
     .single();
 
-  if (!error) return comPadroesAgendamento(data);
+  if (!error) return comPadroesConfig(data);
   if (!colunaNaoExiste(error)) throw error;
 
   const semStatusEmissao = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_STATUS_EMISSAO).order("id", { ascending: false }).limit(1).maybeSingle();
-  if (!semStatusEmissao.error) return comPadroesAgendamento(semStatusEmissao.data);
+  if (!semStatusEmissao.error) return comPadroesConfig(semStatusEmissao.data);
   if (!colunaNaoExiste(semStatusEmissao.error)) throw semStatusEmissao.error;
 
   const semFaturamento = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_FATURAMENTO).order("id", { ascending: false }).limit(1).maybeSingle();
-  if (!semFaturamento.error) return comPadroesAgendamento(semFaturamento.data);
+  if (!semFaturamento.error) return comPadroesConfig(semFaturamento.data);
   if (!colunaNaoExiste(semFaturamento.error)) throw semFaturamento.error;
 
   const semDestaqueStatus = await supabase
@@ -242,7 +224,7 @@ async function criarConfigPadraoSeNaoExistir() {
     .limit(1)
     .maybeSingle();
 
-  if (!semDestaqueStatus.error) return comPadroesAgendamento(semDestaqueStatus.data);
+  if (!semDestaqueStatus.error) return comPadroesConfig(semDestaqueStatus.data);
   if (!colunaNaoExiste(semDestaqueStatus.error)) throw semDestaqueStatus.error;
 
   const semCorTexto = await supabase
@@ -252,7 +234,7 @@ async function criarConfigPadraoSeNaoExistir() {
     .limit(1)
     .maybeSingle();
 
-  if (!semCorTexto.error) return comPadroesAgendamento(semCorTexto.data);
+  if (!semCorTexto.error) return comPadroesConfig(semCorTexto.data);
   if (!colunaNaoExiste(semCorTexto.error)) throw semCorTexto.error;
 
   const semNcmObrigatorio = await supabase
@@ -262,7 +244,7 @@ async function criarConfigPadraoSeNaoExistir() {
     .limit(1)
     .maybeSingle();
 
-  if (!semNcmObrigatorio.error) return comPadroesAgendamento(semNcmObrigatorio.data);
+  if (!semNcmObrigatorio.error) return comPadroesConfig(semNcmObrigatorio.data);
   if (!colunaNaoExiste(semNcmObrigatorio.error)) throw semNcmObrigatorio.error;
 
   const semSetorPadrao = await supabase
@@ -272,7 +254,7 @@ async function criarConfigPadraoSeNaoExistir() {
     .limit(1)
     .maybeSingle();
 
-  if (!semSetorPadrao.error) return comPadroesAgendamento(semSetorPadrao.data);
+  if (!semSetorPadrao.error) return comPadroesConfig(semSetorPadrao.data);
   if (!colunaNaoExiste(semSetorPadrao.error)) throw semSetorPadrao.error;
 
   const semPrecoMedioObrigatorio = await supabase
@@ -282,7 +264,7 @@ async function criarConfigPadraoSeNaoExistir() {
     .limit(1)
     .maybeSingle();
 
-  if (!semPrecoMedioObrigatorio.error) return comPadroesAgendamento(semPrecoMedioObrigatorio.data);
+  if (!semPrecoMedioObrigatorio.error) return comPadroesConfig(semPrecoMedioObrigatorio.data);
   if (!colunaNaoExiste(semPrecoMedioObrigatorio.error)) throw semPrecoMedioObrigatorio.error;
 
   const semModoBaixa = await supabase
@@ -292,7 +274,7 @@ async function criarConfigPadraoSeNaoExistir() {
     .limit(1)
     .maybeSingle();
 
-  if (!semModoBaixa.error) return comPadroesAgendamento(semModoBaixa.data);
+  if (!semModoBaixa.error) return comPadroesConfig(semModoBaixa.data);
   if (!colunaNaoExiste(semModoBaixa.error)) throw semModoBaixa.error;
 
   const semImpressao = await supabase
@@ -302,7 +284,7 @@ async function criarConfigPadraoSeNaoExistir() {
     .limit(1)
     .maybeSingle();
 
-  if (!semImpressao.error) return comPadroesAgendamento(semImpressao.data);
+  if (!semImpressao.error) return comPadroesConfig(semImpressao.data);
   if (!colunaNaoExiste(semImpressao.error)) throw semImpressao.error;
 
   const fallback = await supabase
@@ -313,7 +295,7 @@ async function criarConfigPadraoSeNaoExistir() {
     .maybeSingle();
 
   if (fallback.error) throw fallback.error;
-  return comPadroesAgendamento(fallback.data);
+  return comPadroesConfig(fallback.data);
 }
 
 export async function GET() {
@@ -358,31 +340,9 @@ export async function PUT(request: Request) {
       }
     }
 
-    if (body.agendamento_intervalo_minutos !== undefined) {
-      const val = numeroValido(body.agendamento_intervalo_minutos);
-      if (val === undefined || ![15, 30, 45, 60, 90, 120, 180, 240].includes(val)) {
-        return respostaJSON({ error: "Intervalo de agendamento invalido." }, 400);
-      }
-      patch.agendamento_intervalo_minutos = val;
-    }
 
-    if (body.agendamento_hora_inicio !== undefined) {
-      const val = horaValida(body.agendamento_hora_inicio);
-      if (val === undefined) return respostaJSON({ error: "Horario inicial invalido." }, 400);
-      patch.agendamento_hora_inicio = val;
-    }
 
-    if (body.agendamento_hora_fim !== undefined) {
-      const val = horaValida(body.agendamento_hora_fim);
-      if (val === undefined) return respostaJSON({ error: "Horario final invalido." }, 400);
-      patch.agendamento_hora_fim = val;
-    }
 
-    if (body.agendamento_dias_trabalho !== undefined) {
-      const val = diasValidos(body.agendamento_dias_trabalho);
-      if (val === undefined) return respostaJSON({ error: "Selecione ao menos um dia de trabalho." }, 400);
-      patch.agendamento_dias_trabalho = val;
-    }
 
     if (body.impressao_cor_primaria !== undefined) {
       const val = corHexValida(body.impressao_cor_primaria);
@@ -498,7 +458,7 @@ export async function PUT(request: Request) {
       return respostaJSON({ error: "Falha ao atualizar configuração geral." }, 500);
     }
 
-    return respostaJSON({ config: comPadroesAgendamento(data) });
+    return respostaJSON({ config: comPadroesConfig(data) });
   } catch (err: any) {
     console.error("PUT /api/config-geral", err);
     return respostaJSON({ error: "Falha ao atualizar configuração geral." }, 500);

@@ -425,7 +425,8 @@ function vinculoOs(resumo: VinculoResumo | null | undefined): OperationalDetailL
     rotulo: `OS #${resumo.id}`,
     detalhe: [status, texto(resumo.descricao)].filter(Boolean).join(" · ") || null,
     valor: numero(resumo.total),
-    href: `/print/ordemservico/${resumo.id}`,
+    // O módulo de ordens foi removido: a OS antiga fica sem destino.
+    href: null,
   };
 }
 

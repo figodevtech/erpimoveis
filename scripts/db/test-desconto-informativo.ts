@@ -5,7 +5,7 @@ import path from "node:path";
 import { connectDatabase, loadDatabaseConfigs, projectRoot } from "./lib";
 
 async function main() {
-  const database = loadDatabaseConfigs().find((item) => item.key === "demo")!;
+  const database = loadDatabaseConfigs().find((item) => item.key === "cespedes")!;
   const { client } = await connectDatabase(database);
   try {
     await client.query("BEGIN");

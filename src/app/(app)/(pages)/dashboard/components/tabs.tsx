@@ -5,7 +5,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Boxes, CalendarDays, DollarSign, LayoutDashboard, TrendingUp, UsersIcon } from "lucide-react";
+import { Boxes, DollarSign, UsersIcon } from "lucide-react";
 
 export default function TabsOptions() {
   const tabTheme =
@@ -13,47 +13,6 @@ export default function TabsOptions() {
 
   return (
     <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span>
-            <TabsTrigger
-              value="geral"
-              className={tabTheme}
-            >
-              <LayoutDashboard className="h-4 w-4" />
-              <span className="hidden group-data-[state=active]:inline sm:inline">Ordens</span>
-            </TabsTrigger>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>Ordens de Serviço</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span>
-            <TabsTrigger value="estoque" className={tabTheme}>
-              <Boxes className="h-4 w-4" />
-              <span className="hidden group-data-[state=active]:inline sm:inline">Estoque</span>
-            </TabsTrigger>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>Estoque</TooltipContent>
-      </Tooltip>
-
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span>
-            <TabsTrigger
-              value="usuarios"
-              className={tabTheme}
-            >
-              <UsersIcon className="h-4 w-4" />
-              <span className="hidden group-data-[state=active]:inline sm:inline">Clientes</span>
-            </TabsTrigger>
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>Clientes</TooltipContent>
-      </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
           <span>
@@ -73,26 +32,27 @@ export default function TabsOptions() {
         <TooltipTrigger asChild>
           <span>
             <TabsTrigger
-              value="resumo-diario"
+              value="usuarios"
               className={tabTheme}
             >
-              <CalendarDays className="h-4 w-4" />
-              <span className="hidden group-data-[state=active]:inline sm:inline">Hoje</span>
+              <UsersIcon className="h-4 w-4" />
+              <span className="hidden group-data-[state=active]:inline sm:inline">Clientes</span>
             </TabsTrigger>
           </span>
         </TooltipTrigger>
-        <TooltipContent>Resumo Diário</TooltipContent>
+        <TooltipContent>Clientes</TooltipContent>
       </Tooltip>
+
       <Tooltip>
         <TooltipTrigger asChild>
           <span>
-            <TabsTrigger value="rendimentos" className={tabTheme}>
-              <TrendingUp className="h-4 w-4" />
-              <span className="hidden group-data-[state=active]:inline sm:inline">Rentabilidade</span>
+            <TabsTrigger value="estoque" className={tabTheme}>
+              <Boxes className="h-4 w-4" />
+              <span className="hidden group-data-[state=active]:inline sm:inline">Estoque</span>
             </TabsTrigger>
           </span>
         </TooltipTrigger>
-        <TooltipContent>Rendimentos</TooltipContent>
+        <TooltipContent>Estoque</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

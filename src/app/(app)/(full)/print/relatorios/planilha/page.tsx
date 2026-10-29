@@ -10,10 +10,7 @@ const ALLOWED_ENDPOINTS = [
   "/api/venda/export/produto",
   "/api/venda/export/cliente",
   "/api/venda/export/usuario",
-  "/api/users/export/comissao",
-  "/api/users/export/comissao-setor",
   "/api/users/export/vendas-setor",
-  "/api/reports/ordens/export",
   "/api/reports/estoque/movimentos/export",
 ];
 

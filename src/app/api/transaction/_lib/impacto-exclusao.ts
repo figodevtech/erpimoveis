@@ -271,14 +271,7 @@ export async function analisarImpacto(
       if (error) throw error;
       return (data ?? []) as any[];
     }),
-    emBlocos(idsOs, async (b) => {
-      const { data, error } = await supabaseAdmin
-        .from("ordemservico")
-        .select("id, orcamentototal, status, acrescimo_financeiro_tipo, acrescimo_financeiro_valor")
-        .in("id", b);
-      if (error) throw error;
-      return (data ?? []) as any[];
-    }),
+    Promise.resolve([] as any[]),
     emBlocos(idsOs, async (b) => {
       const { data, error } = await supabaseAdmin
         .from("transacao").select("id, valor, valor_acrescimos, ordemservicoid")

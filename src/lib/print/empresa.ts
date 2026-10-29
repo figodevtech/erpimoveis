@@ -4,7 +4,7 @@
 // `empresa` — a mesma fonte do cabeçalho da OS e do orçamento. Sem acesso ao
 // banco, para poder ser testado direto; a leitura fica em `empresa-server.ts`.
 
-import { formatCpfCnpj, onlyDigits } from "@/lib/ordens/checklist-documento";
+import { formatCpfCnpj, onlyDigits } from "@/lib/fiscal-identifiers";
 
 export const COLUNAS_EMPRESA_IMPRESSAO =
   "razaosocial, nomefantasia, cnpj, telefone, endereco, numero, complemento, bairro, uf, cep";

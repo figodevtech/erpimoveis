@@ -1,5 +1,5 @@
 "use client";
-import { VideoUsage } from "@/components/checklist-videos";
+import { VideoUsage } from "@/components/video-usage";
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";

@@ -2,8 +2,8 @@
  * Carrega o catálogo de NCM em public.fiscal_ncm a partir do arquivo curado.
  *
  * Uso:
- *   npm run fiscal:ncm -- demir              # só o diff, não grava
- *   npm run fiscal:ncm -- demir --aplicar    # grava
+ *   npm run fiscal:ncm -- cespedes              # só o diff, não grava
+ *   npm run fiscal:ncm -- cespedes --aplicar    # grava
  *
  * A origem é data/fiscal/ncm/ncm-siscomex.json, gerado do Portal Único
  * Siscomex. Para atualizar quando sair nova Resolução Gecex, baixe de novo:
@@ -56,7 +56,7 @@ async function main() {
   const [bancoArg, ...flags] = process.argv.slice(2);
   const aplicar = flags.includes("--aplicar");
 
-  const chave = (bancoArg ?? "demo") as DatabaseKey;
+  const chave = (bancoArg ?? "cespedes") as DatabaseKey;
   if (!CHAVES_VALIDAS.includes(chave)) {
     throw new Error(`Banco inválido: ${bancoArg}. Use um de: ${CHAVES_VALIDAS.join(", ")}.`);
   }

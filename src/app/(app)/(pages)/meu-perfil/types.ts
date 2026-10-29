@@ -22,9 +22,6 @@ export type ResumoValor = {
 export type MeuResumo = {
   periodo: { de: string | null; ate: string | null };
   vendas: ResumoValor;
-  ordens: ResumoValor;
-  servicosRealizados: ResumoValor;
-  servicosEmAndamento: { quantidade: number; parcial: boolean };
 };
 
 export type ItemVenda = {
@@ -59,38 +56,6 @@ export type MinhaVenda = {
   quantidadeItens: number;
 };
 
-export type ItemOrdem = {
-  id: number;
-  descricao: string;
-  subdescricao: string | null;
-  referencia?: string | null;
-  codigo?: string | null;
-  unidade?: string | null;
-  quantidade: number;
-  valorUnitario: number;
-  subtotal: number;
-};
-
-export type MinhaOrdem = {
-  id: number;
-  status: string | null;
-  prioridade: string | null;
-  alvoTipo: string | null;
-  dataEntrada: string | null;
-  dataSaida: string | null;
-  /** `ordemservico.execucao_fim_em` — eixo de período da aba. */
-  concluidaEm: string | null;
-  subtotal: number;
-  valorTotal: number;
-  cliente: RelacaoNomeada | null;
-  setor: RelacaoNomeada | null;
-  veiculo: { id: number; placa: string | null; modelo: string | null; marca: string | null } | null;
-  produtos: ItemOrdem[];
-  servicos: ItemOrdem[];
-  /** O que coube a quem abriu esta OS. Zero quando não há comissão de criação. */
-  comissaoCriacao: number;
-};
-
 /**
  * Totais da aba de vendas, sobre todo o período filtrado.
  *
@@ -110,76 +75,6 @@ export type IndicadoresVendas = {
   parcial: boolean;
 };
 
-/** Totais da aba de ordens, sobre todo o período filtrado. */
-export type IndicadoresOrdens = {
-  ordens: number;
-  produtos: number;
-  servicos: number;
-  servicosComComissao: number;
-  /** O que coube a quem abriu a ordem. Zero quando o usuário não recebe por criação. */
-  comissaoCriacao: number;
-  total: number;
-  parcial: boolean;
-};
-
-/** Quem executou um servico, e o que coube a cada um. */
-export type RealizadorDoServico = {
-  usuarioId: string;
-  nome: string;
-  /** Fatia do valor do servico atribuida a esta pessoa. */
-  valorBase: number;
-  valorComissao: number;
-  /** Comissao corrigida no evento financeiro (contabil) da OS; `valorComissao` ja e a corrigida. */
-  comissaoAjustada: boolean;
-  euMesmo: boolean;
-};
-
-export type MeuServico = {
-  ordemId: number;
-  servicoId: number;
-  descricao: string;
-  subdescricao: string | null;
-  codigo: string | null;
-  /** `servico.gera_comissao` do cadastro, como esta hoje. */
-  geraComissao: boolean;
-  quantidade: number;
-  valorUnitario: number;
-  subtotal: number;
-  observacao: string | null;
-  /** A fatia e a comissao desta pessoa, como gravadas. */
-  valorBase: number;
-  valorComissao: number;
-  /** Comissao corrigida no evento financeiro (contabil) da OS; `valorComissao` ja e a corrigida. */
-  comissaoAjustada: boolean;
-  /** Todos os executores do servico — mais de um significa trabalho dividido. */
-  realizadores: RealizadorDoServico[];
-  ordem: {
-    status: string | null;
-    dataEntrada: string | null;
-    dataSaida: string | null;
-    concluidaEm: string | null;
-    cliente: RelacaoNomeada | null;
-    setor: RelacaoNomeada | null;
-  };
-};
-
-/**
- * Totais da aba de servicos realizados, sobre todo o periodo filtrado.
- *
- * Os valores somam o subtotal cheio do servico — o mesmo numero que a coluna
- * "Valor" da lista mostra —, entao o card e a tabela fecham igual. Servico
- * dividido com outro realizador entra inteiro para os dois.
- */
-export type IndicadoresServicos = {
-  servicos: number;
-  valorTotal: number;
-  /** Quanto desse valor vem de servicos marcados como "gera comissao". */
-  valorComComissao: number;
-  /** Comissao do usuario no periodo, somada do que esta gravado em cada vinculo. */
-  comissao: number;
-  parcial: boolean;
-};
-
 export type Paginado<T> = {
   items: T[];
   page: number;
@@ -190,4 +85,4 @@ export type Paginado<T> = {
 
 export type Periodo = { de: string; ate: string };
 
-export type AbaCentral = "vendas" | "ordens" | "servicos";
+export type AbaCentral = "vendas";

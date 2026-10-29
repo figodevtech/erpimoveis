@@ -467,7 +467,7 @@ export function criarIdeParaEmpresa(
     indPres: options?.indPres ?? 1,
     indIntermed: indicadorIntermediador(options?.indPres ?? 1, options?.intermediador ?? null),
     procEmi: 0,
-    verProc: 'ERPOficina 2026.1',
+    verProc: 'ERPImoveis 2026.1',
   };
 
   return { ide, cNF, chave, id };

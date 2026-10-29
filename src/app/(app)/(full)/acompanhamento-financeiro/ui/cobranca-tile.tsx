@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { ShoppingBag, Wrench } from "lucide-react";
+import { ShoppingBag } from "lucide-react";
 import type { CobrancaItem, MetodoPagamentoResumo } from "../lib/api";
 import ValorMascarado from "./valor-mascarado";
 
@@ -91,14 +91,9 @@ export default function CobrancaTile({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
-            <Badge
-              variant="outline"
-              className={item.origem === "OS"
-                ? "border-sky-500/30 bg-sky-500/10 text-sky-500"
-                : "border-violet-500/30 bg-violet-500/10 text-violet-500"}
-            >
-              {item.origem === "OS" ? <Wrench className="mr-1 h-3 w-3" /> : <ShoppingBag className="mr-1 h-3 w-3" />}
-              {item.origem} #{item.id}
+            <Badge variant="outline" className="border-violet-500/30 bg-violet-500/10 text-violet-500">
+              <ShoppingBag className="mr-1 h-3 w-3" />
+              Venda #{item.id}
             </Badge>
             <Badge
               variant="outline"

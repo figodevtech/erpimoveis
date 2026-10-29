@@ -8,7 +8,7 @@ import * as rateio from "@/lib/financeiro/rateio";
 import * as bancoLancamento from "@/lib/financeiro/banco-lancamento";
 import * as documentoEvento from "@/lib/financeiro/documento-evento";
 import * as exclusaoEvento from "@/lib/ordens/exclusao-evento-financeiro";
-import * as competencia from "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia";
+import * as competencia from "@/lib/financeiro/eventos-financeiros/competencia";
 
 const session = { user: { id: "usuario-autenticado" } };
 function loadPost(file: string, supabaseAdmin: unknown, denied?: string, metodo = "POST") {
@@ -30,8 +30,8 @@ function loadPost(file: string, supabaseAdmin: unknown, denied?: string, metodo 
     "@/lib/financeiro/banco-lancamento": bancoLancamento,
     "@/lib/financeiro/documento-evento": documentoEvento,
     "@/lib/ordens/exclusao-evento-financeiro": exclusaoEvento,
-    "@/app/api/ordens/[id]/eventos-financeiros/_lib/competencia": competencia,
-    "@/app/api/ordens/[id]/eventos-financeiros/_lib/servico": {
+    "@/lib/financeiro/eventos-financeiros/competencia": competencia,
+    "@/lib/financeiro/eventos-financeiros/servico": {
       idValido: (value: unknown) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null,
       editarEventoDaOs: async () => ({ ok: true, corpo: { evento: { id: 10, ordemservicoid: 9 } } }),
       responder: (resultado: { ok: boolean; corpo?: unknown; error?: string; status?: number }, status = 200) =>

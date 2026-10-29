@@ -28,12 +28,14 @@ export function VinculoTab({ vinculo }: { vinculo: VinculoContexto | null }) {
         ehOS ? <FileText className="h-3.5 w-3.5" /> : <ShoppingCart className="h-3.5 w-3.5" />
       }
       acao={
-        <Button asChild size="sm" variant="outline" className="h-7 text-xs">
-          <Link href={vinculo.href} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="mr-1 h-3 w-3" />
-            Abrir documento
-          </Link>
-        </Button>
+        vinculo.href ? (
+          <Button asChild size="sm" variant="outline" className="h-7 text-xs">
+            <Link href={vinculo.href} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="mr-1 h-3 w-3" />
+              Abrir documento
+            </Link>
+          </Button>
+        ) : null
       }
     >
       <div className="grid gap-4 sm:grid-cols-2">

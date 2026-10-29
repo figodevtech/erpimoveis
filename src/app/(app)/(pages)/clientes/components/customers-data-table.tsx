@@ -29,7 +29,7 @@ import { Customer, DividaCliente, Pagination, Status } from "../types";
 import { cn } from "@/lib/utils";
 import formatarTelefone from "@/utils/formatarTelefone";
 import Link from "next/link";
-import { getStatusBadge } from "../utils";
+import { getContaSiteLabel, getStatusBadge } from "../utils";
 import formatarEmReal from "@/utils/formatarEmReal";
 import { CustomerDialog } from "./customerDialogRegister/customerDialog";
 import DeleteAlert from "./deleteAlert";
@@ -293,7 +293,12 @@ export default function CustomersDataTable({
                   <DividaCell divida={customer.divida} />
                 </TableCell>
 
-                <TableCell>{getStatusBadge(customer.status)}</TableCell>
+                <TableCell>
+                  {getStatusBadge(customer.status)}
+                  {getContaSiteLabel(customer.site) ? (
+                    <p className="mt-1 text-xs text-muted-foreground">{getContaSiteLabel(customer.site)}</p>
+                  ) : null}
+                </TableCell>
 
                 <TableCell>
                   {ehClienteDoSistema(customer) ? (

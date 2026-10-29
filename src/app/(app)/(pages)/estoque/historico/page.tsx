@@ -55,7 +55,7 @@ import { CancelMovementDialog, type CancelTarget } from "../components/cancel-mo
 import { CancelarEntradaDialog } from "@/components/entrada-fiscal/cancelar-entrada-dialog";
 import { EntryDetailsDialog } from "../components/entry-details-dialog";
 import { ExitDetailsDialog } from "../components/exit-details-dialog";
-import { EmissaoNotaDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
+import { EmissaoNotaDialog } from "@/components/fiscal/emissao-nota-dialog/emissao-nota-dialog";
 import { LancarFinanceiroEntradaDialog } from "@/components/entrada-fiscal/lancar-financeiro-entrada-dialog";
 
 /**

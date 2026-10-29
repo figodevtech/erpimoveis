@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 function deriveSecret(apiToken: string) {
   return createHmac("sha256", apiToken)
-    .update("erpoficina:focus-webhook:v1")
+    .update("erpimoveis:focus-webhook:v1")
     .digest("hex");
 }
 

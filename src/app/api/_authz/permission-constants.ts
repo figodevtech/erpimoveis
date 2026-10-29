@@ -10,21 +10,40 @@ export const PERMS = {
   CLIENTES_EDITAR: "clientes:editar",
   CLIENTES_EXCLUIR: "clientes:excluir",
 
-  ORDENS: "ordens:visualizar",
-  ORDENS_CRIAR: "ordens:criar",
-  ORDENS_EDITAR: "ordens:editar",
-  ORDENS_EXCLUIR: "ordens:excluir",
-  ORDENS_RENTABILIDADE: "ordens:rentabilidade",
-  ORDENS_EVENTOS_FINANCEIROS: "ordens:eventos_financeiros",
-  ORDENS_FINALIZAR_SEM_COBRANCA: "ordens:finalizar_sem_cobranca",
-  ORDENS_EXCLUIR_CHECKLIST_ASSINADO: "ordens:excluir_checklist_assinado",
-  // Troca o criador e transfere a comissao de criacao. Sem backfill: concedida a dedo.
-  ORDENS_ALTERAR_CRIADOR: "ordens:alterar_criador",
-
-  ORCAMENTOS: "orcamentos:visualizar",
-  ORCAMENTOS_CRIAR: "orcamentos:criar",
-  ORCAMENTOS_EDITAR: "orcamentos:editar",
-  ORCAMENTOS_EXCLUIR: "orcamentos:excluir",
+  PROPRIETARIOS: "proprietarios:visualizar",
+  PROPRIETARIOS_CRIAR: "proprietarios:criar",
+  PROPRIETARIOS_EDITAR: "proprietarios:editar",
+  PROPRIETARIOS_EXCLUIR: "proprietarios:excluir",
+  PROPRIETARIOS_ACESSO_PORTAL: "proprietarios:acesso_portal",
+  PROPRIETARIOS_FINANCEIRO: "proprietarios:financeiro",
+  IMOVEIS: "imoveis:visualizar",
+  IMOVEIS_CRIAR: "imoveis:criar",
+  IMOVEIS_EDITAR: "imoveis:editar",
+  IMOVEIS_EXCLUIR: "imoveis:excluir",
+  IMOVEIS_PUBLICAR: "imoveis:publicar",
+  IMOVEIS_FINANCEIRO: "imoveis:financeiro",
+  RESERVAS: "reservas:visualizar",
+  RESERVAS_CRIAR: "reservas:criar",
+  RESERVAS_EDITAR: "reservas:editar",
+  RESERVAS_EXCLUIR: "reservas:excluir",
+  RESERVAS_CONFIRMAR: "reservas:confirmar",
+  RESERVAS_CANCELAR: "reservas:cancelar",
+  RESERVAS_CHECKIN_CHECKOUT: "reservas:checkin_checkout",
+  RESERVAS_FINANCEIRO: "reservas:financeiro",
+  LOCACOES_IMOBILIARIAS: "locacoes_imobiliarias:visualizar",
+  LOCACOES_IMOBILIARIAS_CRIAR: "locacoes_imobiliarias:criar",
+  LOCACOES_IMOBILIARIAS_EDITAR: "locacoes_imobiliarias:editar",
+  LOCACOES_IMOBILIARIAS_EXCLUIR: "locacoes_imobiliarias:excluir",
+  LOCACOES_IMOBILIARIAS_CONFIRMAR: "locacoes_imobiliarias:confirmar",
+  LOCACOES_IMOBILIARIAS_CANCELAR: "locacoes_imobiliarias:cancelar",
+  LOCACOES_IMOBILIARIAS_FINANCEIRO: "locacoes_imobiliarias:financeiro",
+  VENDAS_IMOBILIARIAS: "vendas_imobiliarias:visualizar",
+  VENDAS_IMOBILIARIAS_CRIAR: "vendas_imobiliarias:criar",
+  VENDAS_IMOBILIARIAS_EDITAR: "vendas_imobiliarias:editar",
+  VENDAS_IMOBILIARIAS_EXCLUIR: "vendas_imobiliarias:excluir",
+  VENDAS_IMOBILIARIAS_CONCLUIR: "vendas_imobiliarias:concluir",
+  VENDAS_IMOBILIARIAS_CANCELAR: "vendas_imobiliarias:cancelar",
+  VENDAS_IMOBILIARIAS_FINANCEIRO: "vendas_imobiliarias:financeiro",
 
   ESTOQUE: "estoque:visualizar",
   ESTOQUE_CRIAR: "estoque:criar",
@@ -39,7 +58,7 @@ export const PERMS = {
   USOCONSUMO_SAIDA: "usoconsumo:saida",
   USOCONSUMO_CANCELAR: "usoconsumo:cancelar_movimento",
 
-  // Acesso base: os dados financeiros que aparecem dentro da OS e da venda, e
+  // Acesso base: os dados financeiros que aparecem dentro da venda, e
   // as APIs que as telas do financeiro compartilham. Sozinha nao abre nenhuma
   // tela do menu Financeiro — cada uma tem a sua, logo abaixo.
   FINANCEIRO: "financeiro:visualizar",
@@ -48,7 +67,6 @@ export const PERMS = {
   FINANCEIRO_FLUXO_DE_CAIXA: "financeiro:fluxo_de_caixa",
   FINANCEIRO_BANCOS: "financeiro:bancos",
   FINANCEIRO_EVENTOS_DE_ORDENS: "financeiro:eventos_de_ordens",
-  FINANCEIRO_PAGAMENTO_DE_ORDENS: "financeiro:pagamento_de_ordens",
   FINANCEIRO_PAGAMENTO_DE_VENDAS: "financeiro:pagamento_de_vendas",
   FINANCEIRO_ACOMPANHAMENTO: "financeiro:acompanhamento",
   FINANCEIRO_DRE: "financeiro:dre",
@@ -75,16 +93,6 @@ export const PERMS = {
   RADIOS_EDITAR: "radios:editar",
   RADIOS_EXCLUIR: "radios:excluir",
 
-  AGENDAMENTOS: "agendamentos:visualizar",
-  AGENDAMENTOS_CRIAR: "agendamentos:criar",
-  AGENDAMENTOS_EDITAR: "agendamentos:editar",
-  AGENDAMENTOS_EXCLUIR: "agendamentos:excluir",
-
-  ALUGUEIS: "alugueis:visualizar",
-  ALUGUEIS_CRIAR: "alugueis:criar",
-  ALUGUEIS_EDITAR: "alugueis:editar",
-  ALUGUEIS_EXCLUIR: "alugueis:excluir",
-
   CONFIG: "configuracoes:visualizar",
   CONFIG_CRIAR: "configuracoes:criar",
   CONFIG_EDITAR: "configuracoes:editar",
@@ -104,34 +112,21 @@ export const PERMS = {
   PERMISSOES_EDITAR: "permissoes:editar",
   PERMISSOES_EXCLUIR: "permissoes:excluir",
 
+  // Telas cheias de acompanhamento (hoje, a Central Operacional).
   ACOMPANHAMENTO: "acompanhamento:visualizar",
 
   VENDAS: "vendas:visualizar",
   VENDAS_CRIAR: "vendas:criar",
   VENDAS_EDITAR: "vendas:editar",
   VENDAS_EXCLUIR: "vendas:excluir",
-  // Troca o vendedor e transfere a comissao. Sem backfill: concedida a dedo,
-  // pela mesma razao de ORDENS_ALTERAR_CRIADOR.
+  // Troca o vendedor e transfere a comissao. Sem backfill: concedida a dedo.
   VENDAS_ALTERAR_VENDEDOR: "vendas:alterar_vendedor",
-
-  VEICULOS: "veiculos:visualizar",
-  VEICULOS_CRIAR: "veiculos:criar",
-  VEICULOS_EDITAR: "veiculos:editar",
-  VEICULOS_EXCLUIR: "veiculos:excluir",
-
-  DESMANCHE: "desmanche:visualizar",
-  DESMANCHE_CRIAR: "desmanche:criar",
-  DESMANCHE_EDITAR: "desmanche:editar",
-  DESMANCHE_EXCLUIR: "desmanche:excluir",
-
-  EXECUCAO_OS: "execucao_os:visualizar",
-  EXECUCAO_OS_EDITAR: "execucao_os:editar",
 } as const;
 
 export const TIPO_IDS = [
   "grupos", "grupos_usoconsumo", "unidades", "servicos", "fornecedores",
   "setores", "bancos", "categorias", "bandeiras", "planos_conta",
-  "centros_custo", "categorias_venda", "cores_veiculos", "tipos_entrada", "motivos_saida",
+  "centros_custo", "categorias_venda", "tipos_entrada", "motivos_saida",
 ] as const;
 
 export type TipoId = (typeof TIPO_IDS)[number];
@@ -155,7 +150,6 @@ export const PERMS_TELAS_FINANCEIRO: Permission[] = [
   PERMS.FINANCEIRO_FLUXO_DE_CAIXA,
   PERMS.FINANCEIRO_BANCOS,
   PERMS.FINANCEIRO_EVENTOS_DE_ORDENS,
-  PERMS.FINANCEIRO_PAGAMENTO_DE_ORDENS,
   PERMS.FINANCEIRO_PAGAMENTO_DE_VENDAS,
   PERMS.FINANCEIRO_ACOMPANHAMENTO,
   PERMS.FINANCEIRO_DRE,

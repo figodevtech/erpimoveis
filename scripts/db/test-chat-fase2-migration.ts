@@ -7,7 +7,7 @@
  *
  * Uso:
  *   npm run db:test:chat-fase2
- *   npm run db:test:chat-fase2 -- demir
+ *   npm run db:test:chat-fase2 -- cespedes
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -47,7 +47,7 @@ function ler(relativo: string, fechamento: "commit" | "rollback") {
 }
 
 async function main() {
-  const key = (process.argv[2] ?? "demo") as DatabaseKey;
+  const key = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!VALID_DATABASES.includes(key)) {
     throw new Error(`Banco inválido: ${key}. Use um de: ${VALID_DATABASES.join(", ")}.`);
   }

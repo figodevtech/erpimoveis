@@ -3,7 +3,7 @@
  *
  * Uso:
  *   npm run db:test:nfe-icms
- *   npm run db:test:nfe-icms -- demir
+ *   npm run db:test:nfe-icms -- cespedes
  *
  * Aplica TODAS as migrations pendentes do banco, na ordem de versão, como o
  * `db push --include-all` faria, e roda supabase/tests/nfe_item_icms_canonico.sql:
@@ -52,7 +52,7 @@ function lerComandos(arquivo: string, envelope: "commit" | "rollback") {
 }
 
 async function main() {
-  const chave = (process.argv[2] ?? "demo") as DatabaseKey;
+  const chave = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!BANCOS.includes(chave)) throw new Error(`Banco inválido: ${chave}. Use um de: ${BANCOS.join(", ")}.`);
   const banco = loadDatabaseConfigs().find((item) => item.key === chave);
   if (!banco) throw new Error(`Banco ${chave} não configurado.`);

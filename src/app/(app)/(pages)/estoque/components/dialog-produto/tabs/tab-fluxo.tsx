@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { Produto } from "../../../types";
 import { formatDate } from "@/utils/formatDate";
-import { EmissaoNotaDialog } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
+import { EmissaoNotaDialog } from "@/components/fiscal/emissao-nota-dialog/emissao-nota-dialog";
 import { toast } from "@/lib/toast";
 import { EntryDetailsDialog } from "../../entry-details-dialog";
 import { ExitDetailsDialog } from "../../exit-details-dialog";

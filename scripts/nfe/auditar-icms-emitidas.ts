@@ -1,7 +1,7 @@
 /**
  * Auditoria do ICMS das NF-e autorizadas: banco × snapshot × XML.
  *
- *   npx tsx scripts/nfe/auditar-icms-emitidas.ts [demir|demo|garage] [pasta-de-saida]
+ *   npx tsx scripts/nfe/auditar-icms-emitidas.ts [cespedes] [pasta-de-saida]
  *
  * SOMENTE LEITURA: roda numa transação READ ONLY e termina em ROLLBACK. Nenhuma
  * nota é alterada — regularizar documento autorizado é trabalho separado, com a
@@ -126,7 +126,7 @@ function csv(valor: unknown) {
 }
 
 async function main() {
-  const chave = (process.argv[2] ?? "demir") as DatabaseKey;
+  const chave = (process.argv[2] ?? "cespedes") as DatabaseKey;
   const saida = process.argv[3] ?? process.cwd();
   const banco = loadDatabaseConfigs().find((item) => item.key === chave);
   if (!banco) throw new Error(`Banco ${chave} não configurado.`);

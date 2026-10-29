@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRealtimeTabelas } from "@/hooks/use-realtime-tabelas";
 
 /** Módulo, não literal: um array novo a cada render reiniciaria a inscrição. */
-const TABELAS_REALTIME = ["ordemservico", "transacao", "venda"];
+const TABELAS_REALTIME = ["transacao", "venda"];
 import { AlertCircle, Building2, Clock3, Eye, EyeOff, Layers3, Loader2, RefreshCcw, WalletCards } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -19,13 +19,11 @@ import {
   listarAcompanhamentoFinanceiro,
   listarSetoresFinanceiro,
   type CobrancaItem,
-  type OrigemCobranca,
   type QuadroFinanceiro,
 } from "../lib/api";
 
 const real = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const STORAGE_SETOR = "acompanhamento-financeiro:setor";
-const STORAGE_ORIGEM = "acompanhamento-financeiro:origem";
 const STORAGE_OCULTAR_VALORES = "acompanhamento-financeiro:ocultarValores";
 
 function useDoorbellChime() {
@@ -155,7 +153,6 @@ function Coluna({
 export default function PainelFinanceiro() {
   const [setores, setSetores] = useState<Array<{ id: number; nome: string }>>([]);
   const [setor, setSetor] = useState("all");
-  const [origem, setOrigem] = useState<OrigemCobranca | "TODAS">("TODAS");
   const [quadro, setQuadro] = useState<QuadroFinanceiro | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -167,8 +164,6 @@ export default function PainelFinanceiro() {
   useEffect(() => {
     try {
       setSetor(localStorage.getItem(STORAGE_SETOR) || "all");
-      const origemSalva = localStorage.getItem(STORAGE_ORIGEM);
-      if (origemSalva === "OS" || origemSalva === "VENDA" || origemSalva === "TODAS") setOrigem(origemSalva);
       setOcultarValores(localStorage.getItem(STORAGE_OCULTAR_VALORES) === "1");
     } catch {}
     listarSetoresFinanceiro().then(setSetores).catch(() => setSetores([]));
@@ -190,7 +185,6 @@ export default function PainelFinanceiro() {
     try {
       const data = await listarAcompanhamentoFinanceiro({
         setorId: setor === "all" ? undefined : Number(setor),
-        origem,
         horasRecentes: 24,
       });
       setQuadro(data);
@@ -201,7 +195,7 @@ export default function PainelFinanceiro() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [origem, setor]);
+  }, [setor]);
 
   useEffect(() => {
     void carregar();
@@ -228,13 +222,6 @@ export default function PainelFinanceiro() {
     try { localStorage.setItem(STORAGE_SETOR, value); } catch {}
   }
 
-  function trocarOrigem(value: string) {
-    const next = value as OrigemCobranca | "TODAS";
-    setOrigem(next);
-    setLoading(true);
-    try { localStorage.setItem(STORAGE_ORIGEM, next); } catch {}
-  }
-
   return (
     <div className="mx-auto min-h-screen w-full max-w-[1800px] px-3 py-4 sm:px-4">
       <header className="mb-3 flex flex-wrap items-start justify-between gap-3">
@@ -242,7 +229,7 @@ export default function PainelFinanceiro() {
           <h1 className="text-lg font-semibold tracking-tight">Acompanhamento de pagamentos</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             <Badge variant="outline" className="gap-1"><Building2 className="h-3 w-3" />{nomeSetor}</Badge>
-            <Badge variant="outline" className="gap-1"><Layers3 className="h-3 w-3" />{origem === "TODAS" ? "OS e vendas" : origem}</Badge>
+            <Badge variant="outline" className="gap-1"><Layers3 className="h-3 w-3" />Vendas</Badge>
             <Badge variant="secondary" className="gap-1">
               <Clock3 className="h-3 w-3" />
               {quadro?.meta.atualizadoEm ? new Date(quadro.meta.atualizadoEm).toLocaleString("pt-BR") : "—"}
@@ -256,14 +243,6 @@ export default function PainelFinanceiro() {
             <SelectContent>
               <SelectItem value="all">Todos os setores</SelectItem>
               {setores.map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.nome}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={origem} onValueChange={trocarOrigem}>
-            <SelectTrigger className="h-9 w-[140px] text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="TODAS">OS e vendas</SelectItem>
-              <SelectItem value="OS">Somente OS</SelectItem>
-              <SelectItem value="VENDA">Somente vendas</SelectItem>
             </SelectContent>
           </Select>
           <Button asChild variant="outline" className="h-9"><Link href="/">Sair</Link></Button>

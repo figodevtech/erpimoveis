@@ -11,7 +11,7 @@ type Context = {
 
 export async function GET(_req: NextRequest, { params }: Context) {
   try {
-    await requireAny([PERMS.FINANCEIRO, PERMS.ORDENS, PERMS.VENDAS, PERMS.ESTOQUE]);
+    await requireAny([PERMS.FINANCEIRO, PERMS.VENDAS, PERMS.ESTOQUE]);
 
     const { id } = await params;
     const notaId = Number(id);

@@ -7,7 +7,6 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   build1601FromReceipts,
   splitForClassification,
-  splitForServiceOrder,
   type Sped1601Account,
   type Sped1601Receipt,
   type Sped1601Row,
@@ -43,8 +42,7 @@ function receivableTitles(builder: any) {
 }
 
 /**
- * Recebimentos das vendas do mês (regime de competência da SEFAZ-PB): OS
- * concluídas e vendas pagas no mês, com o que já foi pago e o que está a
+ * Recebimentos das vendas pagas no mês, com o que já foi pago e o que está a
  * receber, mais as receitas avulsas cuja competência cai no mês.
  */
 export async function collect1601FromFinance(input: {
@@ -63,11 +61,8 @@ export async function collect1601FromFinance(input: {
     return civil >= start && civil <= end;
   };
 
-  const [orders, sales, looseTitles, accountRows] = await Promise.all([
-    fetchAllPages<Row>("OS concluídas no mês (1601)", ({ from: first, to: last }) => supabaseAdmin
-      .from("ordemservico").select("id, execucao_fim_em, valor_frete", { count: "exact" })
-      .not("is_deleted", "is", true).gte("execucao_fim_em", from).lte("execucao_fim_em", to)
-      .order("id").range(first, last)).then(track),
+  const [sales, looseTitles, accountRows] = await Promise.all([
+
     fetchAllPages<Row>("vendas pagas no mês (1601)", ({ from: first, to: last }) => supabaseAdmin
       .from("venda").select("id, pagamento_em, status", { count: "exact" })
       .neq("status", "CANCELADA").gte("pagamento_em", from).lte("pagamento_em", to)
@@ -82,32 +77,12 @@ export async function collect1601FromFinance(input: {
       .order("id").range(first, last)).then(track),
   ]);
 
-  const orderIds = orders.filter((row) => inMonth(row.execucao_fim_em)).map((row) => number(row.id));
   const saleIds = sales.filter((row) => inMonth(row.pagamento_em)).map((row) => number(row.id));
-  const freightByOrder = new Map(orders.map((row) => [number(row.id), number(row.valor_frete)]));
-
-  const byOrder = (label: string, table: string, columns: string) => fetchAllByIds<Row, number>(label, orderIds, (ids, range) => supabaseAdmin
-    .from(table).select(columns, { count: "exact" }).in("ordemservicoid", ids).order("ordemservicoid").range(range.from, range.to)).then(track);
-  const [parts, looseParts, services, orderTitles, saleTitles] = await Promise.all([
-    byOrder("peças das OS (1601)", "osproduto", "ordemservicoid, produtoid, subtotal"),
-    byOrder("peças avulsas das OS (1601)", "osproduto_avulso", "id, ordemservicoid, subtotal"),
-    byOrder("serviços das OS (1601)", "osservico", "ordemservicoid, servicoid, subtotal"),
-    fetchAllByIds<Row, number>("recebimentos das OS (1601)", orderIds, (ids, range) => receivableTitles(supabaseAdmin
-      .from("transacao").select(TITLE_COLUMNS, { count: "exact" }))
-      .in("ordemservicoid", ids).is("baixa_de_transacao_id", null).order("id").range(range.from, range.to)).then(track),
+  const [saleTitles] = await Promise.all([
     fetchAllByIds<Row, number>("recebimentos das vendas (1601)", saleIds, (ids, range) => receivableTitles(supabaseAdmin
       .from("transacao").select(TITLE_COLUMNS, { count: "exact" }))
       .in("vendaid", ids).is("baixa_de_transacao_id", null).order("id").range(range.from, range.to)).then(track),
   ]);
-
-  const composition = new Map<number, { parts: number; services: number }>();
-  const add = (orderId: number, key: "parts" | "services", value: number) => {
-    const entry = composition.get(orderId) ?? { parts: freightByOrder.get(orderId) ?? 0, services: 0 };
-    entry[key] += value;
-    composition.set(orderId, entry);
-  };
-  for (const row of [...parts, ...looseParts]) add(number(row.ordemservicoid), "parts", number(row.subtotal));
-  for (const row of services) add(number(row.ordemservicoid), "services", number(row.subtotal));
 
   // Receita avulsa: o plano de contas diz se é venda, serviço, outra receita ou nada.
   const looseInMonth = looseTitles.filter((row) => inMonth(row.competencia_em ?? row.data));
@@ -128,10 +103,6 @@ export async function collect1601FromFinance(input: {
   }));
 
   const titles: Array<{ row: Row; split: Sped1601Split }> = [
-    ...orderTitles.map((row) => {
-      const parts = composition.get(number(row.ordemservicoid));
-      return { row, split: splitForServiceOrder(parts?.parts ?? 0, parts?.services ?? 0) };
-    }),
     ...saleTitles.map((row) => ({ row, split: { vs: 1, iss: 0, outros: 0 } })),
     ...looseInMonth.map((row) => ({ row, split: splitForClassification(codeByPlan.get(number(row.plano_de_conta_id))) })),
   ].filter(({ split }) => split.vs + split.iss + split.outros > 0);

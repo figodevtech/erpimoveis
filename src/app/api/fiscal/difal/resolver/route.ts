@@ -43,7 +43,7 @@ function dataFiscal(valor: unknown): string {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireAny([PERMS.ORDENS, PERMS.VENDAS, PERMS.FINANCEIRO, PERMS.ESTOQUE]);
+    await requireAny([PERMS.VENDAS, PERMS.FINANCEIRO, PERMS.ESTOQUE]);
 
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body) {

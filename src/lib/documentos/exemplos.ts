@@ -3,7 +3,7 @@
 
 import { buildPrintPaymentSummary } from "@/lib/print-payment-display";
 
-import { contextoDaOS, contextoDaVenda, contextoDoAluguel, type EmissaoDocumento } from "./contexto";
+import { contextoDaVenda, type EmissaoDocumento } from "./contexto";
 import type { ContextoDocumento, ModuloDocumento } from "./tipos";
 
 const LOGO_EXEMPLO =
@@ -76,67 +76,9 @@ export const VENDA_EXEMPLO = {
   ],
 };
 
-export const OS_EXEMPLO = {
-  id: 525,
-  status: "CONCLUIDO",
-  alvo_tipo: "VEICULO",
-  setor: { nome: "Mecânica" },
-  criador: { nome: "Ana Recepção" },
-  dataentrada: "2026-10-10T12:00:00Z",
-  datasaidaprevista: "2026-10-13T20:00:00Z",
-  execucao_fim_em: "2026-10-13T18:00:00Z",
-  datasaida: "2026-10-14T12:00:00Z",
-  descricao: "Barulho ao frear e revisão dos 40 mil km",
-  observacoes: "Cliente pediu para guardar as peças trocadas",
-  garantia: "90 dias para peças e serviços",
-  desconto_tipo: "FIXO",
-  desconto: 50,
-  valor_frete: 0,
-  cliente: CLIENTE_EXEMPLO,
-  cliente_snapshot: null,
-  veiculo: { id: 9, placa: "QFX1A23", marca: "Volkswagen", modelo: "Gol 1.6", ano: 2019, ano_modelo: 2020, cor: "Prata", kmatual: 40210, chassi: "9BWAB45U0KT000001" },
-  veiculo_snapshot: null,
-  peca: null,
-  equipamento_nome: null,
-  produtos: [
-    { quantidade: 1, precounitario: 180, subtotal: 180, desconto_tipo: null, desconto: 0, produto: { id: 501, titulo: "Pastilha de freio dianteira", unidade: "JG", etiqueta: "PF-501" } },
-  ],
-  produtosAvulsos: [{ titulo: "Fluido de freio DOT 4", quantidade: 1, precounitario: 45, subtotal: 45, desconto_tipo: null, desconto: 0 }],
-  servicos: [
-    { servicoid: 11, quantidade: 1, precounitario: 120, subtotal: 120, desconto_tipo: null, desconto: 0, descricao: "", servico: { codigo: "S-11", descricao: "Troca de pastilhas" } },
-    { servicoid: 12, quantidade: 1, precounitario: 250, subtotal: 250, desconto_tipo: null, desconto: 0, descricao: "", servico: { codigo: "S-12", descricao: "Revisão 40 mil km" } },
-  ],
-  itensHistoricos: [],
-};
-
-const REALIZADORES_EXEMPLO = [
-  { servicoid: 11, usuario: { nome: "Carlos Mecânico" } },
-  { servicoid: 12, usuario: { nome: "Carlos Mecânico" } },
-  { servicoid: 12, usuario: { nome: "Pedro Auxiliar" } },
-];
-
-export const ALUGUEL_EXEMPLO = {
-  id: 42,
-  status: "ATIVO",
-  data_inicio: "2026-10-14",
-  data_limite: "2026-10-21",
-  encerrado_em: null,
-  pausado_em: null,
-  valor_total: 350,
-  observacao: "<p>Equipamento entregue <strong>limpo e testado</strong>.</p>",
-  cliente: CLIENTE_EXEMPLO,
-  destinatario: null,
-  criador: { nome: "Ana Recepção" },
-  itens: [
-    { id: 1, tipo: "PRODUTO", descricao: "Macaco hidráulico 2t", identificacao: "Série MH-0091", quantidade: 1, quantidade_devolvida: 0, valor: 150, devolvido_em: null },
-    { id: 2, tipo: "AVULSO", descricao: "Cavalete de apoio", identificacao: "", quantidade: 2, quantidade_devolvida: 0, valor: 100, devolvido_em: null },
-  ],
-};
-
-export function contextoDeExemplo(modulo: ModuloDocumento, nomeDocumento = "Documento"): ContextoDocumento {
-  const emissao = emissaoExemplo(nomeDocumento);
-  if (modulo === "venda") {
-    return contextoDaVenda({
+const EXEMPLOS: Record<ModuloDocumento, (emissao: EmissaoDocumento) => ContextoDocumento> = {
+  venda: (emissao) =>
+    contextoDaVenda({
       venda: VENDA_EXEMPLO,
       empresa: EMPRESA_EXEMPLO,
       pagamentos: buildPrintPaymentSummary({
@@ -148,20 +90,9 @@ export function contextoDeExemplo(modulo: ModuloDocumento, nomeDocumento = "Docu
         ],
       }),
       emissao,
-    });
-  }
-  if (modulo === "os") {
-    return contextoDaOS({
-      os: OS_EXEMPLO,
-      realizadores: REALIZADORES_EXEMPLO,
-      empresa: EMPRESA_EXEMPLO,
-      pagamentos: buildPrintPaymentSummary({
-        type: "OS",
-        status: OS_EXEMPLO.status,
-        recordedPayments: [{ metodo: "PIX", valor: 545 }],
-      }),
-      emissao,
-    });
-  }
-  return contextoDoAluguel({ aluguel: ALUGUEL_EXEMPLO, empresa: EMPRESA_EXEMPLO, emissao });
+    }),
+};
+
+export function contextoDeExemplo(modulo: ModuloDocumento, nomeDocumento = "Documento"): ContextoDocumento {
+  return EXEMPLOS[modulo](emissaoExemplo(nomeDocumento));
 }

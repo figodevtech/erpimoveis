@@ -21,9 +21,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import GrupoProdutoDialog from "@/app/(app)/(pages)/configuracoes/tipos/components/grupoProdutoDialog/grupo-produto-dialog";
 import { useTipoAccess } from "@/app/(app)/(pages)/configuracoes/tipos/components/use-tipo-access";
-import type { LoteSelectItem } from "@/app/(app)/components/loteSelect";
 import { DescricaoIA } from "./descricao-ia";
-import { ProdutoLoteCard } from "./produto-lote-card";
 import { SearchCombobox } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/search-combobox";
 
 type Props = {
@@ -37,9 +35,6 @@ type Props = {
   grupos: GrupoFromApi[];
   loadingGrupos?: boolean;
   onGrupoCriado?: (grupo: GrupoFromApi) => void;
-  lotePendente?: LoteSelectItem | null;
-  onLotePendenteChange?: (lote: LoteSelectItem | null) => void;
-  onLoteVinculoAlterado?: () => void;
   precoMedioCompraObrigatorio?: boolean;
 };
 
@@ -54,9 +49,6 @@ export function TabGeral({
   loadingUnidades,
   errorUnidades,
   showDates,
-  lotePendente,
-  onLotePendenteChange,
-  onLoteVinculoAlterado,
   precoMedioCompraObrigatorio = false,
 }: Props) {
   const LIMITE_TITULO = 100;
@@ -293,14 +285,6 @@ export function TabGeral({
             />
           </div>
         </div>
-
-        <ProdutoLoteCard
-          mode={mode}
-          produtoId={produto.id}
-          lotePendente={lotePendente}
-          onLotePendenteChange={onLotePendenteChange}
-          onAfterChange={onLoteVinculoAlterado}
-        />
 
         {showDates ? (
           <>

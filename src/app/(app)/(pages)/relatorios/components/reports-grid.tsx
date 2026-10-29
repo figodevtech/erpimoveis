@@ -9,7 +9,6 @@ import {
   ClipboardCheck,
   Package,
   Users,
-  Wrench,
 } from "lucide-react";
 import DialogRelatorioDiario from "./dialogs/dialog-relatorio-diario";
 import DialogFluxo from "./dialogs/dialog-fluxo";
@@ -22,12 +21,8 @@ import { ProdutosEstoqueCritico } from "./produtosEstoqueCrítico";
 import { ProdutosSemEstoque } from "./produtosSemEstoque";
 import DialogClienteCompras from "./dialogs/dialog-cliente-compras";
 import DialogProdutoCompras from "./dialogs/dialog-produto-compras";
-import DialogComissaoRealizador from "./dialogs/dialog-comissao-realizador";
 import DialogVendasUsuario from "./dialogs/dialog-vendas-usuario";
-import DialogComissaoSetor from "./dialogs/dialog-comissao-setor";
 import DialogVendasSetor from "./dialogs/dialog-vendas-setor";
-import { DialogRelatorioOrdens } from "./dialogs/dialog-relatorio-ordens";
-import DialogServicosRealizados from "./dialogs/dialog-servicos-realizados";
 import { DialogRelatorioVendas } from "./dialogs/dialog-relatorio-vendas";
 import DialogMovimentacaoEstoque from "./dialogs/dialog-movimentacao-estoque";
 
@@ -81,25 +76,6 @@ export function ReportsGrid() {
         </div>
       </Card>
 
-      <Card className="p-4 sm:p-6">
-        <div className="mb-6 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Wrench />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold text-card-foreground">Ordens de serviço</h2>
-            <p className="text-sm text-muted-foreground">
-              Acompanhamento operacional e resultado econômico das ordens
-            </p>
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <DialogRelatorioOrdens mode="simples" />
-          <DialogServicosRealizados />
-          {/* <DialogRelatorioOrdens mode="financeiro" /> */}
-        </div>
-      </Card>
-
       {/* Vendas */}
 
       <Card className="p-4 sm:p-6">
@@ -133,15 +109,13 @@ export function ReportsGrid() {
               Usuários
             </h2>
             <p className="text-sm text-muted-foreground">
-              Relatórios de desempenho e comissão por usuário
+              Relatórios de desempenho de vendas por usuário
             </p>
           </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <DialogVendasUsuario/>
-          <DialogComissaoRealizador/>
-          <DialogComissaoSetor/>
           <DialogVendasSetor/>
         </div>
       </Card>

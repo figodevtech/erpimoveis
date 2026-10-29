@@ -9,7 +9,7 @@ const testes = ["eventos_manuais_venda.sql", "despesa_frete_venda.sql", "comissa
 const edicao = process.argv.includes("--edicao");
 
 async function main() {
-  const banco = loadDatabaseConfigs().find((item) => item.key === "demo");
+  const banco = loadDatabaseConfigs().find((item) => item.key === "cespedes");
   if (!banco) throw new Error("Banco de demonstração não configurado.");
   const { client } = await connectDatabase(banco);
   client.on("notice", (notice) => { if (notice.message) console.log(notice.message); });

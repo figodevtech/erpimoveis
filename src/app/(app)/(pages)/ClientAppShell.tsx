@@ -31,7 +31,6 @@ const HeaderRadioPlayer = dynamic(
 const PLANO_REVALIDACAO_NO_RETORNO_MS = 5 * 60 * 1000;
 
 const routeTitles: Record<string, string> = {
-  "/execucao": "Execução de Ordens",
   "/": "Início",
   "/usuarios": "Gerenciamento de Usuários",
   "/estoque": "Gerenciamento de Estoque",
@@ -41,7 +40,6 @@ const routeTitles: Record<string, string> = {
   "/etiquetas": "Etiquetas de Estoque",
   "/etiquetas/registrar": "Consulta de Etiquetas",
   "/config": "Configurações",
-  "/ordens": "Gerenciamento de Ordens de Serviço",
   "/clientes": "Gerenciamento de Clientes",
   "/equipes": "Acompanhamento de Equipes",
   "/financeiro": "Financeiro",
@@ -49,14 +47,11 @@ const routeTitles: Record<string, string> = {
   "/bancos": "Bancos",
   "/fiscal": "Notas Fiscais",
   "/fiscal/sped": "SPED Fiscal",
-  "/pagamentodeordens": "Assistente de Pagamento",
   "/pagamentodevendas": "Assistente de Pagamento",
-  "/eventos-financeiros": "Eventos Financeiros das Ordens",
-  "/acompanhamento": "Acompanhamento",
+  "/eventos-financeiros": "Eventos Financeiros",
   "/configuracoes/geral": "Configurações Gerais",
   "/configuracoes/empresa": "Dados da Empresa",
   "/configuracoes/fiscal-pagamentos": "Configurações Fiscais e de Pagamentos",
-  "/configuracoes/checklist": "Gerenciamento de Checklists",
   "/configuracoes/documentos": "Documentos personalizados",
   "/configuracoes/auditoria": "Auditoria",
   "/configuracoes/telegram": "Integração com Telegram",
@@ -113,9 +108,7 @@ export default function ClientAppShell({
   const { radio } = useUserPreferences();
 
   const [sideBarOpen, setSidebarOpen] = React.useState(true);
-  const [hoverHabilitado, setHoverHabilitado] = React.useState(true);
   const [billing, setBilling] = React.useState({ blocked: false, showBanner: false, message: null as string | null });
-  const hoverTimerRef = React.useRef<number | null>(null);
   const loggingOutRef = React.useRef(false);
 
   // A situacao do plano muda raramente e o middleware ja barra escrita de quem
@@ -151,36 +144,6 @@ export default function ClientAppShell({
   React.useEffect(() => {
     if (billing.blocked && !pathname.startsWith("/plano")) router.replace("/plano");
   }, [billing.blocked, pathname, router]);
-
-  React.useEffect(() => {
-    // limpa timer anterior se trocar de rota rápido
-    if (hoverTimerRef.current) {
-      window.clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-
-    const isOrdens = pathname === "/ordens" || pathname.startsWith("/ordens/");
-
-    if (isOrdens) {
-      setSidebarOpen(false);
-
-      // bloqueia hover por 1s (tempo da animação de fechar)
-      setHoverHabilitado(false);
-      hoverTimerRef.current = window.setTimeout(() => {
-        setHoverHabilitado(true);
-      }, 1000);
-    } else {
-      // fora de ordens, deixa normal
-      setHoverHabilitado(true);
-    }
-
-    return () => {
-      if (hoverTimerRef.current) {
-        window.clearTimeout(hoverTimerRef.current);
-        hoverTimerRef.current = null;
-      }
-    };
-  }, [pathname]);
 
   // Opção 1: "sob demanda".
   // Quando o usuário tentar fazer algo (API call) e receber INACTIVE_USER,
@@ -267,7 +230,6 @@ export default function ClientAppShell({
         <AppSidebar
           className={config?.aviso_pagamento || billing.showBanner || billing.blocked ? "!top-10 !h-[calc(100svh-2.5rem)]" : undefined}
           billingBlocked={billing.blocked}
-          hoverHabilitado={hoverHabilitado}
           setOpen={setSidebarOpen}
         />
 

@@ -31,7 +31,7 @@ import { Tipo_transacao, type Banco } from "../../../(financeiro)/fluxodecaixa/t
 import { usePaymentMethodOptions } from "@/hooks/use-payment-method-options";
 
 type Situacao = "TODAS" | "REALIZADAS" | "PENDENTES";
-type Vinculo = "TODOS" | "OS" | "VENDA" | "EVENTO" | "AVULSO";
+type Vinculo = "TODOS" | "VENDA" | "EVENTO" | "AVULSO";
 
 const initialRelations = { categoriaId: "", bancoId: "", planoContaId: "", centroCustoId: "" };
 
@@ -48,7 +48,6 @@ export default function DialogFluxo() {
   const [search, setSearch] = useState("");
   const [nomePagador, setNomePagador] = useState("");
   const [documentoPagador, setDocumentoPagador] = useState("");
-  const [ordemId, setOrdemId] = useState("");
   const [vendaId, setVendaId] = useState("");
   const [valorMin, setValorMin] = useState(0);
   const [valorMax, setValorMax] = useState(0);
@@ -91,14 +90,13 @@ export default function DialogFluxo() {
         search,
         nomePagador,
         documentoPagador,
-        ordemId,
         vendaId,
         valorMin > 0 ? valorMin : 0,
         valorMax > 0 ? valorMax : 0,
         selectedCliente?.id,
         ...Object.values(relations),
       ].filter(Boolean).length,
-    [dateFrom, dateTo, tipo, situacao, vinculo, metodo, search, nomePagador, documentoPagador, ordemId, vendaId, valorMin, valorMax, selectedCliente?.id, relations],
+    [dateFrom, dateTo, tipo, situacao, vinculo, metodo, search, nomePagador, documentoPagador, vendaId, valorMin, valorMax, selectedCliente?.id, relations],
   );
 
   const clearFilters = () => {
@@ -111,7 +109,6 @@ export default function DialogFluxo() {
     setSearch("");
     setNomePagador("");
     setDocumentoPagador("");
-    setOrdemId("");
     setVendaId("");
     setValorMin(0);
     setValorMax(0);
@@ -133,7 +130,6 @@ export default function DialogFluxo() {
     append("search", search);
     append("nomePagador", nomePagador);
     append("documentoPagador", documentoPagador);
-    append("ordemservicoid", ordemId);
     append("vendaid", vendaId);
     append("valorMin", valorMin > 0 ? valorMin : null);
     append("valorMax", valorMax > 0 ? valorMax : null);
@@ -176,7 +172,7 @@ export default function DialogFluxo() {
                 <Field label="Data inicial"><DatePicker value={dateFrom} onChange={setDateFrom} placeholder="Data inicial" /></Field>
                 <Field label="Data final"><DatePicker value={dateTo} onChange={setDateTo} placeholder="Data final" /></Field>
                 <Field label="Situação"><Select value={situacao} onValueChange={(value) => setSituacao(value as Situacao)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODAS">Todas</SelectItem><SelectItem value="REALIZADAS">Realizadas</SelectItem><SelectItem value="PENDENTES">Pendentes</SelectItem></SelectContent></Select></Field>
-                <Field label="Origem / vínculo"><Select value={vinculo} onValueChange={(value) => setVinculo(value as Vinculo)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todas</SelectItem><SelectItem value="OS">Ordem de serviço</SelectItem><SelectItem value="VENDA">Venda / PDV</SelectItem><SelectItem value="EVENTO">Evento financeiro</SelectItem><SelectItem value="AVULSO">Lançamento avulso</SelectItem></SelectContent></Select></Field>
+                <Field label="Origem / vínculo"><Select value={vinculo} onValueChange={(value) => setVinculo(value as Vinculo)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="TODOS">Todas</SelectItem><SelectItem value="VENDA">Venda / PDV</SelectItem><SelectItem value="EVENTO">Evento financeiro</SelectItem><SelectItem value="AVULSO">Lançamento avulso</SelectItem></SelectContent></Select></Field>
               </div>
               {periodoInvalido && <p className="text-xs text-destructive">A data inicial não pode ser posterior à data final.</p>}
             </section>
@@ -199,7 +195,6 @@ export default function DialogFluxo() {
                 <Field label="Descrição"><Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Parte da descrição" /></Field>
                 <Field label="Valor mínimo"><ValueInput value={valorMin} onValueChange={setValorMin} /></Field>
                 <Field label="Valor máximo"><ValueInput value={valorMax} onValueChange={setValorMax} /></Field>
-                <Field label="Número da OS"><Input inputMode="numeric" value={ordemId} onChange={(event) => setOrdemId(event.target.value.replace(/\D/g, ""))} placeholder="Ex.: 123" /></Field>
                 <Field label="Número da venda"><Input inputMode="numeric" value={vendaId} onChange={(event) => setVendaId(event.target.value.replace(/\D/g, ""))} placeholder="Ex.: 456" /></Field>
                 <Field label="Cliente">
                   <div className="flex gap-2"><Button type="button" variant="outline" className="min-w-0 flex-1 justify-start font-normal" onClick={() => setCustomerOpen(true)}><Search className="mr-2 h-4 w-4" /><span className="truncate">{selectedCliente?.nomerazaosocial ?? "Todos os clientes"}</span></Button>{selectedCliente && <Button type="button" variant="outline" size="icon" onClick={() => setSelectedCliente(undefined)} aria-label="Limpar cliente"><X className="h-4 w-4" /></Button>}</div>
@@ -228,7 +223,6 @@ export default function DialogFluxo() {
               planoContaId={relations.planoContaId ? Number(relations.planoContaId) : null}
               centroCustoId={relations.centroCustoId ? Number(relations.centroCustoId) : null}
               metodopagamento={metodo}
-              ordemservicoid={ordemId || null}
               vendaid={vendaId || null}
               clienteId={selectedCliente?.id ?? null}
               pendente={situacao === "TODAS" ? null : situacao === "PENDENTES"}

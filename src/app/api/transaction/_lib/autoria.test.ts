@@ -79,7 +79,7 @@ function corresponde(row: Row, expressao: string): boolean {
   throw new Error("Filtro não implementado no transporte de teste: " + expressao);
 }
 
-function montar(options: { administrativo?: boolean; podeEditar?: boolean; acessoOS?: boolean; acessoVendas?: boolean } = {}) {
+function montar(options: { administrativo?: boolean; podeEditar?: boolean; acessoVendas?: boolean } = {}) {
   const state = {
     usuarios: [usuario(FINANCEIRO), usuario(ESTOQUE), usuario(ADMIN, true, false)],
     transacoes: [
@@ -144,7 +144,6 @@ function montar(options: { administrativo?: boolean; podeEditar?: boolean; acess
   });
   const perms = {
     getCurrentUserAccess: async () => ({ id: FINANCEIRO, ativo: true, permissoes: options.administrativo ? [PERMISSAO] : [] }),
-    hasOSAccess: async () => options.acessoOS ?? false,
     hasVendasAccess: async () => options.acessoVendas ?? false,
     requireFinanceirosAccess: async () => {},
     requireFinanceiroEdit: async () => { if (options.podeEditar === false) throw Object.assign(new Error("Sem permissão para editar"), { statusCode: 403 }); },
@@ -230,12 +229,15 @@ test("falha ao consultar criadores não libera nenhuma operação", async () => 
   assert.equal(h.mutations.length, 0);
 });
 
-test("pagamentos administrativos preservam exceção de leitura em OS e venda, sem escrita", async () => {
-  const h = montar({ acessoOS: true, acessoVendas: true });
-  h.state.transacoes.push(transacao(22, ADMIN, { ordemservicoid: 9 }), transacao(23, ADMIN, { vendaid: 8 }), transacao(24, ADMIN));
-  h.state.rateios.push({ id: 1, transacao_id: 24, tipo_documento: "OS" });
-  await h.autoria.exigirLeituraDeTransacao([22, 23, 24]);
-  await assert.rejects(h.autoria.exigirAcessoATransacao([22, 23, 24]), (err: any) => err.statusCode === 403);
+test("pagamentos administrativos preservam exceção de leitura só em venda, sem escrita", async () => {
+  const h = montar({ acessoVendas: true });
+  h.state.transacoes.push(transacao(22, ADMIN, { ordemservicoid: 9 }), transacao(23, ADMIN, { vendaid: 8 }), transacao(24, ADMIN), transacao(25, ADMIN));
+  h.state.rateios.push({ id: 1, transacao_id: 24, tipo_documento: "OS" }, { id: 2, transacao_id: 25, tipo_documento: "VENDA" });
+  await h.autoria.exigirLeituraDeTransacao([23, 25]);
+  await assert.rejects(h.autoria.exigirAcessoATransacao([23, 25]), (err: any) => err.statusCode === 403);
+  // OS antiga, direta ou rateada, não tem mais quem a leia pelo documento.
+  await assert.rejects(h.autoria.exigirLeituraDeTransacao(22), (err: any) => err.statusCode === 403);
+  await assert.rejects(h.autoria.exigirLeituraDeTransacao(24), (err: any) => err.statusCode === 403);
   await assert.rejects(montar().autoria.exigirLeituraDeTransacao(20), (err: any) => err.statusCode === 403);
 });
 
@@ -339,16 +341,21 @@ test("conciliação sugere somente transações compartilhadas e rejeita confirm
 });
 
 
-test("vínculos auxiliares ocultam autores administrativos e preservam a exceção de OS", async () => {
+test("vínculos auxiliares ocultam autores administrativos e preservam a exceção de venda", async () => {
   const h = montar();
   const contexto = await h.autoria.contextoDeAutoria();
   const itens = await h.autoria.filtrarTransacoesLegiveis(h.state.transacoes, contexto);
   assert.deepEqual(itens.map((item: Row) => item.id), [10, 30, 11, 31]);
-  const comOS = montar({ acessoOS: true });
-  comOS.state.transacoes.find((item) => item.id === 20)!.ordemservicoid = 99;
-  const legiveis = await comOS.autoria.filtrarTransacoesLegiveis(comOS.state.transacoes, await comOS.autoria.contextoDeAutoria());
+  const comVendas = montar({ acessoVendas: true });
+  comVendas.state.transacoes.find((item) => item.id === 20)!.vendaid = 99;
+  const legiveis = await comVendas.autoria.filtrarTransacoesLegiveis(comVendas.state.transacoes, await comVendas.autoria.contextoDeAutoria());
   assert.ok(legiveis.some((item: Row) => item.id === 20));
   assert.ok(!legiveis.some((item: Row) => item.id === 21));
+  // A mesma transação ligada a uma OS antiga continua oculta.
+  const comOS = montar({ acessoVendas: true });
+  comOS.state.transacoes.find((item) => item.id === 20)!.ordemservicoid = 99;
+  const ocultas = await comOS.autoria.filtrarTransacoesLegiveis(comOS.state.transacoes, await comOS.autoria.contextoDeAutoria());
+  assert.ok(!ocultas.some((item: Row) => item.id === 20));
 });
 
 test("contexto da baixa comum não divulga título pai administrativo", async () => {

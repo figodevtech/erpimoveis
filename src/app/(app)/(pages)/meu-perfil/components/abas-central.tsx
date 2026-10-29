@@ -2,7 +2,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ClipboardList, ShoppingCart, Wrench } from "lucide-react";
+import { ShoppingCart } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,8 +20,6 @@ export const ABAS: Array<{
   icone: LucideIcon;
 }> = [
   { chave: "vendas", rotulo: "Vendas", rotuloCurto: "Vendas", icone: ShoppingCart },
-  { chave: "ordens", rotulo: "Ordens finalizadas", rotuloCurto: "Ordens", icone: ClipboardList },
-  { chave: "servicos", rotulo: "Serviços realizados", rotuloCurto: "Serviços", icone: Wrench },
 ];
 
 /** Distancia lateral de repouso de um painel inativo, em pixels. */

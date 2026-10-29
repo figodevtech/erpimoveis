@@ -3,7 +3,7 @@
  *
  * Uso:
  *   npm run db:test:resolvedor-dre
- *   npm run db:test:resolvedor-dre -- demir
+ *   npm run db:test:resolvedor-dre -- cespedes
  *
  * Aplica as migrations da Entrega A que ainda estiverem pendentes, prova que em
  * modo LEGADO a DRE nao muda, e roda as verificacoes de todas as fases.
@@ -82,7 +82,7 @@ function serializar(rows: Record<string, unknown>[]) {
 }
 
 async function main() {
-  const chave = (process.argv[2] ?? "demo") as DatabaseKey;
+  const chave = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!BANCOS.includes(chave)) {
     throw new Error(`Banco invalido: ${chave}. Use um de: ${BANCOS.join(", ")}.`);
   }

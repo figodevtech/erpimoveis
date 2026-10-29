@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { requireAuthenticated, requireFinanceiroCreate, requireFinanceirosAccess, requireVendasAccess } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
-import { responder, responderFalha } from "@/app/api/ordens/[id]/eventos-financeiros/_lib/servico";
+import { responder, responderFalha } from "@/lib/financeiro/eventos-financeiros/servico";
 
 export const runtime = "nodejs";
 

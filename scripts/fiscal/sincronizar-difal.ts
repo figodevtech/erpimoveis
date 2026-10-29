@@ -221,7 +221,7 @@ async function main() {
     || bancos.length > 1 || (todos && bancos.length))
     throw new Error("Uso: fiscal:difal -- <banco>|--todos [--aplicar]");
   const configs = loadDatabaseConfigs();
-  const selecionados = todos ? configs : configs.filter((d) => d.key === (bancos[0] ?? "demo"));
+  const selecionados = todos ? configs : configs.filter((d) => d.key === (bancos[0] ?? "cespedes"));
   if (!selecionados.length)
     throw new Error(`Banco inválido. Configurados: ${configs.map((d) => d.key).join(", ")}`);
   const catalogo = JSON.parse(fs.readFileSync(path.join(

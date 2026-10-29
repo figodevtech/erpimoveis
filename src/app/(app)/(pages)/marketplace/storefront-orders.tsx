@@ -76,7 +76,7 @@ const VendaDetailsDialog = dynamic(
 
 const EmissaoNotaDialog = dynamic(
   () =>
-    import("../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog").then(
+    import("@/components/fiscal/emissao-nota-dialog/emissao-nota-dialog").then(
       (module) => module.EmissaoNotaDialog,
     ),
   { ssr: false },

@@ -3,7 +3,7 @@ import { deliverDiagnostic } from "./erp-diagnostic-delivery";
 import { databaseErrorDetail } from "./database-error-detail";
 
 // Pilot routes only. Never send URLs, request bodies, SQL or raw error messages.
-const routes = new Set(["/api/transaction", "/api/veiculos/consulta-placa/[placa]"]);
+const routes = new Set(["/api/transaction"]);
 let nextSendAt = 0;
 
 export function reportErpDiagnostic(route: string, operation: string, startedAt: number, error: unknown, stage?: "QUERY_TRANSACTIONS") {

@@ -34,6 +34,13 @@ type Props = {
 };
 
 const ACTION_LABELS: Record<string, string> = {
+  publicar: "Publicar no site",
+  acesso_portal: "Gerenciar acesso ao portal",
+  financeiro: "Consultar e gerenciar financeiro do módulo",
+  confirmar: "Confirmar / ativar",
+  cancelar: "Cancelar / encerrar",
+  checkin_checkout: "Registrar check-in e check-out",
+  concluir: "Concluir venda e destinar operações",
   visualizar: "Visualizar",
   criar: "Criar",
   editar: "Editar",
@@ -67,6 +74,11 @@ const PERMISSION_LABELS: Record<string, string> = {
 };
 
 const MODULE_LABELS: Record<string, string> = {
+  proprietarios: "Proprietários",
+  imoveis: "Imóveis",
+  reservas: "Reservas",
+  locacoes_imobiliarias: "Locações imobiliárias",
+  vendas_imobiliarias: "Vendas imobiliárias",
   alugueis: "Aluguéis",
   usoconsumo: "Uso/Consumo",
   radios: "Rádio",

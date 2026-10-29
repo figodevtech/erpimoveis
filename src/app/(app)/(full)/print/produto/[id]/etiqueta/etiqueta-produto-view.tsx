@@ -18,7 +18,7 @@ import {
   type LabelSizeKey,
 } from "@/lib/etiquetas/label-sizes";
 
-const TAMANHO_STORAGE_KEY = "erpoficina:etiqueta-produto:tamanho";
+const TAMANHO_STORAGE_KEY = "erpimoveis:etiqueta-produto:tamanho";
 /** Mesmo teto por geracao usado na emissao de etiquetas em massa. */
 const MAX_COPIAS = 500;
 

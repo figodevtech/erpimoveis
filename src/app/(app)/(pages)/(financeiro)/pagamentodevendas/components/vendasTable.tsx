@@ -29,7 +29,7 @@ import { useEffect, useState } from "react";
 import { VendaComItens, vendaStatus } from "../../../(vendas)/historicovendas/types";
 import { formatDate } from "@/utils/formatDate";
 import VendasFinancialDialog from "./vendasFinancialDialog/vendasFinancialDialog";
-import { EmissaoNotaDialog } from "../../../ordens/components/dialogs/emissao-nota-dialog/emissao-nota-dialog";
+import { EmissaoNotaDialog } from "@/components/fiscal/emissao-nota-dialog/emissao-nota-dialog";
 import { VendaDetailsDialog } from "../../../(vendas)/historicovendas/components/venda-detail-dialog";
 import { useConfig } from "../../../config-context";
 import { Badge } from "@/components/ui/badge";

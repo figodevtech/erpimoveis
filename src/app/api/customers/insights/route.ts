@@ -102,7 +102,6 @@ export async function GET(req: Request) {
     const [
       { count: recent30d, error: recentError },
       { count: prev30d, error: prevError },
-      ordensRecentes,
       vendasRecentes,
     ] = await Promise.all([
       supabaseAdmin
@@ -117,16 +116,7 @@ export async function GET(req: Request) {
         .eq("is_deleted", false)
         .gte("createdat", startPrev.toISOString())
         .lt("createdat", startCurr.toISOString()),
-      fetchAllSupabaseRows<any>(() =>
-        supabaseAdmin
-          .from("ordemservico")
-          .select("clienteid,dataentrada")
-          .eq("is_deleted", false)
-          .not("clienteid", "is", null)
-          .gte("dataentrada", start90.toISOString())
-          .lte("dataentrada", fimRef.toISOString())
-          .order("dataentrada", { ascending: true }),
-      ),
+
       fetchAllSupabaseRows<any>(() =>
         supabaseAdmin
           .from("venda")
@@ -143,7 +133,7 @@ export async function GET(req: Request) {
 
     const interacoes90 = new Map<number, number>();
     const clientesAtendidos30 = new Set<number>();
-    for (const item of [...ordensRecentes, ...vendasRecentes]) {
+    for (const item of vendasRecentes) {
       const clienteId = Number(item.clienteid);
       if (!Number.isFinite(clienteId)) continue;
       interacoes90.set(clienteId, (interacoes90.get(clienteId) ?? 0) + 1);

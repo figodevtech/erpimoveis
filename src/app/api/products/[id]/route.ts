@@ -32,8 +32,7 @@ const GET_PRODUTO_FIELDS = `
   saidas: estoque_saida_item (id, quantidade, saldo_anterior, saldo_resultante, created_at, saida: estoque_saida(id, motivo, observacao, status, created_at, created_by)),
   vendasdoproduto: vendaproduto (
   id, venda_id, produtoid, sub_total, valor_total, valor_desconto, tipo_desconto, quantidade, venda (id, valortotal, status, datavenda, desconto_valor, sub_total, cliente: cliente(nomerazaosocial))
-  ),
-  ordensdoproduto: osproduto (quantidade, precounitario, subtotal, ordem: ordemservico (id, descricao, status, createdat, dataentrada, orcamentototal, cliente: cliente(nomerazaosocial), veiculo: veiculo(placa, placa_formatada, modelo)))
+  )
 `;
 
 const WRITABLE_FIELDS = new Set([

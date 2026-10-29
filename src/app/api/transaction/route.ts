@@ -18,7 +18,7 @@ import {
   leApenasMinhas,
   recorteDeAutoria,
 } from "./_lib/autoria";
-import { hasOSAccess, hasVendasAccess } from "@/app/api/_authz/perms";
+import { hasVendasAccess } from "@/app/api/_authz/perms";
 import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 import { reportErpDiagnostic } from "@/lib/monitoring/erp-diagnostic";
 
@@ -322,15 +322,12 @@ export async function GET(req: Request) {
      */
     const apenasMinhas = leApenasMinhas(searchParams.get("apenasMinhas"));
     /*
-     * A lista de UMA OS ou de UMA venda nao sofre o recorte: e o que as telas de
-     * Pagamento de Ordens e de Vendas pedem, e ali todo pagamento do documento
-     * aparece, de quem quer que seja — o mesmo que a aba Financeiro da OS
-     * mostra. Alterar respeita o Caixa administrativo (`pode_alterar` em cada linha).
+     * A lista de UMA venda nao sofre o recorte: e o que a tela de Pagamento de
+     * Vendas pede, e ali todo pagamento do documento aparece, de quem quer que
+     * seja. Alterar respeita o Caixa administrativo (`pode_alterar` em cada linha).
      */
     const listaDeUmDocumento =
-      !apenasMinhas &&
-      ((Boolean(ordemservicoid) && (await hasOSAccess())) ||
-        (Boolean(vendaid) && (await hasVendasAccess())));
+      !apenasMinhas && Boolean(vendaid) && (await hasVendasAccess());
     const contexto = await contextoDeAutoria();
     const recorte: RecorteDeAutoria = listaDeUmDocumento
       ? { modo: "TODAS", restrito: false, usuarioId: null }

@@ -3,7 +3,7 @@
  *
  * Uso:
  *   npm run db:test:ncm
- *   npm run db:test:ncm -- demir
+ *   npm run db:test:ncm -- cespedes
  *
  * Aplica as migrations pendentes, como o `db push --include-all` faria, e roda
  * supabase/tests/fiscal_ncm_busca.sql:
@@ -55,7 +55,7 @@ function lerComandos(arquivo: string, envelope: "commit" | "rollback") {
 }
 
 async function main() {
-  const chave = (process.argv[2] ?? "demo") as DatabaseKey;
+  const chave = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!BANCOS.includes(chave)) throw new Error(`Banco inválido: ${chave}. Use um de: ${BANCOS.join(", ")}.`);
   const banco = loadDatabaseConfigs().find((item) => item.key === chave);
   if (!banco) throw new Error(`Banco ${chave} não configurado.`);

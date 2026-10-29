@@ -14,10 +14,10 @@ import { UserPreferencesProvider } from "../components/user-preferences-provider
 import { STATUS_OS_EMISSAO_PADRAO } from "@/lib/nfe/elegibilidadeEmissao";
 import { onAppResume } from "@/lib/app-resume";
 
-const CONFIG_CACHE_KEY = "erpoficina:config-cache";
+const CONFIG_CACHE_KEY = "erpimoveis:config-cache";
 /**
  * A configuracao geral muda raramente, e quem a altera nesta aba recebe o
- * evento `erpoficina:config-updated` na hora. Voltar para a aba so relê depois
+ * evento `erpimoveis:config-updated` na hora. Voltar para a aba so relê depois
  * deste intervalo desde a ultima leitura.
  */
 const CONFIG_REVALIDACAO_NO_RETORNO_MS = 5 * 60 * 1000;
@@ -35,10 +35,6 @@ const DEFAULT_CONFIG: Config = {
   emissao_nf_vendas_nao_pagas: false,
   emissao_nf_status_os: [...STATUS_OS_EMISSAO_PADRAO],
   habilitar_drawers: true,
-  agendamento_intervalo_minutos: 60,
-  agendamento_hora_inicio: "08:00",
-  agendamento_hora_fim: "18:00",
-  agendamento_dias_trabalho: [1, 2, 3, 4, 5],
   impressao_cor_primaria: "#2563eb",
   impressao_cor_secundaria: "#0891b2",
   impressao_cor_texto: "#ffffff",
@@ -141,10 +137,10 @@ export default function ShellLayout({ children }: { children: ReactNode }) {
       if (Date.now() - ultimaLeituraRef.current < CONFIG_REVALIDACAO_NO_RETORNO_MS) return;
       void handleGetConfig(true);
     });
-    window.addEventListener("erpoficina:config-updated", handleConfigUpdated);
+    window.addEventListener("erpimoveis:config-updated", handleConfigUpdated);
     return () => {
       pararDeOuvir();
-      window.removeEventListener("erpoficina:config-updated", handleConfigUpdated);
+      window.removeEventListener("erpimoveis:config-updated", handleConfigUpdated);
     };
   }, []);
 

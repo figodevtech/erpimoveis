@@ -20,7 +20,7 @@
  * (`CREATE OR REPLACE`, `IF NOT EXISTS`, UPDATE que nao muda nada na segunda
  * vez) — confira antes de usar.
  *
- * A ordem e a do deploy: Demonstracao primeiro. Se um banco falhar, os
+ * A ordem e a do deploy. Se um banco falhar, os
  * seguintes nao sao tocados.
  */
 import fs from "node:fs";

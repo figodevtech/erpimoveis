@@ -5,7 +5,6 @@ import { NextResponse } from "next/server";
 import { requireAuthenticated } from "@/app/api/_authz/perms";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-
 async function ensureAuth() {
   await requireAuthenticated();
 }
@@ -28,7 +27,6 @@ export async function GET() {
         itemlistaservico,
         tiposervicoid,
         ativo,
-        permite_agendamento,
         gera_comissao
       `)
       .order("descricao", { ascending: true });
@@ -49,7 +47,6 @@ export async function GET() {
       itemlistaservico: s.itemlistaservico as string,
       tiposervicoid: (s.tiposervicoid as number | null) ?? null,
       ativo: typeof s.ativo === "boolean" ? s.ativo : true,
-      permite_agendamento: typeof s.permite_agendamento === "boolean" ? s.permite_agendamento : false,
       // Serviços anteriores à coluna geram comissão, igual ao default do banco.
       gera_comissao: typeof s.gera_comissao === "boolean" ? s.gera_comissao : true,
     }));
@@ -78,7 +75,6 @@ export async function POST(req: Request) {
       descricao,
       precohora,
       ativo,
-      permite_agendamento,
       gera_comissao,
     } = body ?? {};
 
@@ -97,10 +93,6 @@ export async function POST(req: Request) {
       );
     }
 
-
-
-    
-
     const now = new Date().toISOString();
 
     const payload: Record<string, any> = {
@@ -108,7 +100,6 @@ export async function POST(req: Request) {
       descricao: descricao.trim(),
       precohora: preco,
       ativo: typeof ativo === "boolean" ? ativo : true,
-      permite_agendamento: typeof permite_agendamento === "boolean" ? permite_agendamento : false,
       gera_comissao: typeof gera_comissao === "boolean" ? gera_comissao : true,
       createdat: now,
       updatedat: now,
@@ -128,7 +119,6 @@ export async function POST(req: Request) {
         itemlistaservico,
         tiposervicoid,
         ativo,
-        permite_agendamento,
         gera_comissao
       `)
       .maybeSingle();
@@ -155,7 +145,6 @@ export async function POST(req: Request) {
       itemlistaservico: data.itemlistaservico as string,
       tiposervicoid: (data.tiposervicoid as number | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
-      permite_agendamento: typeof data.permite_agendamento === "boolean" ? data.permite_agendamento : false,
       gera_comissao: typeof data.gera_comissao === "boolean" ? data.gera_comissao : true,
     };
 

@@ -1,7 +1,7 @@
 // Formatação dos valores que entram nos documentos. Tudo já sai como texto
 // pronto: o modelo não formata nada, só posiciona.
 
-import { formatCpfCnpj, onlyDigits } from "@/lib/ordens/checklist-documento";
+import { formatCpfCnpj, onlyDigits } from "@/lib/fiscal-identifiers";
 
 export const FUSO_DOCUMENTO = "America/Fortaleza";
 

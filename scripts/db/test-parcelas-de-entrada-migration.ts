@@ -3,7 +3,7 @@
  *
  * Uso:
  *   npm run db:test:parcelas-de-entrada
- *   npm run db:test:parcelas-de-entrada -- demir
+ *   npm run db:test:parcelas-de-entrada -- cespedes
  *
  * 1. As migrations pendentes aplicam sem erro, separadas como o `db push` separa.
  * 2. `supabase/tests/parcelas_de_entrada_com_grupo.sql` passa sobre elas:
@@ -52,7 +52,7 @@ function lerComandos(arquivo: string, envelope: RegExp) {
 }
 
 async function main() {
-  const chave = (process.argv[2] ?? "demo") as DatabaseKey;
+  const chave = (process.argv[2] ?? "cespedes") as DatabaseKey;
   if (!BANCOS.includes(chave)) throw new Error(`Banco inválido: ${chave}. Use um de: ${BANCOS.join(", ")}.`);
   const banco = loadDatabaseConfigs().find((item) => item.key === chave);
   if (!banco) throw new Error(`Banco ${chave} não configurado.`);

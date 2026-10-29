@@ -4,10 +4,10 @@ import { saldoEmAberto } from "@/lib/financeiro/transacao";
 import { fetchAllSupabaseRows } from "@/lib/supabase-pagination";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
-  COMPLETED_ORDER_STATUSES,
+
   dateFallsWithinPeriod,
   summarizeCashFlow,
-  summarizeCompletedOrders,
+
 } from "./aggregates";
 import {
   isOperationalEventEligibleForGlobalAttention,
@@ -44,12 +44,7 @@ type EventRow = {
   ocorrido_em: string;
 };
 type VendaRow = { id: number; status: string; valortotal: number | string | null; datavenda: string | null };
-type OrderResultRow = {
-  id: number;
-  status: string;
-  orcamentototal: number | string | null;
-  execucao_fim_em: string | null;
-};
+
 type FinanceRow = {
   id: number;
   tipo: string;
@@ -70,14 +65,7 @@ type AccountRow = FinanceRow & {
 };
 type FiscalRow = { id: number; status: string; numero: string | number | null; data: string };
 
-const ACTIVE_ORDER_STATUSES = [
-  "ORCAMENTO",
-  "APROVACAO_ORCAMENTO",
-  "ORCAMENTO_APROVADO",
-  "EM_ANDAMENTO",
-  "PAGAMENTO",
-  "FATURAMENTO",
-];
+
 const CONFIRMED_SALE_STATUSES = ["PAGAMENTO", "PAGO", "FINALIZADA", "AUTORIZADO"];
 
 function numberOrZero(value: unknown) {
@@ -120,69 +108,8 @@ function unavailableNode(module: OperationalNodeModule): OperationalNode {
 }
 
 async function loadOrders(window: OperationalPeriodWindow) {
-  const [active, completed, running] = await Promise.all([
-    supabaseAdmin
-      .from("ordemservico")
-      .select("id", { count: "exact", head: true })
-      .in("status", ACTIVE_ORDER_STATUSES)
-      .eq("is_deleted", false)
-      .is("migracao_referencia", null),
-    fetchAllSupabaseRows<OrderResultRow>(() =>
-      supabaseAdmin
-        .from("ordemservico")
-        .select("id, status, orcamentototal, execucao_fim_em")
-        .in("status", [...COMPLETED_ORDER_STATUSES])
-        .gte("execucao_fim_em", window.start)
-        .lt("execucao_fim_em", window.end)
-        .eq("is_deleted", false)
-        .is("migracao_referencia", null)
-        .order("execucao_fim_em", { ascending: false }),
-    ),
-    supabaseAdmin
-      .from("ordemservico")
-      .select("id, execucao_inicio_em, dataentrada")
-      .eq("status", "EM_ANDAMENTO")
-      .eq("is_deleted", false)
-      .is("migracao_referencia", null)
-      .order("execucao_inicio_em", { ascending: true, nullsFirst: false })
-      .limit(8),
-  ]);
-  if (active.error) throw active.error;
-  if (running.error) throw running.error;
-
-  const now = Date.now();
-  const attentions: OperationalAttention[] = (running.data ?? []).flatMap((row) => {
-    const startedAt = row.execucao_inicio_em ?? row.dataentrada;
-    if (!startedAt) return [];
-    const elapsed = now - new Date(startedAt).getTime();
-    if (elapsed < 2 * 60 * 60 * 1_000) return [];
-    const hours = Math.floor(elapsed / 3_600_000);
-    const minutes = Math.floor((elapsed % 3_600_000) / 60_000);
-    return [{
-      id: `os-tempo-${row.id}`,
-      modulo: "ORDENS" as const,
-      titulo: `OS #${row.id} em execução`,
-      detalhe: `${hours}h${String(minutes).padStart(2, "0")} em andamento`,
-      prioridade: hours >= 6 ? "CRITICO" as const : "ATENCAO" as const,
-      valor: null,
-      ocorridoEm: new Date(startedAt).toISOString(),
-    }];
-  });
-
-  const completedSummary = summarizeCompletedOrders(completed);
-
-  return {
-    active: active.count ?? 0,
-    node: {
-      modulo: "ORDENS" as const,
-      disponivel: true,
-      estado: attentions.some((item) => item.prioridade === "CRITICO") ? "ATENÇÃO" : "OPERACIONAL",
-      indicador: { tipo: "MOEDA" as const, valor: completedSummary.total, sufixo: null },
-      detalhe: `${completedSummary.count} concluídas ${window.detailLabel}`,
-      alerta: attentions.length > 0,
-    },
-    attentions,
-  };
+  void window;
+  return { active: 0, node: unavailableNode("ORDENS"), attentions: [] as OperationalAttention[] };
 }
 
 async function loadSales(window: OperationalPeriodWindow) {

@@ -23,8 +23,6 @@ export const COLUNAS_DOCUMENTO = "id, codigo_padrao, modulo, nome, html, ativo, 
 /** Quem pode emitir os documentos de cada módulo: quem enxerga o módulo. */
 export const PERMISSAO_DO_MODULO: Record<ModuloDocumento, Permission> = {
   venda: PERMS.VENDAS,
-  os: PERMS.ORDENS,
-  aluguel: PERMS.ALUGUEIS,
 };
 
 export const DocumentoSchema = z.object({

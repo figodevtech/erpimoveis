@@ -3,9 +3,9 @@
  *
  * Uso:
  *   npm run db:test:sql -- supabase/tests/ajustar_valores_transacao.sql
- *   npm run db:test:sql -- supabase/tests/ajustar_valores_transacao.sql demir
+ *   npm run db:test:sql -- supabase/tests/ajustar_valores_transacao.sql cespedes
  *
- * O banco padrão é o `demo`. Os scripts de teste terminam em ROLLBACK, e este
+ * O banco padrão é o `cespedes`. Os scripts de teste terminam em ROLLBACK, e este
  * runner emite outro ROLLBACK no `finally` — se o arquivo abortar no meio, a
  * transação morre junto com a conexão e nada é gravado.
  */
@@ -31,7 +31,7 @@ async function main() {
     );
   }
 
-  const chave = (bancoArg ?? "demo") as DatabaseKey;
+  const chave = (bancoArg ?? "cespedes") as DatabaseKey;
   if (!CHAVES_VALIDAS.includes(chave)) {
     throw new Error(`Banco inválido: ${bancoArg}. Use um de: ${CHAVES_VALIDAS.join(", ")}.`);
   }

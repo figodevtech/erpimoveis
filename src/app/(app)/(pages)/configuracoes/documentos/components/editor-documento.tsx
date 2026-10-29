@@ -77,8 +77,6 @@ type Painel = "codigo" | "previa";
 
 const REGISTRO_DO_MODULO: Record<ModuloDocumento, string> = {
   venda: "Nº da venda",
-  os: "Nº da OS",
-  aluguel: "Nº do aluguel",
 };
 
 export function listaDeDocumentos(modulo: ModuloDocumento) {

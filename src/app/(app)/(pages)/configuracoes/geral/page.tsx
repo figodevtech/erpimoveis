@@ -9,22 +9,16 @@ import {
   Settings,
   Receipt,
   ShoppingCart,
-  ClipboardCheck,
   Loader2,
   Save,
-  AlertCircle,
   FileText,
   Package,
-  Search,
-  CalendarDays,
-  Palette,
-  Boxes,
+    Palette,
   Building2,
   Store,
   ShoppingBag,
   KeyRound,
   Unplug,
-  Highlighter,
   Trash2,
   Plus,
   ExternalLink,
@@ -76,34 +70,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import type { Config } from "../../type";
-import {
-  DESTAQUE_CORES,
-  DESTAQUE_ESTILOS,
-  DESTAQUE_TEXTO_MAX,
-  STATUS_OS_VALIDOS,
-  estiloDestaque,
-  rotuloStatusOS,
-  statusOSValido,
-  type DestaqueCor,
-  type RegrasDestaqueStatus,
-  type StatusOSValido,
-} from "@/lib/ordens/destaque";
-import {
-  STATUS_OS_EMISSAO_OPCOES,
-  STATUS_OS_EMISSAO_PADRAO,
-} from "@/lib/nfe/elegibilidadeEmissao";
-import { Checkbox } from "@/components/ui/checkbox";
-import { TermosImpressaoOSCard } from "./components/termos-impressao-os-card";
+import { STATUS_OS_EMISSAO_PADRAO } from "@/lib/nfe/elegibilidadeEmissao";
 import { StorefrontShippingConnection } from "./components/storefront-shipping-connection";
 
 const SHOPEE_INTEGRATION_ENABLED =
   process.env.NEXT_PUBLIC_SHOPEE_INTEGRATION_ENABLED === "true";
-
-type UsoConsultasPlaca = {
-  limite: number;
-  usadas: number;
-  mes: string;
-};
 
 type EmpresaResumo = {
   id: number;
@@ -175,11 +146,6 @@ type ShopeeIntegration = {
   configured: boolean;
   missing: string[];
   account: ShopeeAccount | null;
-};
-
-type SetorOption = {
-  id: number;
-  nome: string;
 };
 
 type ConfigGarantiaFiscal = {
@@ -803,53 +769,8 @@ function MercadoLivreOperationSettingsCard({
   );
 }
 
-const DIAS_SEMANA = [
-  { value: 0, label: "Dom" },
-  { value: 1, label: "Seg" },
-  { value: 2, label: "Ter" },
-  { value: 3, label: "Qua" },
-  { value: 4, label: "Qui" },
-  { value: 5, label: "Sex" },
-  { value: 6, label: "Sab" },
-];
-
 function colorPickerValue(value: string | undefined, fallback: string) {
   return /^#[0-9a-fA-F]{6}$/.test(value ?? "") ? value! : fallback;
-}
-
-/**
- * O destaque por status é guardado indexado pelo status — é assim que "uma cor
- * por status" fica garantida pelo próprio formato do dado. Mas uma linha
- * recém-adicionada na tela ainda não tem status escolhido e não caberia nesse
- * objeto, então a edição acontece sobre uma lista e só depois é serializada.
- */
-type LinhaDestaque = {
-  status: string;
-  cor: DestaqueCor;
-  texto: string;
-};
-
-function regrasParaLinhas(
-  regras: RegrasDestaqueStatus | undefined | null,
-): LinhaDestaque[] {
-  if (!regras) return [];
-  return STATUS_OS_VALIDOS.filter((status) => regras[status]).map((status) => ({
-    status,
-    cor: regras[status]!.cor,
-    texto: regras[status]!.texto ?? "",
-  }));
-}
-
-function linhasParaRegras(linhas: LinhaDestaque[]): RegrasDestaqueStatus {
-  const regras: RegrasDestaqueStatus = {};
-  for (const linha of linhas) {
-    if (!statusOSValido(linha.status)) continue;
-    regras[linha.status as StatusOSValido] = {
-      cor: linha.cor,
-      texto: linha.texto.trim() || null,
-    };
-  }
-  return regras;
 }
 
 export default function ConfigGeralPage() {
@@ -861,8 +782,6 @@ export default function ConfigGeralPage() {
     useState(false);
   const [atualizandoMercadoLivre, setAtualizandoMercadoLivre] = useState(false);
   const [desconectandoShopee, setDesconectandoShopee] = useState(false);
-  const [usoConsultasPlaca, setUsoConsultasPlaca] =
-    useState<UsoConsultasPlaca | null>(null);
   const [empresaResumo, setEmpresaResumo] = useState<EmpresaResumo | null>(
     null,
   );
@@ -871,9 +790,6 @@ export default function ConfigGeralPage() {
   const [shopeeIntegration, setShopeeIntegration] = useState<ShopeeIntegration>(
     { configured: false, missing: [], account: null },
   );
-  const [setores, setSetores] = useState<SetorOption[]>([]);
-  const [carregandoSetores, setCarregandoSetores] = useState(true);
-  const [linhasDestaque, setLinhasDestaque] = useState<LinhaDestaque[]>([]);
   const [garantiaFiscal, setGarantiaFiscal] = useState<ConfigGarantiaFiscal>(
     GARANTIA_FISCAL_DEFAULTS,
   );
@@ -890,10 +806,6 @@ export default function ConfigGeralPage() {
       emissao_nf_ordens_nao_pagas: false,
       emissao_nf_vendas_nao_pagas: false,
       emissao_nf_status_os: [...STATUS_OS_EMISSAO_PADRAO],
-      agendamento_intervalo_minutos: 60,
-      agendamento_hora_inicio: "08:00",
-      agendamento_hora_fim: "18:00",
-      agendamento_dias_trabalho: [1, 2, 3, 4, 5],
       impressao_cor_primaria: "#2563eb",
       impressao_cor_secundaria: "#0891b2",
       impressao_cor_texto: "#ffffff",
@@ -908,17 +820,6 @@ export default function ConfigGeralPage() {
     },
   });
 
-  // Espelha a lista editável no campo do formulário, que é o que vai no PUT.
-  const atualizarLinhasDestaque = useCallback(
-    (proximas: LinhaDestaque[]) => {
-      setLinhasDestaque(proximas);
-      setValue("destaque_os_por_status", linhasParaRegras(proximas), {
-        shouldDirty: true,
-      });
-    },
-    [setValue],
-  );
-
   const carregarConfig = useCallback(async () => {
     setCarregando(true);
     setGarantiaFiscalDisponivel(false);
@@ -928,10 +829,8 @@ export default function ConfigGeralPage() {
         empresaResponse,
         mercadoLivreResponse,
         shopeeResponse,
-        setoresResponse,
         nfeResponse,
         nfseResponse,
-        quotaResponse,
       ] = await Promise.all([
         fetch("/api/config", { cache: "no-store" }),
         fetch("/api/config/empresa", { cache: "no-store" }),
@@ -939,13 +838,9 @@ export default function ConfigGeralPage() {
         SHOPEE_INTEGRATION_ENABLED
           ? fetch("/api/config/integracoes/shopee", { cache: "no-store" })
           : Promise.resolve(null),
-        fetch("/api/tipos/setores", { cache: "no-store" }),
         fetch("/api/config/nfe", { cache: "no-store" }),
         fetch("/api/config/nfse", { cache: "no-store" }),
-        fetch("/api/veiculos/cota-placas", { cache: "no-store" }),
       ]);
-      const quotaData = await quotaResponse.json().catch(() => null);
-      setUsoConsultasPlaca(quotaResponse.ok ? quotaData : null);
       const data = await response.json();
       const empresaData = await empresaResponse.json().catch(() => ({}));
       const mercadoLivreData = await mercadoLivreResponse
@@ -954,14 +849,12 @@ export default function ConfigGeralPage() {
       const shopeeData = shopeeResponse
         ? await shopeeResponse.json().catch(() => ({}))
         : {};
-      const setoresData = await setoresResponse.json().catch(() => ({}));
       const nfeData = await nfeResponse.json().catch(() => ({}));
       const nfseData = await nfseResponse.json().catch(() => ({}));
       if (response.ok && data.config) {
         reset(data.config);
-        setLinhasDestaque(regrasParaLinhas(data.config.destaque_os_por_status));
         window.dispatchEvent(
-          new CustomEvent("erpoficina:config-updated", { detail: data.config }),
+          new CustomEvent("erpimoveis:config-updated", { detail: data.config }),
         );
       } else {
         toast.error("Erro ao carregar configurações");
@@ -988,14 +881,6 @@ export default function ConfigGeralPage() {
             }
           : { configured: false, missing: [], account: null },
       );
-      setSetores(
-        setoresResponse.ok && Array.isArray(setoresData?.items)
-          ? setoresData.items.map((item: any) => ({
-              id: Number(item.id),
-              nome: String(item.nome ?? ""),
-            }))
-          : [],
-      );
       const garantiaDisponivel = Boolean(
         nfeResponse.ok && nfeData?.nfe && nfseResponse.ok && nfseData?.nfse,
       );
@@ -1017,7 +902,6 @@ export default function ConfigGeralPage() {
       toast.error("Falha na comunicação com o servidor");
     } finally {
       setCarregando(false);
-      setCarregandoSetores(false);
     }
   }, [reset]);
 
@@ -1057,8 +941,7 @@ export default function ConfigGeralPage() {
       // A configuração geral já foi salva, mesmo que uma integração fiscal
       // falhe depois. Atualiza imediatamente o formulário e o restante do app.
       reset(data.config);
-      setLinhasDestaque(regrasParaLinhas(data.config.destaque_os_por_status));
-      window.dispatchEvent(new CustomEvent("erpoficina:config-updated", { detail: data.config }));
+      window.dispatchEvent(new CustomEvent("erpimoveis:config-updated", { detail: data.config }));
 
       if (garantiaFiscalDisponivel) {
         const [nfeResponse, nfseResponse] = await Promise.all([
@@ -1277,16 +1160,9 @@ export default function ConfigGeralPage() {
     );
   }
 
-  const limitePlacas = usoConsultasPlaca?.limite ?? 0;
-  const usadasPlacas = usoConsultasPlaca?.usadas ?? 0;
-  const diasTrabalho = watch("agendamento_dias_trabalho") ?? [1, 2, 3, 4, 5];
   const impressaoCorPrimaria = watch("impressao_cor_primaria") ?? "#2563eb";
   const impressaoCorSecundaria = watch("impressao_cor_secundaria") ?? "#0891b2";
   const impressaoCorTexto = watch("impressao_cor_texto") ?? "#ffffff";
-  const percentualPlacas =
-    limitePlacas > 0
-      ? Math.min(100, Math.round((usadasPlacas / limitePlacas) * 100))
-      : 100;
 
   return (
     <div className="container mx-auto min-w-0 max-w-7xl space-y-5 px-3 py-1 animate-in fade-in duration-500 sm:space-y-6 sm:px-6 lg:px-8">
@@ -1476,170 +1352,6 @@ export default function ConfigGeralPage() {
       />
 
       <div className="grid min-w-0 items-start gap-5 lg:grid-cols-12 lg:gap-6">
-        <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-5">
-          <CardHeader className="bg-primary/5 py-4">
-            <div className="flex items-center gap-2">
-              <Search className="h-5 w-5 text-primary" />
-              <CardTitle>Consultas de placa</CardTitle>
-            </div>
-            <CardDescription>Cota mensal e consumo registrados na Central.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 py-6">
-            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-              <div className="rounded-lg border bg-muted/20 p-4">
-                <span className="text-xs text-muted-foreground">
-                  Usadas no mes
-                </span>
-                <p className="mt-1 text-2xl font-semibold">
-                  {usoConsultasPlaca ? usadasPlacas : "-"}
-                </p>
-              </div>
-              <div className="rounded-lg border bg-muted/20 p-4">
-                <span className="text-xs text-muted-foreground">
-                  Limite mensal
-                </span>
-                <p className="mt-1 text-2xl font-semibold">
-                  {usoConsultasPlaca ? limitePlacas : "-"}
-                </p>
-              </div>
-              <div className="rounded-lg border bg-muted/20 p-4">
-                <span className="text-xs text-muted-foreground">
-                  Mes vigente
-                </span>
-                <p className="mt-1 text-2xl font-semibold">
-                  {usoConsultasPlaca?.mes || "-"}
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>
-                  {usoConsultasPlaca
-                    ? `${usadasPlacas}/${limitePlacas}`
-                    : "Sem dados"}
-                </span>
-                <span>{usoConsultasPlaca ? `${percentualPlacas}%` : "-"}</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{
-                    width: usoConsultasPlaca ? `${percentualPlacas}%` : "0%",
-                  }}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                A cota renova mensalmente em UTC. Falhas também consomem cota; o limite é gerenciado pela Central.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-7">
-          <CardHeader className="bg-primary/5 py-4">
-            <div className="flex items-center gap-2">
-              <CalendarDays className="h-5 w-5 text-primary" />
-              <CardTitle>Agenda de atendimento</CardTitle>
-            </div>
-            <CardDescription>
-              Defina dias, horario de trabalho e intervalo padrao dos
-              agendamentos.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-6 py-6">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2">
-                <Label>Intervalo dos slots</Label>
-                <Select
-                  value={String(watch("agendamento_intervalo_minutos") ?? 60)}
-                  onValueChange={(value) =>
-                    setValue("agendamento_intervalo_minutos", Number(value), {
-                      shouldDirty: true,
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="15">15 minutos</SelectItem>
-                    <SelectItem value="30">30 minutos</SelectItem>
-                    <SelectItem value="45">45 minutos</SelectItem>
-                    <SelectItem value="60">1 hora</SelectItem>
-                    <SelectItem value="90">1h30</SelectItem>
-                    <SelectItem value="120">2 horas</SelectItem>
-                    <SelectItem value="180">3 horas</SelectItem>
-                    <SelectItem value="240">4 horas</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Inicio do expediente</Label>
-                <Input
-                  type="time"
-                  value={(watch("agendamento_hora_inicio") ?? "08:00").slice(
-                    0,
-                    5,
-                  )}
-                  onChange={(event) =>
-                    setValue("agendamento_hora_inicio", event.target.value, {
-                      shouldDirty: true,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label>Fim do expediente</Label>
-                <Input
-                  type="time"
-                  value={(watch("agendamento_hora_fim") ?? "18:00").slice(0, 5)}
-                  onChange={(event) =>
-                    setValue("agendamento_hora_fim", event.target.value, {
-                      shouldDirty: true,
-                    })
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label>Dias de trabalho</Label>
-              <div className="flex flex-wrap gap-2">
-                {DIAS_SEMANA.map((dia) => {
-                  const active = diasTrabalho.includes(dia.value);
-                  return (
-                    <Button
-                      key={dia.value}
-                      type="button"
-                      variant={active ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => {
-                        const next = active
-                          ? diasTrabalho.filter((item) => item !== dia.value)
-                          : [...diasTrabalho, dia.value].sort((a, b) => a - b);
-                        if (next.length === 0) {
-                          toast.error("Selecione ao menos um dia de trabalho.");
-                          return;
-                        }
-                        setValue("agendamento_dias_trabalho", next, {
-                          shouldDirty: true,
-                        });
-                      }}
-                    >
-                      {dia.label}
-                    </Button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Esses valores controlam a grade do calendario e a duracao padrao
-                sugerida em novos agendamentos.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
 
         <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
           <CardHeader className="bg-primary/5 py-4">
@@ -1648,7 +1360,7 @@ export default function ConfigGeralPage() {
               <CardTitle>Impressao</CardTitle>
             </div>
             <CardDescription>
-              Cores usadas nos modelos de OS e orcamento de venda.
+              Cores usadas nos modelos de impressão.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 py-6 md:grid-cols-3">
@@ -1757,7 +1469,7 @@ export default function ConfigGeralPage() {
                   }}
                 >
                   <div className="text-[8px] font-extrabold uppercase tracking-[.2em] opacity-90">
-                    Ordem de Servico
+                    Documento
                   </div>
                   <div className="text-2xl font-black leading-none">#123</div>
                 </div>
@@ -1765,9 +1477,6 @@ export default function ConfigGeralPage() {
             </div>
           </CardContent>
         </Card>
-
-        {/* DIZERES DA IMPRESSÃO DA OS */}
-        <TermosImpressaoOSCard />
 
         {/* MÓDULO FISCAL */}
         <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
@@ -1798,7 +1507,7 @@ export default function ConfigGeralPage() {
 
             <Separator />
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-6">
               {!garantiaFiscalDisponivel ? (
                 <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300 lg:col-span-2">
                   Não foi possível carregar as opções de garantia fiscal.
@@ -1895,151 +1604,12 @@ export default function ConfigGeralPage() {
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 font-medium text-sm text-primary">
-                  <ClipboardCheck className="h-4 w-4" /> Módulo de Ordens (OS)
-                </div>
-                <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label>Exibir no Módulo</Label>
-                    <span className="text-xs text-muted-foreground">
-                      Botão de emissão de NF é exibido no módulo de Ordens.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={watch("emissao_nf_no_modulo_ordens")}
-                    onCheckedChange={(v) =>
-                      setValue("emissao_nf_no_modulo_ordens", v)
-                    }
-                  />
-                </div>
-                <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label>Status que permitem emitir nota</Label>
-                    <span className="text-xs text-muted-foreground">
-                      A emissão de NF da OS só aparece nos status marcados.
-                    </span>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {STATUS_OS_EMISSAO_OPCOES.map((status) => {
-                      const marcados = watch("emissao_nf_status_os") ?? [];
-                      const marcado = marcados.includes(status);
-                      const ultimo = marcado && marcados.length === 1;
-                      const id = `emissao-status-os-${status}`;
-                      return (
-                        <div key={status} className="flex items-start gap-2">
-                          <Checkbox
-                            id={id}
-                            checked={marcado}
-                            disabled={ultimo}
-                            title={ultimo ? "Selecione pelo menos um status." : undefined}
-                            onCheckedChange={(v) =>
-                              setValue(
-                                "emissao_nf_status_os",
-                                v === true
-                                  ? STATUS_OS_EMISSAO_OPCOES.filter((s) => s === status || marcados.includes(s))
-                                  : marcados.filter((s) => s !== status),
-                                { shouldDirty: true },
-                              )
-                            }
-                          />
-                          <Label htmlFor={id} className="flex flex-col gap-0.5 text-sm font-normal leading-tight">
-                            {rotuloStatusOS(status)}
-                            {status === "FATURAMENTO" ? (
-                              <span className="text-xs text-muted-foreground">
-                                Só ocorre com o faturamento de OS ligado.
-                              </span>
-                            ) : null}
-                          </Label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label htmlFor="garantia-os-nfe">
-                      Incluir informações de garantia na emissão de NF-e
-                    </Label>
-                    <span className="text-xs text-muted-foreground">
-                      Carrega a garantia da OS nas observações da NF-e.
-                    </span>
-                  </div>
-                  <Switch
-                    id="garantia-os-nfe"
-                    checked={garantiaFiscal.incluirGarantiaOsNFe}
-                    disabled={!garantiaFiscalDisponivel}
-                    onCheckedChange={(value) =>
-                      setGarantiaFiscal((atual) => ({
-                        ...atual,
-                        incluirGarantiaOsNFe: value,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label
-                      htmlFor="garantia-os-nfce"
-                      className={
-                        !garantiaFiscalDisponivel ||
-                        !garantiaFiscal.nfceConfigurada
-                          ? "opacity-60"
-                          : undefined
-                      }
-                    >
-                      Incluir informações de garantia na emissão de NFC-e
-                    </Label>
-                    <span className="text-xs text-muted-foreground">
-                      {garantiaFiscal.nfceConfigurada
-                        ? "Carrega a garantia da OS nas observações da NFC-e."
-                        : "Disponível após configurar o modelo 65."}
-                    </span>
-                  </div>
-                  <Switch
-                    id="garantia-os-nfce"
-                    checked={garantiaFiscal.incluirGarantiaOsNFCe}
-                    disabled={
-                      !garantiaFiscalDisponivel ||
-                      !garantiaFiscal.nfceConfigurada
-                    }
-                    onCheckedChange={(value) =>
-                      setGarantiaFiscal((atual) => ({
-                        ...atual,
-                        incluirGarantiaOsNFCe: value,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label htmlFor="garantia-os-nfse">
-                      Carregar informações de garantia para NFS-e
-                    </Label>
-                    <span className="text-xs text-muted-foreground">
-                      Carrega a garantia da OS nas informações complementares da
-                      NFS-e.
-                    </span>
-                  </div>
-                  <Switch
-                    id="garantia-os-nfse"
-                    checked={garantiaFiscal.incluirGarantiaOsNFSe}
-                    disabled={!garantiaFiscalDisponivel}
-                    onCheckedChange={(value) =>
-                      setGarantiaFiscal((atual) => ({
-                        ...atual,
-                        incluirGarantiaOsNFSe: value,
-                      }))
-                    }
-                  />
-                </div>
-              </div>
             </div>
           </CardContent>
         </Card>
 
         {/* SISTEMA E INTERFACE */}
-        <div className="space-y-6 lg:col-span-5">
+        <div className="space-y-6 lg:col-span-12">
           <Card className="min-w-0 border-primary/10 shadow-sm">
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -2087,370 +1657,6 @@ export default function ConfigGeralPage() {
           </Card>
         </div>
 
-        <Card className="min-w-0 border-primary/10 shadow-sm lg:col-span-7">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Boxes className="h-5 w-5 text-primary" />
-              <CardTitle>{"Ordens de Servi\u00e7o"}</CardTitle>
-            </div>
-            <CardDescription>
-              {
-                "Defina os padr\u00f5es de cria\u00e7\u00e3o e o comportamento do estoque nas ordens."
-              }
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label>{"Setor padr\u00e3o para cria\u00e7\u00e3o de OS"}</Label>
-              <Select
-                value={
-                  watch("setor_padrao_os_id")
-                    ? String(watch("setor_padrao_os_id"))
-                    : "SEM_PADRAO"
-                }
-                onValueChange={(value) =>
-                  setValue(
-                    "setor_padrao_os_id",
-                    value === "SEM_PADRAO" ? null : Number(value),
-                    { shouldDirty: true },
-                  )
-                }
-                disabled={carregandoSetores}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue
-                    placeholder={
-                      carregandoSetores
-                        ? "Carregando setores..."
-                        : "Selecione um setor"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="SEM_PADRAO">
-                    {"Sem setor padr\u00e3o"}
-                  </SelectItem>
-                  {setores.map((item) => (
-                    <SelectItem key={item.id} value={String(item.id)}>
-                      {item.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {
-                  "Esse setor vir\u00e1 selecionado nas novas ordens de servi\u00e7o e poder\u00e1 ser alterado antes de salvar."
-                }
-              </p>
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label htmlFor="habilitar-faturamento-os">Habilitar etapa de faturamento nas OS</Label>
-                <span className="text-xs text-muted-foreground">
-                  Separa a espera pelo pagamento do registro financeiro. Ao ativar,
-                  envie a OS de Pagamento para Faturamento antes de registrar novos
-                  recebimentos ou títulos. Adiantamentos continuam disponíveis.
-                  Ao desativar, as OS em Faturamento voltam para Pagamento,
-                  preservando os lançamentos.
-                </span>
-              </div>
-              <Switch
-                id="habilitar-faturamento-os"
-                checked={watch("habilitar_faturamento_os")}
-                onCheckedChange={(value) => setValue("habilitar_faturamento_os", value, { shouldDirty: true })}
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label>Permitir produto avulso em OS</Label>
-                <span className="text-xs text-muted-foreground">
-                  Permite orçar itens temporários, que devem ser cadastrados ou
-                  vinculados antes de avançar a OS.
-                </span>
-              </div>
-              <Switch
-                checked={watch("permitir_produto_avulso_os")}
-                onCheckedChange={(value) =>
-                  setValue("permitir_produto_avulso_os", value, {
-                    shouldDirty: true,
-                  })
-                }
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label>Valor médio de compra obrigatório</Label>
-                <span className="text-xs text-muted-foreground">
-                  Exige um custo médio maior que zero ao cadastrar ou editar
-                  produtos.
-                </span>
-              </div>
-              <Switch
-                checked={watch("produto_preco_medio_compra_obrigatorio")}
-                onCheckedChange={(value) =>
-                  setValue("produto_preco_medio_compra_obrigatorio", value, {
-                    shouldDirty: true,
-                  })
-                }
-              />
-            </div>
-            <Separator />
-            <div className="flex items-center justify-between gap-4">
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label>NCM obrigatório</Label>
-                <span className="text-xs text-muted-foreground">
-                  Exige o NCM com 8 dígitos ao cadastrar ou editar produtos.
-                </span>
-              </div>
-              <Switch
-                checked={watch("produto_ncm_obrigatorio")}
-                onCheckedChange={(value) =>
-                  setValue("produto_ncm_obrigatorio", value, {
-                    shouldDirty: true,
-                  })
-                }
-              />
-            </div>
-            <Separator />
-            <div className="space-y-2">
-              <Label>Modo de baixa no estoque</Label>
-              <Select
-                value={watch("modo_baixa_estoque_os") ?? "ORCAMENTO"}
-                onValueChange={(value) =>
-                  setValue(
-                    "modo_baixa_estoque_os",
-                    value as Config["modo_baixa_estoque_os"],
-                    { shouldDirty: true },
-                  )
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ORCAMENTO">Baixa no Orçamento</SelectItem>
-                  <SelectItem value="EXECUCAO">Baixa na Execução</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Na execução, o estoque é validado quando a OS é iniciada.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="min-w-0 border-primary/10 shadow-sm lg:col-span-12">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Highlighter className="h-5 w-5 text-primary" />
-              <CardTitle>Destacar ordens de serviço por status</CardTitle>
-            </div>
-            <CardDescription>
-              Pinta na listagem toda OS que estiver no status escolhido. Uma cor
-              por status. O destaque marcado à mão dentro da OS sempre sobrepõe
-              estas regras.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {linhasDestaque.length === 0 ? (
-              <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-                Nenhum status destacado. As ordens aparecem com o visual padrão
-                da lista.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                <div className="hidden gap-3 px-1 text-xs font-medium text-muted-foreground md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.6fr)_auto]">
-                  <span>Status</span>
-                  <span>Cor</span>
-                  <span>Texto explicativo (opcional)</span>
-                  <span className="w-9" />
-                </div>
-
-                {linhasDestaque.map((linha, indice) => {
-                  // Uma cor por status: o select não oferece status já usado em
-                  // outra linha, então nem dá para criar a regra conflitante.
-                  const statusEmUso = new Set(
-                    linhasDestaque
-                      .filter((_, i) => i !== indice)
-                      .map((item) => item.status),
-                  );
-                  const estilo = estiloDestaque(linha.cor);
-
-                  return (
-                    <div
-                      key={`${linha.status || "novo"}-${indice}`}
-                      className="grid gap-3 rounded-lg border bg-muted/20 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.6fr)_auto] md:items-center"
-                    >
-                      <Select
-                        value={linha.status || undefined}
-                        onValueChange={(value) =>
-                          atualizarLinhasDestaque(
-                            linhasDestaque.map((item, i) =>
-                              i === indice ? { ...item, status: value } : item,
-                            ),
-                          )
-                        }
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Selecione o status" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS_OS_VALIDOS.filter(
-                            (status) => !statusEmUso.has(status),
-                          ).map((status) => (
-                            <SelectItem key={status} value={status}>
-                              {rotuloStatusOS(status)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      <Select
-                        value={linha.cor}
-                        onValueChange={(value) =>
-                          atualizarLinhasDestaque(
-                            linhasDestaque.map((item, i) =>
-                              i === indice
-                                ? { ...item, cor: value as DestaqueCor }
-                                : item,
-                            ),
-                          )
-                        }
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {DESTAQUE_CORES.map((cor) => (
-                            <SelectItem key={cor.valor} value={cor.valor}>
-                              <span className="flex items-center gap-2">
-                                <span
-                                  className={`h-3 w-3 shrink-0 rounded-full ${DESTAQUE_ESTILOS[cor.valor].amostra}`}
-                                />
-                                {cor.label}
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      <Input
-                        value={linha.texto}
-                        maxLength={DESTAQUE_TEXTO_MAX}
-                        placeholder="Ex.: aguardando o cliente pagar"
-                        onChange={(event) =>
-                          atualizarLinhasDestaque(
-                            linhasDestaque.map((item, i) =>
-                              i === indice
-                                ? { ...item, texto: event.target.value }
-                                : item,
-                            ),
-                          )
-                        }
-                      />
-
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="justify-self-end text-destructive hover:text-destructive"
-                        aria-label="Remover destaque"
-                        onClick={() =>
-                          atualizarLinhasDestaque(
-                            linhasDestaque.filter((_, i) => i !== indice),
-                          )
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-
-                      {/* A cor só se explica vista como a lista mostra. */}
-                      <div className="md:col-span-4">
-                        <div
-                          className={`rounded-sm border px-3 py-2 text-xs ${estilo.linha}`}
-                        >
-                          <span className="font-mono font-semibold">#1234</span>
-                          <span className="mx-2 text-muted-foreground">·</span>
-                          <span>
-                            {linha.status
-                              ? rotuloStatusOS(linha.status)
-                              : "Selecione o status"}
-                          </span>
-                          {linha.texto.trim() ? (
-                            <span className="ml-2 text-muted-foreground">
-                              — {linha.texto.trim()}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={linhasDestaque.length >= STATUS_OS_VALIDOS.length}
-              onClick={() =>
-                atualizarLinhasDestaque([
-                  ...linhasDestaque,
-                  { status: "", cor: "verde", texto: "" },
-                ])
-              }
-            >
-              <Plus className="h-4 w-4" />
-              Adicionar destaque
-            </Button>
-
-            <p className="text-xs text-muted-foreground">
-              Linhas sem status escolhido são descartadas ao salvar. O texto
-              explicativo aparece no mesmo aviso que já mostra o motivo do
-              destaque manual na listagem.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="min-w-0 border-primary/10 shadow-sm lg:col-span-12">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-primary" />
-              <CardTitle>Processos & Qualidade</CardTitle>
-            </div>
-            <CardDescription>
-              Regras de negócio para garantir a execução de processos internos.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label>Checklist de Entrada Obrigatório</Label>
-                <span className="text-xs text-muted-foreground">
-                  Impede o início de uma OS sem que o veículo passe pelo
-                  checklist.
-                </span>
-              </div>
-              <Switch
-                checked={watch("checklist_obrigatorio")}
-                onCheckedChange={(v) => setValue("checklist_obrigatorio", v)}
-              />
-            </div>
-
-            <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 flex gap-3">
-              <AlertCircle className="h-5 w-5 text-primary shrink-0" />
-              <p className="text-xs text-primary/80 leading-relaxed">
-                <strong>Dica:</strong> Ao ativar o checklist obrigatório,
-                certifique-se de que todos os seus técnicos têm acesso aos
-                formulários de inspeção.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   );

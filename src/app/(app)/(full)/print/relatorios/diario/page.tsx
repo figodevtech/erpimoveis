@@ -84,36 +84,15 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
   };
 
   const [
-    osCriadasRes,
-    osConcluidasRes,
     vendasRes,
     transacoesRes,
     entradasRes,
     produtosRes,
     usuariosRes,
     clientesRes,
-    agendamentosRes,
     nfeRes,
     nfseRes,
   ] = await Promise.all([
-    noPeriodo(
-      supabaseAdmin
-        .from("ordemservico")
-        .select("id, status, descricao, orcamentototal, dataentrada, cliente:clienteid ( nomerazaosocial ), veiculo:veiculoid ( placa, modelo )")
-        .eq("is_deleted", false)
-        .order("dataentrada", { ascending: true })
-        .limit(LIMITE_POR_SECAO),
-      "dataentrada",
-    ),
-    noPeriodo(
-      supabaseAdmin
-        .from("ordemservico")
-        .select("id, status, descricao, orcamentototal, datasaida, cliente:clienteid ( nomerazaosocial )")
-        .eq("is_deleted", false)
-        .order("datasaida", { ascending: true })
-        .limit(LIMITE_POR_SECAO),
-      "datasaida",
-    ),
     noPeriodo(
       supabaseAdmin
         .from("venda")
@@ -165,18 +144,11 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
         .limit(LIMITE_POR_SECAO),
       "createdat",
     ),
-    noPeriodo(
-      supabaseAdmin
-        .from("agendamento")
-        .select("id, titulo, status, origem, inicio, createdat, solicitante_nome, cliente:clienteid ( nomerazaosocial ), veiculo:veiculoid ( placa, modelo )")
-        .order("createdat", { ascending: true })
-        .limit(LIMITE_POR_SECAO),
-      "createdat",
-    ),
+
     noPeriodo(
       supabaseAdmin
         .from("nfe")
-        .select("id, status, numero, total_nfe, dataemissao, ordemservicoid, vendaid")
+        .select("id, status, numero, total_nfe, dataemissao, vendaid")
         .eq("is_deleted", false)
         .order("dataemissao", { ascending: true })
         .limit(LIMITE_POR_SECAO),
@@ -185,7 +157,7 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
     noPeriodo(
       supabaseAdmin
         .from("nfse")
-        .select("id, status, numero, valor_total, dataemissao, ordemservicoid")
+        .select("id, status, numero, valor_total, dataemissao")
         .order("dataemissao", { ascending: true })
         .limit(LIMITE_POR_SECAO),
       "dataemissao",
@@ -193,20 +165,17 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
   ]);
 
   const erro = [
-    osCriadasRes, osConcluidasRes, vendasRes, transacoesRes, entradasRes,
-    produtosRes, usuariosRes, clientesRes, agendamentosRes, nfeRes, nfseRes,
+    vendasRes, transacoesRes, entradasRes,
+    produtosRes, usuariosRes, clientesRes, nfeRes, nfseRes,
   ].find((resultado) => resultado.error)?.error;
   if (erro) throw new Error(`Não foi possível gerar o relatório: ${erro.message}`);
 
-  const osCriadas = osCriadasRes.data ?? [];
-  const osConcluidas = osConcluidasRes.data ?? [];
   const vendas = vendasRes.data ?? [];
   const transacoes = transacoesRes.data ?? [];
   const entradas = entradasRes.data ?? [];
   const produtos = produtosRes.data ?? [];
   const usuarios = usuariosRes.data ?? [];
   const clientes = clientesRes.data ?? [];
-  const agendamentos = agendamentosRes.data ?? [];
   const nfes = nfeRes.data ?? [];
   const nfses = nfseRes.data ?? [];
 
@@ -219,8 +188,8 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
     .reduce((soma: number, row: any) => soma + valorEfetivo(row), 0);
 
   const movimentacoes =
-    osCriadas.length + osConcluidas.length + vendas.length + transacoes.length + entradas.length +
-    produtos.length + usuarios.length + clientes.length + agendamentos.length + nfes.length + nfses.length;
+    vendas.length + transacoes.length + entradas.length +
+    produtos.length + usuarios.length + clientes.length + nfes.length + nfses.length;
 
   const cortada = (linhas: unknown[]) =>
     linhas.length >= LIMITE_POR_SECAO
@@ -234,73 +203,6 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
   });
 
   const secoes: Secao[] = [
-    {
-      id: "os-criadas",
-      titulo: "Ordens de serviço abertas",
-      vazio: "Nenhuma OS aberta no período.",
-      aviso: cortada(osCriadas),
-      colunas: [
-        { titulo: "OS", largura: "14mm" },
-        { titulo: "Abertura", largura: "22mm" },
-        { titulo: "Cliente / veículo" },
-        { titulo: "Status", largura: "30mm" },
-        { titulo: "Orçamento", largura: "28mm", direita: true },
-      ],
-      linhas: osCriadas.map((row: any) => {
-        const cliente = relationOne<any>(row.cliente);
-        const veiculo = relationOne<any>(row.veiculo);
-        return {
-          chave: `os-${row.id}`,
-          celulas: [
-            { principal: `#${row.id}` },
-            { principal: dayOnly(row.dataentrada), apoio: dateTime(row.dataentrada).split(", ")[1] },
-            {
-              principal: texto(cliente?.nomerazaosocial, "Sem cliente"),
-              apoio: joinParts(veiculo?.placa, veiculo?.modelo) || texto(row.descricao, ""),
-            },
-            { principal: texto(row.status) },
-            { principal: money(row.orcamentototal), tom: "destaque", forte: true },
-          ],
-        } satisfies Linha;
-      }),
-      rodape: [
-        { principal: "Total", forte: true },
-        { principal: "" },
-        { principal: `${osCriadas.length} ordem(ns)` },
-        { principal: "" },
-        valor(osCriadas.reduce((soma: number, row: any) => soma + toNumber(row.orcamentototal), 0), "destaque"),
-      ],
-    },
-    {
-      id: "os-concluidas",
-      titulo: "Ordens de serviço concluídas",
-      vazio: "Nenhuma OS concluída no período.",
-      aviso: cortada(osConcluidas),
-      colunas: [
-        { titulo: "OS", largura: "14mm" },
-        { titulo: "Conclusão", largura: "22mm" },
-        { titulo: "Cliente" },
-        { titulo: "Status", largura: "30mm" },
-        { titulo: "Orçamento", largura: "28mm", direita: true },
-      ],
-      linhas: osConcluidas.map((row: any) => ({
-        chave: `osc-${row.id}`,
-        celulas: [
-          { principal: `#${row.id}` },
-          { principal: dayOnly(row.datasaida) },
-          { principal: texto(relationOne<any>(row.cliente)?.nomerazaosocial, "Sem cliente"), apoio: texto(row.descricao, "") },
-          { principal: texto(row.status) },
-          { principal: money(row.orcamentototal), tom: "destaque", forte: true },
-        ],
-      })),
-      rodape: [
-        { principal: "Total", forte: true },
-        { principal: "" },
-        { principal: `${osConcluidas.length} ordem(ns)` },
-        { principal: "" },
-        valor(osConcluidas.reduce((soma: number, row: any) => soma + toNumber(row.orcamentototal), 0), "destaque"),
-      ],
-    },
     {
       id: "vendas",
       titulo: "Vendas",
@@ -497,43 +399,7 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
         { principal: "" },
       ],
     },
-    {
-      id: "agendamentos",
-      titulo: "Agendamentos",
-      vazio: "Nenhum agendamento criado no período.",
-      aviso: cortada(agendamentos),
-      colunas: [
-        { titulo: "ID", largura: "14mm" },
-        { titulo: "Criado em", largura: "22mm" },
-        { titulo: "Título / cliente" },
-        { titulo: "Início", largura: "26mm" },
-        { titulo: "Status", largura: "26mm", direita: true },
-      ],
-      linhas: agendamentos.map((row: any) => {
-        const cliente = relationOne<any>(row.cliente);
-        const veiculo = relationOne<any>(row.veiculo);
-        return {
-          chave: `agenda-${row.id}`,
-          celulas: [
-            { principal: `#${row.id}` },
-            { principal: dayOnly(row.createdat) },
-            {
-              principal: texto(row.titulo),
-              apoio: joinParts(cliente?.nomerazaosocial ?? row.solicitante_nome, veiculo?.placa),
-            },
-            { principal: dateTime(row.inicio) },
-            { principal: texto(row.status), apoio: texto(row.origem, "") },
-          ],
-        } satisfies Linha;
-      }),
-      rodape: [
-        { principal: "Total", forte: true },
-        { principal: "" },
-        { principal: `${agendamentos.length} agendamento(s)` },
-        { principal: "" },
-        { principal: "" },
-      ],
-    },
+
     {
       id: "fiscal",
       titulo: "Documentos fiscais emitidos",
@@ -553,7 +419,7 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
             { principal: dayOnly(row.dataemissao) },
             {
               principal: `Nº ${texto(row.numero)}`,
-              apoio: row.vendaid ? `Venda #${row.vendaid}` : row.ordemservicoid ? `OS #${row.ordemservicoid}` : "",
+              apoio: row.vendaid ? `Venda #${row.vendaid}` : "",
             },
             { principal: texto(row.status) },
             { principal: money(row.total_nfe), tom: "destaque", forte: true },
@@ -564,7 +430,7 @@ export default async function RelatorioDiarioPrintPage({ searchParams }: PagePro
           celulas: [
             { principal: "NFSe" },
             { principal: dayOnly(row.dataemissao) },
-            { principal: `Nº ${texto(row.numero)}`, apoio: row.ordemservicoid ? `OS #${row.ordemservicoid}` : "" },
+            { principal: `Nº ${texto(row.numero)}` },
             { principal: texto(row.status) },
             { principal: money(row.valor_total), tom: "destaque", forte: true },
           ],

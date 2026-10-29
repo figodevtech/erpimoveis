@@ -2,7 +2,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { ClipboardList, Hourglass, ShoppingCart, Wrench } from "lucide-react";
+import { ShoppingCart } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,41 +39,9 @@ function montarCartoes(resumo: MeuResumo): Cartao[] {
       parcial: resumo.vendas.parcial,
       tom: "text-emerald-600 dark:text-emerald-400",
     },
-    {
-      chave: "ordens",
-      rotulo: "Ordens finalizadas",
-      icone: ClipboardList,
-      quantidade: resumo.ordens.quantidade,
-      valor: resumo.ordens.valor,
-      legenda: null,
-      parcial: resumo.ordens.parcial,
-      tom: "text-sky-600 dark:text-sky-400",
-    },
-    {
-      chave: "servicos-realizados",
-      rotulo: "Serviços realizados",
-      icone: Wrench,
-      quantidade: resumo.servicosRealizados.quantidade,
-      valor: resumo.servicosRealizados.valor,
-      legenda: null,
-      parcial: resumo.servicosRealizados.parcial,
-      tom: "text-violet-600 dark:text-violet-400",
-    },
-    {
-      chave: "servicos-andamento",
-      rotulo: "Serviços em OS em execução",
-      icone: Hourglass,
-      quantidade: resumo.servicosEmAndamento.quantidade,
-      valor: null,
-      legenda: "Situação atual",
-      parcial: resumo.servicosEmAndamento.parcial,
-      tom: "text-amber-600 dark:text-amber-400",
-    },
   ];
 }
 
-// Duas colunas ja no celular: em uma coluna os quatro cartoes empurravam as
-// abas para fora da primeira dobra.
 const GRADE = "grid grid-cols-2 gap-2 xl:grid-cols-4";
 
 export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; carregando: boolean }) {
@@ -87,7 +55,7 @@ export function ResumoCards({ resumo, carregando }: { resumo: MeuResumo | null; 
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, transition: SAIDA }}
         >
-          {Array.from({ length: 4 }).map((_, indice) => (
+          {Array.from({ length: 1 }).map((_, indice) => (
             <Card key={indice} className="rounded-lg py-0">
               <CardContent className="grid gap-1.5 p-3">
                 <Skeleton className="h-3 w-full max-w-32" />

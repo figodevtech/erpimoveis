@@ -51,8 +51,8 @@ type PlaybackState = "idle" | "loading" | "playing" | "error";
 type CatalogTab = RadioStation["type"];
 
 const EQUALIZER_BARS = Array.from({ length: 5 }, (_, index) => index);
-const SAVED_STATION_KEY = "erpoficina:radio-station";
-const SAVED_VOLUME_KEY = "erpoficina:radio-volume";
+const SAVED_STATION_KEY = "erpimoveis:radio-station";
+const SAVED_VOLUME_KEY = "erpimoveis:radio-volume";
 const DEFAULT_VOLUME = 0.7;
 
 function stationDetail(station: RadioStation | undefined) {

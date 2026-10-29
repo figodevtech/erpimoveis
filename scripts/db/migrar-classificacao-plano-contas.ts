@@ -70,7 +70,7 @@ function definicaoDoCatalogo() {
 
 async function main() {
   const args = process.argv.slice(2);
-  const chave = (args.find((a) => (BANCOS as readonly string[]).includes(a)) ?? "demo") as DatabaseKey;
+  const chave = (args.find((a) => (BANCOS as readonly string[]).includes(a)) ?? "cespedes") as DatabaseKey;
   const aplicar = args.includes("--aplicar");
   const instalarPadrao = args.includes("--instalar-padrao");
   const vigencia = args.includes("--vigencia")

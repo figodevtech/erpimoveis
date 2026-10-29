@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { auth } from "@/lib/auth-edge";
-import { expandPermissions, normalizePermission, PERMS, permissionSetHas, TIPO_PERMISSIONS, type Permission } from "@/app/api/_authz/permission-constants";
+import { PERMS, permissionSetHas, type Permission } from "@/app/api/_authz/permission-constants";
 import { tipoMutationPermission } from "@/app/api/_authz/tipos-permission";
 import { getDefaultRouteForPerms } from "@/app/api/_authz/default-route";
 import { permissionForAction } from "@/app/api/_authz/action-permission";
@@ -33,25 +33,20 @@ let lastUserVerificationWarningAt = 0;
 const PUBLIC_PATHS = [
   "/login",
   "/recuperar-senha",
-  "/os",
   "/venda",
-  "/verificar/checklist",
-  "/assinar/checklist",
   // NextAuth
   "/api/auth",
 ];
 
 // âœ… APIs pÃºblicas (adicione aqui as que podem sem login)
 const PUBLIC_API_PREFIXES = [
+  "/api/public",
+  "/api/site",
   "/api/auth/check-email",
   "/api/auth/send-recovery",
   // ex: "/api/public",
 
-  "/api/ordens/aprovacao",
   "/api/venda/aprovacao",
-  "/api/verificar/checklist",
-  "/api/assinar/checklist",
-  "/api/site/agendamentos",
   // Chamadas servidor-servidor. Cada rota aplica sua propria validacao.
   "/api/integracoes/mercadolivre/cron",
   "/api/integracoes/mercadolivre/webhook",
@@ -101,20 +96,23 @@ function isPublicApi(pathname: string, method: string) {
  * Regras por prefixo -> permissÃ£o necessÃ¡ria
  */
 const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
+  { prefix: "/api/proprietarios", perm: PERMS.PROPRIETARIOS },
+  { prefix: "/api/imoveis", perm: PERMS.IMOVEIS },
+  { prefix: "/api/reservas", perm: PERMS.RESERVAS },
+  { prefix: "/api/locacoes-imobiliarias", perm: PERMS.LOCACOES_IMOBILIARIAS },
+  { prefix: "/api/vendas-imobiliarias", perm: PERMS.VENDAS_IMOBILIARIAS },
+  { prefix: "/proprietarios", perm: PERMS.PROPRIETARIOS },
+  { prefix: "/imoveis", perm: PERMS.IMOVEIS },
+  { prefix: "/reservas", perm: PERMS.RESERVAS },
+  { prefix: "/locacoes-imobiliarias", perm: PERMS.LOCACOES_IMOBILIARIAS },
+  { prefix: "/vendas-imobiliarias", perm: PERMS.VENDAS_IMOBILIARIAS },
   { prefix: "/api/central-operacional", perm: PERMS.ACOMPANHAMENTO },
-  { prefix: "/api/execucao", perm: PERMS.EXECUCAO_OS },
   { prefix: "/api/dashboard", perm: PERMS.DASHBOARD },
   { prefix: "/api/customers", perm: PERMS.CLIENTES },
   { prefix: "/api/clientes", perm: PERMS.CLIENTES },
-  { prefix: "/api/ordens", perm: PERMS.ORDENS },
-  { prefix: "/api/checklist-documentos", perm: PERMS.ORDENS },
-  { prefix: "/api/orcamentos", perm: PERMS.ORCAMENTOS },
-  { prefix: "/api/agendamentos", perm: PERMS.AGENDAMENTOS },
-  { prefix: "/api/alugueis", perm: PERMS.ALUGUEIS },
   { prefix: "/api/products", perm: PERMS.ESTOQUE },
   { prefix: "/api/entradas", perm: PERMS.ESTOQUE },
   { prefix: "/api/usoconsumo", perm: PERMS.USOCONSUMO },
-  { prefix: "/api/veiculos", perm: PERMS.VEICULOS },
   { prefix: "/api/venda", perm: PERMS.VENDAS },
   { prefix: "/api/transaction", perm: PERMS.FINANCEIRO },
   // APIs que so a propria tela usa seguem a permissao da tela. As
@@ -136,16 +134,9 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/api/config", perm: PERMS.CONFIG },
   { prefix: "/api/auditoria", perm: PERMS.CONFIG },
 
-  { prefix: "/execucao", perm: PERMS.EXECUCAO_OS },
   { prefix: "/dashboard", perm: PERMS.DASHBOARD },
   { prefix: "/clientes", perm: PERMS.CLIENTES },
-  { prefix: "/ordens", perm: PERMS.ORDENS },
-  { prefix: "/print/checklist", perm: PERMS.ORDENS },
-  { prefix: "/orcamentos", perm: PERMS.ORCAMENTOS },
-  { prefix: "/print/orcamento", perm: PERMS.ORCAMENTOS },
   { prefix: "/print/produto", perm: PERMS.ESTOQUE },
-  { prefix: "/agendamentos", perm: PERMS.AGENDAMENTOS },
-  { prefix: "/alugueis", perm: PERMS.ALUGUEIS },
   { prefix: "/estoque/uso-consumo", perm: PERMS.USOCONSUMO },
   // Os dois estoques simples usam as mesmas permissoes usoconsumo:*.
   { prefix: "/estoque/geral", perm: PERMS.USOCONSUMO },
@@ -159,13 +150,11 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/configuracoes/tipos", perm: PERMS.TIPOS },
   { prefix: "/configuracoes", perm: PERMS.CONFIG },
   { prefix: "/usuarios", perm: PERMS.USUARIOS },
-  { prefix: "/acompanhamento", perm: PERMS.ACOMPANHAMENTO },
   { prefix: "/central-operacional", perm: PERMS.ACOMPANHAMENTO },
 
   { prefix: "/dre", perm: PERMS.FINANCEIRO_DRE },
   { prefix: "/fluxodecaixa", perm: PERMS.FINANCEIRO_FLUXO_DE_CAIXA },
   { prefix: "/bancos", perm: PERMS.FINANCEIRO_BANCOS },
-  { prefix: "/pagamentodeordens", perm: PERMS.FINANCEIRO_PAGAMENTO_DE_ORDENS },
   { prefix: "/pagamentodevendas", perm: PERMS.FINANCEIRO_PAGAMENTO_DE_VENDAS },
   { prefix: "/eventos-financeiros", perm: PERMS.FINANCEIRO_EVENTOS_DE_ORDENS },
   { prefix: "/acompanhamento-financeiro", perm: PERMS.FINANCEIRO_ACOMPANHAMENTO },
@@ -174,10 +163,6 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/historicovendas", perm: PERMS.VENDAS },
   { prefix: "/pdv", perm: PERMS.VENDAS },
   { prefix: "/vendas", perm: PERMS.VENDAS },
-
-  { prefix: "/acompanhamento", perm: PERMS.ACOMPANHAMENTO },
-
-  { prefix: "/veiculos", perm: PERMS.VEICULOS },
 ];
 
 const ROUTE_ANY_PERMS: Array<{ prefix: string; perms: Permission[] }> = [
@@ -192,8 +177,8 @@ const ROUTE_ANY_PERMS: Array<{ prefix: string; perms: Permission[] }> = [
   { prefix: "/etiquetas", perms: [PERMS.ESTOQUE, PERMS.USOCONSUMO] },
   { prefix: "/print/etiquetas", perms: [PERMS.ESTOQUE, PERMS.USOCONSUMO] },
   // Documentos dinâmicos: a rota confere a permissão do módulo do modelo.
-  { prefix: "/api/documentos", perms: [PERMS.VENDAS, PERMS.ORDENS, PERMS.ALUGUEIS] },
-  { prefix: "/print/documento", perms: [PERMS.VENDAS, PERMS.ORDENS, PERMS.ALUGUEIS] },
+  { prefix: "/api/documentos", perms: [PERMS.VENDAS] },
+  { prefix: "/print/documento", perms: [PERMS.VENDAS] },
 ];
 
 const API_ACTION_PERMS: Array<{
@@ -205,19 +190,12 @@ const API_ACTION_PERMS: Array<{
 }> = [
   { prefix: "/api/customers", read: PERMS.CLIENTES, create: PERMS.CLIENTES_CRIAR, edit: PERMS.CLIENTES_EDITAR, delete: PERMS.CLIENTES_EXCLUIR },
   { prefix: "/api/clientes", read: PERMS.CLIENTES, create: PERMS.CLIENTES_CRIAR, edit: PERMS.CLIENTES_EDITAR, delete: PERMS.CLIENTES_EXCLUIR },
-  { prefix: "/api/ordens", read: PERMS.ORDENS, create: PERMS.ORDENS_CRIAR, edit: PERMS.ORDENS_EDITAR, delete: PERMS.ORDENS_EXCLUIR },
-  { prefix: "/api/orcamentos", read: PERMS.ORCAMENTOS, create: PERMS.ORCAMENTOS_CRIAR, edit: PERMS.ORCAMENTOS_EDITAR, delete: PERMS.ORCAMENTOS_EXCLUIR },
-  { prefix: "/api/agendamentos", read: PERMS.AGENDAMENTOS, create: PERMS.AGENDAMENTOS_CRIAR, edit: PERMS.AGENDAMENTOS_EDITAR, delete: PERMS.AGENDAMENTOS_EXCLUIR },
-  { prefix: "/api/alugueis", read: PERMS.ALUGUEIS, create: PERMS.ALUGUEIS_CRIAR, edit: PERMS.ALUGUEIS_EDITAR, delete: PERMS.ALUGUEIS_EXCLUIR },
   { prefix: "/api/products", read: PERMS.ESTOQUE, create: PERMS.ESTOQUE_CRIAR, edit: PERMS.ESTOQUE_EDITAR, delete: PERMS.ESTOQUE_EXCLUIR },
   { prefix: "/api/entradas", read: PERMS.ESTOQUE, create: PERMS.ESTOQUE_CRIAR, edit: PERMS.ESTOQUE_EDITAR, delete: PERMS.ESTOQUE_EXCLUIR },
   { prefix: "/api/usoconsumo", read: PERMS.USOCONSUMO },
-  { prefix: "/api/veiculos", read: PERMS.VEICULOS, create: PERMS.VEICULOS_CRIAR, edit: PERMS.VEICULOS_EDITAR, delete: PERMS.VEICULOS_EXCLUIR },
   { prefix: "/api/venda", read: PERMS.VENDAS, create: PERMS.VENDAS_CRIAR, edit: PERMS.VENDAS_EDITAR, delete: PERMS.VENDAS_EXCLUIR },
   { prefix: "/api/transaction", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },
-  // A lista global de eventos financeiros de OS. As mesmas ações do painel da
-  // ordem, mas sob permissão do financeiro: quem lança o pagamento no caixa não
-  // precisa de acesso de edição à ordem inteira para corrigir uma despesa.
+  // A lista global de eventos financeiros, sob permissão do financeiro.
   { prefix: "/api/eventos-financeiros", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },
   { prefix: "/api/pagamentos", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },
   { prefix: "/api/banks", read: PERMS.FINANCEIRO, create: PERMS.FINANCEIRO_CRIAR, edit: PERMS.FINANCEIRO_EDITAR, delete: PERMS.FINANCEIRO_EXCLUIR },
@@ -225,12 +203,6 @@ const API_ACTION_PERMS: Array<{
   { prefix: "/api/perfis", read: PERMS.PERMISSOES, create: PERMS.PERMISSOES_CRIAR, edit: PERMS.PERMISSOES_EDITAR, delete: PERMS.PERMISSOES_EXCLUIR },
   { prefix: "/api/config", read: PERMS.CONFIG, create: PERMS.CONFIG_CRIAR, edit: PERMS.CONFIG_EDITAR, delete: PERMS.CONFIG_EXCLUIR },
   { prefix: "/api/empresa", read: PERMS.CONFIG, create: PERMS.CONFIG_CRIAR, edit: PERMS.CONFIG_EDITAR, delete: PERMS.CONFIG_EXCLUIR },
-];
-
-const API_MUTATION_PERMS: Array<{ prefix: string; perm: Permission }> = [
-  // As listas auxiliares abastecem formulários de várias áreas e continuam
-  // legíveis para usuários logados. Somente a configuração pode alterá-las.
-  { prefix: "/api/checklist-modelos", perm: PERMS.CONFIG_EDITAR },
 ];
 
 function matchRule(pathname: string) {
@@ -257,31 +229,11 @@ function matchApiActionRule(pathname: string, method: string) {
 function matchApiMutationRule(pathname: string, method: string) {
   if (["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())) return null;
   if (pathname.startsWith("/api/tipos/")) return tipoMutationPermission(pathname, method);
-  if (/^\/api\/checklist-modelos\/[^/]+\/aplicar$/.test(pathname)) {
-    return PERMS.ORDENS_EDITAR;
-  }
-  return API_MUTATION_PERMS.find(
-    (rule) => pathname === rule.prefix || pathname.startsWith(rule.prefix + "/"),
-  )?.perm ?? null;
+  return null;
 }
 
 function hasPermFromSession(user: any, perm: string) {
   return permissionSetHas(user?.permissoes, perm);
-}
-
-function getSessionPerms(user: any) {
-  return expandPermissions(user?.permissoes);
-}
-
-function isExecutorOnly(user: any) {
-  const perms = getSessionPerms(user);
-  if (!perms.includes(normalizePermission(PERMS.EXECUCAO_OS))) return false;
-
-  // Ver outros perfis so muda o que aparece em /meu-perfil, que o executor ja
-  // acessa: nao pode tira-lo da tela de execucao.
-  const mantemModoExecutor = [PERMS.EXECUCAO_OS, PERMS.USUARIOS_VER_PERFIS].map((p) => normalizePermission(p));
-  const appPerms = [...Object.values(PERMS), ...TIPO_PERMISSIONS].map((p) => normalizePermission(p));
-  return perms.every((p) => mantemModoExecutor.includes(p) || !appPerms.includes(p));
 }
 
 async function fetchFreshUserState(userId: string): Promise<FreshUserState> {
@@ -365,16 +317,7 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
   // Rotas públicas não dependem da consulta adicional ao Supabase. Isso evita
   // que uma oscilação do banco interrompa login, sessão e recuperação.
   if (isApi && isPublicApi(pathname, req.method)) return NextResponse.next();
-  if (!isApi && isPublicPath(pathname)) {
-    const response = NextResponse.next();
-    if (pathname === "/assinar/checklist" || pathname.startsWith("/assinar/checklist/")) {
-      response.headers.set("Cache-Control", "private, no-store");
-      response.headers.set("Referrer-Policy", "no-referrer");
-      response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
-      response.headers.set("X-Frame-Options", "DENY");
-    }
-    return response;
-  }
+  if (!isApi && isPublicPath(pathname)) return NextResponse.next();
 
   const session = req.auth;
   const user = session?.user;
@@ -454,42 +397,6 @@ export default auth(async (req: NextRequest & { auth?: any }) => {
     }
     if (isBillingPath) {
       return NextResponse.next({ headers: { "Cache-Control": "no-store" } });
-    }
-  }
-
-  const executorOnly = isExecutorOnly(user);
-  if (executorOnly) {
-    const allowedExecutorPath =
-      pathname === "/execucao" ||
-      pathname.startsWith("/execucao/") ||
-      pathname.startsWith("/api/execucao") ||
-      // O chat e uma funcionalidade global para todo usuario autenticado e
-      // ativo, inclusive quem possui apenas acesso a execucao de OS.
-      pathname.startsWith("/api/chat") ||
-      pathname.startsWith("/api/tipos/setores") ||
-      pathname.startsWith("/api/auth") ||
-      pathname.startsWith("/api/config") ||
-      // Central Pessoal: so devolve dados do proprio usuario, e o executor e
-      // justamente quem mais tem servicos realizados para consultar.
-      pathname === "/meu-perfil" ||
-      pathname.startsWith("/meu-perfil/") ||
-      pathname === "/preferencias" ||
-      pathname.startsWith("/preferencias/") ||
-      pathname === "/api/me" ||
-      pathname.startsWith("/api/me/") ||
-      pathname === "/nao-autorizado";
-
-    if (!allowedExecutorPath) {
-      if (isApi) {
-        return NextResponse.json(
-          { error: "FORBIDDEN" },
-          { status: 403, headers: { "Cache-Control": "no-store" } },
-        );
-      }
-
-      return NextResponse.redirect(new URL("/execucao", nextUrl), {
-        headers: { "Cache-Control": "no-store" },
-      });
     }
   }
 

@@ -114,60 +114,7 @@ export async function GET(_: Request, { params }: Params) {
     let totalDevidoCents: number | null = null;
     let vinculo: Record<string, any> | null = null;
 
-    if (transacao.ordemservicoid != null) {
-      origem = "OS";
-      const osId = Number(transacao.ordemservicoid);
-
-      const [{ data: ordem }, { data: itens, error: itensError }] = await Promise.all([
-        supabaseAdmin
-          .from("ordemservico")
-          .select(
-            "id, status, orcamentototal, dataentrada, datasaida, descricao, acrescimo_financeiro_tipo, acrescimo_financeiro_valor, veiculo:veiculoid ( marca, modelo, placa, placa_formatada )",
-          )
-          .eq("id", osId)
-          .maybeSingle(),
-        supabaseAdmin
-          .from("transacao")
-          .select(RELACIONADA_FIELDS)
-          .eq("ordemservicoid", osId)
-          .eq("is_deleted", false)
-          .order("data", { ascending: true })
-          .order("id", { ascending: true }),
-      ]);
-
-      if (itensError) throw itensError;
-      relacionadas = itens ?? [];
-
-      if (ordem) {
-        totalDevidoCents = toCents(
-          calculateFinancialTotal(
-            ordem.orcamentototal,
-            ordem.acrescimo_financeiro_tipo,
-            ordem.acrescimo_financeiro_valor,
-          ),
-        );
-        const veiculo = Array.isArray(ordem.veiculo) ? ordem.veiculo[0] : ordem.veiculo;
-        vinculo = {
-          tipo: "OS",
-          id: ordem.id,
-          status: ordem.status ?? null,
-          total: fromCents(totalDevidoCents),
-          descricao: ordem.descricao ?? null,
-          dataentrada: ordem.dataentrada ?? null,
-          datasaida: ordem.datasaida ?? null,
-          veiculo: veiculo
-            ? {
-                nome: [veiculo.marca, veiculo.modelo].filter(Boolean).join(" ") || null,
-                // A placa cadastrada, nao o equivalente Mercosul gerado.
-                placa: veiculo.placa ?? veiculo.placa_formatada ?? null,
-              }
-            : null,
-          // Nao existe rota de detalhe /ordens/[id] — os detalhes sao dialog na
-          // listagem. A impressao e o unico destino enderecavel por id.
-          href: `/print/ordemservico/${ordem.id}`,
-        };
-      }
-    } else if (transacao.vendaid != null) {
+    if (transacao.vendaid != null) {
       origem = "VENDA";
       const vendaId = Number(transacao.vendaid);
 
@@ -304,7 +251,7 @@ export async function GET(_: Request, { params }: Params) {
           valor: Number(linha.valor ?? 0),
           href:
             String(linha.tipo_documento) === "OS"
-              ? `/print/ordemservico/${linha.documento_id}`
+              ? null
               : `/print/venda/${linha.documento_id}/orcamento`,
         }),
       );

@@ -5,9 +5,7 @@ import { NextResponse } from "next/server";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireClientesAccess, requireClientesDelete, requireClientesEdit } from "@/app/api/_authz/perms";
-import { resolveOrdemVehicle } from "@/lib/ordens/vehicle-snapshot";
 import { recusaSeClienteDoSistema } from "@/lib/clientes/consumidor-final-server";
-import { mapearItemHistorico } from "@/lib/ordens/itens-historicos";
 import {
   isValidCnpj,
   isValidCpf,
@@ -28,34 +26,6 @@ const CLIENTE_FIELDS = `
 const TELEFONE_FIELDS = `
   id, telefone, contato, observacao
 `;
-
-const VEICULO_FIELDS = `
-  id, clienteid, placa, placa_formatada, modelo, marca, ano, cor, kmatual, tipo, createdat, updatedat
-`;
-
-const ORDEM_FIELDS = `
-  id, clienteid, descricao, status, prioridade, alvo_tipo, migracao_referencia, veiculo_snapshot,
-  equipamento_nome, equipamento_patrimonio, equipamento_ano, equipamento_horimetro,
-  dataentrada, createdat, orcamentototal,
-  peca:peca ( id, titulo, descricao, lacre ),
-  veiculo:veiculo ( id, placa, modelo, marca ),
-  produtos:osproduto (
-    quantidade,
-    precounitario,
-    subtotal,
-    produto:produtoid ( id, titulo )
-  ),
-  servicos:osservico (
-    quantidade,
-    precounitario,
-    subtotal,
-    servico:servicoid ( id, descricao )
-  ),
-  itens_historicos:ositem_historico (
-    id, ordemservicoid, linha_origem, tipo, codigo_legado, descricao,
-    unidade, quantidade, preco_unitario, subtotal
-  )
-`
 
 type Status = "ATIVO" | "INATIVO" | "PENDENTE";
 const STATUS_SET = new Set<Status>(["ATIVO", "INATIVO", "PENDENTE"]);
@@ -175,9 +145,7 @@ export async function GET(_: Request, ctx: Params) {
       .select(
         `
         ${CLIENTE_FIELDS},
-        telefones:cliente_telefone ( ${TELEFONE_FIELDS} ),
-        veiculos:veiculo ( ${VEICULO_FIELDS} ),
-        ordens: ordemservico ( ${ORDEM_FIELDS} )
+        telefones:cliente_telefone ( ${TELEFONE_FIELDS} )
         `
       )
       .eq("id", id)
@@ -197,12 +165,6 @@ export async function GET(_: Request, ctx: Params) {
       ...data,
       // O principal continua em `telefone`; aqui vêm só os contatos extras.
       telefones: [...((data as any).telefones ?? [])].sort((a: any, b: any) => a.id - b.id),
-      ordens: (data.ordens ?? []).map((ordem: any) => ({
-        ...ordem,
-        migracaoReferencia: ordem.migracao_referencia ?? null,
-        veiculo: resolveOrdemVehicle(ordem.veiculo, ordem.veiculo_snapshot),
-        itensHistoricos: (ordem.itens_historicos ?? []).map(mapearItemHistorico),
-      })),
     };
 
     return NextResponse.json({ data: resposta });

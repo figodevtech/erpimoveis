@@ -80,12 +80,14 @@ export function PagamentoMultiploTab({
                   <span className="text-sm font-semibold tabular-nums">
                     {formatarEmReal(documento.valor)}
                   </span>
-                  <Button asChild size="sm" variant="outline" className="h-7 text-xs">
-                    <Link href={documento.href} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="mr-1 h-3 w-3" />
-                      Abrir
-                    </Link>
-                  </Button>
+                  {documento.href ? (
+                    <Button asChild size="sm" variant="outline" className="h-7 text-xs">
+                      <Link href={documento.href} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="mr-1 h-3 w-3" />
+                        Abrir
+                      </Link>
+                    </Button>
+                  ) : null}
                 </span>
               </li>
             ))}

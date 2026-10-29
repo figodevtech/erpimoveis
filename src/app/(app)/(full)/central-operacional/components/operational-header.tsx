@@ -107,7 +107,7 @@ export function OperationalHeader({
   return (
     <header className="operational-header">
       <div className="operational-title-block">
-        <span className="operational-eyebrow">ERP OFICINA · {snapshot.meta.empresa}</span>
+        <span className="operational-eyebrow">ERP IMÓVEIS · {snapshot.meta.empresa}</span>
         <h1>CENTRAL OPERACIONAL</h1>
         <p>Fluxo em tempo real</p>
       </div>

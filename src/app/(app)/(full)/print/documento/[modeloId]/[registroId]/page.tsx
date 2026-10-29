@@ -16,8 +16,6 @@ type PageProps = {
 
 const TELA_DO_MODULO: Record<ModuloDocumento, string> = {
   venda: "/historicovendas",
-  os: "/ordens",
-  aluguel: "/alugueis",
 };
 
 function idValido(valor: string) {

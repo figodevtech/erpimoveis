@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { getCurrentUserAccess, hasOSAccess, hasVendasAccess } from "@/app/api/_authz/perms";
+import { getCurrentUserAccess, hasVendasAccess } from "@/app/api/_authz/perms";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { fetchAllSupabaseRows, fetchAllSupabaseRowsByChunks } from "@/lib/supabase-pagination";
 import {
@@ -131,7 +131,9 @@ async function transacoesSemLeitura(
     (linha) => !podeAlterarTransacao({ ...acesso, createdBy: linha.created_by }),
   );
   if (!administrativas.length) return [];
-  const [OS, VENDA] = await Promise.all([hasOSAccess(), hasVendasAccess()]);
+  // O módulo de OS foi removido: ninguém tem acesso a documento de OS.
+  const OS = false;
+  const VENDA = await hasVendasAccess();
   const acessoA = { OS, VENDA };
   const documentos = new Map<number, Set<DocumentoDoPagamento>>();
   for (const linha of administrativas) {

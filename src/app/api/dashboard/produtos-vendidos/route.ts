@@ -51,14 +51,7 @@ type LinhaVendaProduto = {
   produto: LinhaEmbutida;
 };
 
-type LinhaOsProduto = {
-  ordemservicoid: number | null;
-  produtoid: number | null;
-  quantidade: number | string | null;
-  subtotal: number | string | null;
-  ordem: LinhaEmbutida;
-  produto: LinhaEmbutida;
-};
+
 
 /** O PostgREST devolve o embed como objeto ou como array de um, conforme a cardinalidade inferida. */
 function primeiro(valor: LinhaEmbutida): Record<string, any> | null {
@@ -85,7 +78,7 @@ export async function GET(request: Request) {
     // O embed de produto é left join de propósito: produto excluído que já
     // vendeu precisa continuar no ranking, senão o gráfico deixa de fechar com
     // o KPI de unidades.
-    const [linhasVenda, linhasOs] = await Promise.all([
+    const [linhasVenda] = await Promise.all([
       fetchAllSupabaseRows<LinhaVendaProduto>(() =>
         supabaseAdmin
           .from("vendaproduto")
@@ -99,23 +92,7 @@ export async function GET(request: Request) {
           .lt("venda.pagamento_em", fimExclusivoIso)
           .order("id", { ascending: true }),
       ),
-      fetchAllSupabaseRows<LinhaOsProduto>(() =>
-        supabaseAdmin
-          .from("osproduto")
-          .select(
-            "ordemservicoid,produtoid,quantidade,subtotal," +
-              "ordem:ordemservicoid!inner(id,is_deleted,migracao_referencia,execucao_fim_em)," +
-              "produto:produtoid(titulo,referencia,unidade,grupo_produto_id,grupo:grupo_produto_id(id,nome))",
-          )
-          .eq("ordem.is_deleted", false)
-          .is("ordem.migracao_referencia", null)
-          .gte("ordem.execucao_fim_em", inicioIso)
-          .lt("ordem.execucao_fim_em", fimExclusivoIso)
-          // `osproduto` não tem id próprio (PK composta). Sem os dois níveis a
-          // ordenação não é estável e a paginação pode perder ou repetir linha.
-          .order("ordemservicoid", { ascending: true })
-          .order("produtoid", { ascending: true }),
-      ),
+
     ]);
 
     const itens: ItemVendido[] = [];
@@ -142,25 +119,7 @@ export async function GET(request: Request) {
       });
     }
 
-    for (const linha of linhasOs) {
-      const ordem = primeiro(linha.ordem);
-      const produto = primeiro(linha.produto);
 
-      itens.push({
-        origem: "OS",
-        documentoId: ordem?.id ?? linha.ordemservicoid,
-        produtoId: linha.produtoid,
-        titulo: produto?.titulo,
-        referencia: produto?.referencia,
-        unidade: produto?.unidade,
-        grupoId: produto?.grupo_produto_id,
-        grupoNome: primeiro(produto?.grupo)?.nome,
-        quantidade: linha.quantidade,
-        // Aqui o subtotal já é o valor líquido do desconto do item (ver
-        // src/lib/ordens/desconto.ts) — não repetir a conta do lado da venda.
-        faturamento: linha.subtotal,
-      });
-    }
 
     const { ranking, totais, truncado } = agregarProdutosVendidos(itens);
 

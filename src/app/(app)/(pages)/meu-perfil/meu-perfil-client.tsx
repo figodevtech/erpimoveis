@@ -15,8 +15,6 @@ import { ABAS, ListaDeAbas, PainelDeAba } from "./components/abas-central";
 import { PerfilHeader } from "./components/perfil-header";
 import { PeriodoFilter } from "./components/periodo-filter";
 import { ResumoCards } from "./components/resumo-cards";
-import { TabelaMeusServicos } from "./components/tabela-meus-servicos";
-import { TabelaMinhasOrdens } from "./components/tabela-minhas-ordens";
 import { TabelaMinhasVendas } from "./components/tabela-minhas-vendas";
 import { UsuarioCombobox } from "./components/usuario-combobox";
 import type { AbaCentral, MeuPerfil, MeuResumo, Periodo } from "./types";
@@ -224,14 +222,6 @@ export function MeuPerfilClient() {
                 `ativo`, entao aba oculta nao dispara requisicao. */}
             <PainelDeAba chave="vendas" ativa={aba}>
               <TabelaMinhasVendas periodo={periodo} ativo={aba === "vendas"} usuarioId={usuarioId} />
-            </PainelDeAba>
-
-            <PainelDeAba chave="ordens" ativa={aba}>
-              <TabelaMinhasOrdens periodo={periodo} ativo={aba === "ordens"} usuarioId={usuarioId} />
-            </PainelDeAba>
-
-            <PainelDeAba chave="servicos" ativa={aba}>
-              <TabelaMeusServicos periodo={periodo} ativo={aba === "servicos"} usuarioId={usuarioId} />
             </PainelDeAba>
           </Tabs>
         </motion.div>

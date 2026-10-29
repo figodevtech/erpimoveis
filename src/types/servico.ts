@@ -9,7 +9,6 @@ export interface Servico {
   cnae?: string | null;
   itemlistaservico: string;
   tiposervicoid?: number | null;      // FK -> tiposervico(id)
-  permite_agendamento?: boolean | null;
   /** Quando false, realizadores deste serviço não recebem comissão. */
   gera_comissao?: boolean | null;
   createdat?: string | null;

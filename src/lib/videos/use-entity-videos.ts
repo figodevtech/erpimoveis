@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { uploadVideo, videoRequest } from "./client";
 
-export type EntityKind = "os" | "produto" | "venda";
+export type EntityKind = "produto" | "venda";
 export type EntityVideo = { id: string; name: string; size_bytes: number; duration_seconds: number; created_at: string; category?: string | null };
 
 export function useEntityVideos(entityId: number | null | undefined, kind: EntityKind, active = true) {

@@ -5,7 +5,7 @@
  *
  * Uso:
  *   npm run db:inventario:dre
- *   npm run db:inventario:dre -- demir
+ *   npm run db:inventario:dre -- cespedes
  *   npm run db:inventario:dre -- --meses 12
  *
  * Cada consulta roda dentro de `BEGIN; SET TRANSACTION READ ONLY;`. O script

@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireEstoqueAccess, requireEstoqueEdit } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { MOTIVO_SAIDA_ALUGUEL } from "@/lib/alugueis/status";
 
 async function motivoValidoParaProduto(motivo: string) {
   const { data } = await supabaseAdmin
@@ -60,9 +59,6 @@ export async function POST(req: NextRequest) {
     }
     if (!Number.isInteger(quantidade) || quantidade <= 0) {
       return NextResponse.json({ error: "Informe uma quantidade inteira maior que zero." }, { status: 400 });
-    }
-    if (motivo === MOTIVO_SAIDA_ALUGUEL) {
-      return NextResponse.json({ error: "A saída por aluguel é registrada pelo módulo Aluguéis." }, { status: 400 });
     }
     if (!(await motivoValidoParaProduto(motivo))) {
       return NextResponse.json({ error: "Selecione um motivo válido." }, { status: 400 });

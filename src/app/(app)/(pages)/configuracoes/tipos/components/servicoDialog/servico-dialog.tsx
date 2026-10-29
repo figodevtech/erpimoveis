@@ -43,7 +43,6 @@ type ServicoForm = {
   descricao: string;
   precohora: string;
   ativo: boolean;
-  permite_agendamento: boolean;
   gera_comissao: boolean;
 };
 
@@ -65,7 +64,6 @@ const emptyForm: ServicoForm = {
   descricao: "",
   precohora: "",
   ativo: true,
-  permite_agendamento: false,
   // Igual ao default do banco: serviço novo gera comissão.
   gera_comissao: true,
 };
@@ -110,7 +108,6 @@ export default function ServicoDialog({
       descricao: form.descricao.trim(),
       precohora,
       ativo: form.ativo,
-      permite_agendamento: form.permite_agendamento,
       gera_comissao: form.gera_comissao,
     };
 
@@ -193,24 +190,6 @@ export default function ServicoDialog({
                 {form.ativo ? "Ativo" : "Inativo"}
               </span>
               <Switch checked={form.ativo} onCheckedChange={(val) => handleChange("ativo", val)} />
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between rounded-md border px-3 py-2 bg-muted/40">
-            <div className="space-y-0.5">
-              <span className="text-sm font-medium">Permite agendamento</span>
-              <p className="text-xs text-muted-foreground">
-                Defina se este servico pode ser selecionado em agendamentos.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground hidden sm:inline">
-                {form.permite_agendamento ? "Sim" : "Nao"}
-              </span>
-              <Switch
-                checked={form.permite_agendamento}
-                onCheckedChange={(val) => handleChange("permite_agendamento", val)}
-              />
             </div>
           </div>
 

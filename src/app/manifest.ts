@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'ERP Oficina',
-    short_name: 'ERP Oficina',
+    name: 'ERP Imóveis',
+    short_name: 'ERP Imóveis',
     description: 'Sistema de gestão para oficinas',
     start_url: '/',
     id: '/',

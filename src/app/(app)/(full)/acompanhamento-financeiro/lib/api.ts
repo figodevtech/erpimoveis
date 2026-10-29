@@ -1,4 +1,4 @@
-export type OrigemCobranca = "OS" | "VENDA";
+export type OrigemCobranca = "VENDA";
 
 export type MetodoPagamentoResumo = {
   metodo: string;

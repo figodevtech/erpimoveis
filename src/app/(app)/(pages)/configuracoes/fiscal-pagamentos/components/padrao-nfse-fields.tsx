@@ -19,7 +19,7 @@ import {
   rotuloModeloNFSe,
   rotuloPoliticaNFSe,
 } from "@/lib/services/fiscais/nfse-politica";
-import type { ModeloEmissao } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/emissao-nfse-dialog/types";
+import type { NFSeModeloEmissao as ModeloEmissao } from "@/lib/services/fiscais/nfse-politica";
 
 import type { FormValues } from "../types";
 import { conferirSituacaoTributariaPisCofins } from "@/lib/services/fiscais/nfse-pis-cofins";

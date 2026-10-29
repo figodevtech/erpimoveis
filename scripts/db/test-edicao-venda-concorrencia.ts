@@ -6,7 +6,7 @@ import { connectDatabase, loadDatabaseConfigs, projectRoot } from "./lib";
 import { splitLikeSupabaseCli } from "./supabase-splitter";
 
 async function main() {
-  const banco = loadDatabaseConfigs().find(b => b.key === "demo");
+  const banco = loadDatabaseConfigs().find(b => b.key === "cespedes");
   if (!banco) throw new Error("Banco DEMO nao configurado.");
   const definition = splitLikeSupabaseCli(fs.readFileSync(path.join(projectRoot,
     "supabase/migrations/20261005193130_editar_eventos_financeiros_venda.sql"), "utf8"))

@@ -3,7 +3,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   requireEstoqueAccess,
   requireFinanceirosAccess,
-  requireOSAccess,
   requireVendasAccess,
 } from "@/app/api/_authz/perms";
 import { auth } from "@/lib/auth";
@@ -25,7 +24,7 @@ export const runtime = "nodejs";
 
 type Alvo =
   | { tipo: "AVULSA"; id?: number | null }
-  | { tipo: "OS" | "VENDA"; id: number; modelo?: number }
+  | { tipo: "VENDA"; id: number; modelo?: number }
   | { tipo: "ENTRADA" | "SAIDA"; id: number };
 
 function lerPedidos(valor: unknown): PedidoCiencia[] | null {
@@ -54,9 +53,8 @@ async function registrar(alvo: Alvo, payload: Record<string, any>, opcoes: Opcoe
       const nfeId = alvo.id == null ? null : idPositivo(alvo.id);
       return salvarNFeAvulsaDraft({ ...(payload as any), nfeId }, opcoes);
     }
-    case "OS":
     case "VENDA": {
-      await (alvo.tipo === "OS" ? requireOSAccess() : requireVendasAccess());
+      await requireVendasAccess();
       const id = idPositivo(alvo.id);
       if (!id) return null;
       const modelo = Number(alvo.modelo) === MODELO_NFCE ? MODELO_NFCE : MODELO_NFE;

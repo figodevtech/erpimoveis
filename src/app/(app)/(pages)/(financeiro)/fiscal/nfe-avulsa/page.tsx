@@ -133,8 +133,8 @@ import {
   type DifalCampoManual,
   type FiscalSetup,
   type ResolucaoDifalTela,
-} from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/emissao-assistida-model";
-import { NfeItemIcmsSection } from "@/app/(app)/(pages)/ordens/components/dialogs/emissao-nota-dialog/gerarNotaDeOsDialog/nfe-item-icms-section";
+} from "@/components/fiscal/emissao-nota-dialog/gerarNotaDeOsDialog/emissao-assistida-model";
+import { NfeItemIcmsSection } from "@/components/fiscal/emissao-nota-dialog/gerarNotaDeOsDialog/nfe-item-icms-section";
 import ValueInput from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/valueInput";
 import { dataCivilDeHoje } from "@/lib/fiscal-date";
 

@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Truck } from "lucide-react";
-import { DialogShell } from "../../../ordens/components/dialogs/dialog-shell";
+import { DialogShell } from "@/components/dialog-shell";
 import { PedidoOnlineForm } from "./pedido-online-form";
 
 type Props = {

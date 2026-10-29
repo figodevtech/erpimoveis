@@ -365,7 +365,7 @@ export class SafeRadioHttpClient {
           timeoutMs: remainingForRequest,
           maxBytes,
           headers: {
-            "User-Agent": "ERPOficina-RadioChecker/1.0",
+            "User-Agent": "ERPImoveis-RadioChecker/1.0",
             Accept: "audio/*, application/vnd.apple.mpegurl, audio/x-mpegurl, audio/x-scpls, */*;q=0.5",
             "Icy-MetaData": "0",
             ...options.headers,

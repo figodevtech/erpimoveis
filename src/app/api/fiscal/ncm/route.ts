@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
   try {
     // Quem cadastra produto e quem emite nota precisam do catálogo; a leitura
     // acompanha essas permissões em vez de criar uma nova só para consultar.
-    await requireAny([PERMS.ESTOQUE, PERMS.ORDENS, PERMS.VENDAS, PERMS.FINANCEIRO]);
+    await requireAny([PERMS.ESTOQUE, PERMS.VENDAS, PERMS.FINANCEIRO]);
 
     const params = req.nextUrl.searchParams;
     const data = dataFiscal(params.get("data"));

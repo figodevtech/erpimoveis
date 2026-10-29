@@ -43,28 +43,11 @@ export async function GET(_: Request, ctx: Params) {
     }
 
     const ehReceita = String(transacao.tipo ?? "").toUpperCase() === "RECEITA";
-    let clienteId = transacao.cliente_id as number | null;
+    const clienteId = transacao.cliente_id as number | null;
 
     // Só receita herda o cliente do documento: numa despesa o vínculo com a OS
     // é do fornecedor, não do cliente.
-    if (clienteId == null && ehReceita) {
-      if (transacao.ordemservicoid != null) {
-        const { data: os } = await supabaseAdmin
-          .from("ordemservico")
-          .select("clienteid")
-          .eq("id", transacao.ordemservicoid)
-          .maybeSingle();
-        clienteId = (os?.clienteid as number | null) ?? null;
-      }
-      if (clienteId == null && transacao.vendaid != null) {
-        const { data: venda } = await supabaseAdmin
-          .from("venda")
-          .select("clienteid")
-          .eq("id", transacao.vendaid)
-          .maybeSingle();
-        clienteId = (venda?.clienteid as number | null) ?? null;
-      }
-    }
+
 
     const liquido = Number(transacao.valorLiquido ?? 0) || Number(transacao.valor ?? 0) || 0;
     const valorTitulo = Math.round(liquido * 100) / 100;
