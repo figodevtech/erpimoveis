@@ -173,6 +173,8 @@ export default function EntityDialog({
   const editable = currentId ? can(`${permission}:editar`) : can(`${permission}:criar`);
   const financial = can(`${permission}:financeiro`);
   const original = remote.data ? itemFrom(remote.data) : null;
+  // Só mostra o carregamento quando ainda não há dados deste registro; recarregar após salvar não desmonta o formulário.
+  const firstLoad = Boolean(currentId && remote.loading && !remote.data && Number(value.id) !== currentId);
   const reservationChanged =
     kind === "reservas" &&
     (!currentId ||
@@ -272,7 +274,8 @@ export default function EntityDialog({
       const item = itemFrom(response);
       if (item.id) {
         setCurrentId(Number(item.id));
-        setValue(item);
+        // A resposta do salvamento não traz imóvel/cliente expandidos; mantém os da tela até o recarregamento.
+        setValue((previous) => ({ ...previous, ...item }));
       }
       toast.success(
         currentId
@@ -525,7 +528,7 @@ export default function EntityDialog({
         }
       >
         <RemoteState
-          loading={Boolean(currentId && remote.loading)}
+          loading={firstLoad}
           error={remote.error}
           retry={remote.reload}
         >

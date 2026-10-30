@@ -6,17 +6,36 @@ import { IMOBILIARIO_BUCKET_DOCUMENTOS, IMOBILIARIO_BUCKET_FOTOS, statusReservaP
 export async function enrich(items: Record<string, any>[]): Promise<Record<string, any>[]> {
   if (!items.length) return items;
   const ids = (key: string) => [...new Set(items.map((r) => r[key]).filter(Boolean))];
-  const [imoveis, clientes, proprietarios] = await Promise.all([
-    ids("imovel_id").length ? db.from("imovel").select("id,titulo,slug,codigo,modalidades").in("id", ids("imovel_id")) : Promise.resolve({ data: [], error: null }),
-    [...ids("cliente_id"), ...ids("comprador_id")].length ? db.from("cliente").select("id,nomerazaosocial").in("id", [...ids("cliente_id"), ...ids("comprador_id")]) : Promise.resolve({ data: [], error: null }),
-    ids("proprietario_id").length ? db.from("proprietario").select("id,nomerazaosocial").in("id", ids("proprietario_id")) : Promise.resolve({ data: [], error: null }),
+  const imovelIds = [...new Set([...ids("imovel_id"), ...items.filter((r) => r.titulo && r.id).map((r) => r.id)])];
+
+  const [imoveis, clientes, proprietarios, fotos] = await Promise.all([
+    ids("imovel_id").length ? db.from("imovel_resumo").select("id,titulo,slug,codigo,modalidades,tipo,capacidade,quartos,banheiros,vagas,area,diaria,valor_locacao,valor_venda,endereco,endereco_publico,situacao_operacional,ativo").in("id", ids("imovel_id")) : Promise.resolve({ data: [], error: null }),
+    [...ids("cliente_id"), ...ids("comprador_id")].length ? db.from("cliente").select("id,nomerazaosocial,cpfcnpj,telefone,email,cidade,estado,tipopessoa,status").in("id", [...ids("cliente_id"), ...ids("comprador_id")]) : Promise.resolve({ data: [], error: null }),
+    ids("proprietario_id").length ? db.from("proprietario").select("id,nomerazaosocial,cpfcnpj,telefone,email,tipopessoa,ativo").in("id", ids("proprietario_id")) : Promise.resolve({ data: [], error: null }),
+    imovelIds.length ? db.from("imovel_arquivo").select("imovel_id,path,ordem").in("imovel_id", imovelIds).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).order("ordem").order("id") : Promise.resolve({ data: [], error: null }),
   ]);
-  for (const result of [imoveis, clientes, proprietarios]) if (result.error) throw result.error;
-  return items.map((r) => ({ ...r,
-    imovel: imoveis.data?.find((i) => i.id === r.imovel_id),
-    cliente: clientes.data?.find((i) => i.id === (r.cliente_id ?? r.comprador_id)),
-    proprietario: proprietarios.data?.find((i) => i.id === r.proprietario_id),
-  }));
+  for (const result of [imoveis, clientes, proprietarios, fotos]) if (result.error) throw result.error;
+
+  const getCoverPhoto = (targetId?: number | null) => {
+    if (!targetId) return null;
+    const file = fotos.data?.find((f) => f.imovel_id === targetId);
+    if (!file) return null;
+    return db.storage.from(IMOBILIARIO_BUCKET_FOTOS).getPublicUrl(file.path).data.publicUrl;
+  };
+
+  return items.map((r) => {
+    const imovelObj = imoveis.data?.find((i) => i.id === r.imovel_id);
+    const targetImovelId = r.imovel_id ?? (r.titulo && r.id ? r.id : null);
+    const cover = getCoverPhoto(targetImovelId);
+
+    return {
+      ...r,
+      foto_capa: r.foto_capa ?? cover,
+      imovel: imovelObj ? { ...imovelObj, foto_capa: getCoverPhoto(imovelObj.id) } : undefined,
+      cliente: clientes.data?.find((i) => i.id === (r.cliente_id ?? r.comprador_id)),
+      proprietario: proprietarios.data?.find((i) => i.id === r.proprietario_id),
+    };
+  });
 }
 
 export async function publicFlats(rows: Record<string, any>[]) {
@@ -26,7 +45,8 @@ export async function publicFlats(rows: Record<string, any>[]) {
   return rows.map((r) => {
     const gallery = (files ?? []).filter((f) => f.imovel_id === r.id).map((f) => db.storage.from(IMOBILIARIO_BUCKET_FOTOS).getPublicUrl(f.path).data.publicUrl);
     const address = r.endereco_publico ?? {};
-    return { id: String(r.id), slug: r.slug, title: r.titulo, neighborhood: address.bairro ?? "", city: address.cidade ?? "", state: address.estado ?? "",
+    return {
+      id: String(r.id), slug: r.slug, title: r.titulo, neighborhood: address.bairro ?? "", city: address.cidade ?? "", state: address.estado ?? "",
       description: r.descricao ?? "", coverImage: gallery[0] ?? "", gallery, realPhotos: Boolean(r.fotos_reais) && gallery.length > 0,
       maxGuests: Number(r.capacidade ?? 1), bedrooms: Number(r.quartos ?? 0), bathrooms: Number(r.banheiros ?? 0), areaSqm: Number(r.area ?? 0), amenities: r.comodidades ?? [],
       active: r.ativo, published: r.publicado, fromPrice: Number(r.diaria ?? 0), tag: r.selo_anuncio ?? "",
@@ -38,9 +58,11 @@ export async function publicFlats(rows: Record<string, any>[]) {
 }
 
 export function publicBooking(row: Record<string, any>) {
-  return { id: String(row.id), flatTitle: row.imovel?.titulo ?? "Imóvel", slug: row.imovel?.slug ?? "", checkin: row.inicio, checkout: row.fim,
+  return {
+    id: String(row.id), flatTitle: row.imovel?.titulo ?? "Imóvel", slug: row.imovel?.slug ?? "", checkin: row.inicio, checkout: row.fim,
     guests: row.hospedes, total: Number(row.valor_total), status: statusReservaPublico(row.status),
-    paymentStatus: ({ PENDENTE: "PENDING", PARCIAL: "PARTIAL", PAGO: "PAID", ESTORNADO: "REFUNDED" } as Record<string, string>)[row.financeiro_status] ?? "PENDING", createdAt: row.created_at };
+    paymentStatus: ({ PENDENTE: "PENDING", PARCIAL: "PARTIAL", PAGO: "PAID", ESTORNADO: "REFUNDED" } as Record<string, string>)[row.financeiro_status] ?? "PENDING", createdAt: row.created_at
+  };
 }
 
 export async function activeOperations(imovelId: number, start: string) {

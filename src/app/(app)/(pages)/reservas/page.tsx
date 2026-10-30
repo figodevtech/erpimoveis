@@ -7,7 +7,7 @@ import Cards from "./components/cards";
 import SearchFilter from "./components/searchfilter";
 import ReservasDataTable from "./components/reservas-data-table";
 import useReservasStatusCounter from "./hooks/status-counter";
-import { Pagination, Reserva, StatusReserva } from "./types";
+import { Pagination, Reserva, ReservasTab, StatusReserva } from "./types";
 import { useModulePermission } from "@/components/imobiliario/shared";
 
 const EntityDialog = dynamic(() => import("@/components/imobiliario/entity-dialog"), {
@@ -20,7 +20,8 @@ export default function ReservasPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const [status, setStatus] = useState<StatusReserva>(StatusReserva.TODOS);
+  const [tab, setTab] = useState<ReservasTab>("ABERTAS");
+  const [status, setStatus] = useState<StatusReserva>(StatusReserva.ABERTAS);
   const [inicio, setInicio] = useState("");
   const [fim, setFim] = useState("");
   const [propertyId, setPropertyId] = useState<number | null>(null);
@@ -47,6 +48,14 @@ export default function ReservasPage() {
 
   const requestSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const paramTab = new URLSearchParams(window.location.search).get("tab")?.toUpperCase();
+    if (paramTab === "FINALIZADAS") {
+      setTab("FINALIZADAS");
+      setStatus(StatusReserva.FINALIZADAS);
+    }
+  }, []);
 
   const fetchReservas = useCallback(
     async (
@@ -146,6 +155,24 @@ export default function ReservasPage() {
     void fetchReservas(1, pagination.limit, search, status, inicio, fim, propertyId);
   }, [status, search, inicio, fim, propertyId, ready, can, pagination.limit]);
 
+  const handleTabChange = (newTab: ReservasTab) => {
+    setTab(newTab);
+    const newStatus = newTab === "ABERTAS" ? StatusReserva.ABERTAS : StatusReserva.FINALIZADAS;
+    setStatus(newStatus);
+    setPagination((prev) => ({ ...prev, page: 1 }));
+    void fetchReservas(1, pagination.limit, search, newStatus, inicio, fim, propertyId);
+  };
+
+  const handleViewChange = (newView: "list" | "calendar") => {
+    setView(newView);
+    if (newView === "calendar") {
+      setStatus(StatusReserva.TODOS);
+    } else {
+      const activeStatus = tab === "ABERTAS" ? StatusReserva.ABERTAS : StatusReserva.FINALIZADAS;
+      setStatus(activeStatus);
+    }
+  };
+
   const handleRefresh = () => {
     void fetchReservas(pagination.page, pagination.limit, search, status, inicio, fim, propertyId);
     void fetchStatusCounts();
@@ -187,6 +214,8 @@ export default function ReservasPage() {
         setFim={setFim}
         propertyId={propertyId}
         setPropertyId={setPropertyId}
+        tab={tab}
+        view={view}
         onSearch={() => {
           const term = searchInput.trim();
           if (term === search) {
@@ -205,13 +234,17 @@ export default function ReservasPage() {
         }}
       />
 
-      {/* Tabela de Reservas dentro do Card com alternador de exibição */}
+      {/* Tabela de Reservas dentro do Card com alternador de exibição e tabs */}
       <ReservasDataTable
         reservas={reservas}
         isLoading={isLoading}
         pagination={pagination}
         view={view}
-        onViewChange={setView}
+        onViewChange={handleViewChange}
+        tab={tab}
+        onTabChange={handleTabChange}
+        ativasCount={ativas}
+        finalizadasCount={finalizadas}
         onPageChange={(page) => fetchReservas(page, pagination.limit, search, status, inicio, fim, propertyId)}
         onPageSizeChange={(limit) => fetchReservas(1, limit, search, status, inicio, fim, propertyId)}
         onRefresh={handleRefresh}

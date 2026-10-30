@@ -1,10 +1,19 @@
 export enum StatusReserva {
   TODOS = "TODOS",
+  ABERTAS = "ABERTAS",
+  FINALIZADAS = "FINALIZADAS",
   CONFIRMADA = "CONFIRMADA",
   EM_ANDAMENTO = "EM_ANDAMENTO",
   CONCLUIDA = "CONCLUIDA",
   CANCELADA = "CANCELADA",
 }
+
+export type ReservasTab = "ABERTAS" | "FINALIZADAS";
+
+export const RESERVAS_TABS: { value: ReservasTab; label: string }[] = [
+  { value: "ABERTAS", label: "Abertas" },
+  { value: "FINALIZADAS", label: "Finalizadas" },
+];
 
 export interface Reserva {
   id: number;

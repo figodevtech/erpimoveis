@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import axios from "axios";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +21,9 @@ import {
 import { Lookup, requestJson } from "./shared";
 import { type Entity, type ModuleKind, dateInput, money, titleCase } from "./model";
 import ProprietarioSelect from "@/app/(app)/components/proprietarioSelect";
+import CustomerSelect from "@/app/(app)/components/customerSelect";
+import ImovelSelect, { type ImovelItem } from "@/app/(app)/components/imovelSelect";
+import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import ValueInput from "@/components/ui/value-input";
 import {
   AlertCircle,
@@ -35,6 +39,13 @@ import {
   User,
   Users,
   Mail,
+  CalendarDays,
+  Bed,
+  Bath,
+  Maximize2,
+  RefreshCw,
+  FileText,
+  CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -1167,7 +1178,18 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
     );
   }
 
-  // Operações (Reservas, Locações, Vendas)
+  if (kind === "reservas") {
+    return (
+      <ReservationGeneralFields
+        value={value}
+        onChange={onChange}
+        editing={editing}
+        disabled={disabled}
+      />
+    );
+  }
+
+  // Operações (Locações, Vendas)
   return (
     <div className="space-y-6">
       <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
@@ -1184,7 +1206,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
               label=""
               value={value.imovel_id}
               initial={value.imovel}
-              disabled={Boolean(disabled || (editing && kind !== "reservas"))}
+              disabled={Boolean(disabled || editing)}
               onChange={(id, item) => onChange({ ...value, imovel_id: id, imovel: item })}
             />
           </div>
@@ -1258,7 +1280,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
             <>
               <div className="space-y-2">
                 <Label htmlFor="inicio" className="text-sm">
-                  {kind === "reservas" ? "Data de Check-in *" : "Início do Contrato *"}
+                  Início do Contrato *
                 </Label>
                 <Input
                   id="inicio"
@@ -1271,7 +1293,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
 
               <div className="space-y-2">
                 <Label htmlFor="fim" className="text-sm">
-                  {kind === "reservas" ? "Data de Check-out *" : "Término do Contrato"}
+                  Término do Contrato
                 </Label>
                 <Input
                   id="fim"
@@ -1282,33 +1304,19 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
                 />
               </div>
 
-              {kind === "reservas" ? (
-                <div className="space-y-2">
-                  <Label htmlFor="hospedes" className="text-sm">Quantidade de Hóspedes *</Label>
-                  <Input
-                    id="hospedes"
-                    type="number"
-                    min="1"
-                    disabled={disabled}
-                    value={value.hospedes ?? 1}
-                    onChange={(e) => set("hospedes", Number(e.target.value))}
-                  />
-                </div>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="valor_mensal" className="text-sm">Aluguel Mensal *</Label>
-                    <ValueInput
-                      id="valor_mensal"
-                      disabled={disabled}
-                      allowEmpty
-                      value={value.valor_mensal != null && value.valor_mensal !== "" ? Number(value.valor_mensal) : null}
-                      onValueChange={(val) => set("valor_mensal", val)}
-                      onEmpty={() => set("valor_mensal", null)}
-                      placeholder="R$ 0,00"
-                      className="h-10 sm:h-11"
-                    />
-                  </div>
+              <div className="space-y-2">
+                <Label htmlFor="valor_mensal" className="text-sm">Aluguel Mensal *</Label>
+                <ValueInput
+                  id="valor_mensal"
+                  disabled={disabled}
+                  allowEmpty
+                  value={value.valor_mensal != null && value.valor_mensal !== "" ? Number(value.valor_mensal) : null}
+                  onValueChange={(val) => set("valor_mensal", val)}
+                  onEmpty={() => set("valor_mensal", null)}
+                  placeholder="R$ 0,00"
+                  className="h-10 sm:h-11"
+                />
+              </div>
                   <div className="space-y-2">
                     <Label htmlFor="dia_vencimento" className="text-sm">Dia do Vencimento *</Label>
                     <Input
@@ -1356,8 +1364,6 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
                   </div>
                 </>
               )}
-            </>
-          )}
         </div>
 
         <div className="space-y-2">
@@ -1372,6 +1378,541 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+function formatDocument(val?: string | null): string {
+  if (!val) return "—";
+  const digits = val.replace(/\D/g, "");
+  if (digits.length === 11) {
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+  }
+  if (digits.length === 14) {
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+  }
+  return val;
+}
+
+function formatPhone(phone?: string | null): string {
+  if (!phone) return "—";
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  return phone;
+}
+
+function calculateNights(inicio?: string | null, fim?: string | null): number | null {
+  if (!inicio || !fim) return null;
+  const d1 = new Date(`${inicio.slice(0, 10)}T12:00:00`);
+  const d2 = new Date(`${fim.slice(0, 10)}T12:00:00`);
+  const diffTime = d2.getTime() - d1.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  return isNaN(diffDays) ? null : diffDays;
+}
+
+function ReservationGeneralFields({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: Entity;
+  onChange: (value: Entity) => void;
+  editing?: boolean;
+  disabled?: boolean;
+}) {
+  const [imovelSelectOpen, setImovelSelectOpen] = useState(false);
+  const [customerSelectOpen, setCustomerSelectOpen] = useState(false);
+
+  const set = (key: string, fieldVal: any) => onChange({ ...value, [key]: fieldVal });
+
+  const imovel = value.imovel;
+  const cliente = value.cliente;
+  const nights = calculateNights(value.inicio, value.fim);
+
+  // Fallback seguro caso imovel_id exista mas os detalhes ainda não tenham sido injetados
+  useEffect(() => {
+    if (value.imovel_id && (!imovel || !imovel.titulo)) {
+      requestJson(`/api/imoveis/${value.imovel_id}`)
+        .then((res) => {
+          const item = res?.item ?? res;
+          if (item) {
+            onChange({ ...value, imovel: item });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [value.imovel_id]);
+
+  // Fallback seguro caso cliente_id exista mas os detalhes ainda não tenham sido injetados
+  useEffect(() => {
+    if (value.cliente_id && (!cliente || !cliente.nomerazaosocial)) {
+      axios
+        .get("/api/customers/busca", {
+          params: { search: String(value.cliente_id), limit: 1 },
+        })
+        .then((res) => {
+          const item = res.data?.data?.[0];
+          if (item) {
+            onChange({ ...value, cliente: item });
+          }
+        })
+        .catch(() => {});
+    }
+  }, [value.cliente_id]);
+
+  const imovelEndereco = [
+    imovel?.endereco?.bairro || imovel?.endereco_publico?.bairro,
+    imovel?.endereco?.cidade || imovel?.endereco_publico?.cidade,
+    imovel?.endereco?.estado || imovel?.endereco_publico?.estado,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="space-y-6">
+      {/* 1. CARD: IMÓVEL VINCULADO */}
+      <div className="rounded-xl border bg-card p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold tracking-tight text-foreground">
+                Imóvel da Hospedagem
+              </h3>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Propriedade vinculada à estadia e parâmetros de locação.
+            </p>
+          </div>
+
+          {imovel || value.imovel_id ? (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={() => setImovelSelectOpen(true)}
+                className="h-8 text-xs gap-1.5 hover:cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Trocar Imóvel
+              </Button>
+              {!disabled ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onChange({ ...value, imovel_id: null, imovel: null })}
+                  className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:cursor-pointer"
+                  title="Desvincular imóvel"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        {imovel || value.imovel_id ? (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-4 rounded-lg border border-border/70 bg-muted/20 p-3.5 sm:p-4">
+            {/* Foto ou Placeholder */}
+            <div className="relative h-32 sm:h-28 sm:w-36 shrink-0 overflow-hidden rounded-lg border border-border/60 bg-muted/50">
+              {imovel?.foto_capa ? (
+                <img
+                  src={imovel.foto_capa}
+                  alt={imovel?.titulo || "Foto do imóvel"}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground">
+                  <Building2 className="h-8 w-8 stroke-[1.5]" />
+                  <span className="text-[10px] uppercase font-medium tracking-wide">Sem foto</span>
+                </div>
+              )}
+              <span className="absolute bottom-1.5 left-1.5 rounded bg-background/85 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-foreground backdrop-blur-xs border border-border/40 shadow-xs">
+                #{imovel?.codigo || imovel?.id || value.imovel_id}
+              </span>
+            </div>
+
+            {/* Conteúdo Imóvel */}
+            <div className="flex-1 min-w-0 space-y-2.5">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="font-semibold text-sm sm:text-base text-foreground leading-snug">
+                    {imovel?.titulo || `Imóvel #${value.imovel_id}`}
+                  </h4>
+                  {imovel?.tipo ? (
+                    <Badge variant="secondary" className="text-[11px] font-normal">
+                      {titleCase(imovel.tipo)}
+                    </Badge>
+                  ) : null}
+                  {imovel?.situacao_operacional ? (
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "text-[11px]",
+                        imovel.situacao_operacional === "DISPONIVEL"
+                          ? "border-emerald-500/30 text-emerald-700 bg-emerald-500/10 dark:text-emerald-400"
+                          : "border-slate-500/30 text-slate-700 bg-slate-500/10 dark:text-slate-300"
+                      )}
+                    >
+                      {titleCase(imovel.situacao_operacional)}
+                    </Badge>
+                  ) : null}
+                </div>
+
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground/80" />
+                  <span className="truncate">{imovelEndereco || "Endereço cadastrado no imóvel"}</span>
+                </div>
+              </div>
+
+              {/* Especificações */}
+              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-background px-2 py-1 text-xs border border-border/50 text-foreground">
+                  <Users className="h-3.5 w-3.5 text-primary" />
+                  Até {imovel?.capacidade ?? 1} hóspedes
+                </span>
+                {imovel?.quartos != null ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-background px-2 py-1 text-xs border border-border/50 text-foreground">
+                    <Bed className="h-3.5 w-3.5 text-muted-foreground" />
+                    {imovel.quartos} {imovel.quartos === 1 ? "quarto" : "quartos"}
+                  </span>
+                ) : null}
+                {imovel?.banheiros != null ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-background px-2 py-1 text-xs border border-border/50 text-foreground">
+                    <Bath className="h-3.5 w-3.5 text-muted-foreground" />
+                    {imovel.banheiros} {imovel.banheiros === 1 ? "banheiro" : "banheiros"}
+                  </span>
+                ) : null}
+                {imovel?.area ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-background px-2 py-1 text-xs border border-border/50 text-foreground">
+                    <Maximize2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    {imovel.area} m²
+                  </span>
+                ) : null}
+                {imovel?.diaria ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                    Diária base: {money(imovel.diaria)}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/80 bg-muted/10 p-6 text-center">
+            <div className="rounded-full bg-primary/10 p-3 text-primary">
+              <Building2 className="h-6 w-6" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">Nenhum imóvel vinculado</p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                Selecione o imóvel de temporada para vincular a esta reserva e calcular as diárias.
+              </p>
+            </div>
+            <Button
+              type="button"
+              disabled={disabled}
+              onClick={() => setImovelSelectOpen(true)}
+              className="h-9 gap-1.5 text-xs hover:cursor-pointer"
+            >
+              <Search className="h-3.5 w-3.5" />
+              Selecionar Imóvel
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* 2. CARD: HÓSPEDE PRINCIPAL */}
+      <div className="rounded-xl border bg-card p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <User className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold tracking-tight text-foreground">
+                Hóspede Principal (Cliente)
+              </h3>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Pessoa responsável pelo contrato de locação e titular da reserva.
+            </p>
+          </div>
+
+          {cliente || value.cliente_id ? (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={() => setCustomerSelectOpen(true)}
+                className="h-8 text-xs gap-1.5 hover:cursor-pointer"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Trocar Hóspede
+              </Button>
+              {!disabled ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onChange({ ...value, cliente_id: null, cliente: null })}
+                  className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:cursor-pointer"
+                  title="Desvincular hóspede"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        {cliente || value.cliente_id ? (
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 rounded-lg border border-border/70 bg-muted/20 p-3.5 sm:p-4">
+            <Avatar className="h-12 w-12 sm:h-14 sm:w-14 border border-border/60 shrink-0">
+              <AvatarFallback className="bg-primary/10 text-primary font-bold text-sm">
+                {cliente?.nomerazaosocial
+                  ? cliente.nomerazaosocial.slice(0, 2).toUpperCase()
+                  : <User className="h-5 w-5" />}
+              </AvatarFallback>
+            </Avatar>
+
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="font-semibold text-sm sm:text-base text-foreground leading-snug">
+                  {cliente?.nomerazaosocial || `Cliente #${value.cliente_id}`}
+                </h4>
+                {cliente?.cpfcnpj ? (
+                  <Badge variant="outline" className="font-mono text-[11px] text-muted-foreground">
+                    {formatDocument(cliente.cpfcnpj)}
+                  </Badge>
+                ) : null}
+                {cliente?.tipopessoa ? (
+                  <Badge variant="secondary" className="text-[11px] font-normal">
+                    {cliente.tipopessoa === "FISICA" ? "Pessoa Física" : "Pessoa Jurídica"}
+                  </Badge>
+                ) : null}
+                {cliente?.status ? (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[11px]",
+                      cliente.status === "ATIVO"
+                        ? "border-emerald-500/30 text-emerald-700 bg-emerald-500/10 dark:text-emerald-400"
+                        : "border-slate-500/30 text-slate-700 bg-slate-500/10 dark:text-slate-300"
+                    )}
+                  >
+                    {titleCase(cliente.status)}
+                  </Badge>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                {cliente?.telefone ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Phone className="h-3.5 w-3.5 text-muted-foreground/80" />
+                    {formatPhone(cliente.telefone)}
+                  </span>
+                ) : null}
+                {cliente?.email ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Mail className="h-3.5 w-3.5 text-muted-foreground/80" />
+                    {cliente.email}
+                  </span>
+                ) : null}
+                {(cliente?.cidade || cliente?.estado) ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-muted-foreground/80" />
+                    {[cliente.cidade, cliente.estado].filter(Boolean).join(" - ")}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/80 bg-muted/10 p-6 text-center">
+            <div className="rounded-full bg-primary/10 p-3 text-primary">
+              <User className="h-6 w-6" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-foreground">Nenhum hóspede vinculado</p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                Selecione o cliente responsável pelo contrato e faturamento desta reserva.
+              </p>
+            </div>
+            <Button
+              type="button"
+              disabled={disabled}
+              onClick={() => setCustomerSelectOpen(true)}
+              className="h-9 gap-1.5 text-xs hover:cursor-pointer"
+            >
+              <Search className="h-3.5 w-3.5" />
+              Selecionar Hóspede
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* 3. CARD: PERÍODO E OCUPAÇÃO */}
+      <div className="rounded-xl border bg-card p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold tracking-tight text-foreground">
+              Período da Estadia & Ocupação
+            </h3>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Defina as datas de check-in, check-out e total de hóspedes da reserva.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="res-inicio" className="text-sm">
+              Data de Check-in *
+            </Label>
+            <Input
+              id="res-inicio"
+              type="date"
+              disabled={disabled}
+              value={dateInput(value.inicio)}
+              onChange={(e) => set("inicio", e.target.value)}
+              className="h-10 sm:h-11"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Entrada: {imovel?.horario_checkin ? `a partir das ${imovel.horario_checkin}` : "padrão às 14:00"}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="res-fim" className="text-sm">
+              Data de Check-out *
+            </Label>
+            <Input
+              id="res-fim"
+              type="date"
+              disabled={disabled}
+              value={dateInput(value.fim)}
+              onChange={(e) => set("fim", e.target.value)}
+              className="h-10 sm:h-11"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Saída: {imovel?.horario_checkout ? `até as ${imovel.horario_checkout}` : "padrão às 11:00"}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="res-hospedes" className="text-sm">
+              Quantidade de Hóspedes *
+            </Label>
+            <Input
+              id="res-hospedes"
+              type="number"
+              min="1"
+              max={imovel?.capacidade || undefined}
+              disabled={disabled}
+              value={value.hospedes ?? 1}
+              onChange={(e) => set("hospedes", Number(e.target.value))}
+              className="h-10 sm:h-11"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              {imovel?.capacidade
+                ? `Capacidade máx: ${imovel.capacidade} hóspedes`
+                : "Total de pessoas hospedadas"}
+            </p>
+          </div>
+        </div>
+
+        {/* Resumo da Estadia */}
+        {nights != null ? (
+          nights > 0 ? (
+            <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 font-semibold text-xs py-1 px-2.5 gap-1.5">
+                  🌙 {nights} {nights === 1 ? "noite de estadia" : "noites de estadia"}
+                </Badge>
+                <span className="text-xs text-muted-foreground font-medium">
+                  • {value.hospedes ?? 1} {Number(value.hospedes) === 1 ? "hóspede" : "hóspedes"}
+                </span>
+                {imovel?.diaria ? (
+                  <span className="text-xs text-muted-foreground">
+                    • Subtotal estimado: <strong className="text-foreground">{money(Number(imovel.diaria) * nights)}</strong>
+                  </span>
+                ) : null}
+              </div>
+
+              {imovel?.capacidade && Number(value.hospedes) > Number(imovel.capacidade) ? (
+                <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  Atenção: excede a capacidade máxima do imóvel ({imovel.capacidade} pessoas)
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3 flex items-center gap-2 text-xs text-destructive font-medium">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              A data de check-out deve ser posterior à data de check-in.
+            </div>
+          )
+        ) : null}
+      </div>
+
+      {/* 4. CARD: OBSERVAÇÕES */}
+      <div className="rounded-xl border bg-card p-4 sm:p-5 shadow-xs space-y-3">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold tracking-tight text-foreground">
+              Observações e Instruções da Hospedagem
+            </h3>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Instruções de check-in, solicitações especiais, avisos para a equipe ou portaria.
+          </p>
+        </div>
+
+        <Textarea
+          id="res-observacoes"
+          disabled={disabled}
+          rows={3}
+          value={value.observacoes ?? ""}
+          onChange={(e) => set("observacoes", e.target.value)}
+          placeholder="Ex: Check-in previsto para às 19:30. Hóspede solicitou berço adicional. Acompanhantes: João e Maria. Liberar acesso na portaria."
+        />
+      </div>
+
+      {/* Modais de Seleção */}
+      <ImovelSelect
+        open={imovelSelectOpen}
+        setOpen={setImovelSelectOpen}
+        modalidadePadrao="TEMPORADA"
+        OnSelect={(selectedImovel) => {
+          onChange({
+            ...value,
+            imovel_id: selectedImovel.id,
+            imovel: selectedImovel,
+          });
+        }}
+      />
+
+      <CustomerSelect
+        open={customerSelectOpen}
+        setOpen={setCustomerSelectOpen}
+        OnSelect={(selectedCustomer) => {
+          onChange({
+            ...value,
+            cliente_id: selectedCustomer.id,
+            cliente: selectedCustomer,
+          });
+        }}
+      />
     </div>
   );
 }
@@ -1529,15 +2070,15 @@ export function ReservationQuote({
     value.fim > value.inicio;
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-4">
+    <div className="rounded-xl border bg-card p-4 sm:p-5 shadow-xs space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="space-y-0.5">
-          <p className="text-sm font-semibold flex items-center gap-2">
+          <p className="text-sm font-semibold flex items-center gap-2 text-foreground">
             <Calculator className="h-4 w-4 text-primary" />
-            Cotação da hospedagem
+            Cotação da Hospedagem & Disponibilidade
           </p>
           <p className="text-xs text-muted-foreground">
-            Consulte a disponibilidade em tempo real antes de salvar.
+            Consulte a disponibilidade em tempo real e confirme os valores das diárias antes de salvar.
           </p>
         </div>
         <Button
@@ -1555,7 +2096,7 @@ export function ReservationQuote({
           ) : (
             <>
               <Sparkles className="h-3.5 w-3.5 text-primary" />
-              Calcular diárias
+              Calcular Diárias
             </>
           )}
         </Button>
@@ -1563,7 +2104,7 @@ export function ReservationQuote({
 
       {error ? (
         <div
-          className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"
+          className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive font-medium"
           role="alert"
         >
           <AlertCircle className="h-4 w-4 shrink-0" />
@@ -1572,20 +2113,32 @@ export function ReservationQuote({
       ) : null}
 
       {quote ? (
-        <div className="grid gap-3 sm:grid-cols-3 pt-2 border-t border-border/40">
-          <div className="rounded-lg bg-muted/40 p-3 border border-border/50">
-            <p className="text-xs text-muted-foreground">Total das Diárias</p>
-            <p className="text-base font-bold text-foreground mt-0.5">{money(quote.subtotal)}</p>
+        <div className="space-y-3 pt-1 border-t border-border/40">
+          <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className="border-emerald-500/30 text-emerald-700 bg-emerald-500/10 dark:text-emerald-400 text-xs gap-1.5 py-1 px-2.5"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Disponibilidade confirmada no período
+            </Badge>
           </div>
-          <div className="rounded-lg bg-muted/40 p-3 border border-border/50">
-            <p className="text-xs text-muted-foreground">Taxas e Serviços</p>
-            <p className="text-base font-bold text-foreground mt-0.5">
-              {money(Number(quote.total) - Number(quote.subtotal))}
-            </p>
-          </div>
-          <div className="rounded-lg bg-primary/10 p-3 border border-primary/20">
-            <p className="text-xs text-primary font-medium">Valor Total da Reserva</p>
-            <p className="text-lg font-extrabold text-foreground mt-0.5">{money(quote.total)}</p>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg bg-muted/30 p-3.5 border border-border/50">
+              <p className="text-xs text-muted-foreground">Total das Diárias</p>
+              <p className="text-base sm:text-lg font-bold text-foreground mt-0.5">{money(quote.subtotal)}</p>
+            </div>
+            <div className="rounded-lg bg-muted/30 p-3.5 border border-border/50">
+              <p className="text-xs text-muted-foreground">Taxas e Serviços</p>
+              <p className="text-base sm:text-lg font-bold text-foreground mt-0.5">
+                {money(Number(quote.total) - Number(quote.subtotal))}
+              </p>
+            </div>
+            <div className="rounded-lg bg-primary/10 p-3.5 border border-primary/20">
+              <p className="text-xs text-primary font-semibold">Valor Total da Reserva</p>
+              <p className="text-lg sm:text-xl font-extrabold text-foreground mt-0.5">{money(quote.total)}</p>
+            </div>
           </div>
         </div>
       ) : null}

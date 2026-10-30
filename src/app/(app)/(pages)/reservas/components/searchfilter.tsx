@@ -8,8 +8,7 @@ import {
 } from "@/components/ui/select";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { StatusReserva } from "../types";
-import { Lookup } from "@/components/imobiliario/shared";
+import { ReservasTab, StatusReserva } from "../types";
 
 interface SearchFilterProps {
   search: string;
@@ -22,8 +21,10 @@ interface SearchFilterProps {
   setInicio: (value: string) => void;
   fim: string;
   setFim: (value: string) => void;
-  propertyId: number | null;
-  setPropertyId: (value: number | null) => void;
+  propertyId?: number | null;
+  setPropertyId?: (value: number | null) => void;
+  tab?: ReservasTab;
+  view?: "list" | "calendar";
 }
 
 export default function SearchFilter({
@@ -39,7 +40,20 @@ export default function SearchFilter({
   setFim,
   propertyId,
   setPropertyId,
+  tab = "ABERTAS",
+  view = "list",
 }: SearchFilterProps) {
+  const isFiltered = Boolean(
+    search ||
+      (view === "list"
+        ? (tab === "ABERTAS" && status !== StatusReserva.ABERTAS) ||
+          (tab === "FINALIZADAS" && status !== StatusReserva.FINALIZADAS)
+        : status !== StatusReserva.TODOS) ||
+      inicio ||
+      fim ||
+      propertyId
+  );
+
   return (
     <div className="flex gap-4 flex-col lg:flex-row bg-card p-4 rounded-2xl shadow-sm border border-primary/30 items-stretch lg:items-center">
       <div className="relative flex-1">
@@ -90,21 +104,51 @@ export default function SearchFilter({
             <SelectValue placeholder="Situação" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={StatusReserva.TODOS} className="hover:cursor-pointer">
-              Todas as situações
-            </SelectItem>
-            <SelectItem value={StatusReserva.CONFIRMADA} className="hover:cursor-pointer">
-              Confirmada
-            </SelectItem>
-            <SelectItem value={StatusReserva.EM_ANDAMENTO} className="hover:cursor-pointer">
-              Em andamento
-            </SelectItem>
-            <SelectItem value={StatusReserva.CONCLUIDA} className="hover:cursor-pointer">
-              Concluída
-            </SelectItem>
-            <SelectItem value={StatusReserva.CANCELADA} className="hover:cursor-pointer">
-              Cancelada
-            </SelectItem>
+            {view === "list" ? (
+              tab === "ABERTAS" ? (
+                <>
+                  <SelectItem value={StatusReserva.ABERTAS} className="hover:cursor-pointer">
+                    Todas em aberto
+                  </SelectItem>
+                  <SelectItem value={StatusReserva.CONFIRMADA} className="hover:cursor-pointer">
+                    Confirmada
+                  </SelectItem>
+                  <SelectItem value={StatusReserva.EM_ANDAMENTO} className="hover:cursor-pointer">
+                    Em andamento
+                  </SelectItem>
+                </>
+              ) : (
+                <>
+                  <SelectItem value={StatusReserva.FINALIZADAS} className="hover:cursor-pointer">
+                    Todas finalizadas
+                  </SelectItem>
+                  <SelectItem value={StatusReserva.CONCLUIDA} className="hover:cursor-pointer">
+                    Concluída
+                  </SelectItem>
+                  <SelectItem value={StatusReserva.CANCELADA} className="hover:cursor-pointer">
+                    Cancelada
+                  </SelectItem>
+                </>
+              )
+            ) : (
+              <>
+                <SelectItem value={StatusReserva.TODOS} className="hover:cursor-pointer">
+                  Todas as situações
+                </SelectItem>
+                <SelectItem value={StatusReserva.CONFIRMADA} className="hover:cursor-pointer">
+                  Confirmada
+                </SelectItem>
+                <SelectItem value={StatusReserva.EM_ANDAMENTO} className="hover:cursor-pointer">
+                  Em andamento
+                </SelectItem>
+                <SelectItem value={StatusReserva.CONCLUIDA} className="hover:cursor-pointer">
+                  Concluída
+                </SelectItem>
+                <SelectItem value={StatusReserva.CANCELADA} className="hover:cursor-pointer">
+                  Cancelada
+                </SelectItem>
+              </>
+            )}
           </SelectContent>
         </Select>
       </div>
@@ -132,27 +176,21 @@ export default function SearchFilter({
         </div>
       </div>
 
-      <div className="w-full lg:w-56 shrink-0">
-        <Lookup
-          tipo="imoveis"
-          label=""
-          value={propertyId}
-          required={false}
-          onChange={(id) => setPropertyId(id)}
-        />
-      </div>
-
-      {(search || status !== StatusReserva.TODOS || inicio || fim || propertyId) ? (
+      {isFiltered ? (
         <Button
           type="button"
           variant="ghost"
           size="sm"
           onClick={() => {
             onClear();
-            setStatus(StatusReserva.TODOS);
+            if (view === "list") {
+              setStatus(tab === "ABERTAS" ? StatusReserva.ABERTAS : StatusReserva.FINALIZADAS);
+            } else {
+              setStatus(StatusReserva.TODOS);
+            }
             setInicio("");
             setFim("");
-            setPropertyId(null);
+            setPropertyId?.(null);
           }}
           className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
         >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useSession } from "next-auth/react";
 import { permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { Button } from "@/components/ui/button";
@@ -32,10 +32,14 @@ export function useRemote<T = any>(url: string | null) {
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const reload = useCallback(() => setVersion(value => value + 1), []);
+  const loadedUrl = useRef<string | null>(null);
   useEffect(() => {
     if (!url) return;
     const controller = new AbortController();
-    setLoading(true); setError(null); setData(null);
+    // Recarregar o mesmo endereço mantém os dados na tela até a resposta nova chegar.
+    if (loadedUrl.current !== url) setData(null);
+    loadedUrl.current = url;
+    setLoading(true); setError(null);
     requestJson(url, { signal: controller.signal }).then(setData).catch(error => { if (!controller.signal.aborted) setError(error.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [url, version]);

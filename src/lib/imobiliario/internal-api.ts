@@ -24,7 +24,10 @@ async function list(resource: Resource, url: URL, extra: Record<string, unknown>
   for (const [key, val] of Object.entries(extra)) query = query.eq(key, val);
   const search = filterText(url.searchParams.get("q") ?? url.searchParams.get("busca") ?? url.searchParams.get("search"));
   if (search) {
-    if (resource === "imoveis") query = query.or(`titulo.ilike.%${search}%,codigo.ilike.%${search}%,slug.ilike.%${search}%${/^\d+$/.test(search) ? `,id.eq.${search}` : ""}`);
+    if (resource === "imoveis") {
+      const idMatch = search.match(/^#?(\d+)$/);
+      query = query.or(`titulo.ilike.%${search}%,codigo.ilike.%${search}%,slug.ilike.%${search}%,endereco_publico->>bairro.ilike.%${search}%,endereco_publico->>cidade.ilike.%${search}%${idMatch ? `,id.eq.${idMatch[1]}` : ""}`);
+    }
     else if (resource === "proprietarios") {
       const idMatch = search.match(/^#?(\d+)$/);
       if (idMatch) {
@@ -42,11 +45,18 @@ async function list(resource: Resource, url: URL, extra: Record<string, unknown>
   }
   for (const key of ["proprietario_id", "imovel_id", "cliente_id"]) if (url.searchParams.get(key)) query = query.eq(key, identifier(url.searchParams.get(key)));
   for (const key of ["ativo", "publicado"]) if (url.searchParams.has(key) && url.searchParams.get(key) !== "") query = query.eq(key, url.searchParams.get(key) === "true");
-  if (url.searchParams.get("status") && url.searchParams.get("status") !== "TODOS") {
+  const statusParam = url.searchParams.get("status");
+  if (statusParam && statusParam !== "TODOS") {
     if (resource === "proprietarios") {
-      query = query.eq("ativo", url.searchParams.get("status") === "ATIVO");
+      query = query.eq("ativo", statusParam === "ATIVO");
+    } else if (resource === "reservas" && (statusParam === "ABERTAS" || statusParam === "ATIVAS")) {
+      query = query.in("status", ["CONFIRMADA", "EM_ANDAMENTO"]);
+    } else if (resource === "reservas" && (statusParam === "FINALIZADAS" || statusParam === "ENCERRADAS")) {
+      query = query.in("status", ["CONCLUIDA", "CANCELADA"]);
+    } else if (statusParam.includes(",")) {
+      query = query.in("status", statusParam.split(",").map((s) => s.trim()));
     } else {
-      query = query.eq("status", url.searchParams.get("status"));
+      query = query.eq("status", statusParam);
     }
   }
   if (resource === "proprietarios") {
@@ -54,8 +64,9 @@ async function list(resource: Resource, url: URL, extra: Record<string, unknown>
     if (tipo && tipo !== "TODOS") query = query.eq("tipopessoa", tipo);
   }
   if (resource === "imoveis") {
-    if (url.searchParams.get("modalidade")) query = query.contains("modalidades", [url.searchParams.get("modalidade")]);
-    if (url.searchParams.get("situacao")) query = query.eq("situacao_operacional", url.searchParams.get("situacao"));
+    const modalidade = url.searchParams.get("modalidade"), situacao = url.searchParams.get("situacao");
+    if (modalidade && modalidade !== "TODAS") query = query.contains("modalidades", [modalidade]);
+    if (situacao && situacao !== "TODOS") query = query.eq("situacao_operacional", situacao);
     if (url.searchParams.get("cidade")) query = query.ilike("endereco_publico->>cidade", `%${filterText(url.searchParams.get("cidade"))}%`);
   }
   if (["reservas", "locacoes-imobiliarias"].includes(resource)) {
@@ -164,10 +175,10 @@ async function statusCounter(resource: Resource) {
   if (resource === "imoveis") {
     const [total, disponiveis, reservados, alugados, outros] = await Promise.all([
       db.from("imovel").select("*", { count: "exact", head: true }),
-      db.from("imovel").select("*", { count: "exact", head: true }).eq("situacao_operacional", "DISPONIVEL"),
-      db.from("imovel").select("*", { count: "exact", head: true }).eq("situacao_operacional", "RESERVADO"),
-      db.from("imovel").select("*", { count: "exact", head: true }).eq("situacao_operacional", "ALUGADO"),
-      db.from("imovel").select("*", { count: "exact", head: true }).not("situacao_operacional", "in", '("DISPONIVEL","RESERVADO","ALUGADO")'),
+      db.from("imovel_resumo").select("*", { count: "exact", head: true }).eq("situacao_operacional", "DISPONIVEL"),
+      db.from("imovel_resumo").select("*", { count: "exact", head: true }).eq("situacao_operacional", "RESERVADO"),
+      db.from("imovel_resumo").select("*", { count: "exact", head: true }).eq("situacao_operacional", "ALUGADO"),
+      db.from("imovel_resumo").select("*", { count: "exact", head: true }).not("situacao_operacional", "in", '("DISPONIVEL","RESERVADO","ALUGADO")'),
     ]);
     const ocupados = (total.count ?? 0) - (disponiveis.count ?? 0);
     return {
