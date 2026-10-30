@@ -4,7 +4,9 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { normalizarIndIEDest } from "@/lib/nfe/indIEDest";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { requireClientesAccess, requireClientesDelete, requireClientesEdit } from "@/app/api/_authz/perms";
+import { requireClientesAccess, requireClientesEdit } from "@/app/api/_authz/perms";
+import { PERMS } from "@/app/api/_authz/permission-constants";
+import { imobFailure, internal, rpc } from "@/lib/imobiliario/server";
 import { recusaSeClienteDoSistema } from "@/lib/clientes/consumidor-final-server";
 import {
   isValidCnpj,
@@ -277,7 +279,7 @@ export async function PUT(req: Request, ctx: Params) {
 
 export async function DELETE(_: Request, ctx: Params) {
   try {
-    await requireClientesDelete();
+    const access = await internal(PERMS.CLIENTES_EXCLUIR);
     const { id: idParam } = await ctx.params;
     const id = Number((idParam ?? "").trim());
     if (!id) {
@@ -286,31 +288,10 @@ export async function DELETE(_: Request, ctx: Params) {
     const recusa = await recusaSeClienteDoSistema(id);
     if (recusa) return recusa;
 
-    // Com ON DELETE CASCADE, basta deletar o cliente.
-    // Usamos .select('id') para saber se encontrou/deletou algo.
-    const { data, error } = await supabaseAdmin
-      .from("cliente")
-      .delete()
-      .eq("id", id)
-      .select("id");
-
-    if (error) throw error;
-
-    if (!data || data.length === 0) {
-      return NextResponse.json(
-        { error: "Cliente não encontrado." },
-        { status: 404 }
-      );
-    }
-
-    // 204 No Content é o mais semântico para DELETE bem-sucedido
+    // Cliente, conta do site e login saem juntos, ou nada sai (cliente com histórico).
+    await rpc("imob_excluir_cliente", { p_id: id, p_actor: access.id });
     return new NextResponse(null, { status: 204 });
-    // Se preferir payload:
-    // return NextResponse.json({ success: true, deletedId: data[0].id }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Erro ao deletar cliente." },
-      { status: 500 }
-    );
+  } catch (e) {
+    return imobFailure(e);
   }
 }
