@@ -1,8 +1,8 @@
 import "server-only";
-import { randomUUID, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { db, identifier, ImobError, json, bodyOf, pagination, rpc, verifiedIdentity, external, filterText } from "./server";
-import { civilDate, leadSchema, reservaSchema } from "./schemas";
+import { civilDate, reservaSchema } from "./schemas";
 import { enrich, publicBooking, publicFlats } from "./data";
 import { cotacaoPublica, hojeImobiliario } from "./types";
 import { financeReport } from "./finance";
@@ -97,26 +97,7 @@ export async function publicApi(request: Request, path: string[]) {
     if (result.error) throw result.error;
     return json({ items: await publicFlats(result.data ?? []), total: result.count ?? 0, page, pageSize });
   }
-  if (["owner-leads", "leads", "visitas"].includes(path[0]) && method === "POST") {
-    publicRate(request, "contact", 5);
-    const input = await bodyOf(request);
-    if (input.website || input.company_website) throw new ImobError(400, "Solicitação inválida.");
-    const imovelId = input.imovelId ?? input.imovel_id ?? input.flatId;
-    const property = imovelId ? await publishedProperty(identifier(imovelId)) : null;
-    if (path[0] !== "owner-leads" && !property) throw new ImobError(400, "Selecione um imóvel.");
-    const parsed = leadSchema.parse({ nome: input.name ?? input.nome, email: input.email, telefone: input.phone ?? input.telefone, mensagem: input.message ?? input.mensagem ?? input.notes ?? "", imovel_id: property?.id, modalidade: input.modality ?? input.modalidade, origem: "SITE" });
-    if (parsed.modalidade && !property?.modalidades.includes(parsed.modalidade)) throw new ImobError(400, "Modalidade indisponível neste imóvel.");
-    const key = input.idempotencyKey ? z.string().min(8).max(200).parse(input.idempotencyKey) : randomUUID();
-    const desired = path[0] === "visitas" ? z.string().datetime({ offset: true }).parse(input.desiredAt ?? input.inicio) : null;
-    if (desired && Date.parse(desired) < Date.now()) throw new ImobError(400, "Escolha uma data futura para a visita.");
-    const saved = await db.from("imovel_lead").upsert({ ...parsed, modalidade: path[0] === "owner-leads" ? "PROPRIETARIO" : parsed.modalidade, idempotency_key: `SITE:${key}` }, { onConflict: "idempotency_key", ignoreDuplicates: true }).select("id").maybeSingle();
-    if (saved.error) throw saved.error;
-    if (path[0] === "visitas" && saved.data) {
-      const visit = await db.from("imovel_visita").insert({ imovel_id: property!.id, lead_id: saved.data.id, inicio: desired, fim: new Date(Date.parse(desired!) + 3600000).toISOString(), status: "SOLICITADA", observacoes: parsed.mensagem });
-      if (visit.error) throw visit.error;
-    }
-    return json({ success: true, id: saved.data?.id ?? null }, 201);
-  }
+  // Contatos de interesse (imóvel, visita, proprietário) vão direto ao WhatsApp pelo site; o ERP não os registra.
   throw new ImobError(404, "Rota pública não encontrada.");
 }
 

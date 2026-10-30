@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { db, identifier, ImobError, internal, internalAny, json, bodyOf, one, pagination, rpc, filterText } from "./server";
-import { civilDate, imovelSchema, leadSchema, locacaoSchema, proprietarioSchema, reservaSchema, tarifaSchema, vendaImovelSchema, visitaSchema } from "./schemas";
-import { activeOperations, deleteFile, enrich, filesFor, fileScope, fileUrl, publicationValid, reorderGallery, uploadFile } from "./data";
+import { civilDate, imovelSchema, locacaoSchema, proprietarioSchema, reservaSchema, tarifaSchema, vendaImovelSchema, visitaSchema } from "./schemas";
+import { activeOperations, deleteFile, enrich, filesFor, fileScope, fileUrl, publicationValid, removeStoredFiles, reorderGallery, uploadFile } from "./data";
 import { cotacaoPublica, hojeImobiliario } from "./types";
 import { financeAccess, financeReport, payCharge, scopeFromUrl, type FinanceScope } from "./finance";
 
@@ -299,8 +299,8 @@ export async function internalResource(request: Request, resource: Resource, pat
       if (result.error) throw result.error;
       return json({ item: result.data });
     }
-    if (["reservas", "locacoes", "vendas", "leads", "visitas"].includes(segment ?? "") && method === "GET") {
-      if (["leads", "visitas"].includes(segment)) return ancillary(request, segment!, [], { imovel_id: id });
+    if (["reservas", "locacoes", "vendas", "visitas"].includes(segment ?? "") && method === "GET") {
+      if (segment === "visitas") return visits(request, [], { imovel_id: id });
       const linked = ({ reservas: "reservas", locacoes: "locacoes-imobiliarias", vendas: "vendas-imobiliarias" } as const)[segment as "reservas" | "locacoes" | "vendas"];
       await internal(`${resources[linked].perm}:visualizar`);
       return json(await list(linked, url, { imovel_id: id }));
@@ -358,9 +358,15 @@ export async function internalResource(request: Request, resource: Resource, pat
     const row = await one(config.table, id);
     if (!["imoveis", "proprietarios"].includes(resource)) throw new ImobError(409, "Operações com histórico devem ser canceladas pela ação correspondente.");
     if (resource === "proprietarios" && row.user_id) throw new ImobError(409, "Bloqueie ou revogue o acesso e inative este proprietário.");
+    if (resource === "imoveis") {
+      // O banco decide no ato: sem reserva, locação, venda nem financeiro, exclui de vez.
+      const outcome = await rpc("imob_excluir_imovel", { p_id: id, p_actor: access.id });
+      if (outcome.excluido) await removeStoredFiles(outcome.arquivos ?? []);
+      return json(outcome);
+    }
     const result = await db.from(config.table).delete().eq("id", id);
     if (result.error?.code === "23503") {
-      const inactive = await db.from(config.table).update({ ativo: false, ...(resource === "imoveis" ? { publicado: false } : {}), updated_by: access.id }).eq("id", id).select().single();
+      const inactive = await db.from(config.table).update({ ativo: false, updated_by: access.id }).eq("id", id).select().single();
       if (inactive.error) throw inactive.error;
       return json({ item: inactive.data, inativado: true });
     }
@@ -370,10 +376,10 @@ export async function internalResource(request: Request, resource: Resource, pat
   throw new ImobError(404, "Rota imobiliária não encontrada.");
 }
 
-async function ancillary(request: Request, kind: string, path: string[], extra: Record<string, unknown> = {}) {
+async function visits(request: Request, path: string[], extra: Record<string, unknown> = {}) {
   const write = request.method !== "GET";
   const access = await internal(write ? PERMS.IMOVEIS_EDITAR : PERMS.IMOVEIS);
-  const table = kind === "leads" ? "imovel_lead" : "imovel_visita", schema = kind === "leads" ? leadSchema : visitaSchema;
+  const table = "imovel_visita", schema = visitaSchema;
   const url = new URL(request.url), id = path[0] ? identifier(path[0]) : null;
   if (request.method === "GET") {
     if (id) return json({ item: await one(table, id) });
@@ -397,7 +403,7 @@ async function ancillary(request: Request, kind: string, path: string[], extra: 
 
 export async function internalShared(request: Request, path: string[]) {
   const url = new URL(request.url), method = request.method;
-  if (["leads", "visitas"].includes(path[0])) return ancillary(request, path[0], path.slice(1));
+  if (path[0] === "visitas") return visits(request, path.slice(1));
   if (path[0] === "lookup" && method === "GET") {
     const type = url.searchParams.get("tipo");
     await internalAny(type === "bancos" ? [PERMS.FINANCEIRO, PERMS.PROPRIETARIOS_FINANCEIRO, PERMS.IMOVEIS_FINANCEIRO, PERMS.RESERVAS_FINANCEIRO, PERMS.LOCACOES_IMOBILIARIAS_FINANCEIRO, PERMS.VENDAS_IMOBILIARIAS_FINANCEIRO] : type === "proprietarios" ? [PERMS.PROPRIETARIOS, PERMS.IMOVEIS_CRIAR, PERMS.IMOVEIS_EDITAR, PERMS.VENDAS_IMOBILIARIAS_CONCLUIR] : type === "imoveis" ? [PERMS.IMOVEIS, PERMS.RESERVAS_CRIAR, PERMS.RESERVAS_EDITAR, PERMS.LOCACOES_IMOBILIARIAS_CRIAR, PERMS.VENDAS_IMOBILIARIAS_CRIAR, PERMS.PROPRIETARIOS_FINANCEIRO] : [PERMS.CLIENTES, PERMS.RESERVAS_CRIAR, PERMS.LOCACOES_IMOBILIARIAS_CRIAR, PERMS.VENDAS_IMOBILIARIAS_CRIAR]);

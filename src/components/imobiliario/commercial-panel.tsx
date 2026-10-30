@@ -17,44 +17,21 @@ import {
   useRemote,
 } from "./shared";
 import { type Entity, dateLabel, listFrom, titleCase } from "./model";
-import {
-  AlertCircle,
-  Calendar,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  ExternalLink,
-  History,
-  Loader2,
-  Mail,
-  MapPin,
-  MessageSquare,
-  Phone,
-  Plus,
-  User,
-} from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, History, Loader2, Plus } from "lucide-react";
 
-export function CommercialPanel({
-  imovelId,
-  type,
-}: {
-  imovelId: number;
-  type: "leads" | "visitas";
-}) {
+const VISIT_STATUSES = ["SOLICITADA", "CONFIRMADA", "REALIZADA", "CANCELADA"];
+
+/** Visitas agendadas ao imóvel. Contatos de interesse não são registrados: vão pelo WhatsApp. */
+export function CommercialPanel({ imovelId }: { imovelId: number }) {
   const { can } = useModulePermission();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [editing, setEditing] = useState<Entity | null>(null);
 
   const remote = useRemote(
-    `/api/imobiliario/${type}?imovel_id=${imovelId}&page=${page}&pageSize=10&status=${status}`
+    `/api/imobiliario/visitas?imovel_id=${imovelId}&page=${page}&pageSize=10&status=${status}`
   );
   const list = listFrom(remote.data);
-  const statuses =
-    type === "leads"
-      ? ["NOVO", "EM_ATENDIMENTO", "CONVERTIDO", "ARQUIVADO"]
-      : ["SOLICITADA", "CONFIRMADA", "REALIZADA", "CANCELADA"];
-
   const totalPages = Math.max(1, Math.ceil(list.total / 10));
 
   return (
@@ -64,7 +41,7 @@ export function CommercialPanel({
           <SelectField
             label="Filtrar por situação"
             value={status}
-            options={statuses}
+            options={VISIT_STATUSES}
             onChange={(value) => {
               setStatus(value);
               setPage(1);
@@ -74,11 +51,11 @@ export function CommercialPanel({
         {can("imoveis:editar") ? (
           <Button
             size="sm"
-            onClick={() => setEditing({ imovel_id: imovelId, status: statuses[0], origem: "ERP" })}
+            onClick={() => setEditing({ imovel_id: imovelId, status: VISIT_STATUSES[0] })}
             className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
           >
             <Plus className="h-3.5 w-3.5" />
-            <span>{type === "leads" ? "Novo contato / Lead" : "Agendar visita"}</span>
+            <span>Agendar visita</span>
           </Button>
         ) : null}
       </div>
@@ -92,22 +69,18 @@ export function CommercialPanel({
             >
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <p className="font-semibold text-foreground text-sm sm:text-base">
-                    {type === "leads" ? row.nome : `Visita agendada #${row.id}`}
-                  </p>
+                  <p className="font-semibold text-foreground text-sm sm:text-base">Visita agendada #{row.id}</p>
                   <StatusBadge status={row.status} />
                 </div>
                 <p className="text-xs sm:text-sm text-muted-foreground">
-                  {type === "leads"
-                    ? [row.email, row.telefone, titleCase(row.modalidade)].filter(Boolean).join(" · ")
-                    : `${dateLabel(row.inicio)} às ${new Date(row.inicio).toLocaleTimeString("pt-BR", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}`}
+                  {`${dateLabel(row.inicio)} às ${new Date(row.inicio).toLocaleTimeString("pt-BR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`}
                 </p>
-                {row.mensagem ?? row.observacoes ? (
+                {row.observacoes ? (
                   <p className="mt-1.5 line-clamp-2 text-xs sm:text-sm text-foreground/80 bg-muted/40 p-2 rounded-lg border border-border/40">
-                    {row.mensagem ?? row.observacoes}
+                    {row.observacoes}
                   </p>
                 ) : null}
               </div>
@@ -159,8 +132,7 @@ export function CommercialPanel({
       ) : null}
 
       {editing ? (
-        <CommercialDialog
-          type={type}
+        <VisitDialog
           initial={editing}
           editable={can("imoveis:editar")}
           onClose={() => setEditing(null)}
@@ -174,14 +146,12 @@ export function CommercialPanel({
   );
 }
 
-function CommercialDialog({
-  type,
+function VisitDialog({
   initial,
   editable,
   onClose,
   onSaved,
 }: {
-  type: "leads" | "visitas";
   initial: Entity;
   editable: boolean;
   onClose: () => void;
@@ -211,21 +181,15 @@ function CommercialDialog({
     setBusy(true);
     setError("");
     try {
-      const payload =
-        type === "visitas"
-          ? {
-              ...value,
-              inicio: new Date(value.inicio).toISOString(),
-              fim: new Date(value.fim).toISOString(),
-            }
-          : value;
-
-      await requestJson(`/api/imobiliario/${type}${value.id ? `/${value.id}` : ""}`, {
+      await requestJson(`/api/imobiliario/visitas${value.id ? `/${value.id}` : ""}`, {
         method: value.id ? "PATCH" : "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...value,
+          inicio: new Date(value.inicio).toISOString(),
+          fim: new Date(value.fim).toISOString(),
+        }),
       });
-
-      toast.success(type === "leads" ? "Contato atualizado com sucesso!" : "Visita atualizada com sucesso!");
+      toast.success("Visita atualizada com sucesso!");
       onSaved();
     } catch (error) {
       setError((error as Error).message);
@@ -240,8 +204,8 @@ function CommercialDialog({
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
-      title={type === "leads" ? "Contato e atendimento ao lead" : "Agendamento de visita ao imóvel"}
-      description="O registro fica vinculado ao imóvel e mantém o histórico das interações com o cliente."
+      title="Agendamento de visita ao imóvel"
+      description="A visita fica vinculada ao imóvel e mantém o histórico do atendimento."
       className="w-[95vw] max-w-xl max-h-[85vh]"
       footer={
         <div className="flex items-center justify-end gap-2 w-full">
@@ -275,25 +239,8 @@ function CommercialDialog({
     >
       <form id="commercial-form" onSubmit={submit} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          {type === "leads" ? (
-            <>
-              {input("nome", "Nome completo", "text", true)}
-              {input("email", "E-mail de contato", "email")}
-              {input("telefone", "Telefone / WhatsApp", "tel")}
-              <SelectField
-                label="Interesse"
-                value={value.modalidade ?? ""}
-                options={["TEMPORADA", "LOCACAO", "VENDA", "PROPRIETARIO"]}
-                disabled={!editable}
-                onChange={(field) => set("modalidade", field)}
-              />
-            </>
-          ) : (
-            <>
-              {input("inicio", "Data e hora de início", "datetime-local", true)}
-              {input("fim", "Data e hora de término", "datetime-local", true)}
-            </>
-          )}
+          {input("inicio", "Data e hora de início", "datetime-local", true)}
+          {input("fim", "Data e hora de término", "datetime-local", true)}
 
           <Lookup
             tipo="clientes"
@@ -306,26 +253,22 @@ function CommercialDialog({
           />
 
           <SelectField
-            label="Situação do atendimento"
+            label="Situação da visita"
             value={value.status ?? ""}
             required
             disabled={!editable}
-            options={
-              type === "leads"
-                ? ["NOVO", "EM_ATENDIMENTO", "CONVERTIDO", "ARQUIVADO"]
-                : ["SOLICITADA", "CONFIRMADA", "REALIZADA", "CANCELADA"]
-            }
+            options={VISIT_STATUSES}
             onChange={(field) => set("status", field)}
           />
         </div>
 
-        <Field label={type === "leads" ? "Mensagem inicial / Detalhes" : "Observações da visita"}>
+        <Field label="Observações da visita">
           <Textarea
             rows={4}
             disabled={!editable}
             placeholder="Anotações do atendimento, preferências do cliente, dúvidas levantadas..."
-            value={value[type === "leads" ? "mensagem" : "observacoes"] ?? ""}
-            onChange={(event) => set(type === "leads" ? "mensagem" : "observacoes", event.target.value)}
+            value={value.observacoes ?? ""}
+            onChange={(event) => set("observacoes", event.target.value)}
             className="text-base sm:text-sm"
           />
         </Field>

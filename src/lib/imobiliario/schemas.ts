@@ -63,10 +63,4 @@ export const vendaImovelSchema = z.object({
 export const tarifaSchema = z.object({ inicio: civilDate, fim: civilDate, diaria: money.positive(), min_noites: z.coerce.number().int().min(1).max(365).default(1), prioridade: z.coerce.number().int().min(0).max(1000).default(0), ativo: z.boolean().default(true) })
   .refine((v) => v.fim > v.inicio, { path: ["fim"], message: "Fim deve ser posterior ao início" });
 
-export const leadSchema = z.object({
-  imovel_id: id.nullish(), cliente_id: id.nullish(), nome: text.min(2).max(200), email: text.email().max(254).transform((v) => v.toLowerCase()),
-  telefone: text.min(8).max(40), mensagem: text.max(10000).default(""), modalidade: z.enum(["TEMPORADA", "LOCACAO", "VENDA", "PROPRIETARIO"]).optional(),
-  responsavel_id: z.string().uuid().nullish(), origem: z.enum(["SITE", "ERP"]).default("ERP"), status: z.enum(["NOVO", "EM_ATENDIMENTO", "CONVERTIDO", "ARQUIVADO"]).default("NOVO"),
-});
-
-export const visitaSchema = z.object({ imovel_id: id, cliente_id: id.nullish(), lead_id: id.nullish(), inicio: text.datetime({ offset: true }), fim: text.datetime({ offset: true }).nullish(), status: z.enum(["SOLICITADA", "CONFIRMADA", "REALIZADA", "CANCELADA"]).default("SOLICITADA"), responsavel_id: z.string().uuid().nullish(), observacoes: text.max(10000).default("") });
+export const visitaSchema = z.object({ imovel_id: id, cliente_id: id.nullish(), inicio: text.datetime({ offset: true }), fim: text.datetime({ offset: true }).nullish(), status: z.enum(["SOLICITADA", "CONFIRMADA", "REALIZADA", "CANCELADA"]).default("SOLICITADA"), responsavel_id: z.string().uuid().nullish(), observacoes: text.max(10000).default("") });

@@ -26,6 +26,7 @@ import { FinancePanel } from "./finance-panel";
 import { MidiaPanel } from "./midia/midia-panel";
 import { AnexosPanel } from "./midia/anexos-panel";
 import { useImovelMidia } from "./midia/use-imovel-midia";
+import { notifyRemoval } from "./row-actions";
 import { OperationAction } from "./actions-dialog";
 import { CommercialPanel } from "./commercial-panel";
 import {
@@ -300,15 +301,16 @@ export default function EntityDialog({
   const remove = async () => {
     if (
       !window.confirm(
-        `Inativar ou excluir este ${config.singular}? Registros com histórico serão preservados pelo sistema.`
+        kind === "imoveis"
+          ? "Excluir este imóvel? Sem reservas, locações, vendas ou lançamentos financeiros, ele é apagado definitivamente com fotos e anexos; com algum desses vínculos, é apenas inativado."
+          : `Inativar ou excluir este ${config.singular}? Registros com histórico serão preservados pelo sistema.`
       )
     )
       return;
     setBusy(true);
     setError("");
     try {
-      await requestJson(endpoint(kind, currentId), { method: "DELETE" });
-      toast.success("Cadastro removido ou inativado");
+      notifyRemoval(await requestJson(endpoint(kind, currentId), { method: "DELETE" }));
       onSaved?.();
       onOpenChange(false);
     } catch (error) {
@@ -717,7 +719,7 @@ export default function EntityDialog({
               >
                 <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
                   {tab === "visitas" && currentId && kind === "imoveis" ? (
-                    <CommercialPanel imovelId={currentId} type="visitas" />
+                    <CommercialPanel imovelId={currentId} />
                   ) : null}
                 </div>
               </TabsContent>
