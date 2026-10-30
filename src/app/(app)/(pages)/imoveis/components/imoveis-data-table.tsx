@@ -188,7 +188,7 @@ export default function ImoveisDataTable({
                         canEdit={canEdit}
                         onOpen={() => onSelectImovel(imovel.id)}
                         onDelete={onDeleteImovel ? () => onDeleteImovel(imovel.id) : undefined}
-                        deleteDescription="Esta ação não pode ser desfeita. Imóveis com histórico serão inativados e retirados do site em vez de excluídos."
+                        deleteDescription="Sem reservas, locações, vendas ou lançamentos financeiros, o imóvel é excluído definitivamente, com fotos, anexos, tarifas e agenda. Com qualquer um desses vínculos, ele é apenas inativado e retirado do site."
                       />
                     </TableCell>
                   </TableRow>

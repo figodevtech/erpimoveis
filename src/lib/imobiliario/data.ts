@@ -186,6 +186,21 @@ export async function fileUrl(scope: Record<string, unknown>, fileId: unknown, d
   return data.signedUrl;
 }
 
+/**
+ * Limpa do storage os arquivos de um registro já apagado no banco. Roda depois do
+ * commit: falha aqui deixa só arquivo órfão no bucket, nunca registro sem arquivo.
+ */
+export async function removeStoredFiles(files: { bucket: string; path: string }[]) {
+  const byBucket = new Map<string, string[]>();
+  for (const f of files) byBucket.set(f.bucket, [...(byBucket.get(f.bucket) ?? []), f.path]);
+  for (const [bucket, paths] of byBucket) {
+    for (let i = 0; i < paths.length; i += 100) {
+      const { error } = await db.storage.from(bucket).remove(paths.slice(i, i + 100));
+      if (error) console.error("[imobiliario] arquivos órfãos no storage:", bucket, error.message);
+    }
+  }
+}
+
 export async function deleteFile(scope: Record<string, unknown>, fileId: unknown) {
   const row = await one("imovel_arquivo", identifier(fileId));
   if (Object.entries(scope).some(([k, v]) => row[k] !== v)) throw new ImobError(404, "Arquivo não encontrado.");

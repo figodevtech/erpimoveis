@@ -30,12 +30,26 @@ import { requestJson } from "./shared";
 export async function removeEntity(kind: ModuleKind, id: number) {
   try {
     const result = await requestJson(endpoint(kind, id), { method: "DELETE" });
-    toast.success(result?.inativado ? "Cadastro inativado (possui histórico)." : "Cadastro excluído.");
+    notifyRemoval(result);
     return true;
   } catch (error) {
     toast.error("Erro ao excluir.", { description: (error as Error).message });
     return false;
   }
+}
+
+/** Diz se o registro sumiu de vez ou foi inativado, e quais vínculos impediram a exclusão. */
+export function notifyRemoval(result: { inativado?: boolean; vinculos?: string[] } | null | undefined) {
+  if (!result?.inativado) {
+    toast.success("Cadastro excluído definitivamente.");
+    return;
+  }
+  const vinculos = result.vinculos ?? [];
+  toast.success("Cadastro inativado", {
+    description: vinculos.length
+      ? `Possui ${vinculos.join(", ").replace(/, ([^,]*)$/, " e $1")}; o histórico foi preservado e ele saiu do site.`
+      : "Possui histórico vinculado, que foi preservado.",
+  });
 }
 
 interface RowActionsProps {
