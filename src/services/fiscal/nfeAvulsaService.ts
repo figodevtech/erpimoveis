@@ -53,6 +53,8 @@ import {
 import { truncateNfeXNome } from "@/lib/nfe/xmlUtils";
 import { LIMITE_XPROD } from "@/lib/nfe/limites";
 import { dataCivilDeHoje, dataCivilDoInstante } from "@/lib/fiscal-date";
+import { classificacaoPermiteModeloRtc } from "@/lib/nfe/catalogoRtc";
+import { carregarEdicaoCatalogoRtc } from "@/services/fiscal/catalogoRtcService";
 import { isValidCnpj as isValidCanonicalCnpj, normalizeCnpj, normalizeCpfOrCnpj } from "@/lib/fiscal-identifiers";
 import {
   calcularIcmsItem,
@@ -1625,24 +1627,18 @@ export async function getNFeAvulsaSetup(modelo: ModeloDocumentoFiscal = MODELO_N
 
   // Vigência das classificações é comparada com a data civil do emitente.
   const today = dataCivilDeHoje();
+  const catalogoRtc = await carregarEdicaoCatalogoRtc(today);
   const { data: classificacoesRtc, error: classificacoesError } = await supabaseAdmin
     .from("fiscal_nfe_classificacao_tributaria")
     .select("codigo, cst, nome, descricao, percentual_reducao_ibs, percentual_reducao_cbs, inicio_vigencia, fim_vigencia, permite_nfe, indicadores, versao_fonte")
-    .eq("permite_nfe", true)
+    .eq("versao_fonte", catalogoRtc.versao ?? "")
     .lte("inicio_vigencia", today)
     .or(`fim_vigencia.is.null,fim_vigencia.gte.${today}`)
     .order("cst", { ascending: true })
     .order("codigo", { ascending: true });
 
   if (classificacoesError) throw classificacoesError;
-  const { data: cstRtc, error: cstRtcError } = await supabaseAdmin
-    .from("fiscal_nfe_cst_ibscbs")
-    .select("cst, indicadores")
-    .eq("versao_fonte", "IT2025.002-v1.60-2026-06-22");
-  if (cstRtcError) throw cstRtcError;
-  const cstPadraoDisponivel = new Set((cstRtc ?? [])
-    .filter((row: any) => Number(row.indicadores?.ind_gIBSCBS) === 1 && Number(row.indicadores?.ind_gDif) === 0)
-    .map((row: any) => row.cst));
+  const cstPadraoDisponivel = catalogoRtc.cstsPadrao;
   const crt = empresa?.regimetributario ? Number(empresa.regimetributario) as CRT : null;
   // Com que número a próxima nota deve sair. Previsão, não reserva: o número é
   // alocado de fato na transmissão.
@@ -1671,7 +1667,9 @@ export async function getNFeAvulsaSetup(modelo: ModeloDocumentoFiscal = MODELO_N
     unidades: Array.from(unidadesPermitidas),
     regrasFiscais: crt ? getNFeFiscalFieldRules(crt) : null,
     versaoRegraFiscal: NFE_FISCAL_RULE_VERSION,
-    classificacoesRtc: (classificacoesRtc ?? []).filter((row: any) => cstPadraoDisponivel.has(row.cst)).map((row: any) => ({
+    classificacoesRtc: (classificacoesRtc ?? []).filter((row: any) =>
+      cstPadraoDisponivel.has(row.cst) && classificacaoPermiteModeloRtc(row, modelo),
+    ).map((row: any) => ({
       codigo: row.codigo,
       cst: row.cst,
       nome: row.nome,
@@ -1895,14 +1893,18 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
   let classificationsByCode = new Map<string, ClassificacaoTributariaRtc>();
   let validStandardRtcCsts = new Set<string>();
   if (selectedClassCodes.length > 0) {
+    const catalogoRtc = await carregarEdicaoCatalogoRtc(issueDay);
     const { data: rows, error: classError } = await supabaseAdmin
       .from("fiscal_nfe_classificacao_tributaria")
       .select("codigo, cst, nome, descricao, percentual_reducao_ibs, percentual_reducao_cbs, inicio_vigencia, fim_vigencia, permite_nfe, indicadores, versao_fonte")
       .in("codigo", selectedClassCodes)
+      .eq("versao_fonte", catalogoRtc.versao ?? "")
       .lte("inicio_vigencia", issueDay)
       .or(`fim_vigencia.is.null,fim_vigencia.gte.${issueDay}`);
     if (classError) throw classError;
-    classificationsByCode = new Map((rows ?? []).map((row: any) => [row.codigo, {
+    classificationsByCode = new Map((rows ?? []).filter((row: any) =>
+      classificacaoPermiteModeloRtc(row, modelo),
+    ).map((row: any) => [row.codigo, {
       codigo: row.codigo,
       cst: row.cst,
       nome: row.nome,
@@ -1915,14 +1917,7 @@ export async function salvarNFeAvulsaDraft(input: NFeAvulsaDraftInput, opcoes: O
       indicadores: row.indicadores,
       versaoFonte: row.versao_fonte,
     } as ClassificacaoTributariaRtc]));
-    const { data: cstRows, error: cstError } = await supabaseAdmin
-      .from("fiscal_nfe_cst_ibscbs")
-      .select("cst, indicadores")
-      .eq("versao_fonte", "IT2025.002-v1.60-2026-06-22");
-    if (cstError) throw cstError;
-    validStandardRtcCsts = new Set((cstRows ?? [])
-      .filter((row: any) => Number(row.indicadores?.ind_gIBSCBS) === 1 && Number(row.indicadores?.ind_gDif) === 0)
-      .map((row: any) => row.cst));
+    validStandardRtcCsts = catalogoRtc.cstsPadrao;
   }
 
   // `validarDraftAvulso` já barrou frete sem decisão; aqui ela só é aplicada.

@@ -136,6 +136,12 @@ function focusFalsa(respostas: { POST?: unknown; GET?: unknown; DELETE?: unknown
   mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
     const metodo = String(init?.method ?? "GET");
     chamadas.push({ metodo, url: String(url) });
+    if (String(url).includes("/v2/empresas?cnpj=")) {
+      const cnpj = new URL(String(url)).searchParams.get("cnpj");
+      const nacional = cnpj !== DEMIR.cnpj;
+      return new Response(JSON.stringify([{ cnpj, habilita_nfse: true,
+        habilita_nfsen_producao: nacional, habilita_nfsen_homologacao: nacional }]));
+    }
     const corpo = (respostas as Record<string, unknown>)[metodo] ?? {};
     return new Response(JSON.stringify(corpo), { status: metodo === "POST" ? 202 : 200 });
   });
@@ -209,8 +215,12 @@ describe("Caso 2 — município realmente habilitado no Emissor Público Naciona
     const transporte = transportDaPolitica(politica, service);
     assert.equal(transporte.disponivel, true);
     assert.equal(transporte.modeloEmissao, "NACIONAL");
-    await transporte.emitir({ referencia: "OS_1_SRVS_1_1", descricao_servico: "x" });
-    assert.match(chamadas[0].url, /\/v2\/nfsen\?ref=OS_1_SRVS_1_1$/);
+    const payload = { referencia: "OS_1_SRVS_1_1", cnpj_prestador: "11222333000181", descricao_servico: "x" };
+    await transporte.preparar(payload);
+    await transporte.emitir(payload);
+    assert.deepEqual(chamadas.map((chamada) => chamada.metodo), ["GET", "POST"]);
+    assert.match(chamadas[0].url, /\/v2\/empresas\?cnpj=11222333000181$/);
+    assert.match(chamadas[1].url, /\/v2\/nfsen\?ref=OS_1_SRVS_1_1$/);
   });
 });
 

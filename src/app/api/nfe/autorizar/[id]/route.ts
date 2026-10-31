@@ -24,6 +24,7 @@ import type { ClienteRow, EmpresaRow } from "@/lib/nfe/types";
 import { truncateNfeXNomeInXml } from "@/lib/nfe/xmlUtils";
 import { rascunhoPrecisaSerRegerado } from "@/lib/nfe/taxRules";
 import { bloqueioAutorizacaoE16a30 } from "@/lib/nfe/bloqueioAutorizacaoE16a30";
+import { classificarRetornoAutorizacao, motivoBloqueioTransmissao } from "@/lib/nfe/retornoAutorizacao";
 
 export const runtime = "nodejs";
 
@@ -284,6 +285,12 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     }
 
     const statusAtual: string | null = nfe.status ?? null;
+    const bloqueioTransmissao = motivoBloqueioTransmissao(statusAtual);
+    if (bloqueioTransmissao) {
+      return NextResponse.json({ ok: false, mensagem: bloqueioTransmissao, nfeDb: {
+        id: nfeId, status: statusAtual, protocolo: nfe.protocolo ?? null,
+      } }, { status: 409 });
+    }
 
     if (rascunhoPrecisaSerRegerado(nfe)) {
       return NextResponse.json(
@@ -627,7 +634,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
           motivo_rejeicao: String(erroComunicacao?.message ?? erroComunicacao).slice(0, 500),
           updatedat: new Date().toISOString(),
         })
-        .eq("id", nfeId);
+        .eq("id", nfeId).neq("status", "AUTORIZADA").neq("status", "CANCELADA").neq("status", "DENEGADA");
 
       return NextResponse.json(
         {
@@ -653,7 +660,15 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // -------------------------------------------------------------------
     // 14) Se HTTP nÃ£o for 200, jÃ¡ retorna erro bruto
     // -------------------------------------------------------------------
+    const registrarResultadoIncerto = async () => {
+      const { error } = await supabaseAdmin.from("nfe").update({
+        status: "RESULTADO_INCERTO", xml_assinado: xmlAssinado,
+        updatedat: new Date().toISOString(),
+      }).eq("id", nfeId).neq("status", "AUTORIZADA").neq("status", "CANCELADA").neq("status", "DENEGADA");
+      if (error) throw error;
+    };
     if (httpStatus !== 200) {
+      await registrarResultadoIncerto();
       return NextResponse.json(
         {
           ok: false,
@@ -677,6 +692,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     const parser = new XMLParser({
       ignoreAttributes: false,
       removeNSPrefix: true,
+      parseTagValue: false,
     });
 
     let retEnviNFe: any = null;
@@ -686,6 +702,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     let prot_xMotivo: string | null = null;
     let nRec: string | null = null;
     let nProt: string | null = null;
+    let chaveProtocolo: string | null = null;
 
     try {
       const parsed = parser.parse(respostaText);
@@ -701,11 +718,13 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       prot_cStat = toText(infProt?.cStat);
       prot_xMotivo = toText(infProt?.xMotivo);
       nProt = toText(infProt?.nProt);
+      chaveProtocolo = toText(infProt?.chNFe);
     } catch (parseErr) {
       console.warn("[nfe] erro ao parsear XML de retorno da SEFAZ:", parseErr);
     }
 
     if (!lote_cStat && !prot_cStat) {
+      await registrarResultadoIncerto();
       return NextResponse.json(
         {
           ok: false,
@@ -726,7 +745,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // 16) Montar nfeProc (xml_autorizado), se tivermos protNFe no retorno
     // -------------------------------------------------------------------
     let protNFeXml = extrairProtNFeXml(respostaText);
-    let xmlAutorizado = buildNfeProcXml(xmlAssinado, protNFeXml);
+    let xmlAutorizado: string | null = null;
     let dataAutorizacaoSefaz: string | null = null;
 
     // 204 significa que ESTA MESMA chave já está na SEFAZ. Isso acontece, por
@@ -734,7 +753,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // perde ou quando dois requests saem quase juntos. Tratar o segundo retorno
     // como rejeição sobrescrevia a autorização local e fazia a nota "sumir" da
     // lista de autorizadas. A fonte da verdade aqui é a consulta da chave.
-    if (prot_cStat === "204" && chave) {
+    if ((prot_cStat === "204" || lote_cStat === "204") && chave) {
       try {
         const consulta = await consultarProtocoloNfe({
           chaveAcesso: chave,
@@ -742,12 +761,13 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
           agent: httpsAgent,
         });
 
-        if (consulta.protocolo.cStat === "100") {
+        if (consulta.protocolo.cStat === "100" && consulta.protocolo.chNFe === chave && consulta.protocolo.nProt) {
           lote_cStat = consulta.cStat;
           lote_xMotivo = consulta.xMotivo;
           prot_cStat = consulta.protocolo.cStat;
           prot_xMotivo = consulta.protocolo.xMotivo;
           nProt = consulta.protocolo.nProt;
+          chaveProtocolo = consulta.protocolo.chNFe;
           dataAutorizacaoSefaz = consulta.protocolo.dhRecbto;
           protNFeXml = consulta.protNFeXml;
           xmlAutorizado = buildNfeProcXml(xmlAssinado, protNFeXml);
@@ -767,21 +787,11 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
     // -------------------------------------------------------------------
     // 17) Determinar novo status da NF-e
     // -------------------------------------------------------------------
-    let novoStatus: string | null = null;
-
-    if (prot_cStat === "100") {
-      // Autorizado o uso da NF-e
-      novoStatus = "AUTORIZADA";
-    } else if (["110", "301", "302"].includes(prot_cStat || "")) {
-      // Denegada
-      novoStatus = "DENEGADA";
-    } else if (prot_cStat && prot_cStat !== "100") {
-      // Qualquer outra rejeiÃ§Ã£o de protocolo
-      novoStatus = "REJEITADA";
-    } else if (lote_cStat === "103" || (lote_cStat === "104" && !prot_cStat)) {
-      // 103: Lote recebido; 104 sem prot -> fluxo assÃ­ncrono
-      novoStatus = "ENVIADA";
-    }
+    const novoStatus = classificarRetornoAutorizacao({
+      lote: lote_cStat, protocolo: prot_cStat, numeroProtocolo: nProt,
+      chaveEnviada: chave, chaveProtocolo,
+    });
+    if (novoStatus === "AUTORIZADA") xmlAutorizado = buildNfeProcXml(xmlAssinado, protNFeXml);
 
     // -------------------------------------------------------------------
     // 18) Atualizar tabela nfe com status / protocolo / xml
@@ -829,7 +839,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
         updatePayload.rejeitada_em = null;
       }
 
-      if (nProt) {
+      if (nProt && (novoStatus === "AUTORIZADA" || novoStatus === "DENEGADA")) {
         updatePayload.protocolo = nProt;
         protocoloFinal = nProt;
       }
@@ -841,10 +851,8 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
       // Uma resposta de rejeição pode chegar depois da resposta autorizada de
       // outro request. A condição no próprio UPDATE fecha essa corrida: não há
       // janela entre reler o status e gravar o novo valor.
-      let updateQuery = supabaseAdmin.from("nfe").update(updatePayload).eq("id", nfeId);
-      if (novoStatus === "REJEITADA") {
-        updateQuery = updateQuery.neq("status", "AUTORIZADA");
-      }
+      const updateQuery = supabaseAdmin.from("nfe").update(updatePayload).eq("id", nfeId)
+        .neq("status", "AUTORIZADA").neq("status", "CANCELADA").neq("status", "DENEGADA");
 
       const { data: nfeAtualizada, error: updateError } = await updateQuery
         .select("status, protocolo, dataautorizacao")
@@ -852,7 +860,7 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
 
       if (updateError) throw updateError;
 
-      if (!nfeAtualizada && novoStatus === "REJEITADA") {
+      if (!nfeAtualizada) {
         const { data: nfePersistida, error: readError } = await supabaseAdmin
           .from("nfe")
           .select("status, protocolo, dataautorizacao")
@@ -860,8 +868,8 @@ async function autorizarHandler(req: Request, nfeIdParam: string) {
           .maybeSingle();
         if (readError) throw readError;
 
-        if (nfePersistida?.status === "AUTORIZADA") {
-          statusFinal = "AUTORIZADA";
+        if (nfePersistida && ["AUTORIZADA", "CANCELADA", "DENEGADA"].includes(nfePersistida.status)) {
+          statusFinal = nfePersistida.status;
           protocoloFinal = nfePersistida.protocolo ?? protocoloFinal;
         }
       }

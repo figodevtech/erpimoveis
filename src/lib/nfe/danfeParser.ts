@@ -21,11 +21,17 @@ export type DanfeParty = {
   ie: string;
   iest: string;
   im: string;
+  crt?: string;
   endereco: DanfeAddress;
   documentoTipo?: "CNPJ" | "CPF" | "ID_EXTERIOR" | "SEM_DOCUMENTO";
 };
 
 export type DanfeTaxTotals = {
+  possuiGrupoRtc?: boolean;
+  vIBSMono?: number;
+  vCBSMono?: number;
+  vIBSMonoReten?: number;
+  vCBSMonoReten?: number;
   vBC: number;
   vICMS: number;
   vICMSDeson: number;
@@ -45,6 +51,7 @@ export type DanfeTaxTotals = {
   vCOFINS: number;
   vOutro: number;
   vNF: number;
+  vNFTot?: number;
   vTotTrib: number;
   vBCIBSCBS: number;
   vIBSUF: number;
@@ -100,6 +107,7 @@ export type DanfeItem = {
   valor_icms_uf_dest?: number;
   valor_icms_uf_remet?: number;
   cst_ibs_cbs: string | null;
+  possui_grupo_ibs_cbs?: boolean;
   classificacao_tributaria: string | null;
   base_ibs_cbs: number;
   aliquota_ibs_uf: number;
@@ -110,6 +118,11 @@ export type DanfeItem = {
   aliquota_cbs: number;
   valor_cbs: number;
   cst_is: string | null;
+  base_is?: number;
+  aliquota_is?: number;
+  aliquota_ibs_uf_efetiva?: number;
+  aliquota_ibs_municipio_efetiva?: number;
+  aliquota_cbs_efetiva?: number;
   valor_is: number;
 };
 
@@ -267,6 +280,7 @@ function parseParty(node: Element | null, addressTag: string): DanfeParty {
     ie: value(node, "IE"),
     iest: value(node, "IEST"),
     im: value(node, "IM"),
+    crt: value(node, "CRT"),
     endereco: parseAddress(child(node, addressTag)),
     documentoTipo: cnpj ? "CNPJ" : cpf ? "CPF" : exterior ? "ID_EXTERIOR" : "SEM_DOCUMENTO",
   };
@@ -314,6 +328,7 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
   const gIbsUfTot = child(gIbsTot, "gIBSUF");
   const gIbsMunTot = child(gIbsTot, "gIBSMun");
   const gCbsTot = child(ibsCbsTot, "gCBS");
+  const gMonoTot = child(ibsCbsTot, "gMono");
   const isTot = child(total, "ISTot");
   const chaveId = String(infNFe.getAttribute("Id") ?? "").replace(/^NFe/, "");
 
@@ -377,6 +392,7 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
       valor_icms_uf_dest: numberValue(icmsUfDest, "vICMSUFDest"),
       valor_icms_uf_remet: numberValue(icmsUfDest, "vICMSUFRemet"),
       cst_ibs_cbs: value(ibsCbs, "CST") || null,
+      possui_grupo_ibs_cbs: Boolean(gIbsCbs),
       classificacao_tributaria: value(ibsCbs, "cClassTrib") || null,
       base_ibs_cbs: numberValue(gIbsCbs, "vBC"),
       aliquota_ibs_uf: numberValue(gIbsUf, "pIBSUF"),
@@ -387,6 +403,12 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
       aliquota_cbs: numberValue(gCbs, "pCBS"),
       valor_cbs: numberValue(gCbs, "vCBS"),
       cst_is: value(isGroup, "CSTIS") || null,
+      base_is: child(isGroup, "vBCIS") ? numberValue(isGroup, "vBCIS") : undefined,
+      aliquota_is: child(isGroup, "pIS") ? numberValue(isGroup, "pIS") : undefined,
+      // Preservar zero: a redução pode levar a uma alíquota efetiva de 0%.
+      aliquota_ibs_uf_efetiva: child(child(gIbsUf, "gRed"), "pAliqEfet") ? numberValue(child(gIbsUf, "gRed"), "pAliqEfet") : undefined,
+      aliquota_ibs_municipio_efetiva: child(child(gIbsMun, "gRed"), "pAliqEfet") ? numberValue(child(gIbsMun, "gRed"), "pAliqEfet") : undefined,
+      aliquota_cbs_efetiva: child(child(gCbs, "gRed"), "pAliqEfet") ? numberValue(child(gCbs, "gRed"), "pAliqEfet") : undefined,
       valor_is: numberValue(isGroup, "vIS"),
     };
   });
@@ -425,6 +447,11 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
     emitente: parseParty(emit, "enderEmit"),
     destinatario: parseParty(dest, "enderDest"),
     totais: {
+      possuiGrupoRtc: Boolean(ibsCbsTot || isTot),
+      vIBSMono: child(gMonoTot, "vIBSMono") ? numberValue(gMonoTot, "vIBSMono") : undefined,
+      vCBSMono: child(gMonoTot, "vCBSMono") ? numberValue(gMonoTot, "vCBSMono") : undefined,
+      vIBSMonoReten: child(gMonoTot, "vIBSMonoReten") ? numberValue(gMonoTot, "vIBSMonoReten") : undefined,
+      vCBSMonoReten: child(gMonoTot, "vCBSMonoReten") ? numberValue(gMonoTot, "vCBSMonoReten") : undefined,
       vBC: numberValue(icmsTot, "vBC"),
       vICMS: numberValue(icmsTot, "vICMS"),
       vICMSDeson: numberValue(icmsTot, "vICMSDeson"),
@@ -444,6 +471,7 @@ export function parseDanfeNFeXml(xml: string): ParsedDanfeNFe {
       vCOFINS: numberValue(icmsTot, "vCOFINS"),
       vOutro: numberValue(icmsTot, "vOutro"),
       vNF: numberValue(icmsTot, "vNF"),
+      vNFTot: child(total, "vNFTot") ? numberValue(total, "vNFTot") : undefined,
       vTotTrib: numberValue(icmsTot, "vTotTrib"),
       vBCIBSCBS: numberValue(ibsCbsTot, "vBCIBSCBS"),
       vIBSUF: numberValue(gIbsUfTot, "vIBSUF"),

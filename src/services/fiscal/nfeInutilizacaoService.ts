@@ -8,6 +8,7 @@ import { carregarCertificadoA1 } from "@/lib/nfe/certificado";
 import { modeloParaCodigo, modeloParaDb, rotuloModelo } from "@/lib/nfe/modeloDocumento";
 import { getCodigoUF } from "@/lib/nfe/ufUtils";
 import { resolveSefazEndpoint } from "@/lib/nfe/webservices";
+import { dataServicoSefaz, motivoInutilizacaoDesativada } from "@/lib/nfe/politicaServicosSefaz";
 import { escapeXml } from "@/lib/nfe/xmlUtils";
 import type { EmpresaRow, ModeloDocumentoFiscal } from "@/lib/nfe/types";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -158,6 +159,13 @@ export async function inutilizarFaixa(
   if (empresaError) throw empresaError;
   if (!empresa) throw new Error("Empresa da configuração fiscal não encontrada.");
 
+  const ambiente = empresa.ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO";
+  const indisponibilidade = motivoInutilizacaoDesativada({
+    uf: String(empresa.uf ?? ""), modelo: input.modelo, ambiente,
+    data: dataServicoSefaz(String(empresa.uf ?? "")),
+  });
+  if (indisponibilidade) return { ok: false as const, errors: [indisponibilidade] };
+
   const ano = input.ano ?? new Date().getFullYear();
   const conflitos = await conflitosNaFaixa(
     Number(config.empresaid),
@@ -176,7 +184,6 @@ export async function inutilizarFaixa(
     };
   }
 
-  const ambiente = empresa.ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO";
   const tpAmb = ambiente === "PRODUCAO" ? "1" : "2";
   const cUF = getCodigoUF(empresa.uf || undefined);
   const cnpj = normalizeCnpj(empresa.cnpj);

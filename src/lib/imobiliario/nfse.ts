@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { NFSeService, NFSeValidationError, conferirCodigosFiscaisNFSe, listarPendenciasNFSe, normalizarStatusNFSe, textoParaDpsNacional } from "@/lib/services/fiscais/nfse-service";
-import { dataDoDiaNFSe, resolverPoliticaNFSe } from "@/lib/services/fiscais/nfse-politica";
+import { competenciaDoRegistroNFSe, dataDoDiaNFSe, resolverPoliticaNFSe } from "@/lib/services/fiscais/nfse-politica";
 import { transportDaPolitica } from "@/lib/services/fiscais/nfse-transport";
 import { atualizarRegistroNFSe, errosDeResultadoIncerto, interacaoNFSe, acrescentarInteracaoNFSe, MENSAGEM_ENVIO_SEM_RESPOSTA } from "@/lib/services/fiscais/nfse-registro";
 import { temResultadoIncerto } from "@/lib/services/fiscais/nfse-registro";
@@ -77,7 +77,10 @@ export async function emitServiceInvoice(input: unknown) {
   try { source = validateServiceSources(sources); } catch (error) { throw new ImobError(400, (error as Error).message); }
   for (const propertyId of new Set(sources.map(row => row.imovel_id))) await financeAccess({ imovel_id: propertyId });
   const { empresa, config } = await fiscalCompany(); const tomador: Row = { ...await one("proprietario", source.proprietarioId), ...body.tomador };
-  const competencia = body.data_competencia ?? dataDoDiaNFSe(new Date(), empresa.timezone_iana);
+  // A correction keeps the rejected attempt's competência: retrying in November must not move an October service to another authorizer.
+  const original = body.nfse_id ? await invoiceWithAccess(body.nfse_id) : null; let competencia: string;
+  try { competencia = original ? competenciaDoRegistroNFSe(original.data_competencia ? { data_competencia: original.data_competencia } : original.payload_enviado, original.dataemissao, empresa.timezone_iana) : body.data_competencia ?? dataDoDiaNFSe(new Date(), empresa.timezone_iana); }
+  catch (error) { throw new ImobError(409, (error as Error).message); }
   const requestedCodes = normalizeFiscalCodes(body.codigos_fiscais);
   const policy = resolverPoliticaNFSe({ codigoMunicipio: empresa.codigomunicipio, regimeTributario: empresa.regimetributario, dataCompetencia: competencia, itensListaServico: [requestedCodes.item_lista_servico] });
   if (!policy) throw new ImobError(409, "A integração NFS-e não está configurada para o município e regime da empresa.");
@@ -97,17 +100,19 @@ export async function emitServiceInvoice(input: unknown) {
   catch (error) { if (error instanceof NFSeValidationError) throw new ImobError(422, error.message); throw error; }
   payload.referencia = `IMOB_${randomUUID()}`;
   if (policy.modelo === "NACIONAL") payload.descricao_servico = textoParaDpsNacional(body.discriminacao, "manter"); else payload.servico.discriminacao = body.discriminacao;
+  // Focus registration and layout are checked before any note, source link or attempt is reserved.
+  const transport = transportDaPolitica(policy, service);
+  try { await transport.preparar(payload); } catch (error) { if (error instanceof NFSeValidationError) throw new ImobError(422, error.message); throw error; }
   if (body.acao === "REEMITIR") {
-    if (!body.nfse_id || sources.some(source => source.nfse_id !== body.nfse_id)) throw new ImobError(409, "Selecione somente as fontes da NFS-e rejeitada.");
-    const note = await invoiceWithAccess(body.nfse_id); const checked = await syncNfseWithFocus(note as any); const current = await one("nfse", body.nfse_id);
+    if (!body.nfse_id || !original || sources.some(source => source.nfse_id !== body.nfse_id)) throw new ImobError(409, "Selecione somente as fontes da NFS-e rejeitada.");
+    const checked = await syncNfseWithFocus(original as any); const current = await one("nfse", body.nfse_id);
     if (!checked.ok) throw new ImobError(409, "A consulta ao provedor não confirmou a rejeição. Resolva a autorização existente antes de corrigir o documento.");
     if (current.status !== "REJEITADA" || current.numero || current.url_xml) throw new ImobError(409, "A consulta não confirmou rejeição sem nota autorizada. Resolva a autorização existente antes de corrigir o documento.");
   }
   // In reissue mode the RPC re-checks the rejection under lock, keeps every original source and archives the previous attempt.
-  const reserved: Row = await rpc("imob_reservar_nfse", { p_movimento_ids: body.movimento_ids, p_transacao_ids: body.transacao_ids, p_empresa_id: empresa.id, p_payload: payload, p_modelo: policy.modelo, p_referencia: payload.referencia, p_actor: actor.id, p_reemitir: body.acao === "REEMITIR" });
+  const reserved: Row = await rpc("imob_reservar_nfse", { p_movimento_ids: body.movimento_ids, p_transacao_ids: body.transacao_ids, p_empresa_id: empresa.id, p_payload: payload, p_modelo: policy.modelo, p_referencia: payload.referencia, p_actor: actor.id, p_reemitir: body.acao === "REEMITIR", p_autorizador: policy.autorizador, p_data_competencia: competencia });
   if (reserved.already_exists) return { item: reserved, existing: true, message: "A origem já possui uma NFS-e registrada. Consulte a nota antes de reenviar." };
   const history = body.acao === "REEMITIR" ? (await one("nfse", reserved.id)).tentativas : [];
-  const transport = transportDaPolitica(policy, service);
   try {
     const result = await transport.emitir(payload); const outcome = desfechoDoEnvioNFSe(result);
     const status = outcome === "ACEITO" ? normalizarStatusNFSe(result.status) : outcome === "REJEITADO" ? "REJEITADA" : "PROCESSANDO";

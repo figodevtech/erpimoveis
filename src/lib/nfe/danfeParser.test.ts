@@ -18,6 +18,36 @@ const common = `
   <dest><CPF>12345678901</CPF><xNome>CLIENTE TESTE</xNome><enderDest><xLgr>RUA B</xLgr><nro>20</nro><xMun>CABEDELO</xMun><UF>PB</UF></enderDest></dest>`;
 
 describe("parseDanfeNFeXml", () => {
+  it("preserva alíquotas efetivas zero, IS, monofasia e os dois totais sem recalcular XML", () => {
+    const parsed = parseDanfeNFeXml(xmlWith(`${common.replace("</emit>", "<CRT>3</CRT></emit>")}
+      <det nItem="1"><prod><cProd>1</cProd><xProd>ITEM RTC</xProd></prod><imposto>
+      <IBSCBS><CST>200</CST><cClassTrib>200001</cClassTrib><gIBSCBS><vBC>100</vBC>
+        <gIBSUF><pIBSUF>0.10</pIBSUF><gRed><pRedAliq>100</pRedAliq><pAliqEfet>0.00</pAliqEfet></gRed><vIBSUF>0</vIBSUF></gIBSUF>
+        <gIBSMun><pIBSMun>0.10</pIBSMun><gRed><pAliqEfet>0.04</pAliqEfet></gRed><vIBSMun>0.04</vIBSMun></gIBSMun>
+        <gCBS><pCBS>0.90</pCBS><gRed><pAliqEfet>0.36</pAliqEfet></gRed><vCBS>0.36</vCBS></gCBS></gIBSCBS></IBSCBS>
+      <IS><CSTIS>000</CSTIS><vBCIS>100</vBCIS><pIS>2.00</pIS><vIS>2.00</vIS></IS></imposto></det>
+      <total><ICMSTot><vNF>100</vNF></ICMSTot><IBSCBSTot><gMono><vIBSMono>0</vIBSMono><vCBSMono>3</vCBSMono><vIBSMonoReten>2</vIBSMonoReten><vCBSMonoReten>4</vCBSMonoReten></gMono></IBSCBSTot><vNFTot>110</vNFTot></total>`));
+    assert.equal(parsed.emitente.crt, "3");
+    assert.equal(parsed.itens[0].aliquota_ibs_uf, 0.1);
+    assert.equal(parsed.itens[0].aliquota_ibs_uf_efetiva, 0);
+    assert.equal(parsed.itens[0].aliquota_ibs_municipio_efetiva, 0.04);
+    assert.equal(parsed.itens[0].aliquota_cbs_efetiva, 0.36);
+    assert.equal(parsed.itens[0].base_is, 100);
+    assert.equal(parsed.itens[0].aliquota_is, 2);
+    assert.equal(parsed.totais.vIBSMono, 0);
+    assert.equal(parsed.totais.vCBSMono, 3);
+    assert.equal(parsed.totais.vIBSMonoReten, 2);
+    assert.equal(parsed.totais.vCBSMonoReten, 4);
+    assert.equal(parsed.totais.vNF, 100);
+    assert.equal(parsed.totais.vNFTot, 110);
+  });
+
+  it("não inventa campos opcionais ausentes em documentos históricos", () => {
+    const parsed = parseDanfeNFeXml(xmlWith(common));
+    assert.equal(parsed.totais.vNFTot, undefined);
+    assert.equal(parsed.totais.vIBSMono, undefined);
+    assert.equal(parsed.totais.possuiGrupoRtc, false);
+  });
   it("lê a NF-e referenciada do ide, preservando a chave do caso real", () => {
     const chave = "29260815851413000157550010004179631007316491";
     const xml = xmlWith(common.replace("</ide>", `<NFref><refNFe>${chave}</refNFe></NFref></ide>`) +

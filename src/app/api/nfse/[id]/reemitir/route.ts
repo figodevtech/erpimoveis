@@ -15,12 +15,13 @@ import { carregarEmpresaDaNota } from "@/lib/services/fiscais/nfse-empresa";
 import { descreverRecusaNFSe, desfechoDoEnvioNFSe, montarRecusaNFSe } from "@/lib/services/fiscais/nfse-recusa";
 import {
   NFSeService,
+  NFSeValidationError,
   criarReferenciaPorServicos,
   normalizarStatusNFSe,
   prepararReenvioNFSe,
 } from "@/lib/services/fiscais/nfse-service";
 import {
-  dataDoDiaNFSe,
+  competenciaDoRegistroNFSe,
   familiaDoModeloNFSe,
   motivoParaNaoReenviar,
   resolverPoliticaNFSe,
@@ -131,11 +132,21 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
     const empresaPolitica = empresa;
     const payload = (origem.payload_enviado ?? {}) as { servico?: { item_lista_servico?: unknown } };
-    const politicaHoje = empresaPolitica
+    let competenciaOriginal: string | undefined;
+    if (!mesmaReferencia) {
+      try {
+        competenciaOriginal = competenciaDoRegistroNFSe(
+          origem.data_competencia ? { data_competencia: origem.data_competencia } : payload,
+          origem.dataemissao, empresaPolitica.timezone_iana);
+      } catch (error) {
+        return NextResponse.json({ ok: false, message: (error as Error).message }, { status: 409 });
+      }
+    }
+    const politicaHoje = !mesmaReferencia && empresaPolitica
       ? resolverPoliticaNFSe({
           codigoMunicipio: empresaPolitica.codigomunicipio,
           regimeTributario: empresaPolitica.regimetributario,
-          dataCompetencia: dataDoDiaNFSe(new Date(), empresaPolitica.timezone_iana),
+          dataCompetencia: competenciaOriginal!,
           itensListaServico: [String(payload.servico?.item_lista_servico ?? "")],
         })
       : null;
@@ -196,9 +207,13 @@ export async function POST(_req: Request, { params }: RouteParams) {
       .maybeSingle();
 
     const nfseService = new NFSeService();
-    nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token);
+    nfseService.configurarAmbiente(empresa.ambiente, nfseConfig?.token, empresa.timezone_iana);
 
-    const transport = transportDoRegistro(origem.modelo_emissao, nfseService);
+    const autorizador = mesmaReferencia ? undefined : origem.autorizador_emissao ?? politicaHoje?.autorizador;
+    if (!mesmaReferencia && familiaDoModeloNFSe(origem.modelo_emissao) === "NACIONAL" && !autorizador) {
+      throw new NFSeValidationError("Não foi possível determinar o autorizador para a competência desta tentativa. Revise a emissão antes de reenviar.");
+    }
+    const transport = transportDoRegistro(origem.modelo_emissao, nfseService, autorizador);
     if (!transport.disponivel) {
       return NextResponse.json(
         { ok: false, codigo: "TRANSPORTE_INDISPONIVEL", message: transport.motivoIndisponivel },
@@ -209,6 +224,9 @@ export async function POST(_req: Request, { params }: RouteParams) {
     const referencia = mesmaReferencia
       ? String(origem.referencia)
       : criarReferenciaPorServicos(Number(origem.ordemservicoid), servicoIds);
+    const parametros = prepararReenvioNFSe(origem.payload_enviado as Record<string, unknown>, referencia);
+    // Falha de configuração não altera referência, erros ou tentativas.
+    await transport.preparar(parametros);
     const historico = arquivarTentativaNFSe(origem);
 
     // A referência nova entra ANTES do envio: o webhook da Focus casa por ela e
@@ -231,6 +249,7 @@ export async function POST(_req: Request, { params }: RouteParams) {
         // tentativa faria a lista da OS mentir sobre quando o RPS saiu.
         dataemissao: agora,
         updatedat: agora,
+        ...(!mesmaReferencia ? { data_competencia: competenciaOriginal, autorizador_emissao: autorizador } : {}),
       },
       { tentativas: historico },
     );
@@ -244,11 +263,6 @@ export async function POST(_req: Request, { params }: RouteParams) {
     }
     // Com a mesma referência, uma exceção daqui em diante nunca vira rejeição.
     reservado = !mesmaReferencia;
-
-    const parametros = prepararReenvioNFSe(
-      origem.payload_enviado as Record<string, unknown>,
-      referencia,
-    );
 
     // O payload vem do banco como JSON opaco: quem garantiu o formato foi o
     // mapeador que montou a emissão original.
@@ -367,6 +381,9 @@ export async function POST(_req: Request, { params }: RouteParams) {
       { status: 202 },
     );
   } catch (error: unknown) {
+    if (!reservado && error instanceof NFSeValidationError) {
+      return NextResponse.json({ ok: false, message: error.message }, { status: 400 });
+    }
     console.error("[POST /api/nfse/reemitir] Exception", error);
 
     // A nota ficou em PROCESSANDO esperando um envio que estourou: devolvê-la

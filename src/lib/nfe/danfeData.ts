@@ -298,6 +298,7 @@ export async function carregarDadosDanfe(
     emitenteCnpj: parsed?.emitente.documento || issuerDb?.cnpj || "",
     emitenteIe: parsed?.emitente.ie || issuerDb?.inscricaoestadual,
     emitenteIest: parsed?.emitente.iest,
+    emitenteCrt: parsed?.emitente.crt,
     emitenteIm: parsed?.emitente.im,
     emitenteTelefone: parsed?.emitente.endereco.telefone || issuerDb?.telefone,
     destinatarioNome: parsed?.destinatario.nome || recipientDb?.nomerazaosocial || "-",

@@ -65,19 +65,19 @@ describe("Lucena/PB — Simples pelo Emissor Nacional via Focus", () => {
     assert.equal(politica.aviso, undefined);
   });
 
-  it("L10/L11: decide o município do PRESTADOR — João Pessoa e Cabedelo inalterados", () => {
+  it("L10/L11: decide o município do PRESTADOR e aplica a virada nacional também a Cabedelo", () => {
     const jp = resolverPoliticaNFSe({ codigoMunicipio: JOAO_PESSOA, regimeTributario: "1", dataCompetencia: "2026-10-13", itensListaServico: ["14.01"] })!;
     assert.equal(jp.regra, "JOAO_PESSOA_SIMPLES_TRANSICAO");
     assert.equal(jp.aviso, undefined);
     const jpNormal = resolverPoliticaNFSe({ codigoMunicipio: JOAO_PESSOA, regimeTributario: "3", dataCompetencia: "2026-10-02", itensListaServico: ["14.01"] })!;
     assert.equal(jpNormal.autorizador, "FOCUS_FORMATO_NACIONAL_MUNICIPAL");
     const cabedelo = resolverPoliticaNFSe({ codigoMunicipio: CABEDELO, regimeTributario: "1", dataCompetencia: "2026-11-01" })!;
-    assert.equal(cabedelo.modelo, "MUNICIPAL_CABEDELO");
-    assert.equal(cabedelo.autorizador, "FOCUS_MUNICIPAL");
+    assert.equal(cabedelo.modelo, "NACIONAL");
+    assert.equal(cabedelo.autorizador, "FOCUS_NACIONAL");
   });
 
-  it("R5: município sem regra continua sem política", () => {
-    assert.equal(resolverPoliticaNFSe({ codigoMunicipio: "2504009", regimeTributario: "1", dataCompetencia: "2026-11-01" }), null);
+  it("R5: a obrigação do Simples independe de regra municipal cadastrada", () => {
+    assert.equal(resolverPoliticaNFSe({ codigoMunicipio: "2504009", regimeTributario: "1", dataCompetencia: "2026-11-01" })?.autorizador, "FOCUS_NACIONAL");
   });
 
   it("configuração: o padrão Nacional já aparece antes da virada, para ser cadastrado", () => {

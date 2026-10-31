@@ -10,6 +10,7 @@ import { DANFE_MAX_FONT_SCALE } from "@/lib/nfe/danfeFontScale";
 import type { DanfeItem, DanfeTaxTotals } from "@/lib/nfe/danfeParser";
 import { gerarDanfePdf } from "@/lib/nfe/danfePdf";
 import { descreverDocumentoReferenciado } from "@/lib/nfe/danfeDocumentosReferenciados";
+import { temTotaisRtc, usaDanfeRtc2026 } from "@/lib/nfe/danfeRtc";
 
 const totaisZerados: DanfeTaxTotals = {
   vBC: 0,
@@ -154,7 +155,9 @@ test("gera DANFE vetorial com mais de uma folha quando os itens excedem o A4", a
   };
 
   const bytes = await gerarDanfePdf(data);
-  const pdf = await PDFDocument.load(bytes);
+  const pdf = await PDFDocument.load(bytes, { updateMetadata: false });
+  assert.equal(pdf.getProducer(), "ERP Imóveis");
+  assert.equal(pdf.getCreator(), "ERP Imóveis");
   const bytesComFonteMaxima = await gerarDanfePdf(data, { fontScale: DANFE_MAX_FONT_SCALE });
   const pdfComFonteMaxima = await PDFDocument.load(bytesComFonteMaxima);
 
@@ -184,4 +187,32 @@ test("gera DANFE vetorial com mais de uma folha quando os itens excedem o A4", a
   for (const referencia of data.documentosReferenciados) {
     assert.ok(conteudoReferencias.includes(pdfHexText(descreverDocumentoReferenciado(referencia))));
   }
+
+  // A reimpressão do histórico conserva o modelo anterior, independentemente de hoje.
+  assert.equal(usaDanfeRtc2026("2026-11-30T23:59:59-03:00"), false);
+  assert.equal(usaDanfeRtc2026("2026-12-01T00:00:00-03:00"), true);
+  assert.equal(temTotaisRtc({ ...totaisZerados, possuiGrupoRtc: true }), true);
+  data.documentosReferenciados = [];
+  data.dataEmissaoDanfe = "2026-12-01T10:00:00-03:00";
+  data.emitenteCrt = "3";
+  data.totais = { ...totaisZerados, possuiGrupoRtc: true, vIBSMono: 0, vCBSMono: 123.45, vNFTot: 987.65 };
+  data.itensDisplay = [{ ...item(1), cst_ibs_cbs: "200", classificacao_tributaria: "200001", base_ibs_cbs: 100,
+    aliquota_ibs_uf: 0.1, aliquota_ibs_uf_efetiva: 0, aliquota_cbs: 0.9, aliquota_cbs_efetiva: 0.36,
+    cst_is: "000", base_is: 100, aliquota_is: 2, valor_is: 2 }];
+  const htmlRtc = renderToStaticMarkup(createElement(DanfeView, { data, showActions: false }));
+  assert.match(htmlRtc, /Código do Regime Tributário/);
+  assert.match(htmlRtc, /Total do IBS\/CBS\/IS/);
+  assert.match(htmlRtc, /IBS monofásico/);
+  assert.match(htmlRtc, /0,36/);
+  assert.match(htmlRtc, /987,65/);
+  assert.doesNotMatch(htmlRtc, /CBS monofásica por retenção/);
+  const pdfRtc = await PDFDocument.load(await gerarDanfePdf(data));
+  const conteudoRtc = pdfContent(pdfRtc);
+  for (const texto of ["CODIGO DO REGIME TRIBUTARIO", "TOTAL DO IBS/CBS/IS", "IBS MONOFASICO", "987,65"]) {
+    assert.ok(conteudoRtc.includes(pdfHexText(texto)), `PDF deve imprimir ${texto}`);
+  }
+  data.dataEmissaoDanfe = "2026-11-30T10:00:00-03:00";
+  const htmlHistorico = renderToStaticMarkup(createElement(DanfeView, { data, showActions: false }));
+  assert.doesNotMatch(htmlHistorico, /Código do Regime Tributário/);
+  assert.doesNotMatch(htmlHistorico, /Total do IBS\/CBS\/IS/);
 });

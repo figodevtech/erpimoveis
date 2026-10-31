@@ -1,5 +1,7 @@
 import { extractNfseUrls } from "@/lib/nfse-urls";
 import { conferirSituacaoTributariaPisCofins } from "./nfse-pis-cofins";
+import { pendenciaDestinoFocus, type ConfiguracaoDestinoFocus } from "./nfse-focus-destino";
+import { pendenciaLeiauteNFSe, resolverLeiauteNFSe, type BemMovelNFSe, type VersaoLeiauteNFSe } from "./nfse-leiaute";
 import {
   isValidCnpj,
   isValidCpf,
@@ -11,6 +13,7 @@ import {
   resolverPoliticaNFSe,
   type NFSeModeloEmissao,
   type PoliticaNFSe,
+  type AutorizadorNFSe,
 } from "./nfse-politica";
 
 export type NFSeEmitirParams = {
@@ -485,6 +488,8 @@ export type NFSeNacionalEmitirParams = {
   codigo_indicador_operacao?: string;
   ibs_cbs_situacao_tributaria?: string;
   ibs_cbs_classificacao_tributaria?: string;
+  /** Contrato Focus NT 009 release 1; exclusivo de homologação enquanto não liberado em produção. */
+  bens_moveis?: BemMovelNFSe[];
 };
 
 function validarItensEmissao(itens: NFSeItemEmissao[]) {
@@ -758,6 +763,42 @@ export class NFSeService {
     }
   }
 
+  /** Consulta somente leitura. Não ativa ambientes, altera credenciais nem configura a empresa. */
+  async validarDestinoDps(cnpjPrestador: string, autorizador: AutorizadorNFSe): Promise<void> {
+    this.assertToken();
+    const cnpj = normalizeCnpj(cnpjPrestador);
+    if (!isValidCnpj(cnpj)) throw new NFSeValidationError("CNPJ do prestador inválido para conferir o autorizador na Focus.");
+    try {
+      const resposta = await fetch(`${this.apiUrl}/v2/empresas?cnpj=${encodeURIComponent(cnpj)}`, {
+        headers: { Accept: "application/json", Authorization: this.getAuthHeader() },
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+      // A API de empresas da Focus exige o token principal da conta: o token de
+      // emissão recebe 401 `permissao_negada` (confirmado em produção em
+      // 31/10/2026) e o host de homologação nem expõe o endpoint (404). Sem
+      // leitura, o destino não é conferido aqui e a Focus recusa envio incompatível.
+      if ([401, 403, 404].includes(resposta.status)) {
+        console.warn("[NFSe] Token sem acesso à consulta de empresas da Focus; destino da DPS não conferido previamente.");
+        return;
+      }
+      if (!resposta.ok) throw new Error("consulta indisponível");
+      const empresas: unknown = await resposta.json();
+      const correspondentes = Array.isArray(empresas)
+        ? empresas.filter((empresa) => empresa && normalizeCnpj(empresa.cnpj) === cnpj) : [];
+      if (correspondentes.length !== 1) {
+        console.warn("[NFSe] Cadastro do prestador não identificado na consulta de empresas da Focus; destino da DPS não conferido previamente.");
+        return;
+      }
+      const pendencia = pendenciaDestinoFocus(correspondentes[0] as ConfiguracaoDestinoFocus, autorizador, this.ambiente);
+      if (pendencia) throw new NFSeValidationError(pendencia);
+    } catch (error) {
+      if (error instanceof NFSeValidationError) throw error;
+      // A falha aconteceu ANTES do POST fiscal: nunca é resultado incerto de emissão.
+      throw new NFSeValidationError("Não foi possível confirmar o autorizador da empresa na Focus. A consulta à Focus falhou; tente novamente em instantes. Nenhuma DPS foi transmitida.");
+    }
+  }
+
   async emitir(params: NFSeEmitirParams) {
     this.assertToken();
 
@@ -813,8 +854,17 @@ export class NFSeService {
     };
   }
 
-  async emitirNacional(params: NFSeNacionalEmitirParams) {
+  validarLeiauteDps(params: NFSeNacionalEmitirParams, versaoLeiaute?: VersaoLeiauteNFSe): void {
+    let versao: VersaoLeiauteNFSe;
+    try { versao = resolverLeiauteNFSe(this.ambiente, versaoLeiaute); }
+    catch (error) { throw new NFSeValidationError((error as Error).message); }
+    const pendencia = pendenciaLeiauteNFSe(params, versao);
+    if (pendencia) throw new NFSeValidationError(pendencia);
+  }
+
+  async emitirNacional(params: NFSeNacionalEmitirParams, versaoLeiaute?: VersaoLeiauteNFSe) {
     this.assertToken();
+    this.validarLeiauteDps(params, versaoLeiaute);
     const { referencia, ...dados } = params;
     // O mapeador já converte; aqui vale para o reenvio, que repete o payload
     // gravado — inclusive o de notas anteriores à conversão. Idempotente.

@@ -832,6 +832,29 @@ describe("SAÍDA DE ESTOQUE — mesmo núcleo", () => {
 });
 
 describe("AVULSA — mesmo núcleo", () => {
+  it("seleciona CST e cClassTrib da mesma edição sem depender da ordem das linhas", async () => {
+    const versao = "IT2025.002-v1.71-2026-10-30";
+    banco.tabela("fiscal_nfe_cst_ibscbs").push({
+      ...banco.tabela("fiscal_nfe_cst_ibscbs")[0], versao_fonte: versao,
+    });
+    banco.tabela("fiscal_nfe_classificacao_tributaria").unshift({
+      ...banco.tabela("fiscal_nfe_classificacao_tributaria")[0], versao_fonte: versao,
+    });
+    const resultado = await salvarNFeAvulsaDraft(draftAvulso([itemDaTela({ cfop: "6102", cst: "00" })]));
+    assert.ok(resultado.ok, JSON.stringify(!resultado.ok && resultado.errors));
+    assert.equal(notaGravada(resultado.nfeId).itens[0].tributacao_snapshot.rtc.versaoClassificacao, versao);
+  });
+
+  it("não recupera código de edição antiga quando ele está ausente na edição atual", async () => {
+    banco.tabela("fiscal_nfe_cst_ibscbs").push({
+      ...banco.tabela("fiscal_nfe_cst_ibscbs")[0], versao_fonte: "IT2025.002-v1.71-2026-10-30",
+    });
+    const resultado = await salvarNFeAvulsaDraft(draftAvulso([itemDaTela({ cfop: "6102", cst: "00" })]));
+    assert.equal(resultado.ok, false);
+    assert.match(JSON.stringify(resultado.errors), /NFE_IBSCBS_CLASS_NOT_FOUND/);
+    assert.equal(banco.tabela("nfe").length, 0);
+  });
+
   function draftAvulso(itens: NFeAvulsaItemInput[], destinoMercadoria: NFeAvulsaDraftInput["operacao"]["destinoMercadoria"] = "REVENDA_INDUSTRIALIZACAO"): NFeAvulsaDraftInput {
     return {
       operacao: {

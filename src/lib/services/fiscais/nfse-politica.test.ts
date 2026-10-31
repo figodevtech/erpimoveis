@@ -164,11 +164,11 @@ describe("próximas viradas", () => {
     }
   });
 
-  it("Cabedelo segue no emissor municipal — a regra de novembro não foi estendida a ele", () => {
+  it("Cabedelo também aplica a obrigatoriedade nacional para o Simples em novembro", () => {
     const cabedelo = resolverPoliticaNFSe({
       codigoMunicipio: CABEDELO, regimeTributario: "1", dataCompetencia: "2026-11-01", itensListaServico: ["14.01"],
     });
-    assert.equal(cabedelo?.modelo, "MUNICIPAL_CABEDELO");
+    assert.equal(cabedelo?.autorizador, "FOCUS_NACIONAL");
   });
 
   it("município sem emissor configurado não tem política", () => {

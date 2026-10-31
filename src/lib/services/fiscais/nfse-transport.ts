@@ -33,6 +33,8 @@ export interface NFSeTransport {
   /** Falso quando não há integração: nada é enviado, e a emissão é recusada antes. */
   readonly disponivel: boolean;
   readonly motivoIndisponivel: string | null;
+  /** Confere antes de reservar/mutar uma tentativa fiscal. Não transmite documentos. */
+  preparar(params: unknown): Promise<void>;
   emitir(params: unknown): Promise<ResultadoEnvio>;
   consultar(referencia: string): ReturnType<NFSeService["consultar"]>;
   cancelar(referencia: string, justificativa?: string): ReturnType<NFSeService["cancelar"]>;
@@ -47,6 +49,7 @@ class FocusMunicipalTransport implements NFSeTransport {
   constructor(private readonly service: NFSeService, modeloEmissao: NFSeModeloEmissao | string) {
     this.modeloEmissao = modeloEmissao;
   }
+  preparar() { return Promise.resolve(); }
   emitir(params: unknown) {
     return this.service.emitir(params as NFSeEmitirParams);
   }
@@ -64,9 +67,19 @@ class FocusNacionalTransport implements NFSeTransport {
   readonly modeloEmissao = "NACIONAL";
   readonly disponivel = true;
   readonly motivoIndisponivel = null;
-  constructor(private readonly service: NFSeService) {}
-  emitir(params: unknown) {
-    return this.service.emitirNacional(params as NFSeNacionalEmitirParams);
+  private readonly preparados = new WeakSet<object>();
+  constructor(private readonly service: NFSeService, private readonly conferirDestino = false) {}
+  async preparar(params: unknown) {
+    const dps = params as NFSeNacionalEmitirParams;
+    if (this.preparados.has(dps)) return;
+    this.service.validarLeiauteDps(dps);
+    if (this.conferirDestino) await this.service.validarDestinoDps(dps.cnpj_prestador, this.autorizador);
+    this.preparados.add(dps);
+  }
+  async emitir(params: unknown) {
+    const dps = params as NFSeNacionalEmitirParams;
+    await this.preparar(dps);
+    return this.service.emitirNacional(dps);
   }
   consultar(referencia: string) {
     return this.service.consultar(referencia, "NACIONAL");
@@ -87,9 +100,9 @@ export function transportDaPolitica(
   politica: Pick<PoliticaNFSe, "modelo" | "autorizador">,
   service: NFSeService,
 ): NFSeTransport {
-  if (politica.autorizador === "FOCUS_NACIONAL") return new FocusNacionalTransport(service);
+  if (politica.autorizador === "FOCUS_NACIONAL") return new FocusNacionalTransport(service, true);
   if (politica.autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL") {
-    return new FocusFormatoNacionalMunicipalTransport(service);
+    return new FocusFormatoNacionalMunicipalTransport(service, true);
   }
   return new FocusMunicipalTransport(service, politica.modelo);
 }
@@ -101,8 +114,12 @@ export function transportDaPolitica(
  * NACIONAL representa a família de endpoint/layout, inclusive o ambiente
  * municipal de João Pessoa; o registro não identifica o Emissor Público Nacional.
  */
-export function transportDoRegistro(modeloEmissao: unknown, service: NFSeService): NFSeTransport {
+export function transportDoRegistro(modeloEmissao: unknown, service: NFSeService, autorizador?: unknown): NFSeTransport {
   const modelo = String(modeloEmissao ?? "").trim().toUpperCase();
+  if (modelo === "NACIONAL" && autorizador === "FOCUS_FORMATO_NACIONAL_MUNICIPAL") {
+    return new FocusFormatoNacionalMunicipalTransport(service, true);
+  }
+  if (modelo === "NACIONAL" && autorizador === "FOCUS_NACIONAL") return new FocusNacionalTransport(service, true);
   if (modelo === "NACIONAL") return new FocusNacionalTransport(service);
   return new FocusMunicipalTransport(service, modelo || "MUNICIPAL");
 }

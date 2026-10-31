@@ -228,6 +228,9 @@ export type NFeDocumentoReferenciado = {
   chaveAcesso: string;
 };
 
+/** RTC_2027 é cálculo preparado; o fluxo completo mantém RTC_2026 até homologação. */
+export type VersaoTotalizacaoNFe = 'RTC_2026' | 'RTC_2027';
+
 /** Referência granular introduzida no item pela NT 2025.002. */
 export type NFeDFeReferenciado = {
   chaveAcesso: string;

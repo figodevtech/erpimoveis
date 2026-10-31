@@ -26,6 +26,7 @@ test("extrai autorização e protocolo da consulta após duplicidade", () => {
             <xMotivo>Autorizado o uso da NF-e</xMotivo>
             <protNFe versao="4.00">
               <infProt>
+                <chNFe>${CHAVE}</chNFe>
                 <cStat>100</cStat>
                 <xMotivo>Autorizado o uso da NF-e</xMotivo>
                 <nProt>225260043999999</nProt>
@@ -41,6 +42,7 @@ test("extrai autorização e protocolo da consulta após duplicidade", () => {
 
   assert.equal(resultado.cStat, "100");
   assert.equal(resultado.protocolo.cStat, "100");
+  assert.equal(resultado.protocolo.chNFe, CHAVE);
   assert.equal(resultado.protocolo.nProt, "225260043999999");
   assert.equal(resultado.protocolo.dhRecbto, "2026-09-20T19:31:40-03:00");
   assert.match(resultado.protNFeXml ?? "", /<protNFe/);

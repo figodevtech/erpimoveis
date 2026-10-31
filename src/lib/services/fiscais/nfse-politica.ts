@@ -66,7 +66,7 @@ export type PoliticaNFSe = {
 export type EntradaPoliticaNFSe = {
   codigoMunicipio: unknown;
   regimeTributario: unknown;
-  /** Dia da emissão no fuso da empresa, AAAA-MM-DD. */
+  /** Dia da prestação do serviço (dCompet), AAAA-MM-DD; distinto de dhEmi. */
   dataCompetencia: string;
   /**
    * Itens da LC 116 dos serviços da nota. A nota é consolidada, então vale o
@@ -82,8 +82,9 @@ const IBGE_LUCENA = "2508604";
 /**
  * Simples Nacional (ME/EPP) passa a emitir no padrão Nacional.
  * Resolução CGSN nº 191/2026, que adiou de setembro para novembro o prazo da
- * CGSN nº 189/2026. Usada pelas regras de João Pessoa e de Lucena — ver
- * `regraJoaoPessoa` e `regraLucena`.
+ * CGSN nº 189/2026. Aplica-se em TODOS os municípios, inclusive aos que têm
+ * autorizador próprio. O comunicado CGNFS-e de 29/10/2026 confirma dCompet
+ * como critério e mantém competências anteriores no emissor municipal.
  */
 export const INICIO_NACIONAL_SIMPLES = "2026-11-01";
 
@@ -199,8 +200,9 @@ const ASSINATURA_FORA_DO_EMISSOR_NACIONAL = "deve estar parametrizado para utili
 
 export const MENSAGEM_FORA_DO_EMISSOR_NACIONAL =
   "Esta tentativa recebeu E0039 sobre a parametrização do emissor. "
-  + "O retorno não determina a integração vigente. Para João Pessoa, emita uma nova nota "
-  + "pela tela atual, com formato nacional via Focus em ambiente municipal próprio.";
+  + "Confira a competência, o regime do prestador e a habilitação na Focus antes de uma nova emissão. "
+  + "ME/EPP do Simples com competência a partir de 01/11/2026 utiliza o Emissor Público Nacional; "
+  + "os demais casos seguem o autorizador aplicável ao município.";
 
 /**
  * Complemento do E0039 para Lucena. Não reinterpreta o retorno: diz só o que
@@ -298,7 +300,7 @@ export function resolverPoliticaNFSe(entrada: EntradaPoliticaNFSe): PoliticaNFSe
   const municipio = String(entrada.codigoMunicipio ?? "").replace(/\D/g, "");
   const regime = String(entrada.regimeTributario ?? "").trim();
   const data = String(entrada.dataCompetencia ?? "").slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+  if (!dataFiscalValida(data)) {
     throw new Error("A política da NFS-e precisa da data de competência no formato AAAA-MM-DD.");
   }
   const itens = (entrada.itensListaServico ?? [])
@@ -307,6 +309,15 @@ export function resolverPoliticaNFSe(entrada: EntradaPoliticaNFSe): PoliticaNFSe
 
   if (regime === "4") {
     return nacional(regime, data, "MEI_NACIONAL", "MEI emite no padrão Nacional.");
+  }
+  // Precede municípios e exceções de itens: nenhuma regra municipal pode
+  // sobrepor o art. 59, § 1º da Resolução CGSN 140 (redação CGSN 191/2026).
+  // https://www.gov.br/nfse/pt-br/noticias/nfs-e-informa-diretrizes-sobre-a-obrigatoriedade-da-emissao-da-nfs-e-nacional-para-optantes-do-simples-nacional/
+  if ((regime === "1" || regime === "2") && data >= INICIO_NACIONAL_SIMPLES) {
+    const regra = municipio === IBGE_JOAO_PESSOA ? "JOAO_PESSOA_SIMPLES_NACIONAL"
+      : municipio === IBGE_LUCENA ? "LUCENA_SIMPLES_NACIONAL" : "SIMPLES_NACIONAL_CGSN_191";
+    return nacional(regime, data, regra,
+      "ME/EPP do Simples Nacional: competência a partir de 01/11/2026 exige o Emissor Público Nacional (CGSN 191/2026).");
   }
   if (municipio === IBGE_JOAO_PESSOA) return regraJoaoPessoa(regime, data, itens);
   if (municipio === IBGE_CABEDELO) {
@@ -430,6 +441,33 @@ export function dataDoDiaNFSe(agora: Date, timezoneIana?: string | null): string
   return new Intl.DateTimeFormat("sv-SE", { timeZone }).format(agora);
 }
 
+function dataFiscalValida(data: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return false;
+  const instante = new Date(`${data}T12:00:00Z`);
+  return Number.isFinite(instante.getTime()) && instante.toISOString().slice(0, 10) === data;
+}
+
+/** Competência da tentativa original: reenviar em novembro não transforma outubro em novembro. */
+export function competenciaDoRegistroNFSe(payload: unknown, dataEmissao: unknown, timezoneIana?: string | null): string {
+  const dados = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  if (dados.data_competencia !== undefined) {
+    const competencia = String(dados.data_competencia);
+    if (!dataFiscalValida(competencia)) throw new Error("A competência gravada na NFS-e é inválida. Revise a emissão.");
+    return competencia;
+  }
+  // RPS legado não guarda dCompet separado; sua data original nunca é
+  // substituída por 'hoje' para decidir a transição do autorizador.
+  const valor = dados.data_emissao ?? dataEmissao;
+  if (typeof valor === "string" && dataFiscalValida(valor)) return valor;
+  // Focus municipal registra horário local sem TZD. Interpretá-lo no fuso
+  // do servidor mudaria o dia perto da meia-noite em instalações UTC.
+  if (typeof valor === "string" && /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?$/.test(valor)
+      && dataFiscalValida(valor.slice(0, 10))) return valor.slice(0, 10);
+  const instante = typeof valor === "string" ? new Date(valor) : new Date(NaN);
+  if (!Number.isFinite(instante.getTime())) throw new Error("Esta NFS-e não guarda uma competência ou data original válida. Revise a emissão.");
+  return dataDoDiaNFSe(instante, timezoneIana);
+}
+
 /**
  * Endpoint de uma nota JÁ emitida: sai do `modelo_emissao` gravado nela, nunca
  * da política de hoje. Uma nota municipal antiga continua sendo consultada,
@@ -455,9 +493,13 @@ export function familiaDoModeloNFSe(modeloEmissao: unknown): "NACIONAL" | "MUNIC
  * continua no `/v2/nfsen`. `politicaHoje` nula (sem empresa) não bloqueia.
  */
 export function motivoParaNaoReenviar(
-  nota: { modelo_emissao?: unknown; erros?: unknown },
+  nota: { modelo_emissao?: unknown; autorizador_emissao?: unknown; erros?: unknown },
   politicaHoje: (Pick<PoliticaNFSe, "modelo" | "autorizador"> & Partial<Pick<PoliticaNFSe, "regra">>) | null | undefined,
 ): string | null {
+  if (nota.autorizador_emissao && politicaHoje
+      && nota.autorizador_emissao !== politicaHoje.autorizador) {
+    return "O autorizador desta tentativa difere do exigido para sua competência. Revise e emita uma nova nota pelo destino correto.";
+  }
   if (detectarMunicipioForaDoEmissorNacional(nota.erros)) {
     return mensagemForaDoEmissorNacional(politicaDeLucena(politicaHoje));
   }
