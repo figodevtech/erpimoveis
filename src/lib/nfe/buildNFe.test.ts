@@ -272,7 +272,7 @@ describe("documentos referenciados e devolução", () => {
 
     assert.match(
       xml,
-      /<\/imposto><impostoDevol><pDevol>100\.00<\/pDevol><IPI><vIPIDevol>2\.50<\/vIPIDevol><\/IPI><\/impostoDevol><infAdProd>Devolucao do item recebido\.<\/infAdProd><vItem>10\.00<\/vItem><DFeReferenciado>/,
+      /<\/imposto><impostoDevol><pDevol>100\.00<\/pDevol><IPI><vIPIDevol>2\.50<\/vIPIDevol><\/IPI><\/impostoDevol><infAdProd>Devolucao do item recebido\.<\/infAdProd><vItem>12\.50<\/vItem><DFeReferenciado>/,
     );
     assert.match(xml, new RegExp(`<chaveAcesso>${chaveOriginal}</chaveAcesso><nItem>3</nItem>`));
     assert.match(xml, /<vIPIDevol>2\.50<\/vIPIDevol><vPIS>/);

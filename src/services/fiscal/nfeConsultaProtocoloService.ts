@@ -16,6 +16,7 @@ export type ResultadoConsultaProtocolo = {
     xMotivo: string | null;
     nProt: string | null;
     dhRecbto: string | null;
+    chNFe: string | null;
   };
   protNFeXml: string | null;
 };
@@ -88,7 +89,7 @@ export function montarSoapConsultaProtocolo(
 export function interpretarRespostaConsultaProtocolo(
   respostaXml: string,
 ): Omit<ResultadoConsultaProtocolo, "httpStatus" | "respostaXml" | "soapEnvelope"> {
-  const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true });
+  const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: false });
   const parsed = parser.parse(respostaXml);
   const retConsSitNFe = primeiroNo(encontrarNo(parsed, "retConsSitNFe"));
   const protNFe = primeiroNo(
@@ -106,6 +107,7 @@ export function interpretarRespostaConsultaProtocolo(
       xMotivo: texto(infProt?.xMotivo),
       nProt: texto(infProt?.nProt),
       dhRecbto: texto(infProt?.dhRecbto),
+      chNFe: texto(infProt?.chNFe),
     },
     protNFeXml:
       respostaXml.match(/<(?:\w+:)?protNFe\b[^>]*>[\s\S]*?<\/(?:\w+:)?protNFe>/i)?.[0] ?? null,

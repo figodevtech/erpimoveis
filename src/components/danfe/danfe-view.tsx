@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PRINT_ACTION_BUTTON_CLASS } from "@/lib/print/actionStyles";
 import { encodeCode128C } from "@/lib/nfe/code128";
 import { descreverDocumentoReferenciado } from "@/lib/nfe/danfeDocumentosReferenciados";
+import { temGrupoRegularRtc, temTotaisRtc, usaDanfeRtc2026 } from "@/lib/nfe/danfeRtc";
 import { formatCnpj, formatCpf, normalizeCnpj, normalizeCpf } from "@/lib/fiscal-identifiers";
 import {
   aumentarFonteDanfe,
@@ -44,6 +45,7 @@ export type DanfeViewData = {
   emitenteCnpj: string;
   emitenteIe?: string | null;
   emitenteIest?: string | null;
+  emitenteCrt?: string | null;
   emitenteIm?: string | null;
   emitenteTelefone?: string | null;
   destinatarioNome: string;
@@ -302,10 +304,11 @@ function Header({ data, page, totalPages }: { data: DanfeViewData; page: number;
       <Cell label="Inscrição estadual do substituto tributário">{data.emitenteIest || "-"}</Cell>
       <Cell label="CNPJ">{fmtDoc(data.emitenteCnpj)}</Cell>
     </div>
+    {usaDanfeRtc2026(data.dataEmissaoDanfe) && data.emitenteCrt && <div className="ide-grid box"><Cell label="Código do Regime Tributário">{data.emitenteCrt}</Cell></div>}
   </>;
 }
 
-function ItemsTable({ items, showRtc }: { items: DanfeItemDisplay[]; showRtc: boolean }) {
+function ItemsTable({ items, showRtc, rtc2026 }: { items: DanfeItemDisplay[]; showRtc: boolean; rtc2026: boolean }) {
   return <div className="box items-block" data-danfe-items-block>
     <div className="block-title section-title">Dados dos produtos / serviços</div>
     <table className="items-table" data-danfe-main-table>
@@ -321,7 +324,18 @@ function ItemsTable({ items, showRtc }: { items: DanfeItemDisplay[]; showRtc: bo
         <td className="number">{fmtDecimal(item.aliquotaicms, 2)}</td><td className="number">{fmtDecimal(item.aliquota_ipi, 2)}</td>
       </tr>) : <tr><td colSpan={14}>Nenhum item localizado.</td></tr>}</tbody>
     </table>
-    {showRtc && <table className="items-table rtc-table" data-danfe-rtc-table>
+    {showRtc && rtc2026 ? <table className="items-table rtc-table" data-danfe-rtc-table>
+      <thead><tr><th>Item / CST / cClassTrib</th><th>Base IBS/CBS / IS</th><th>IBS UF % / valor</th><th>IBS Mun. % / valor</th><th>CBS % / valor</th><th>IS % / valor</th><th>Total IBS</th></tr></thead>
+      <tbody>{items.map((item, index) => <tr data-danfe-item-index={index} key={`rtc-${item.id}`}>
+        <td>{item.n_item} / {item.cst_ibs_cbs || "-"} / {item.classificacao_tributaria || "-"}</td>
+        <td>IBS/CBS: {temGrupoRegularRtc(item) ? fmtMoney(item.base_ibs_cbs) : "-"}<br />IS: {item.base_is == null ? "-" : fmtMoney(item.base_is)}</td>
+        <td>{temGrupoRegularRtc(item) ? <>{fmtDecimal(item.aliquota_ibs_uf_efetiva ?? item.aliquota_ibs_uf, 2)}%<br />{fmtMoney(item.valor_ibs_uf)}</> : "-"}</td>
+        <td>{temGrupoRegularRtc(item) ? <>{fmtDecimal(item.aliquota_ibs_municipio_efetiva ?? item.aliquota_ibs_municipio, 2)}%<br />{fmtMoney(item.valor_ibs_municipio)}</> : "-"}</td>
+        <td>{temGrupoRegularRtc(item) ? <>{fmtDecimal(item.aliquota_cbs_efetiva ?? item.aliquota_cbs, 2)}%<br />{fmtMoney(item.valor_cbs)}</> : "-"}</td>
+        <td>{item.aliquota_is == null ? "-" : `${fmtDecimal(item.aliquota_is, 2)}%`}<br />{item.cst_is ? fmtMoney(item.valor_is) : "-"}</td>
+        <td>{temGrupoRegularRtc(item) ? fmtMoney(item.valor_ibs) : "-"}</td>
+      </tr>)}</tbody>
+    </table> : showRtc && <table className="items-table rtc-table" data-danfe-rtc-table>
       <thead><tr><th>Item</th><th>CST IBS/CBS</th><th>Classificação tributária</th><th>BC IBS/CBS</th><th>% IBS UF</th><th>V. IBS UF</th><th>% IBS Mun.</th><th>V. IBS Mun.</th><th>V. IBS</th><th>% CBS</th><th>V. CBS</th><th>CST IS</th><th>V. IS</th></tr></thead>
       <tbody>{items.map((item, index) => <tr data-danfe-item-index={index} key={`rtc-${item.id}`}><td>{item.n_item}</td><td>{item.cst_ibs_cbs || "-"}</td><td>{item.classificacao_tributaria || "-"}</td><td className="number">{fmtMoney(item.base_ibs_cbs)}</td><td>{fmtDecimal(item.aliquota_ibs_uf, 2)}</td><td>{fmtMoney(item.valor_ibs_uf)}</td><td>{fmtDecimal(item.aliquota_ibs_municipio, 2)}</td><td>{fmtMoney(item.valor_ibs_municipio)}</td><td>{fmtMoney(item.valor_ibs)}</td><td>{fmtDecimal(item.aliquota_cbs, 2)}</td><td>{fmtMoney(item.valor_cbs)}</td><td>{item.cst_is || "-"}</td><td>{fmtMoney(item.valor_is)}</td></tr>)}</tbody>
     </table>}
@@ -331,7 +345,7 @@ function ItemsTable({ items, showRtc }: { items: DanfeItemDisplay[]; showRtc: bo
 function FirstPageDetails({ data }: { data: DanfeViewData }) {
   const totals = data.totais;
   const volume = data.transporte.volumes[0];
-  const hasRtc = totals.vBCIBSCBS || totals.vIBS || totals.vCBS || totals.vIS;
+  const hasRtc = temTotaisRtc(totals);
   return <>
     <div className="recipient-grid box">
       <Cell label="Nome / Razão social">{data.destinatarioNome}</Cell><Cell label="CNPJ / CPF">{fmtDoc(data.destinatarioDoc)}</Cell><Cell label="Data de emissão">{fmtDate(data.dataEmissaoDanfe)}</Cell>
@@ -348,12 +362,14 @@ function FirstPageDetails({ data }: { data: DanfeViewData }) {
     <div className="block-title outside-title">Cálculo do imposto</div>
     <div className="totals-grid box">
       <Cell label="Base de cálculo do ICMS">{fmtMoney(totals.vBC)}</Cell><Cell label="Valor do ICMS">{fmtMoney(totals.vICMS)}</Cell><Cell label="Valor ICMS desonerado">{fmtMoney(totals.vICMSDeson)}</Cell><Cell label="Valor do FCP">{fmtMoney(totals.vFCP)}</Cell><Cell label="BC ICMS ST">{fmtMoney(totals.vBCST)}</Cell><Cell label="Valor ICMS ST">{fmtMoney(totals.vST)}</Cell><Cell label="Total dos produtos">{fmtMoney(totals.vProd)}</Cell>
-      <Cell label="Valor do frete">{fmtMoney(totals.vFrete)}</Cell><Cell label="Valor do seguro">{fmtMoney(totals.vSeg)}</Cell><Cell label="Desconto">{fmtMoney(totals.vDesc)}</Cell><Cell label="Outras despesas">{fmtMoney(totals.vOutro)}</Cell><Cell label="Valor do II">{fmtMoney(totals.vII)}</Cell><Cell label="Valor do IPI">{fmtMoney(totals.vIPI)}</Cell><Cell label="Valor total da nota">{fmtMoney(totals.vNF)}</Cell>
+      <Cell label="Valor do frete">{fmtMoney(totals.vFrete)}</Cell><Cell label="Valor do seguro">{fmtMoney(totals.vSeg)}</Cell><Cell label="Desconto">{fmtMoney(totals.vDesc)}</Cell><Cell label="Outras despesas">{fmtMoney(totals.vOutro)}</Cell><Cell label="Valor do II">{fmtMoney(totals.vII)}</Cell><Cell label="Valor do IPI">{fmtMoney(totals.vIPI)}</Cell><Cell label="Valor total da nota">{fmtMoney(totals.vNFTot ?? totals.vNF)}</Cell>
     </div>
     <div className="other-totals box">
       <Cell label="Valor do PIS">{fmtMoney(totals.vPIS)}</Cell><Cell label="Valor da COFINS">{fmtMoney(totals.vCOFINS)}</Cell><Cell label="FCP ST">{fmtMoney(totals.vFCPST)}</Cell><Cell label="FCP ST retido">{fmtMoney(totals.vFCPSTRet)}</Cell><Cell label="IPI devolvido">{fmtMoney(totals.vIPIDevol)}</Cell><Cell label="Tributos aproximados">{fmtMoney(totals.vTotTrib)}</Cell>
     </div>
-    {hasRtc ? <><div className="block-title outside-title">Reforma tributária (IBS / CBS / IS)</div><div className="rtc-totals box"><Cell label="BC IBS/CBS">{fmtMoney(totals.vBCIBSCBS)}</Cell><Cell label="IBS UF">{fmtMoney(totals.vIBSUF)}</Cell><Cell label="IBS Município">{fmtMoney(totals.vIBSMun)}</Cell><Cell label="Total IBS">{fmtMoney(totals.vIBS)}</Cell><Cell label="Total CBS">{fmtMoney(totals.vCBS)}</Cell><Cell label="Imposto seletivo">{fmtMoney(totals.vIS)}</Cell></div></> : null}
+    {hasRtc ? <><div className="block-title outside-title">{usaDanfeRtc2026(data.dataEmissaoDanfe) ? "Total do IBS/CBS/IS" : "Reforma tributária (IBS / CBS / IS)"}</div><div className="rtc-totals box"><Cell label="BC IBS/CBS">{fmtMoney(totals.vBCIBSCBS)}</Cell><Cell label="IBS UF">{fmtMoney(totals.vIBSUF)}</Cell><Cell label="IBS Município">{fmtMoney(totals.vIBSMun)}</Cell><Cell label="Total IBS">{fmtMoney(totals.vIBS)}</Cell><Cell label="Total CBS">{fmtMoney(totals.vCBS)}</Cell><Cell label="Imposto seletivo">{fmtMoney(totals.vIS)}</Cell>
+      {usaDanfeRtc2026(data.dataEmissaoDanfe) && <>{totals.vIBSMono != null && <Cell label="IBS monofásico">{fmtMoney(totals.vIBSMono)}</Cell>}{totals.vCBSMono != null && <Cell label="CBS monofásica">{fmtMoney(totals.vCBSMono)}</Cell>}{totals.vIBSMonoReten != null && <Cell label="IBS monofásico por retenção">{fmtMoney(totals.vIBSMonoReten)}</Cell>}{totals.vCBSMonoReten != null && <Cell label="CBS monofásica por retenção">{fmtMoney(totals.vCBSMonoReten)}</Cell>}</>}
+    </div></> : null}
     <div className="block-title outside-title">Transportador / volumes transportados</div>
     <div className="transport-grid box">
       <Cell label="Nome / Razão social">{data.transporte.nome || "-"}</Cell><Cell label="Frete por conta">{FRETE_LABEL[data.transporte.modFrete] || data.transporte.modFrete}</Cell><Cell label="CNPJ / CPF">{fmtDoc(data.transporte.documento)}</Cell><Cell label="Placa">{data.transporte.placa || "-"}</Cell><Cell label="UF">{data.transporte.ufVeiculo || "-"}</Cell><Cell label="RNTC">{data.transporte.rntc || "-"}</Cell>
@@ -617,7 +633,7 @@ export function DanfeView({ data, exitHref = "/fiscal", actions, showActions = t
           {index === 0 && receipt}
           <Header data={data} page={index + 1} totalPages={fallbackPages.length} />
           {index === 0 && <FirstPageDetails data={data} />}
-          <ItemsTable items={items} showRtc={showRtc} />
+          <ItemsTable items={items} showRtc={showRtc} rtc2026={usaDanfeRtc2026(data.dataEmissaoDanfe)} />
           {index === fallbackPages.length - 1 && <FooterDetails data={data} />}
         </section>)}
         </div>
@@ -625,7 +641,7 @@ export function DanfeView({ data, exitHref = "/fiscal", actions, showActions = t
           {receipt}
           <div className="danfe-contents-group" data-danfe-header><Header data={data} page={1} totalPages={1} /></div>
           <div className="danfe-contents-group" data-danfe-first-details><FirstPageDetails data={data} /></div>
-          <ItemsTable items={data.itensDisplay} showRtc={showRtc} />
+          <ItemsTable items={data.itensDisplay} showRtc={showRtc} rtc2026={usaDanfeRtc2026(data.dataEmissaoDanfe)} />
           <FooterDetails data={data} />
         </section>
         <div className="danfe-wrapper danfe-generated" ref={generatedRef} />

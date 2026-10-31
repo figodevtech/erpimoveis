@@ -71,9 +71,9 @@ export function normalizarOrdemNfRefIde(xml: string): string {
  * Remove o `<NFref>` do `<ide>` quando os itens já citam a origem.
  *
  * Os dois níveis de referenciamento são excludentes — informar `<NFref>` junto
- * com `<DFeReferenciado>` é a rejeição 1010. O nível de item é o mais
- * específico e é o exigido em devolução a partir de 01/09/2026, então é o
- * cabeçalho que sai.
+ * com `<DFeReferenciado>` é a rejeição 1010. A NT 2025.002 v1.53 permite
+ * escolher cabeçalho OU item na devolução; não exige referência granular.
+ * Este reparo é exclusivo dos rascunhos antigos que já contêm os dois níveis.
  *
  * Existe para consertar rascunhos já gravados pela versão que emitia os dois:
  * a autorização reenvia o XML guardado, e sem isto uma nota rejeitada só sairia
@@ -81,6 +81,14 @@ export function normalizarOrdemNfRefIde(xml: string): string {
  */
 export function normalizarNiveisDeReferencia(xml: string): string {
   if (!/<DFeReferenciado>/.test(xml)) return xml;
+  const chavesDosItens = new Set([...xml.matchAll(/<DFeReferenciado>\s*<chaveAcesso>(\d{44})<\/chaveAcesso>/g)].map((match) => match[1]));
+  const referencias = (xml.match(/<ide>[\s\S]*?<\/ide>/)?.[0] ?? '').match(/<NFref>[\s\S]*?<\/NFref>/g) ?? [];
+  if (referencias.some((referencia) => {
+    const chave = referencia.match(/^<NFref>\s*<refNFe>(\d{44})<\/refNFe>\s*<\/NFref>$/)?.[1];
+    return !chave || !chavesDosItens.has(chave);
+  })) {
+    throw new Error('NFE_REFERENCIAS_CONFLITANTES: o rascunho contém documentos de origem distintos no cabeçalho e nos itens. Corrija o rascunho antes de autorizar.');
+  }
   return xml.replace(/<ide>[\s\S]*?<\/ide>/, (ideXml) =>
     ideXml.replace(/<NFref>[\s\S]*?<\/NFref>/g, ''),
   );

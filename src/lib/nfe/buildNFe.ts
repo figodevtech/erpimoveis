@@ -10,13 +10,14 @@ import type {
 } from './types';
 import { MODELO_NFE, MODELO_NFCE, modeloParaCodigo } from './modeloDocumento';
 import { buildIdeXml } from './xmlIde';
+import { resolverReferenciasNFe } from './referencias-nfe';
 import { buildEmitXml } from './xmlEmitente';
 import { buildDestXml } from './xmlDest';
 import { buildDetXml } from './xmlItem';
 import { gerarCNF, gerarChaveAcesso } from './chaveAcesso';
 import { mapEmpresaToEmitente } from './mapEmpresaToEmitente';
 import { getCodigoUF } from './ufUtils';
-import { calcularTotaisNFe, normalizarCRT } from './fiscal';
+import { calcularTotaisNFe, normalizarCRT, valorTotalItemNFe } from './fiscal';
 import { deveGerarICMSUFDest, validarDifalCanonicoDoItem } from './difal';
 import { escapeXml, truncateNfeXNome } from './xmlUtils';
 import { resolverCobrancaNFe, type NFeCobrancaInput, type NFeCobrancaNormalizada } from './duplicatas';
@@ -638,15 +639,9 @@ export function buildNFePreviewXml(
     return item;
   });
 
-  // Os dois níveis de referenciamento são EXCLUDENTES: informar <NFref> no
-  // <ide> junto com <DFeReferenciado> nos itens é a rejeição 1010. Quando algum
-  // item cita o documento de origem, essa referência já é a da nota inteira e o
-  // grupo de cabeçalho tem de sair — o nível de item é o mais específico e é o
-  // exigido em devolução a partir de 01/09/2026.
-  const temReferenciaPorItem = itens.some((item) => item.dfeReferenciado);
   const ideXml = buildIdeXml(
     ide,
-    temReferenciaPorItem ? [] : options?.documentosReferenciados ?? [],
+    resolverReferenciasNFe(ide, itens, options?.documentosReferenciados ?? []),
   );
   const emitXml = buildEmitXml(emitente);
   // Consumidor não identificado: sem grupo <dest>. Só a NFC-e chega aqui sem
@@ -655,7 +650,7 @@ export function buildNFePreviewXml(
   // Venda ao consumidor é balcão: sem local de entrega/retirada diferente.
   const entregaXml = nfce ? '' : buildEntregaXml(options?.entrega);
   const detXml = itens
-    .map((item) => buildDetXml(item, crt))
+    .map((item) => buildDetXml(item, crt, ide.dhEmi))
     .join('');
 
   // =========================
@@ -669,7 +664,7 @@ export function buildNFePreviewXml(
   const vICMS = soma.vICMS.toFixed(2);
   const vPIS = soma.vPIS.toFixed(2);
   const vCOFINS = soma.vCOFINS.toFixed(2);
-  const valorFrete = itens.reduce((total, item) => total + Number(item.valorFrete ?? 0), 0);
+  const valorFrete = itens.reduce((total, item) => total + Number(Number(item.valorFrete ?? 0).toFixed(2)), 0);
   if (valorFrete > 0 && (nfce || (options?.transporte?.modFrete ?? '9') === '9')) {
     throw new Error('NFE_FRETE_SEM_TRANSPORTE: frete cobrado é incompatível com modFrete 9. Corrija a modalidade ou o valor. Regra de coerência do ERP.');
   }
@@ -678,6 +673,8 @@ export function buildNFePreviewXml(
   const vNF = (
     soma.vProd - soma.vDesc + valorFrete + soma.vST + soma.vFCPST + soma.vIPI + soma.vIPIDevol
   ).toFixed(2);
+  const vNFTot = (itens.reduce((total, item) =>
+    total + Math.round(valorTotalItemNFe(item, crt, ide.dhEmi) * 100), 0) / 100).toFixed(2);
 
   // Totais do DIFAL. Ficam entre vICMSDeson e vFCP, na ordem do leiaute 4.00,
   // e so aparecem quando a nota realmente gerou o grupo nos itens.
@@ -696,20 +693,23 @@ export function buildNFePreviewXml(
   const isTotXml = soma.vIS > 0
     ? `<ISTot><vIS>${soma.vIS.toFixed(2)}</vIS></ISTot>`
     : '';
+  const somarDiferimento = (grupo: 'ibsUf' | 'ibsMunicipio' | 'cbs') => (
+    itens.reduce((total, item) => total + Math.round(Number(Number(item.rtc?.[grupo].valorDiferido ?? 0).toFixed(2)) * 100), 0) / 100
+  ).toFixed(2);
   // Estrutura de TIBSCBSMonoTot: gIBS e gCBS exigem vCredPres e vCredPresCondSus
   // alem dos valores apurados. Omiti-los gera rejeicao 225 apontando IBSCBSTot/gIBS.
   const ibsCbsTotXml = itens.some((item) => item.rtc)
     ? '<IBSCBSTot>' +
       `<vBCIBSCBS>${soma.vBCIBSCBS.toFixed(2)}</vBCIBSCBS>` +
       '<gIBS>' +
-      `<gIBSUF><vDif>0.00</vDif><vDevTrib>0.00</vDevTrib><vIBSUF>${soma.vIBSUF.toFixed(2)}</vIBSUF></gIBSUF>` +
-      `<gIBSMun><vDif>0.00</vDif><vDevTrib>0.00</vDevTrib><vIBSMun>${soma.vIBSMun.toFixed(2)}</vIBSMun></gIBSMun>` +
+      `<gIBSUF><vDif>${somarDiferimento('ibsUf')}</vDif><vDevTrib>0.00</vDevTrib><vIBSUF>${soma.vIBSUF.toFixed(2)}</vIBSUF></gIBSUF>` +
+      `<gIBSMun><vDif>${somarDiferimento('ibsMunicipio')}</vDif><vDevTrib>0.00</vDevTrib><vIBSMun>${soma.vIBSMun.toFixed(2)}</vIBSMun></gIBSMun>` +
       `<vIBS>${soma.vIBS.toFixed(2)}</vIBS>` +
       '<vCredPres>0.00</vCredPres>' +
       '<vCredPresCondSus>0.00</vCredPresCondSus>' +
       '</gIBS>' +
       '<gCBS>' +
-      '<vDif>0.00</vDif>' +
+      `<vDif>${somarDiferimento('cbs')}</vDif>` +
       '<vDevTrib>0.00</vDevTrib>' +
       `<vCBS>${soma.vCBS.toFixed(2)}</vCBS>` +
       '<vCredPres>0.00</vCredPres>' +
@@ -744,9 +744,8 @@ export function buildNFePreviewXml(
     '</ICMSTot>' +
     isTotXml +
     ibsCbsTotXml +
-    // vNFTot fecha o grupo <total>. Espelha o vNF: IBS/CBS destacados não somam
-    // ao valor da nota, apenas informam o tributo da reforma.
-    (ibsCbsTotXml ? `<vNFTot>${vNF}</vNFTot>` : '') +
+    // W60-10: soma dos vItem; em 2026 a exceção da VB01-10 exclui IBS/CBS/IS.
+    (ibsCbsTotXml ? `<vNFTot>${vNFTot}</vNFTot>` : '') +
     '</total>';
 
   // Venda ao consumidor é entrega no balcão: a NFC-e sai sempre sem ocorrência

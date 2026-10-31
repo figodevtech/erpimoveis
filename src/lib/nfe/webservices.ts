@@ -1,6 +1,7 @@
 import { decomporChaveAcesso } from "./chaveAcesso";
 import { MODELO_NFCE, rotuloModelo } from "./modeloDocumento";
 import type { ModeloDocumentoFiscal } from "./types";
+import { dataServicoSefaz, motivoInutilizacaoDesativada } from "./politicaServicosSefaz";
 
 type AmbienteNfe = "HOMOLOGACAO" | "PRODUCAO" | null | undefined;
 
@@ -168,10 +169,20 @@ export function resolveSefazEndpoint(params: {
   uf: string;
   ambiente: AmbienteNfe;
   servico: ServicoSefaz;
+  data?: string;
 }): string {
   const uf = String(params.uf ?? "").trim().toUpperCase();
   if (uf.length !== 2) {
     throw new Error(`UF do emitente inválida para resolver o webservice: "${params.uf ?? ""}".`);
+  }
+
+  if (params.servico === "inutilizacao") {
+    const motivo = motivoInutilizacaoDesativada({
+      uf, modelo: params.modelo,
+      ambiente: params.ambiente === "PRODUCAO" ? "PRODUCAO" : "HOMOLOGACAO",
+      data: params.data ?? dataServicoSefaz(uf),
+    });
+    if (motivo) throw new Error(motivo);
   }
 
   const autorizador = AUTORIZADOR_POR_UF[params.modelo]?.[uf];

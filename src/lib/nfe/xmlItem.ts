@@ -1,4 +1,4 @@
-import type { NFeItem } from './types';
+import type { NFeItem, VersaoTotalizacaoNFe } from './types';
 import {
   buildCofinsXmlPorCRT,
   buildIcmsXmlPorCRT,
@@ -8,7 +8,7 @@ import {
   buildRtcXml,
   getCestXml,
   normalizarCRT,
-  valorLiquidoItem,
+  valorTotalItemNFe,
 } from './fiscal';
 import { buildIcmsUFDestXml } from './difal';
 import { escapeXml } from './xmlUtils';
@@ -27,7 +27,7 @@ function onlyDigits(value: unknown) {
  * CRT 1 e 4 usam CSOSN. CRT 2 e 3 usam CST ICMS. A camada RTC é
  * emitida em paralelo aos tributos atuais quando estiver configurada.
  */
-export function buildDetXml(item: NFeItem, crt: string | number): string {
+export function buildDetXml(item: NFeItem, crt: string | number, dataEmissao?: string, versaoTotalizacao?: VersaoTotalizacaoNFe): string {
   const crtNormalizado = normalizarCRT(crt);
   const partes: string[] = [];
 
@@ -61,10 +61,10 @@ export function buildDetXml(item: NFeItem, crt: string | number): string {
   // Sequencia do grupo <prod> no leiaute 4.00: vFrete (I15), vSeg (I16),
   // vDesc (I17) e vOutro (I17a) vem depois de vUnTrib (I14a) e antes de
   // indTot. Fora dessa ordem a SEFAZ devolve rejeicao 225 (falha no schema).
-  if (Number(item.valorFrete ?? 0) > 0) {
+  if (Number(formatNumber(Number(item.valorFrete ?? 0), 2)) > 0) {
     partes.push(`<vFrete>${formatNumber(Number(item.valorFrete), 2)}</vFrete>`);
   }
-  if (Number(item.valorDesconto ?? 0) > 0) {
+  if (Number(formatNumber(Number(item.valorDesconto ?? 0), 2)) > 0) {
     partes.push(`<vDesc>${formatNumber(Number(item.valorDesconto), 2)}</vDesc>`);
   }
   partes.push('<indTot>1</indTot>');
@@ -103,10 +103,9 @@ export function buildDetXml(item: NFeItem, crt: string | number): string {
   if (item.informacoesAdicionaisProduto?.trim()) {
     partes.push(`<infAdProd>${escapeXml(item.informacoesAdicionaisProduto.trim())}</infAdProd>`);
   }
-  // vItem e o valor do item na operacao, ja liquido do desconto incondicional.
-  // Nao acumula IBS/CBS destacados: em 2026 os tributos da reforma sao
-  // informativos e nao elevam o valor comercial.
-  partes.push(`<vItem>${formatNumber(valorLiquidoItem(item), 2)}</vItem>`);
+  // VB01-10: participação no total, incluindo frete, ST, FCP-ST, IPI e IPI
+  // devolvido. A exceção de 2025/2026 exclui os tributos da reforma.
+  partes.push(`<vItem>${formatNumber(valorTotalItemNFe(item, crtNormalizado, dataEmissao, versaoTotalizacao), 2)}</vItem>`);
   if (item.dfeReferenciado) {
     const chave = onlyDigits(item.dfeReferenciado.chaveAcesso);
     if (chave.length !== 44) {

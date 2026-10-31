@@ -1,4 +1,4 @@
-import type { CRT, NFeItem, TributoPisCofins } from './types';
+import type { CRT, NFeItem, TributoPisCofins, VersaoTotalizacaoNFe } from './types';
 import { assertNFeItemTax } from './taxRules';
 import { icmsCanonicoDoItem, serializarIcms, somarTotaisIcms, valorLiquidoItem } from './icms';
 import { escapeXml } from './xmlUtils';
@@ -160,6 +160,17 @@ export function buildCofinsXmlPorCRT(item: NFeItem, crt: CRT): string {
   return buildContributionXml(item, 'COFINS');
 }
 
+/** Mesmo valor arredondado que será serializado em IPITrib/vIPI. */
+export function valorIpiDoItem(item: NFeItem): number {
+  const cst = digits(item.cstIpi, 2);
+  if (!cst || ['01', '02', '03', '04', '05', '51', '52', '53', '54', '55'].includes(cst)) return 0;
+  const valor = has(item.valorIpi) ? Number(item.valorIpi)
+    : has(item.quantidadeIpi) || has(item.valorUnidadeIpi)
+      ? Number(item.quantidadeIpi) * Number(item.valorUnidadeIpi)
+      : Number(item.baseCalculoIpi ?? valorLiquidoItem(item)) * Number(item.aliquotaIpi) / 100;
+  return Number(valor.toFixed(2));
+}
+
 export function buildIpiXml(item: NFeItem) {
   const cst = digits(item.cstIpi, 2);
   if (!cst) return '';
@@ -169,12 +180,12 @@ export function buildIpiXml(item: NFeItem) {
   }
   let calculation: string;
   if (has(item.quantidadeIpi) || has(item.valorUnidadeIpi)) {
-    const value = has(item.valorIpi) ? Number(item.valorIpi) : Number((Number(item.quantidadeIpi) * Number(item.valorUnidadeIpi)).toFixed(2));
+    const value = valorIpiDoItem(item);
     calculation = tag('qUnid', requiredNumber(item, 'quantidadeIpi', item.quantidadeIpi, quantity)) + tag('vUnid', requiredNumber(item, 'valorUnidadeIpi', item.valorUnidadeIpi, rate)) + tag('vIPI', money(value));
   } else {
     const base = Number(item.baseCalculoIpi ?? valorLiquidoItem(item));
     const aliquota = Number(item.aliquotaIpi);
-    const value = has(item.valorIpi) ? Number(item.valorIpi) : Number(((base * aliquota) / 100).toFixed(2));
+    const value = valorIpiDoItem(item);
     calculation = tag('vBC', money(base)) + tag('pIPI', rate(aliquota)) + tag('vIPI', money(value));
   }
   return `<IPI>${tag('cEnq', cEnq)}<IPITrib>${tag('CST', cst)}${calculation}</IPITrib></IPI>`;
@@ -220,25 +231,48 @@ function contributionValue(item: NFeItem, type: 'PIS' | 'COFINS') {
     : Number(data.base ?? valorLiquidoItem(item)) * Number(data.aliquota) / 100;
 }
 
+/**
+ * NT 2025.002 v1.53 / NT 2026.008 v1.01, VB01-10. Somente componentes
+ * suportados e efetivamente serializados pelo motor. A data é a emissão do
+ * documento, nunca o relógio do processo. RTC_2027 exige ativação explícita:
+ * o fluxo completo permanece RTC_2026 até adaptar financeiro e homologar.
+ * vProd continua excluindo IBS/CBS/IS: não há incorporação dupla em 2027.
+ */
+export function valorTotalItemNFe(item: NFeItem, crt: CRT, dataEmissao?: string, versao: VersaoTotalizacaoNFe = 'RTC_2026'): number {
+  const centavos = (valor: unknown) => Math.round(Number(Number(valor ?? 0).toFixed(2)) * 100);
+  const icms = icmsCanonicoDoItem(item, crt);
+  let total = centavos(item.valorTotal) - centavos(item.valorDesconto)
+    + centavos(item.valorFrete) + centavos(icms.vICMSST) + centavos(icms.vFCPST)
+    + centavos(valorIpiDoItem(item)) + centavos(item.valorIpiDevolvido);
+  if (versao === 'RTC_2027') {
+    if (!dataEmissao || !/^\d{4}-\d{2}-\d{2}T/.test(dataEmissao) || dataEmissao.slice(0, 4) < '2027') {
+      throw new Error('NFE_TOTAL_RTC_VIGENCIA: RTC_2027 exige data de emissão a partir de 2027.');
+    }
+    total += centavos(item.rtc?.valorIbs) + centavos(item.rtc?.cbs.valor)
+      + centavos(item.impostoSeletivo?.valor);
+  }
+  return total / 100;
+}
+
 export function calcularTotaisNFe(itens: NFeItem[], crt: CRT): TotaisNFe {
   const initial: TotaisNFe = { vProd: 0, vDesc: 0, vBC: 0, vICMS: 0, vICMSDeson: 0, vFCP: 0, vBCST: 0, vST: 0, vFCPST: 0, vFCPSTRet: 0, vPIS: 0, vCOFINS: 0, vIPI: 0, vIPIDevol: 0, vIS: 0, vBCIBSCBS: 0, vIBSUF: 0, vIBSMun: 0, vIBS: 0, vCBS: 0 };
   return itens.reduce((total, item) => {
     validarItemFiscal(item, crt);
     // vProd continua sendo o bruto: o desconto vai para vDesc, nunca embutido
     // no preco unitario, para a nota espelhar o preco de tabela.
-    total.vProd += Number(item.valorTotal);
-    total.vDesc += Number((Number(item.valorTotal) - valorLiquidoItem(item)).toFixed(2));
+    total.vProd += Number(Number(item.valorTotal).toFixed(2));
+    total.vDesc += Number(Number(item.valorDesconto ?? 0).toFixed(2));
     // ICMS: soma do mesmo canônico que foi serializado no item.
     const icms = somarTotaisIcms([icmsCanonicoDoItem(item, crt)]);
     total.vBC += icms.vBC; total.vICMS += icms.vICMS; total.vICMSDeson += icms.vICMSDeson;
     total.vFCP += icms.vFCP; total.vBCST += icms.vBCST; total.vST += icms.vST;
     total.vFCPST += icms.vFCPST; total.vFCPSTRet += icms.vFCPSTRet;
-    total.vPIS += contributionValue(item, 'PIS'); total.vCOFINS += contributionValue(item, 'COFINS');
-    total.vIPI += Number(item.valorIpi ?? 0); total.vIPIDevol += Number(item.valorIpiDevolvido ?? 0);
-    total.vIS += Number(item.impostoSeletivo?.valor ?? 0);
+    total.vPIS += Number(contributionValue(item, 'PIS').toFixed(2)); total.vCOFINS += Number(contributionValue(item, 'COFINS').toFixed(2));
+    total.vIPI += valorIpiDoItem(item); total.vIPIDevol += Number(Number(item.valorIpiDevolvido ?? 0).toFixed(2));
+    total.vIS += Number(Number(item.impostoSeletivo?.valor ?? 0).toFixed(2));
     if (item.rtc) {
-      total.vBCIBSCBS += item.rtc.baseCalculo; total.vIBSUF += item.rtc.ibsUf.valor;
-      total.vIBSMun += item.rtc.ibsMunicipio.valor; total.vIBS += item.rtc.valorIbs; total.vCBS += item.rtc.cbs.valor;
+      total.vBCIBSCBS += Number(item.rtc.baseCalculo.toFixed(2)); total.vIBSUF += Number(item.rtc.ibsUf.valor.toFixed(2));
+      total.vIBSMun += Number(item.rtc.ibsMunicipio.valor.toFixed(2)); total.vIBS += Number(item.rtc.valorIbs.toFixed(2)); total.vCBS += Number(item.rtc.cbs.valor.toFixed(2));
     }
     return total;
   }, initial);

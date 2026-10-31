@@ -180,3 +180,17 @@ describe(`XSD oficial ${PACOTE_XSD_VIGENTE} — NF-e completa por grupo ICMS`, (
     assert.equal((await validarNFeContraXsd(xml)).valido, false);
   });
 });
+
+describe(`XSD oficial ${PACOTE_XSD_VIGENTE} — NFC-e modelo 65`, () => {
+  for (const identificado of [false, true]) {
+    it(`valida NFC-e com consumidor ${identificado ? 'identificado' : 'não identificado'}`, async () => {
+      const { xml } = buildNFePreviewXml(
+        empresa, 1, 1, [item], identificado ? destinatario('SP') : undefined,
+        { modelo: 65, nomeMunicipioEmitente: 'SAO PAULO', indFinal: 1, indPres: 1 },
+      );
+      assert.match(xml, /<mod>65<\/mod>/);
+      const resultado = await validarNFeContraXsd(comAssinaturaXsdTeste(xml));
+      assert.ok(resultado.valido, resultado.erros.join('\n'));
+    });
+  }
+});

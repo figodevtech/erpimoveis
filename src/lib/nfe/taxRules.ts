@@ -15,7 +15,7 @@ import { NFE_ICMS_RULE_VERSION, VERSAO_REGRA_CFOP_ST, resolverIcmsDoItem } from 
 // A troca de versão faz rascunhos antigos serem gerados de novo antes da
 // autorização (`rascunhoPrecisaSerRegerado`), e com eles a ciência dos avisos.
 export const NFE_FISCAL_RULE_VERSION =
-  `regras_nfe@2026-10-27|NT-2025.002-v1.51|IT-2025.002-v1.60|PL-010b-v1.30|NT-2020.006-intermed|${NFE_ICMS_RULE_VERSION}|${VERSAO_REGRA_CFOP_ST}`;
+  `regras_nfe@2026-10-31|NT-2025.002-v1.51|IT-2025.002-v1.71-2026-10-30|PL-010f-v1.50|NT-2020.006-intermed|${NFE_ICMS_RULE_VERSION}|${VERSAO_REGRA_CFOP_ST}`;
 export const RTC_REGULAR_REQUIRED_FROM = '2026-08-03';
 
 /**

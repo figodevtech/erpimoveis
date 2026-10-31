@@ -10,6 +10,7 @@ import {
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { ClassificacaoTributariaRtc, CRT } from "@/lib/nfe/types";
 import { dataCivilDeHoje } from "@/lib/fiscal-date";
+import { carregarEdicaoCatalogoRtc } from "@/services/fiscal/catalogoRtcService";
 
 /**
  * Guarda e valida o padrão fiscal dos itens gravado em
@@ -45,10 +46,12 @@ async function carregarClassificacoesVigentes(
   if (codigos.length === 0) return new Map();
 
   const hoje = dataCivilDeHoje();
+  const catalogoRtc = await carregarEdicaoCatalogoRtc(hoje);
   const { data, error } = await supabaseAdmin
     .from("fiscal_nfe_classificacao_tributaria")
     .select("codigo, cst, nome, permite_nfe, inicio_vigencia, fim_vigencia, versao_fonte")
     .in("codigo", codigos)
+    .eq("versao_fonte", catalogoRtc.versao ?? "")
     .lte("inicio_vigencia", hoje)
     .or(`fim_vigencia.is.null,fim_vigencia.gte.${hoje}`);
 

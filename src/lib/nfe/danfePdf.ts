@@ -2,6 +2,7 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 
 import { encodeCode128C } from "@/lib/nfe/code128";
 import { descreverDocumentoReferenciado } from "@/lib/nfe/danfeDocumentosReferenciados";
+import { temGrupoRegularRtc, temTotaisRtc, usaDanfeRtc2026 } from "@/lib/nfe/danfeRtc";
 import { DANFE_DEFAULT_FONT_SCALE, type DanfeFontScale } from "@/lib/nfe/danfeFontScale";
 import type { DanfeViewData } from "@/components/danfe/danfe-view";
 import type { DanfeItem } from "@/lib/nfe/danfeParser";
@@ -102,7 +103,7 @@ type Ctx = {
   fontScale: DanfeFontScale;
   /** Cursor medido a partir do topo da folha. */
   y: number;
-  novaPagina: () => void;
+  novaPagina: (repetirCabecalhoItens?: boolean) => void;
 };
 
 const scaled = (ctx: Ctx, value: number) => value * ctx.fontScale;
@@ -366,6 +367,9 @@ function cabecalho(ctx: Ctx, data: DanfeViewData, pagina: number, totalPaginas: 
     { label: "Inscricao estadual do subst. tributario", valor: data.emitenteIest || "-" },
     { label: "CNPJ", valor: fmtDoc(data.emitenteCnpj) },
   ], larguras);
+  if (usaDanfeRtc2026(data.dataEmissaoDanfe) && data.emitenteCrt) {
+    linhaDeCampos(ctx, [{ label: "Codigo do Regime Tributario", valor: data.emitenteCrt }], [CONTENT_W]);
+  }
 }
 
 function destinatario(ctx: Ctx, data: DanfeViewData) {
@@ -427,7 +431,7 @@ function calculoDoImposto(ctx: Ctx, data: DanfeViewData) {
     { label: "Outras despesas", valor: fmtMoney(t.vOutro), alinhamento: "direita" },
     { label: "Valor do II", valor: fmtMoney(t.vII), alinhamento: "direita" },
     { label: "Valor do IPI", valor: fmtMoney(t.vIPI), alinhamento: "direita" },
-    { label: "Valor total da nota", valor: fmtMoney(t.vNF), alinhamento: "direita" },
+    { label: "Valor total da nota", valor: fmtMoney(t.vNFTot ?? t.vNF), alinhamento: "direita" },
   ], sete);
 
   const seis = colunas(CONTENT_W, [1, 1, 1, 1, 1, 1]);
@@ -440,8 +444,8 @@ function calculoDoImposto(ctx: Ctx, data: DanfeViewData) {
     { label: "Tributos aproximados", valor: fmtMoney(t.vTotTrib), alinhamento: "direita" },
   ], seis);
 
-  if (t.vBCIBSCBS || t.vIBS || t.vCBS || t.vIS) {
-    tituloBloco(ctx, "Reforma tributaria (IBS / CBS / IS)");
+  if (temTotaisRtc(t)) {
+    tituloBloco(ctx, usaDanfeRtc2026(data.dataEmissaoDanfe) ? "Total do IBS/CBS/IS" : "Reforma tributaria (IBS / CBS / IS)");
     linhaDeCampos(ctx, [
       { label: "BC IBS/CBS", valor: fmtMoney(t.vBCIBSCBS), alinhamento: "direita" },
       { label: "IBS UF", valor: fmtMoney(t.vIBSUF), alinhamento: "direita" },
@@ -450,6 +454,17 @@ function calculoDoImposto(ctx: Ctx, data: DanfeViewData) {
       { label: "Total CBS", valor: fmtMoney(t.vCBS), alinhamento: "direita" },
       { label: "Imposto seletivo", valor: fmtMoney(t.vIS), alinhamento: "direita" },
     ], seis);
+    if (usaDanfeRtc2026(data.dataEmissaoDanfe)) {
+      const campos = [
+        { label: "IBS monofasico", valor: t.vIBSMono },
+        { label: "CBS monofasica", valor: t.vCBSMono },
+        { label: "IBS monofasico por retencao", valor: t.vIBSMonoReten },
+        { label: "CBS monofasica por retencao", valor: t.vCBSMonoReten },
+      ].filter((campo) => campo.valor != null);
+      if (campos.length) linhaDeCampos(ctx, campos.map((campo) => ({
+        label: campo.label, valor: fmtMoney(campo.valor!), alinhamento: "direita" as const,
+      })), colunas(CONTENT_W, campos.map(() => 1)));
+    }
   }
 }
 
@@ -596,60 +611,56 @@ const COLUNAS_RTC = [
   "% IBS Mun.", "V. IBS Mun.", "V. IBS", "% CBS", "V. CBS", "CST IS", "V. IS",
 ];
 
-function tabelaRtc(ctx: Ctx, itens: DanfeItem[]) {
+function tabelaRtc(ctx: Ctx, itens: DanfeItem[], rtc2026: boolean) {
   if (!itens.length) return;
-  tituloBloco(ctx, "Detalhamento IBS / CBS / IS por item");
-
-  const larguras = colunas(CONTENT_W, [3, 6, 8, 7, 5.5, 7, 6, 7, 7, 5, 7, 5, 6]);
-  const alturaLinha = ITEM_HEAD_SIZE + 1;
-  const titulos = COLUNAS_RTC.map((titulo, indice) =>
-    wrapText(ctx, titulo.toUpperCase(), ctx.bold, ITEM_HEAD_SIZE, larguras[indice] - 3),
-  );
-  const maxLinhas = Math.max(1, ...titulos.map((linhas) => linhas.length));
-  const alturaCabecalho = Math.max(scaled(ctx, 9), scaled(ctx, 3 + maxLinhas * alturaLinha));
-  caixa(ctx, MARGIN, ctx.y, CONTENT_W, alturaCabecalho);
-  let x = MARGIN;
-  COLUNAS_RTC.forEach((_, indice) => {
-    if (indice > 0) linhaVertical(ctx, x, ctx.y, alturaCabecalho);
-    titulos[indice].forEach((linha, ordem) => {
-      texto(ctx, linha, x + 1.5, ctx.y + scaled(ctx, 1.5 + ordem * alturaLinha), ITEM_HEAD_SIZE, ctx.bold);
-    });
-    x += larguras[indice];
-  });
-  ctx.y += alturaCabecalho;
-
-  for (const item of itens) {
-    const valores = [
-      String(item.n_item),
-      item.cst_ibs_cbs || "-",
-      item.classificacao_tributaria || "-",
-      fmtMoney(item.base_ibs_cbs),
-      fmtDecimal(item.aliquota_ibs_uf, 2),
-      fmtMoney(item.valor_ibs_uf),
-      fmtDecimal(item.aliquota_ibs_municipio, 2),
-      fmtMoney(item.valor_ibs_municipio),
-      fmtMoney(item.valor_ibs),
-      fmtDecimal(item.aliquota_cbs, 2),
-      fmtMoney(item.valor_cbs),
-      item.cst_is || "-",
-      fmtMoney(item.valor_is),
-    ];
-    const altura = scaled(ctx, ITEM_SIZE + 5);
-    if (ctx.y + altura > BOTTOM_LIMIT) ctx.novaPagina();
-
+  const titulos = rtc2026 ? [
+    "Item / CST / cClassTrib", "Base IBS/CBS / IS", "IBS UF % / valor", "IBS Mun. % / valor",
+    "CBS % / valor", "IS % / valor", "Total IBS",
+  ] : COLUNAS_RTC;
+  const larguras = colunas(CONTENT_W, rtc2026 ? [1.15, 1.4, 1.15, 1.15, 1.15, 1.15, 1.1] : [3, 6, 8, 7, 5.5, 7, 6, 7, 7, 5, 7, 5, 6]);
+  const cabecalho = () => {
+    tituloBloco(ctx, "Detalhamento IBS / CBS / IS por item");
+    const linhas = titulos.map((titulo, i) => wrapText(ctx, titulo.toUpperCase(), ctx.bold, ITEM_HEAD_SIZE, larguras[i] - 3));
+    const altura = scaled(ctx, 3 + Math.max(...linhas.map((v) => v.length)) * (ITEM_HEAD_SIZE + 1));
     caixa(ctx, MARGIN, ctx.y, CONTENT_W, altura);
-    let coluna = MARGIN;
-    valores.forEach((valor, indice) => {
-      if (indice > 0) linhaVertical(ctx, coluna, ctx.y, altura);
-      const linha = wrapText(ctx, valor, ctx.font, ITEM_SIZE, larguras[indice] - 3)[0] ?? "";
-      if (indice >= 3) textoDireita(ctx, linha, coluna + larguras[indice] - 1.5, ctx.y + 2, ITEM_SIZE, ctx.font);
-      else texto(ctx, linha, coluna + 1.5, ctx.y + 2, ITEM_SIZE, ctx.font);
-      coluna += larguras[indice];
+    let x = MARGIN;
+    linhas.forEach((partes, i) => {
+      if (i) linhaVertical(ctx, x, ctx.y, altura);
+      partes.forEach((linha, j) => texto(ctx, linha, x + 1.5, ctx.y + scaled(ctx, 1.5 + j * (ITEM_HEAD_SIZE + 1)), ITEM_HEAD_SIZE, ctx.bold));
+      x += larguras[i];
+    });
+    ctx.y += altura;
+  };
+  if (ctx.y + scaled(ctx, 65) > BOTTOM_LIMIT) ctx.novaPagina(false);
+  cabecalho();
+  for (const item of itens) {
+    const valores = rtc2026 ? [
+      `${item.n_item} / ${item.cst_ibs_cbs || "-"} / ${item.classificacao_tributaria || "-"}`,
+      `IBS/CBS: ${temGrupoRegularRtc(item) ? fmtMoney(item.base_ibs_cbs) : "-"} / IS: ${item.base_is == null ? "-" : fmtMoney(item.base_is)}`,
+      temGrupoRegularRtc(item) ? `${fmtDecimal(item.aliquota_ibs_uf_efetiva ?? item.aliquota_ibs_uf, 2)}% / ${fmtMoney(item.valor_ibs_uf)}` : "-",
+      temGrupoRegularRtc(item) ? `${fmtDecimal(item.aliquota_ibs_municipio_efetiva ?? item.aliquota_ibs_municipio, 2)}% / ${fmtMoney(item.valor_ibs_municipio)}` : "-",
+      temGrupoRegularRtc(item) ? `${fmtDecimal(item.aliquota_cbs_efetiva ?? item.aliquota_cbs, 2)}% / ${fmtMoney(item.valor_cbs)}` : "-",
+      `${item.aliquota_is == null ? "-" : `${fmtDecimal(item.aliquota_is, 2)}%`} / ${item.cst_is ? fmtMoney(item.valor_is) : "-"}`,
+      temGrupoRegularRtc(item) ? fmtMoney(item.valor_ibs) : "-",
+    ] : [
+      String(item.n_item), item.cst_ibs_cbs || "-", item.classificacao_tributaria || "-",
+      fmtMoney(item.base_ibs_cbs), fmtDecimal(item.aliquota_ibs_uf, 2), fmtMoney(item.valor_ibs_uf),
+      fmtDecimal(item.aliquota_ibs_municipio, 2), fmtMoney(item.valor_ibs_municipio), fmtMoney(item.valor_ibs),
+      fmtDecimal(item.aliquota_cbs, 2), fmtMoney(item.valor_cbs), item.cst_is || "-", fmtMoney(item.valor_is),
+    ];
+    const linhas = valores.map((valor, i) => wrapText(ctx, valor, ctx.font, ITEM_SIZE, larguras[i] - 3));
+    const altura = scaled(ctx, 4 + Math.max(...linhas.map((v) => v.length)) * (ITEM_SIZE + 1.4));
+    if (ctx.y + altura > BOTTOM_LIMIT) { ctx.novaPagina(false); cabecalho(); }
+    caixa(ctx, MARGIN, ctx.y, CONTENT_W, altura);
+    let x = MARGIN;
+    linhas.forEach((partes, i) => {
+      if (i) linhaVertical(ctx, x, ctx.y, altura);
+      partes.forEach((linha, j) => texto(ctx, linha, x + 1.5, ctx.y + 2 + scaled(ctx, j * (ITEM_SIZE + 1.4)), ITEM_SIZE, ctx.font));
+      x += larguras[i];
     });
     ctx.y += altura;
   }
 }
-
 function documentosReferenciados(ctx: Ctx, data: DanfeViewData) {
   const referencias = data.documentosReferenciados.map(descreverDocumentoReferenciado).filter(Boolean);
   if (!referencias.length) return;
@@ -797,12 +808,12 @@ async function montar(data: DanfeViewData, totalDeclarado: number, fontScale: Da
   };
 
   let paginaAtual = 1;
-  ctx.novaPagina = () => {
+  ctx.novaPagina = (repetirCabecalhoItens = true) => {
     paginaAtual += 1;
     ctx.page = pdf.addPage([PAGE_W, PAGE_H]);
     ctx.y = MARGIN;
     cabecalho(ctx, data, paginaAtual, Math.max(totalDeclarado, paginaAtual));
-    cabecalhoDaTabela(ctx, larguras);
+    if (repetirCabecalhoItens) cabecalhoDaTabela(ctx, larguras);
   };
 
   canhoto(ctx, data);
@@ -828,7 +839,7 @@ async function montar(data: DanfeViewData, totalDeclarado: number, fontScale: Da
     desenharItem(ctx, item, larguras, altura);
   }
 
-  if (mostrarRtc) tabelaRtc(ctx, itens);
+  if (mostrarRtc) tabelaRtc(ctx, itens, usaDanfeRtc2026(data.dataEmissaoDanfe));
   rodape(ctx, data);
 
   return { pdf, paginas: paginaAtual };
