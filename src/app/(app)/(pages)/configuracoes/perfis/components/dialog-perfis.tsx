@@ -101,6 +101,7 @@ const TIPO_LABELS: Record<string, string> = {
   cores_veiculos: "Cores de veículos",
   tipos_entrada: "Motivos de entrada",
   motivos_saida: "Motivos de saída",
+  comodidades: "Tipos de comodidades",
 };
 
 function formatModulo(nome: string) {

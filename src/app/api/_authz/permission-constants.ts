@@ -127,6 +127,7 @@ export const TIPO_IDS = [
   "grupos", "grupos_usoconsumo", "unidades", "servicos", "fornecedores",
   "setores", "bancos", "categorias", "bandeiras", "planos_conta",
   "centros_custo", "categorias_venda", "tipos_entrada", "motivos_saida",
+  "comodidades",
 ] as const;
 
 export type TipoId = (typeof TIPO_IDS)[number];

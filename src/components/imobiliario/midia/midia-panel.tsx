@@ -2,8 +2,10 @@
 
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Camera, Image as ImageIcon, Info, Loader2, Upload } from "lucide-react";
+import { toast } from "@/lib/toast";
+import { Camera, Download, Image as ImageIcon, Info, Loader2, Upload } from "lucide-react";
 import { GaleriaMidia } from "./galeria-midia";
+import { downloadAll } from "./download";
 import type { ImovelMidia } from "./use-imovel-midia";
 
 const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer.types).includes("Files");
@@ -75,6 +77,37 @@ export function MidiaPanel({
   const busy = midia.subindoImagens || midia.carregandoImagens;
   const total = midia.imagens.length;
   const pendentes = midia.imagensPendentes.length;
+  const [baixando, setBaixando] = useState<{ done: number; total: number } | null>(null);
+
+  // Só as já enviadas, na ordem do site; as pendentes ainda estão no computador de quem escolheu.
+  const baixarTodas = async () => {
+    const fotos = midia.galeriaUrls.map((url) => ({ url, nome: midia.imagens.find((img) => img.url === url)?.nome }));
+    if (!fotos.length) return;
+    setBaixando({ done: 0, total: fotos.length });
+    try {
+      const { failed } = await downloadAll(fotos, (done, all) => setBaixando({ done, total: all }));
+      if (failed) toast.error("Algumas fotos não foram baixadas", { description: `${failed} de ${fotos.length} falharam. Tente de novo.` });
+      else toast.success(fotos.length === 1 ? "Foto baixada" : `${fotos.length} fotos baixadas`, {
+        description: "Se o navegador perguntar, permita o download de vários arquivos.",
+      });
+    } finally {
+      setBaixando(null);
+    }
+  };
+
+  const baixarButton =
+    total > 0 ? (
+      <Button
+        type="button"
+        variant="outline"
+        className="gap-2 hover:cursor-pointer"
+        disabled={Boolean(baixando)}
+        onClick={baixarTodas}
+      >
+        {baixando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        {baixando ? `Baixando ${baixando.done + 1 > baixando.total ? baixando.total : baixando.done + 1} de ${baixando.total}…` : "Baixar todas"}
+      </Button>
+    ) : null;
 
   return (
     <FileDropZone disabled={!editable || midia.subindoImagens} onFiles={midia.onPick} hint="Solte as fotos para adicionar à galeria">
@@ -148,15 +181,19 @@ export function MidiaPanel({
                 <Upload className="h-4 w-4" />
                 Selecionar fotos
               </Button>
+              {baixarButton}
             </div>
+          ) : baixarButton ? (
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[220px]">{baixarButton}</div>
           ) : null}
         </div>
 
         <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50/70 p-3 text-xs text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-300">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            O site exibe as fotos nesta ordem e usa a 1ª como capa. Arraste para reordenar: a nova ordem é salva ao
-            soltar. Fotos de celular (inclusive HEIC do iPhone) são convertidas e otimizadas no envio.
+            O site exibe as fotos nesta ordem e usa a 1ª como capa. Clique numa foto para vê-la inteira; arraste para
+            reordenar (a nova ordem é salva ao soltar). Fotos de celular (inclusive HEIC do iPhone) são convertidas e
+            otimizadas no envio.
           </p>
         </div>
 

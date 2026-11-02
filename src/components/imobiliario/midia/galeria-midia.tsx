@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -37,6 +37,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Image as ImageIcon, Loader2, Trash2, UploadCloud, X } from "lucide-react";
+import { PhotoLightbox } from "./photo-lightbox";
 
 export type GaleriaImagem = {
   id: number;
@@ -91,8 +92,8 @@ type ImageCardProps = {
   busy?: boolean;
   readOnly?: boolean;
   isOverlay?: boolean;
-  actionsVisible?: boolean;
-  onToggleActions?: (key: string) => void;
+  /** Clique na miniatura: abre a foto inteira. */
+  onOpen?: (key: string) => void;
   onRemovePendente?: (id: string) => void;
   onDefinirPrincipal?: (id: number) => void;
   onConfirmRemove?: (id: number) => void;
@@ -122,8 +123,7 @@ function ImageCard({
   busy,
   readOnly,
   isOverlay,
-  actionsVisible,
-  onToggleActions,
+  onOpen,
   onRemovePendente,
   onDefinirPrincipal,
   onConfirmRemove,
@@ -134,19 +134,21 @@ function ImageCard({
   const removendo = !!image && removingImageId === image.id;
   const definindoCapa = !!image && definingMainImageId === image.id;
   const bloqueadoPorCapa = definingMainImageId != null;
-  const actionVisibilityClass = actionsVisible ? "opacity-100" : "opacity-0 group-hover:opacity-100";
+  // Hover no computador; no toque (sem hover) as ações ficam sempre à vista, já que o toque abre a foto.
+  const actionVisibilityClass = "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100";
   const showActions = !!image && !isOverlay && !readOnly;
 
   return (
     <div
       className={`relative group aspect-square overflow-hidden rounded-md border bg-muted/20 transition-all duration-200 ${
         ehPrincipal ? "ring-2 ring-primary border-transparent" : ""
-      } ${showActions ? "cursor-pointer" : ""} ${
+      } ${onOpen && !isOverlay ? "cursor-zoom-in" : ""} ${
         isOverlay ? "scale-105 cursor-grabbing shadow-2xl ring-2 ring-primary/40" : ""
       }`}
       onClick={() => {
-        if (showActions) onToggleActions?.(item.key);
+        if (!isOverlay) onOpen?.(item.key);
       }}
+      title={isOverlay ? undefined : "Clique para ver a foto inteira"}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -285,7 +287,9 @@ export function GaleriaMidia({
 }: Props) {
   const [confirmRemoveId, setConfirmRemoveId] = useState<number | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [activeActionsKey, setActiveActionsKey] = useState<string | null>(null);
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  // Soltar um card depois de arrastar também dispara clique; nesse instante não abre a foto.
+  const lastDragEnd = useRef(0);
   const confirmImage = imagens.find((img) => img.id === confirmRemoveId);
   const hasImages = imagens.length > 0 || pendentes.length > 0;
   const uploadDisabled = !onUpload || pendentes.length === 0 || uploading || savingOrder;
@@ -330,7 +334,6 @@ export function GaleriaMidia({
   };
 
   const handleDragStart = (event: DragStartEvent) => {
-    setActiveActionsKey(null);
     setActiveId(String(event.active.id));
   };
 
@@ -347,6 +350,7 @@ export function GaleriaMidia({
 
   const handleDragEnd = (event: DragEndEvent) => {
     const nextKeys = reorderFromDragEvent(event) ?? items.map((item) => item.key);
+    lastDragEnd.current = Date.now();
     setActiveId(null);
     onReorderEnd?.(nextKeys);
   };
@@ -354,7 +358,6 @@ export function GaleriaMidia({
   const confirmRemove = () => {
     if (!confirmRemoveId) return;
     onRemoverImagem?.(confirmRemoveId);
-    setActiveActionsKey(null);
     setConfirmRemoveId(null);
   };
 
@@ -377,7 +380,7 @@ export function GaleriaMidia({
             onDragCancel={() => setActiveId(null)}
           >
             <SortableContext items={items.map((item) => item.key)} strategy={rectSortingStrategy}>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-3 lg:grid-cols-6">
                 {items.map((item, index) => {
                   const media = getItemMedia(item);
                   return (
@@ -394,9 +397,9 @@ export function GaleriaMidia({
                       definingMainImageId={definingMainImageId}
                       busy={busy}
                       readOnly={readOnly}
-                      actionsVisible={activeActionsKey === item.key}
-                      onToggleActions={(key) => {
-                        setActiveActionsKey((current) => (current === key ? null : key));
+                      onOpen={(key) => {
+                        if (Date.now() - lastDragEnd.current < 300) return;
+                        setViewerIndex(items.findIndex((entry) => entry.key === key));
                       }}
                       onRemovePendente={onRemovePendente}
                       onDefinirPrincipal={onDefinirPrincipal}
@@ -418,7 +421,7 @@ export function GaleriaMidia({
               }}
             >
               {activeItem ? (
-                <div className="w-32 sm:w-36 lg:w-40">
+                <div className="w-24 sm:w-28 lg:w-32">
                   <ImageCard
                     item={activeItem}
                     {...getItemMedia(activeItem)}
@@ -456,6 +459,16 @@ export function GaleriaMidia({
           </div>
         )}
       </div>
+
+      <PhotoLightbox
+        photos={items.map((item) => {
+          const media = getItemMedia(item);
+          return { key: item.key, src: media.src, nome: media.alt, pending: item.type === "pending" };
+        })}
+        index={viewerIndex}
+        onIndexChange={setViewerIndex}
+        onClose={() => setViewerIndex(null)}
+      />
 
       <AlertDialog open={confirmRemoveId != null} onOpenChange={(open) => !open && setConfirmRemoveId(null)}>
         <AlertDialogContent>

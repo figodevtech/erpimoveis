@@ -18,6 +18,7 @@ const routes = {
   categorias_venda: "categorias-venda",
   tipos_entrada: "tipos-entrada",
   motivos_saida: "motivos-saida",
+  comodidades: "comodidades",
 } as const;
 
 test("cada Tipo exige sua própria permissão para cada mutação", () => {

@@ -16,6 +16,7 @@ const API_TIPO: Record<string, TipoId> = {
   "categorias-venda": "categorias_venda",
   "tipos-entrada": "tipos_entrada",
   "motivos-saida": "motivos_saida",
+  comodidades: "comodidades",
 };
 
 /** Leituras continuam disponíveis para formulários de outros módulos. */

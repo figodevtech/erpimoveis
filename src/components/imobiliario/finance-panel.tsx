@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import ValueInput from "@/components/ui/value-input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import {
   EntityShell,
@@ -43,6 +44,23 @@ const ServiceInvoiceDialog = dynamic(() => import("./service-invoice-dialog"), {
   ),
 });
 
+/** Linhas de carregamento com a mesma grade da tabela: a altura não muda quando os dados chegam. */
+function SkeletonRows({ widths }: { widths: string[] }) {
+  return (
+    <>
+      {Array.from({ length: 3 }, (_, row) => (
+        <tr key={row} aria-hidden>
+          {widths.map((width, col) => (
+            <td key={col} className="p-3.5 sm:px-4">
+              <Skeleton className={`h-4 ${width}`} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
 export function FinancePanel({ context, permission }: { context: Entity; permission: string }) {
   const { can } = useModulePermission();
   const [inicio, setInicio] = useState("");
@@ -66,6 +84,8 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
       </div>
     );
 
+  // Também ao trocar o período: a estrutura fica e só os valores viram skeleton.
+  const loading = remote.loading;
   const totals = remote.data?.totais ?? {};
   const rows = remote.data?.items ?? [];
   const charges = remote.data?.cobrancas ?? [];
@@ -95,6 +115,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
             variant="outline"
             size="sm"
             onClick={remote.reload}
+            disabled={loading}
             className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
           >
             <RefreshCw className="h-3.5 w-3.5" />
@@ -140,7 +161,10 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
         </div>
       </div>
 
-      <RemoteState loading={remote.loading} error={remote.error} retry={remote.reload}>
+      {remote.error && !remote.data ? (
+        <RemoteState error={remote.error} retry={remote.reload} />
+      ) : (
+        <div className="space-y-6" aria-busy={loading}>
         {/* KPI Cards Financeiros */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
@@ -156,7 +180,11 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
           ].map(({ key, label, color }) => (
             <div key={key} className="rounded-xl border border-border/60 bg-card p-4 shadow-xs">
               <p className="text-xs font-medium text-muted-foreground">{label}</p>
-              <p className={`mt-2 text-lg font-bold tracking-tight ${color}`}>{money(totals[key])}</p>
+              {loading ? (
+                <Skeleton className="mt-2 h-7 w-28" />
+              ) : (
+                <p className={`mt-2 text-lg font-bold tracking-tight ${color}`}>{money(totals[key])}</p>
+              )}
             </div>
           ))}
         </div>
@@ -168,7 +196,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
               <Receipt className="h-4 w-4 text-primary" />
               Cobranças e Faturas
             </h3>
-            <span className="text-xs text-muted-foreground">{charges.length} registro(s)</span>
+            {loading ? <Skeleton className="h-3 w-20" /> : <span className="text-xs text-muted-foreground">{charges.length} registro(s)</span>}
           </div>
           <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-xs">
             <div className="overflow-x-auto">
@@ -186,7 +214,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
-                  {charges.map((row: Entity) => (
+                  {loading ? <SkeletonRows widths={["w-40", "w-20", "w-20", "w-20", "w-16 rounded-full", "w-20 ml-auto"]} /> : charges.map((row: Entity) => (
                     <tr key={row.id} className="hover:bg-muted/30 transition-colors">
                       <td className="p-3.5 sm:px-4 font-medium text-foreground">
                         {row.descricao ?? `Fatura #${row.id}`}
@@ -217,7 +245,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
                       </td>
                     </tr>
                   ))}
-                  {!charges.length ? (
+                  {!loading && !charges.length ? (
                     <tr>
                       <td colSpan={6} className="p-8 text-center text-sm text-muted-foreground">
                         Nenhuma cobrança registrada neste período.
@@ -237,7 +265,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
               <Wallet className="h-4 w-4 text-primary" />
               Movimentações e Extrato da Conta
             </h3>
-            <span className="text-xs text-muted-foreground">{rows.length} lançamento(s)</span>
+            {loading ? <Skeleton className="h-3 w-24" /> : <span className="text-xs text-muted-foreground">{rows.length} lançamento(s)</span>}
           </div>
           <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-xs">
             <div className="overflow-x-auto">
@@ -252,7 +280,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/40">
-                  {rows.map((row: Entity, index: number) => (
+                  {loading ? <SkeletonRows widths={["w-20", "w-48", "w-16", "w-20", "w-16 rounded-full"]} /> : rows.map((row: Entity, index: number) => (
                     <tr key={row.id ?? index} className="hover:bg-muted/30 transition-colors">
                       <td className="p-3.5 sm:px-4 text-muted-foreground">{dateLabel(row.data ?? row.created_at)}</td>
                       <td className="p-3.5 sm:px-4 font-medium text-foreground">
@@ -267,7 +295,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
                       </td>
                     </tr>
                   ))}
-                  {!rows.length ? (
+                  {!loading && !rows.length ? (
                     <tr>
                       <td colSpan={5} className="p-8 text-center text-sm text-muted-foreground">
                         Nenhuma movimentação no período selecionado.
@@ -279,7 +307,8 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
             </div>
           </div>
         </section>
-      </RemoteState>
+        </div>
+      )}
 
       {action ? (
         <FinancialAction

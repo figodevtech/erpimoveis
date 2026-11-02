@@ -114,46 +114,155 @@ export async function customerSiteAccess(request: Request, customerId: number) {
   return reply();
 }
 
+const siteUrl = () => (process.env.SITE_URL ?? "http://localhost:3001").replace(/\/$/, "");
+const accessEmail = z.string().trim().email().max(254).transform((v) => v.toLowerCase());
+// Mesma regra da tela "Definir senha" do site.
+const accessPassword = z.string().min(8, "A senha deve ter entre 8 e 128 caracteres.").max(128, "A senha deve ter entre 8 e 128 caracteres.");
+const emailRateLimited = (error: { status?: number; code?: string }) => error.status === 429 || ["over_email_send_rate_limit", "over_request_rate_limit"].includes(error.code ?? "");
+
+/** Situação da conta do proprietário no site somada aos dados do login (confirmação, último acesso). */
+async function ownerAccessState(id: number) {
+  const result = await db.from("site_usuario").select("user_id,email,status,motivo_pendencia,created_at,updated_at").eq("proprietario_id", id).maybeSingle();
+  if (result.error) throw result.error;
+  const portalUrl = `${siteUrl()}/entrar?role=owner`;
+  if (!result.data) return { item: null, portalUrl };
+  const auth = await db.auth.admin.getUserById(result.data.user_id);
+  const user = auth.data?.user;
+  return { item: { ...result.data, email_confirmed_at: user?.email_confirmed_at ?? null, last_sign_in_at: user?.last_sign_in_at ?? null, invited_at: user?.invited_at ?? null, recovery_sent_at: user?.recovery_sent_at ?? null, login_encontrado: Boolean(user) }, portalUrl };
+}
+
 async function ownerAccess(request: Request, id: number, actor: string) {
   const owner = await one("proprietario", id);
   const body = await bodyOf(request);
   const action = String(body.acao ?? "").toUpperCase();
   const { data: existing, error } = await db.from("site_usuario").select("*").eq("proprietario_id", id).maybeSingle();
   if (error) throw error;
-  if (["BLOQUEAR", "REVOGAR"].includes(action)) {
-    if (!existing) throw new ImobError(404, "O proprietário ainda não tem acesso.");
-    const updated = await db.from("site_usuario").update({ status: "BLOQUEADO", motivo_pendencia: action === "REVOGAR" ? "REVOGADO_PELO_ERP" : "BLOQUEADO_PELO_ERP", updated_at: new Date().toISOString() }).eq("user_id", existing.user_id).select().single();
-    if (updated.error) throw updated.error;
-    return json({ item: updated.data });
-  }
-  if (!["CRIAR", "REENVIAR", "DESBLOQUEAR"].includes(action)) throw new ImobError(400, "Ação de acesso inválida.");
-  if (!owner.ativo) throw new ImobError(409, "Ative o proprietário antes de conceder acesso.");
-  const email = z.string().trim().email().transform((v) => v.toLowerCase()).parse(body.email ?? existing?.email ?? owner.email);
-  if (existing && existing.email !== email) throw new ImobError(409, "Revise o vínculo existente antes de alterar o e-mail de acesso.");
-  const redirectTo = `${(process.env.SITE_URL ?? "http://localhost:3001").replace(/\/$/, "")}/auth/confirm?next=/definir-senha`;
-  if (existing) {
-    const authUser = await db.auth.admin.getUserById(existing.user_id);
-    if (authUser.error || !authUser.data.user) throw new ImobError(409, "A identidade do convite não foi encontrada.");
-    if (action === "DESBLOQUEAR") {
-      const result = await db.from("site_usuario").update({ status: authUser.data.user.email_confirmed_at ? "ATIVO" : "PENDENTE", motivo_pendencia: null, updated_at: new Date().toISOString() }).eq("user_id", existing.user_id).select().single();
-      if (result.error) throw result.error;
-      return json({ item: result.data });
+  const reply = async (extra: Record<string, unknown> = {}, status = 200) => json({ ...(await ownerAccessState(id)), ...extra }, status);
+  const redirectTo = `${siteUrl()}/auth/confirm?next=/definir-senha`;
+
+  if (action === "CRIAR") {
+    if (existing) throw new ImobError(409, "Este proprietário já tem acesso ao portal. Atualize a tela.");
+    if (!owner.ativo) throw new ImobError(409, "Ative o proprietário antes de conceder acesso.");
+    const email = accessEmail.parse(body.email ?? owner.email);
+    const conflict = await db.from("site_usuario").select("user_id").eq("email", email).maybeSingle();
+    if (conflict.error) throw conflict.error;
+    if (conflict.data) throw new ImobError(409, "Use um e-mail exclusivo para a conta de proprietário.");
+    // CONVITE: o proprietário define a senha pelo e-mail. SENHA: o ERP já entrega a senha e o login fica pronto.
+    const withPassword = String(body.modo ?? "CONVITE").toUpperCase() === "SENHA";
+    const metadata = { nome: owner.nomerazaosocial, origem: withPassword ? "CRIADO_ERP" : "CONVITE_ERP" };
+    const created = withPassword
+      ? await db.auth.admin.createUser({ email, password: accessPassword.parse(body.senha), email_confirm: true, user_metadata: metadata })
+      : await db.auth.admin.inviteUserByEmail(email, { redirectTo, data: metadata });
+    if (created.error || !created.data.user) {
+      const e = created.error as { code?: string; status?: number; message?: string } | null;
+      if (e?.code === "weak_password") throw new ImobError(400, "Senha fraca. Use letras, números e símbolos.");
+      if (e && emailRateLimited(e)) throw new ImobError(429, "Muitos e-mails enviados agora. Aguarde alguns minutos ou crie o acesso definindo a senha.");
+      throw new ImobError(409, e?.code === "email_exists" || e?.message?.includes("registered") ? "Este e-mail já está em uso. Use outro e-mail exclusivo para o proprietário." : withPassword ? "Não foi possível criar o login. Confira o e-mail e a senha." : "Não foi possível enviar o convite. Confira o e-mail e a configuração de envio.");
     }
-    const sent = await db.auth.resetPasswordForEmail(email, { redirectTo });
-    if (sent.error) throw new ImobError(502, "Não foi possível reenviar o e-mail de ativação. Confira o serviço de e-mail.");
-    return json({ item: existing, inviteSent: true });
+    const userId = created.data.user.id;
+    const linked = await db.from("proprietario").update({ user_id: userId, updated_by: actor }).eq("id", id);
+    if (linked.error) { await db.auth.admin.deleteUser(userId); throw linked.error; }
+    const account = await db.from("site_usuario").insert({ user_id: userId, tipo: "PROPRIETARIO", proprietario_id: id, email, status: "PENDENTE", motivo_pendencia: withPassword ? "SENHA_DEFINIDA_PELO_ERP" : "CONVITE_ENVIADO", created_by: actor }).select().single();
+    if (account.error) {
+      await db.from("proprietario").update({ user_id: null }).eq("id", id); await db.auth.admin.deleteUser(userId);
+      if (/exclusivo/i.test(account.error.message ?? "")) throw new ImobError(409, "Este e-mail pertence a um cliente ou usuário do ERP. Use um e-mail exclusivo para o proprietário.");
+      throw account.error;
+    }
+    return reply({ inviteSent: !withPassword }, 201);
   }
-  const conflict = await db.from("site_usuario").select("user_id").eq("email", email).maybeSingle();
-  if (conflict.error) throw conflict.error;
-  if (conflict.data) throw new ImobError(409, "Use um e-mail exclusivo para a conta de proprietário.");
-  const invited = await db.auth.admin.inviteUserByEmail(email, { redirectTo, data: { nome: owner.nomerazaosocial, origem: "CONVITE_ERP" } });
-  if (invited.error || !invited.data.user) throw new ImobError(409, invited.error?.message.includes("registered") ? "Este e-mail já está em uso. Use outro e-mail exclusivo para o proprietário." : "Não foi possível enviar o convite. Confira o e-mail e a configuração de envio.");
-  const userId = invited.data.user.id;
-  const linked = await db.from("proprietario").update({ user_id: userId, updated_by: actor }).eq("id", id);
-  if (linked.error) { await db.auth.admin.deleteUser(userId); throw linked.error; }
-  const account = await db.from("site_usuario").insert({ user_id: userId, tipo: "PROPRIETARIO", proprietario_id: id, email, status: "PENDENTE", motivo_pendencia: "CONVITE_ENVIADO", created_by: actor }).select().single();
-  if (account.error) { await db.from("proprietario").update({ user_id: null }).eq("id", id); await db.auth.admin.deleteUser(userId); throw account.error; }
-  return json({ item: account.data, inviteSent: true }, 201);
+
+  if (!existing) throw new ImobError(404, "O proprietário ainda não tem acesso ao portal.");
+  const userId: string = existing.user_id;
+  const touch = async (patch: Record<string, unknown>) => {
+    const updated = await db.from("site_usuario").update({ ...patch, updated_at: new Date().toISOString() }).eq("user_id", userId);
+    if (updated.error) throw updated.error;
+  };
+
+  if (action === "BLOQUEAR") { await touch({ status: "BLOQUEADO", motivo_pendencia: "BLOQUEADO_PELO_ERP" }); return reply(); }
+
+  if (action === "DESBLOQUEAR") {
+    if (existing.status !== "BLOQUEADO") throw new ImobError(409, "O acesso não está bloqueado.");
+    if (!owner.ativo) throw new ImobError(409, "Ative o proprietário antes de liberar o acesso.");
+    const auth = await db.auth.admin.getUserById(userId);
+    if (auth.error || !auth.data.user) throw new ImobError(409, "O login deste acesso não foi encontrado. Revogue e crie o acesso novamente.");
+    await touch({ status: auth.data.user.last_sign_in_at ? "ATIVO" : "PENDENTE", motivo_pendencia: null });
+    return reply();
+  }
+
+  // REENVIAR é o nome antigo da ação; o link serve para ativar a conta e para trocar a senha.
+  if (action === "ENVIAR_LINK_SENHA" || action === "REENVIAR") {
+    const sent = await db.auth.resetPasswordForEmail(existing.email, { redirectTo });
+    if (sent.error) throw new ImobError(emailRateLimited(sent.error) ? 429 : 502, emailRateLimited(sent.error) ? "Aguarde um minuto antes de enviar outro e-mail para este endereço." : "Não foi possível enviar o e-mail. Gere o link para copiar ou confira o serviço de e-mail.");
+    return reply({ inviteSent: true });
+  }
+
+  if (action === "GERAR_LINK_SENHA") {
+    // Não envia e-mail: o operador repassa o link (ex.: WhatsApp). Validado pelo /auth/confirm do site.
+    const generated = await db.auth.admin.generateLink({ type: "recovery", email: existing.email, options: { redirectTo } });
+    if (generated.error || !generated.data.properties?.hashed_token) throw new ImobError(502, "Não foi possível gerar o link de definição de senha.");
+    const link = `${siteUrl()}/auth/confirm?${new URLSearchParams({ token_hash: generated.data.properties.hashed_token, type: "recovery", next: "/definir-senha" })}`;
+    return reply({ link });
+  }
+
+  if (action === "DEFINIR_SENHA") {
+    const password = accessPassword.parse(body.senha);
+    const updated = await db.auth.admin.updateUserById(userId, { password, email_confirm: true });
+    if (updated.error) throw new ImobError(400, (updated.error as { code?: string }).code === "weak_password" ? "Senha fraca. Use letras, números e símbolos." : "Não foi possível definir a senha.");
+    return reply();
+  }
+
+  if (action === "ALTERAR_EMAIL") {
+    const email = accessEmail.parse(body.email);
+    if (email === existing.email) throw new ImobError(400, "Informe um e-mail diferente do atual.");
+    const conflict = await db.from("site_usuario").select("user_id").eq("email", email).neq("user_id", userId).maybeSingle();
+    if (conflict.error) throw conflict.error;
+    if (conflict.data) throw new ImobError(409, "Use um e-mail exclusivo para a conta de proprietário.");
+    const updated = await db.auth.admin.updateUserById(userId, { email, email_confirm: true });
+    if (updated.error) throw new ImobError(409, (updated.error as { code?: string }).code === "email_exists" ? "Este e-mail já está em uso por outro login." : "Não foi possível alterar o e-mail do login.");
+    const saved = await db.from("site_usuario").update({ email, updated_at: new Date().toISOString() }).eq("user_id", userId);
+    if (saved.error) {
+      await db.auth.admin.updateUserById(userId, { email: existing.email, email_confirm: true });
+      if (/exclusivo/i.test(saved.error.message ?? "")) throw new ImobError(409, "Este e-mail pertence a um cliente ou usuário do ERP. Use um e-mail exclusivo para o proprietário.");
+      throw saved.error;
+    }
+    return reply();
+  }
+
+  if (action === "REVOGAR") {
+    // Remove o login: a conta do site sai em cascata e o vínculo do proprietário é limpo (ON DELETE SET NULL).
+    const staff = await db.from("usuario").select("id").eq("id", userId).maybeSingle();
+    if (staff.error) throw staff.error;
+    const removed = staff.data ? { error: new Error("login interno") } : await db.auth.admin.deleteUser(userId);
+    if (removed.error) {
+      await touch({ status: "BLOQUEADO", motivo_pendencia: "REVOGADO_PELO_ERP" });
+      return reply({ aviso: "O login tem registros vinculados e não pôde ser removido. O acesso foi bloqueado." });
+    }
+    await db.from("proprietario").update({ user_id: null, updated_by: actor }).eq("id", id).eq("user_id", userId);
+    return reply();
+  }
+
+  throw new ImobError(400, "Ação de acesso inválida.");
+}
+
+const civilLabel = (date: string) => date.split("-").reverse().join("/");
+// Na tela a tarifa vai da primeira à última noite; no banco o fim é o dia seguinte à última.
+const lastNight = (fim: string) => new Date(Date.parse(`${fim}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+const tariffTaken = (row: { descricao?: string | null; inicio: string; fim: string }) =>
+  new ImobError(409, `Essas datas já têm a tarifa "${row.descricao || "Tarifa especial"}" (${civilLabel(row.inicio)} a ${civilLabel(lastNight(row.fim))}). Edite essa tarifa ou escolha outras datas.`);
+
+/** Uma noite tem no máximo uma tarifa por imóvel (constraint imovel_tarifa_sem_sobreposicao). */
+async function tariffFree(imovelId: number, data: { inicio: string; fim: string; ativo?: boolean }, exceptId?: number) {
+  if (data.ativo === false) return;
+  let query = db.from("imovel_tarifa").select("id,descricao,inicio,fim").eq("imovel_id", imovelId).eq("ativo", true).lt("inicio", data.fim).gt("fim", data.inicio);
+  if (exceptId) query = query.neq("id", exceptId);
+  const { data: rows, error } = await query.order("inicio").limit(1);
+  if (error) throw error;
+  if (rows?.[0]) throw tariffTaken(rows[0]);
+}
+
+/** Corrida entre duas gravações: o banco recusa (23P01) e a mensagem fica a mesma da checagem. */
+function tariffConflict(error: { code?: string }) {
+  return error.code === "23P01" ? new ImobError(409, "Essas datas já têm outra tarifa especial. Atualize a tela e escolha outras datas.") : error;
 }
 
 async function statusCounter(resource: Resource) {
@@ -232,11 +341,7 @@ export async function internalResource(request: Request, resource: Resource, pat
   if (!id && method === "GET") return json(await list(resource, url));
   if (id && segment === "acesso" && resource === "proprietarios") {
     await internal(PERMS.PROPRIETARIOS_ACESSO_PORTAL);
-    if (method === "GET") {
-      const result = await db.from("site_usuario").select("user_id,email,status,motivo_pendencia,created_at,updated_at").eq("proprietario_id", id).maybeSingle();
-      if (result.error) throw result.error;
-      return json({ item: result.data });
-    }
+    if (method === "GET") return json(await ownerAccessState(id));
     if (method === "POST") return ownerAccess(request, id, access.id);
   }
   if (id && segment === "relacionamento" && resource === "proprietarios" && method === "GET") {
@@ -284,7 +389,25 @@ export async function internalResource(request: Request, resource: Resource, pat
     if (segment === "tarifas") {
       if (method === "GET") { const r = await db.from("imovel_tarifa").select("*").eq("imovel_id", id).order("inicio"); if (r.error) throw r.error; return json({ items: r.data }); }
       await internal(PERMS.IMOVEIS_EDITAR);
-      if (method === "POST") { const data = tarifaSchema.parse(await bodyOf(request)); const r = await db.from("imovel_tarifa").insert({ ...data, imovel_id: id, created_by: access.id }).select().single(); if (r.error) throw r.error; return json({ item: r.data }, 201); }
+      if (method === "POST") {
+        const data = tarifaSchema.parse(await bodyOf(request));
+        await tariffFree(id, data);
+        const r = await db.from("imovel_tarifa").insert({ ...data, imovel_id: id, created_by: access.id }).select().single();
+        if (r.error) throw tariffConflict(r.error);
+        return json({ item: r.data }, 201);
+      }
+      if (method === "PATCH") {
+        // Edição: valida o registro inteiro (datas, diária, mínimo) com o que já estava gravado.
+        const tarifaId = identifier(path[2] ?? url.searchParams.get("id"));
+        const previous = await db.from("imovel_tarifa").select("*").eq("imovel_id", id).eq("id", tarifaId).maybeSingle();
+        if (previous.error) throw previous.error;
+        if (!previous.data) throw new ImobError(404, "Tarifa não encontrada.");
+        const data = tarifaSchema.parse({ ...previous.data, ...(await bodyOf(request)) });
+        await tariffFree(id, data, tarifaId);
+        const r = await db.from("imovel_tarifa").update({ ...data, updated_at: new Date().toISOString() }).eq("imovel_id", id).eq("id", tarifaId).select().single();
+        if (r.error) throw tariffConflict(r.error);
+        return json({ item: r.data });
+      }
       if (method === "DELETE") { const r = await db.from("imovel_tarifa").delete().eq("imovel_id", id).eq("id", identifier(path[2] ?? url.searchParams.get("id"))); if (r.error) throw r.error; return json({ ok: true }); }
     }
     if (segment === "bloqueios") {

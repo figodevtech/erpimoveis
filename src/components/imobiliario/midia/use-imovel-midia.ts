@@ -278,14 +278,19 @@ export function useImovelMidia(imovelId: number | undefined) {
     };
   }, []);
 
-  const capaKey = ordemItens.find(isImageKey);
-  const capaUrl = capaKey ? imagens.find((img) => imageKey(img.id) === capaKey)?.url ?? null : null;
+  // Fotos já enviadas, na ordem da galeria do site (pendentes ainda não existem lá).
+  const galeriaUrls = ordemItens
+    .filter(isImageKey)
+    .map((key) => imagens.find((img) => imageKey(img.id) === key)?.url)
+    .filter((url): url is string => Boolean(url));
+  const capaUrl = galeriaUrls[0] ?? null;
 
   return {
     imagens,
     imagensPendentes,
     ordemItens,
     capaUrl,
+    galeriaUrls,
     uploadProgressByPendingId,
     carregandoImagens,
     subindoImagens,

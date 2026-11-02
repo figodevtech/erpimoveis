@@ -73,6 +73,9 @@ function getNights(inicio?: string | null, fim?: string | null): number | null {
   return isNaN(diffDays) || diffDays <= 0 ? null : diffDays;
 }
 
+// Altura mínima compartilhada entre lista e calendário, para o card não mudar de tamanho na troca.
+const VIEW_MIN_HEIGHT = "mt-6 min-h-[660px] sm:min-h-[760px] flex flex-col";
+
 export default function ReservasDataTable({
   reservas,
   isLoading,
@@ -98,13 +101,15 @@ export default function ReservasDataTable({
       <CardHeader className="border-b pb-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <div className="space-y-0.5">
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-base sm:text-lg font-semibold">
+            <div className="flex items-to nter gap-2">
+              <CardTitle className="texto base sm:text-lg font-semibold">
                 Reservas Cadastradas
               </CardTitle>
-              <Badge variant="secondary" className="text-xs font-normal">
-                {pagination.total} {pagination.total === 1 ? "registro" : "registros"}
-              </Badge>
+              {view === "list" ? (
+                <Badge variant="secondary" className="text-xs font-normal">
+                  {pagination.total} {pagination.total === 1 ? "registro" : "registros"}
+                </Badge>
+              ) : null}
             </div>
             <CardDescription className="flex items-center gap-2 text-xs">
               <span>Gestão de hospedagens, calendário e ocupação.</span>
@@ -234,7 +239,7 @@ export default function ReservasDataTable({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18 }}
-              className="mt-6 min-h-[660px] sm:min-h-[760px] flex flex-col"
+              className={VIEW_MIN_HEIGHT}
             >
               <ReservationsCalendar
                 key={calendarVersion}
@@ -250,8 +255,9 @@ export default function ReservasDataTable({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18 }}
+              className={VIEW_MIN_HEIGHT}
             >
-              <div className="overflow-x-auto rounded-lg border border-border/60 mt-6 bg-card">
+              <div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
                 <Table className="text-xs">
                   <TableHeader className="bg-muted/40">
                     <TableRow className="hover:bg-transparent">
@@ -266,7 +272,16 @@ export default function ReservasDataTable({
                   </TableHeader>
 
                   <TableBody>
-                    {reservas.length === 0 && !isLoading ? (
+                    {reservas.length === 0 && isLoading ? (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={7} className="h-44 text-center">
+                          <div className="flex flex-col items-center justify-center gap-2.5 text-muted-foreground">
+                            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                            <p className="text-xs">Carregando reservas...</p>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ) : reservas.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={7} className="h-44 text-center">
                           <div className="flex flex-col items-center justify-center gap-2.5 text-muted-foreground">
@@ -389,7 +404,7 @@ export default function ReservasDataTable({
               </div>
 
               {/* Paginação */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-5 pt-2">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-auto pt-7">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span>Total de {pagination.total} registros cadastrados</span>
                   <Loader

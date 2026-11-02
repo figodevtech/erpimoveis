@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getCurrentUserAccess } from "@/app/api/_authz/perms";
 import { permissionSetHas, type Permission } from "@/app/api/_authz/permission-constants";
+import { duplicateMessage, validationDetails, validationSummary } from "./validation-messages";
 
 export const db = supabaseAdmin;
 export class ImobError extends Error {
@@ -14,10 +15,14 @@ export const json = (body: unknown, status = 200) => NextResponse.json(body, { s
 
 export function imobFailure(error: unknown) {
   if (error instanceof ImobError) return json({ error: error.message, ...error.extra }, error.status);
-  if (error instanceof ZodError) return json({ error: "Confira os dados informados.", campos: error.flatten().fieldErrors }, 400);
-  const e = error as { code?: string; message?: string };
+  if (error instanceof ZodError) {
+    // `detalhes` lista cada campo com o problema em português; o ERP mostra no toast.
+    const detalhes = validationDetails(error);
+    return json({ error: validationSummary(detalhes), detalhes, campos: error.flatten().fieldErrors }, 400);
+  }
+  const e = error as { code?: string; message?: string; details?: string };
   if (e.code === "23P01") return json({ error: "O imóvel já está ocupado ou bloqueado nesse período. Atualize a disponibilidade." }, 409);
-  if (e.code === "23505") return json({ error: "Já existe um registro com esses dados." }, 409);
+  if (e.code === "23505") return json({ error: duplicateMessage(e) }, 409);
   if (["23503", "23514", "22023", "22P02"].includes(e.code ?? "")) return json({ error: e.code === "23503" ? "O registro está vinculado a outros dados ou a referência informada não existe." : e.message ?? "Dados inválidos." }, 400);
   if (e.code === "P0002") return json({ error: "Registro não encontrado." }, 404);
   if (e.code === "42501") return json({ error: "Você não tem autorização para esta operação." }, 403);

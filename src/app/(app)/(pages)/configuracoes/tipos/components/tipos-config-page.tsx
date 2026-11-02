@@ -18,6 +18,7 @@ import {
   PackageMinus,
   PackagePlus,
   CreditCard,
+  Sofa,
 } from "lucide-react";
 import GruposProdutoSection from "./grupos-produto-section";
 import UnidadesMedidaSection from "./unidades-medida-section";
@@ -33,6 +34,7 @@ import GruposUsoConsumoSection from "./grupos-usoconsumo-section";
 import MotivosSaidaSection from "./motivos-saida-section";
 import TiposEntradaSection from "./tipos-entrada-section";
 import BandeirasSection from "./bandeiras-section";
+import ComodidadesSection from "./comodidades-section";
 
 type TabId = TipoId;
 
@@ -131,6 +133,12 @@ export default function TiposConfigPage({ permissoes, abaInicial }: { permissoes
       title: "Motivos de saídas",
       subtitle: "Exibidos na baixa de estoque",
     },
+    {
+      id: "comodidades",
+      icon: Sofa,
+      title: "Tipos de comodidades",
+      subtitle: "Sugestões no cadastro do imóvel",
+    },
   ];
 
   const visibleTabs = tabs.filter((tab) => permissionSetHas(permissoes, tipoPermission(tab.id, "visualizar")));
@@ -221,6 +229,7 @@ export default function TiposConfigPage({ permissoes, abaInicial }: { permissoes
           {selectedTab === "categorias_venda" && <CategoriasVendaSection />}
           {selectedTab === "tipos_entrada" && <TiposEntradaSection />}
           {selectedTab === "motivos_saida" && <MotivosSaidaSection />}
+          {selectedTab === "comodidades" && <ComodidadesSection />}
         </div>
       </div>
     </div>

@@ -53,6 +53,7 @@ export async function publicFlats(rows: Record<string, any>[]) {
       modalities: r.modalidades, prices: { nightly: r.modalidades?.includes("TEMPORADA") ? Number(r.diaria ?? 0) : null, monthly: r.modalidades?.includes("LOCACAO") ? Number(r.valor_locacao ?? 0) : null, sale: r.modalidades?.includes("VENDA") ? Number(r.valor_venda ?? 0) : null },
       occupancyStatus: r.situacao_comercial === "VENDIDO" ? "VENDIDO" : r.situacao_operacional ?? "DISPONIVEL", rules: r.regras ?? "", checkinTime: r.horario_checkin, checkoutTime: r.horario_checkout, minNights: r.min_noites, maxNights: r.max_noites,
       publicLocation: { latitude: address.latitude ?? null, longitude: address.longitude ?? null },
+      locationDetails: String(address.localizacao_aproximada ?? "").trim(),
     };
   });
 }
@@ -79,7 +80,9 @@ export async function publicationValid(row: Record<string, any>, id?: number) {
   if (!row.publicado) return;
   const owner = await one("proprietario", row.proprietario_id);
   if (!row.ativo || !owner.ativo) throw new ImobError(409, "Imóvel e proprietário precisam estar ativos para publicar.");
-  if (!row.descricao?.trim() || !row.endereco_publico?.cidade || !row.endereco_publico?.estado) throw new ImobError(400, "Preencha descrição, cidade e estado públicos antes de publicar.");
+  // Cidade e UF do site vêm do endereço da aba Geral (o banco copia para endereco_publico).
+  if (!row.descricao?.trim()) throw new ImobError(400, "Preencha a descrição do imóvel antes de publicar.");
+  if (!String(row.endereco?.cidade ?? "").trim() || !String(row.endereco?.estado ?? "").trim()) throw new ImobError(400, "Preencha a cidade e a UF do endereço (aba Geral) antes de publicar.");
   for (const [mode, price] of [["TEMPORADA", row.diaria], ["LOCACAO", row.valor_locacao], ["VENDA", row.valor_venda]]) {
     if (row.modalidades.includes(mode) && Number(price) <= 0) throw new ImobError(400, `Informe o valor da modalidade ${mode}.`);
   }

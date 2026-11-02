@@ -25,6 +25,7 @@ import CustomerSelect from "@/app/(app)/components/customerSelect";
 import ImovelSelect, { type ImovelItem } from "@/app/(app)/components/imovelSelect";
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import ValueInput from "@/components/ui/value-input";
+import { ComodidadesField } from "./comodidades-field";
 import {
   AlertCircle,
   Building2,
@@ -1046,15 +1047,12 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
 
           <div className="space-y-2">
             <Label htmlFor="comodidades" className="text-sm">
-              Comodidades (uma por linha)
+              Comodidades
             </Label>
-            <Textarea
-              id="comodidades"
+            <ComodidadesField
+              value={value.comodidades}
               disabled={disabled}
-              rows={3}
-              value={(value.comodidades ?? []).join("\n")}
-              onChange={(e) => set("comodidades", e.target.value.split("\n"))}
-              placeholder="Wi-Fi&#10;Ar-condicionado&#10;Piscina&#10;Churrasqueira"
+              onChange={(next) => set("comodidades", next)}
             />
           </div>
 

@@ -17,7 +17,8 @@ const EntityDialog = dynamic(() => import("@/components/imobiliario/entity-dialo
 export default function ReservasPage() {
   const { can, ready } = useModulePermission();
   const [reservas, setReservas] = useState<Reserva[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // Começa carregando para não exibir "Nenhuma reserva encontrada" antes da primeira busca.
+  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [tab, setTab] = useState<ReservasTab>("ABERTAS");
@@ -67,6 +68,9 @@ export default function ReservasPage() {
       fimFilter?: string,
       propertyFilter?: number | null
     ) => {
+      // O calendário busca os próprios dados; buscar a lista aqui sobrescreveria a lista da aba ativa.
+      if (view === "calendar") return;
+
       const pageToUse = pageNumber ?? pagination.page;
       const limitToUse = limitNumber ?? pagination.limit;
       const searchToUse = searchTerm !== undefined ? searchTerm : search;
@@ -132,7 +136,7 @@ export default function ReservasPage() {
         }
       }
     },
-    [pagination.page, pagination.limit, search, status, inicio, fim, propertyId]
+    [pagination.page, pagination.limit, search, status, inicio, fim, propertyId, view]
   );
 
   useEffect(() => {
@@ -153,7 +157,7 @@ export default function ReservasPage() {
   useEffect(() => {
     if (!ready || !can("reservas:visualizar")) return;
     void fetchReservas(1, pagination.limit, search, status, inicio, fim, propertyId);
-  }, [status, search, inicio, fim, propertyId, ready, can, pagination.limit]);
+  }, [status, search, inicio, fim, propertyId, ready, can, pagination.limit, view]);
 
   const handleTabChange = (newTab: ReservasTab) => {
     setTab(newTab);

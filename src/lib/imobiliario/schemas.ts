@@ -29,7 +29,7 @@ export const imovelSchema = z.object({
   codigo: text.max(50).nullish().transform((v) => v || null),
   slug: text.min(2).max(180).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), tipo: text.min(1).max(50), descricao: text.max(20000).default(""),
   modalidades: z.array(z.enum(["TEMPORADA", "LOCACAO", "VENDA"])).min(1).max(3), ativo: z.boolean().default(true), publicado: z.boolean().default(false),
-  selo_anuncio: text.max(60).nullish().transform((v) => v || null), fotos_reais: z.boolean().default(false),
+  selo_anuncio: text.max(60).nullish().transform((v) => v || null), fotos_reais: z.boolean().default(true),
   endereco: json.default({}), endereco_publico: json.default({}), caracteristicas: json.default({}),
   comodidades: z.array(text.max(120)).max(100).default([]), capacidade: z.coerce.number().int().min(1).max(1000).default(1),
   quartos: z.coerce.number().int().min(0).max(1000).default(0), banheiros: z.coerce.number().int().min(0).max(1000).default(0),
@@ -60,7 +60,7 @@ export const vendaImovelSchema = z.object({
   parcelas: z.array(z.object({ valor: money.positive(), vencimento: civilDate })).max(360).optional(),
 });
 
-export const tarifaSchema = z.object({ inicio: civilDate, fim: civilDate, diaria: money.positive(), min_noites: z.coerce.number().int().min(1).max(365).default(1), prioridade: z.coerce.number().int().min(0).max(1000).default(0), ativo: z.boolean().default(true) })
+export const tarifaSchema = z.object({ inicio: civilDate, fim: civilDate, diaria: money.positive(), descricao: text.max(200).nullish().transform((v) => v || null), min_noites: z.coerce.number().int().min(1).max(365).default(1), prioridade: z.coerce.number().int().min(0).max(1000).default(0), ativo: z.boolean().default(true), reserva_exclusiva: z.boolean().default(false) })
   .refine((v) => v.fim > v.inicio, { path: ["fim"], message: "Fim deve ser posterior ao início" });
 
 export const visitaSchema = z.object({ imovel_id: id, cliente_id: id.nullish(), inicio: text.datetime({ offset: true }), fim: text.datetime({ offset: true }).nullish(), status: z.enum(["SOLICITADA", "CONFIRMADA", "REALIZADA", "CANCELADA"]).default("SOLICITADA"), responsavel_id: z.string().uuid().nullish(), observacoes: text.max(10000).default("") });

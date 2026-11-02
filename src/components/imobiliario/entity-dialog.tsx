@@ -54,7 +54,6 @@ import {
   WalletCards,
   ShieldCheck,
   MapPin,
-  AlertCircle,
   Info,
   Trash2,
   Save,
@@ -86,6 +85,7 @@ function defaults(kind: ModuleKind): Entity {
     return {
       ativo: true,
       publicado: false,
+      fotos_reais: true,
       modalidades: ["TEMPORADA"],
       tipo: "FLAT",
       capacidade: 1,
@@ -151,7 +151,6 @@ export default function EntityDialog({
   const [value, setValue] = useState<Entity>(() => ({ ...defaults(kind), ...initial }));
   const [tab, setTab] = useState("geral");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [action, setAction] = useState<string | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
@@ -167,7 +166,6 @@ export default function EntityDialog({
     setValue(next);
     setQuote(null);
     setRequestKey(crypto.randomUUID());
-    setError("");
   };
 
   const editable = currentId ? can(`${permission}:editar`) : can(`${permission}:criar`);
@@ -187,23 +185,19 @@ export default function EntityDialog({
     onSaved?.();
   };
 
-  const save = async (event: React.FormEvent) => {
-    event.preventDefault();
+  // Sem evento quando vem do botão da aba Mídia do imóvel novo: salva dali mesmo, com os dados
+  // já em `value`, e a tela fica na Mídia para acompanhar o envio das fotos.
+  const save = async (event?: React.FormEvent) => {
+    event?.preventDefault();
     if (!editable && !(kind === "imoveis" && can("imoveis:publicar") && tab === "publicacao")) return;
-    if (reservationChanged && !quote) {
-      setError("Consulte a cotação antes de confirmar as datas e valores da reserva.");
+    const block = (message: string) => {
       setTab("geral");
-      return;
-    }
-    if (value.inicio && value.fim && value.fim <= value.inicio) {
-      setError("A data final deve ser posterior ao início.");
-      return;
-    }
-    if (kind === "imoveis" && !(value.modalidades ?? []).length) {
-      setError("Selecione ao menos uma modalidade do imóvel.");
-      setTab("geral");
-      return;
-    }
+      toast.error(`Não foi possível ${currentId ? "salvar" : "cadastrar"} o ${config.singular}`, { description: message });
+    };
+    if (reservationChanged && !quote) return block("Consulte a cotação antes de confirmar as datas e valores da reserva.");
+    if (value.inicio && value.fim && value.fim <= value.inicio) return block("A data final deve ser posterior ao início.");
+    if (kind === "imoveis" && !(value.modalidades ?? []).length) return block("Selecione ao menos uma modalidade do imóvel.");
+    if (kind === "imoveis" && !value.proprietario_id) return block("Selecione o proprietário do imóvel.");
 
     let payload: Entity = {
       ...value,
@@ -265,7 +259,6 @@ export default function EntityDialog({
     }
 
     setBusy(true);
-    setError("");
     try {
       const response = await requestJson(endpoint(kind, currentId), {
         method: currentId ? "PATCH" : "POST",
@@ -293,8 +286,8 @@ export default function EntityDialog({
         await midia.uploadPendentes(Number(item.id));
       }
     } catch (error) {
-      const failure = error as Error & { status?: number };
-      setError(failure.message);
+      const failure = error as Error & { status?: number; payload?: { detalhes?: string[] } };
+      notifySaveFailure(failure, config.singular, Boolean(currentId), midia.imagensPendentes.length);
       if (failure.status === 409 && kind === "reservas") setQuote(null);
     } finally {
       setBusy(false);
@@ -311,13 +304,12 @@ export default function EntityDialog({
     )
       return;
     setBusy(true);
-    setError("");
     try {
       notifyRemoval(await requestJson(endpoint(kind, currentId), { method: "DELETE" }));
       onSaved?.();
       onOpenChange(false);
     } catch (error) {
-      setError((error as Error).message);
+      toast.error(`Não foi possível excluir o ${config.singular}`, { description: (error as Error).message });
     } finally {
       setBusy(false);
     }
@@ -502,11 +494,14 @@ export default function EntityDialog({
                 Cancelar
               </Button>
 
-              {(tab === "geral" && editable) || (tab === "publicacao" && can("imoveis:publicar")) ? (
+              {(tab === "geral" && editable) ||
+              (tab === "publicacao" && can("imoveis:publicar")) ||
+              (tab === "midia" && !currentId && editable) ? (
                 <Button
-                  type="submit"
-                  form={formId}
-                  disabled={busy || Boolean(currentId && remote.loading)}
+                  type={tab === "midia" ? "button" : "submit"}
+                  form={tab === "midia" ? undefined : formId}
+                  onClick={tab === "midia" ? () => void save() : undefined}
+                  disabled={busy || midia.subindoImagens || Boolean(currentId && remote.loading)}
                   className="h-9 min-w-24 text-sm hover:cursor-pointer"
                 >
                   {busy ? (
@@ -539,15 +534,16 @@ export default function EntityDialog({
           >
             <div className="sticky top-0 z-10 mt-4 w-full min-w-0 shrink-0">
               <div className="flex w-full max-w-full touch-pan-x overflow-x-auto overscroll-x-contain px-4 pb-2 sm:px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                {/* As abas crescem até ocupar toda a largura; se não couberem (celular), rolam na horizontal. */}
-                <TabsList className="flex h-auto w-max min-w-full shrink-0 justify-start gap-1 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
+                {/* Mesmo estilo das abas de clientes e produtos: alinhadas à esquerda, no tamanho do
+                    conteúdo; se não couberem (celular), rolam na horizontal. */}
+                <TabsList className="flex h-auto w-max min-w-full shrink-0 justify-start gap-1.5 rounded-2xl border bg-muted/40 p-1 backdrop-blur-sm">
                   {tabs.map((entry) => {
                     const Icon = tabIcons[entry.key] || FileText;
                     return (
                       <TabsTrigger
                         key={entry.key}
                         value={entry.key}
-                        className="group h-11 flex-auto justify-center rounded-xl border border-transparent px-2.5 text-xs font-medium whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow] hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                        className="group h-11 flex-none rounded-xl border border-transparent px-3 text-xs font-medium whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow] hover:cursor-pointer hover:text-foreground data-[state=active]:bg-primary dark:data-[state=active]:bg-primary data-[state=active]:text-primary-foreground dark:data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                       >
                         <span className="flex items-center gap-2">
                           <Icon className="h-3.5 w-3.5 transition-transform group-data-[state=active]:scale-105" />
@@ -598,12 +594,6 @@ export default function EntityDialog({
                       </div>
                     ) : null}
 
-                    {error ? (
-                      <div className="flex items-center gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 text-sm text-destructive">
-                        <AlertCircle className="h-4 w-4 shrink-0" />
-                        <span>{error}</span>
-                      </div>
-                    ) : null}
                   </form>
                 </div>
               </TabsContent>
@@ -618,14 +608,9 @@ export default function EntityDialog({
                       <PublicationPanel
                         value={value}
                         onChange={update}
+                        gallery={midia.galeriaUrls}
                         disabled={!can("imoveis:publicar") || busy}
                       />
-                      {error ? (
-                        <div className="flex items-center gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 text-sm text-destructive mt-4">
-                          <AlertCircle className="h-4 w-4 shrink-0" />
-                          <span>{error}</span>
-                        </div>
-                      ) : null}
                     </form>
                   ) : null}
                 </div>
@@ -758,6 +743,53 @@ export default function EntityDialog({
       ) : null}
     </>
   );
+}
+
+/**
+ * Toast da falha ao salvar: o que aconteceu e, na validação, cada campo com o problema.
+ * Fotos escolhidas antes de salvar não se perdem; o aviso diz isso para ninguém escolher de novo.
+ */
+function notifySaveFailure(
+  failure: Error & { status?: number; payload?: { detalhes?: string[] } },
+  singular: string,
+  editing: boolean,
+  pendingPhotos: number
+) {
+  const title = `Não foi possível ${editing ? "salvar" : "cadastrar"} o ${singular}`;
+  const details = failure.payload?.detalhes ?? [];
+  const reason = !failure.status
+    ? "Sem resposta do servidor. Confira sua conexão e tente de novo."
+    : failure.status === 403
+    ? "Seu perfil não tem permissão para esta operação."
+    : failure.message;
+  const photos =
+    pendingPhotos > 0
+      ? `${pendingPhotos === 1 ? "A foto escolhida continua" : `As ${pendingPhotos} fotos escolhidas continuam`} na aba Mídia e ${
+          pendingPhotos === 1 ? "será enviada" : "serão enviadas"
+        } quando o cadastro for salvo.`
+      : null;
+
+  toast.error(title, {
+    duration: details.length ? 10000 : 6000,
+    description: (
+      <div className="space-y-1.5">
+        {details.length ? (
+          <>
+            <p>{details.length === 1 ? "Corrija o campo:" : `Corrija os ${details.length} campos:`}</p>
+            <ul className="list-disc space-y-0.5 pl-4">
+              {details.slice(0, 8).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+              {details.length > 8 ? <li>e mais {details.length - 8}…</li> : null}
+            </ul>
+          </>
+        ) : (
+          <p>{reason}</p>
+        )}
+        {photos ? <p className="text-muted-foreground">{photos}</p> : null}
+      </div>
+    ),
+  });
 }
 
 const quickActionTones = {

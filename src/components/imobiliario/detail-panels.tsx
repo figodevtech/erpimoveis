@@ -9,9 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import ValueInput from "@/components/ui/value-input";
 import {
-  EntityShell,
   Field,
   RemoteState,
   SelectField,
@@ -35,33 +33,28 @@ import {
 } from "./model";
 import {
   Building2,
-  CalendarCheck,
   CalendarDays,
-  CalendarX,
-  Coins,
   ExternalLink,
   FileText,
   FolderArchive,
   Globe,
   Image as ImageIcon,
   Key,
-  Lock,
-  Mail,
   MapPin,
   Plus,
   RefreshCw,
   Search,
   ShieldAlert,
-  ShieldCheck,
   Trash2,
   Upload,
-  UserX,
   ChevronLeft,
   ChevronRight,
   AlertCircle,
   Loader2,
   Sparkles,
 } from "lucide-react";
+
+import { AnuncioPreview } from "./anuncio-preview";
 
 const EntityDialog = dynamic(() => import("./entity-dialog"), {
   loading: () => (
@@ -245,12 +238,21 @@ export function PublicationPanel({
   value,
   onChange,
   disabled,
+  gallery = [],
 }: {
   value: Entity;
   onChange: (value: Entity) => void;
   disabled?: boolean;
+  /** Fotos já enviadas, na ordem do site (a primeira é a capa). */
+  gallery?: string[];
 }) {
   const address = value.endereco_publico ?? {};
+  // Bairro, cidade e UF do site são os do endereço da aba Geral (o banco copia ao salvar).
+  const internal = value.endereco ?? {};
+  const location = [internal.bairro, [internal.cidade, internal.estado].filter(Boolean).join("/")]
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="space-y-6">
@@ -262,8 +264,8 @@ export function PublicationPanel({
           <div>
             <h3 className="font-semibold text-sm sm:text-base text-foreground">Catálogo do site público</h3>
             <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
-              O site exibe apenas anúncios ativos marcados como publicados e dados da localização pública.
-              Nome do proprietário, documentos e endereço interno completo permanecem protegidos no ERP.
+              O site exibe apenas anúncios ativos marcados como publicados, com bairro, cidade e UF do endereço.
+              Nome do proprietário, documentos, rua e número permanecem protegidos no ERP.
             </p>
           </div>
         </div>
@@ -271,7 +273,7 @@ export function PublicationPanel({
 
       <section className="space-y-4 rounded-xl border border-border/60 bg-card p-4 sm:p-5 shadow-xs">
         <h3 className="font-semibold text-sm sm:text-base text-foreground">Identificação e status no portal</h3>
-        
+
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Card de Ativação do Anúncio */}
           <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/50 p-3.5 hover:bg-muted/20 transition-colors cursor-pointer touch-manipulation">
@@ -289,120 +291,64 @@ export function PublicationPanel({
             </div>
           </label>
 
-          {/* Card de Fotos Reais */}
+          {/* Fotos são reais por padrão; marcar aqui grava fotos_reais = false. */}
           <label className="flex items-start gap-3 rounded-lg border border-border/60 bg-background/50 p-3.5 hover:bg-muted/20 transition-colors cursor-pointer touch-manipulation">
             <Checkbox
               disabled={disabled}
-              checked={Boolean(value.fotos_reais)}
-              onCheckedChange={(checked) => onChange({ ...value, fotos_reais: checked === true })}
+              checked={value.fotos_reais === false}
+              onCheckedChange={(checked) => onChange({ ...value, fotos_reais: checked !== true })}
               className="mt-0.5"
             />
             <div className="space-y-0.5">
-              <span className="text-sm font-medium text-foreground block">Fotos reais do próprio imóvel</span>
+              <span className="text-sm font-medium text-foreground block">Marcar como fotos ilustrativas</span>
               <span className="text-xs text-muted-foreground block">
-                Desmarcado, o site identifica as imagens como ambientação ilustrativa ou modelo.
+                Marcado, o site identifica as imagens como ambientação ilustrativa ou modelo, e não como fotos do
+                próprio imóvel.
               </span>
             </div>
           </label>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="Slug / URL amigável do anúncio"
-            hint="Apenas letras minúsculas, números e hífens. Ex: flat-luxo-enseada"
-          >
-            <div className="space-y-1.5">
-              <Input
-                value={value.slug ?? ""}
-                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                placeholder="ex: flat-beira-mar-101"
-                disabled={disabled}
-                onChange={(event) =>
-                  onChange({ ...value, slug: event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })
-                }
-                className="h-11 sm:h-10 text-base sm:text-sm font-mono"
-              />
-              {value.slug ? (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/40 px-2.5 py-1 rounded-md border border-border/40 truncate">
-                  <Globe className="h-3 w-3 text-primary shrink-0" />
-                  <span className="truncate">https://seusite.com.br/imoveis/{value.slug}</span>
-                </div>
-              ) : null}
-            </div>
-          </Field>
-
-          <Field
-            label="Selo de destaque do anúncio (opcional)"
-            hint="Frase curta sobreposta à foto principal no site. Máx 60 caracteres."
-          >
-            <Input
-              maxLength={60}
-              placeholder="Ex: Vista para o mar · Frente praia"
-              disabled={disabled}
-              value={value.selo_anuncio ?? ""}
-              onChange={(event) => onChange({ ...value, selo_anuncio: event.target.value })}
-              className="h-11 sm:h-10 text-base sm:text-sm"
-            />
-          </Field>
-        </div>
+        <Field
+          label="Selo de destaque do anúncio (opcional)"
+          hint="Frase curta sobreposta à foto principal no site. Máx 60 caracteres."
+        >
+          <Input
+            maxLength={60}
+            placeholder="Ex: Vista para o mar · Frente praia"
+            disabled={disabled}
+            value={value.selo_anuncio ?? ""}
+            onChange={(event) => onChange({ ...value, selo_anuncio: event.target.value })}
+            className="h-11 sm:h-10 text-base sm:text-sm sm:max-w-md"
+          />
+        </Field>
       </section>
 
       <section className="space-y-4 rounded-xl border border-border/60 bg-card p-4 sm:p-5 shadow-xs">
         <div>
-          <h3 className="font-semibold text-sm sm:text-base text-foreground">Localização pública (exibida no site)</h3>
+          <h3 className="font-semibold text-sm sm:text-base text-foreground">Detalhes da localização</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Defina apenas o bairro e cidade públicos. Evite expor o número da unidade ou rua para privacidade.
+            Aparece na página do imóvel no site, junto com o bairro, a cidade e a UF do endereço.
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Bairro público">
-            <Input
-              disabled={disabled}
-              placeholder="Ex: Praia das Pitangueiras"
-              value={address.bairro ?? ""}
-              onChange={(event) =>
-                onChange({ ...value, endereco_publico: { ...address, bairro: event.target.value } })
-              }
-              className="h-11 sm:h-10 text-base sm:text-sm"
-            />
-          </Field>
-          <Field label="Cidade pública">
-            <Input
-              disabled={disabled}
-              placeholder="Ex: Guarujá"
-              value={address.cidade ?? ""}
-              onChange={(event) =>
-                onChange({ ...value, endereco_publico: { ...address, cidade: event.target.value } })
-              }
-              className="h-11 sm:h-10 text-base sm:text-sm"
-            />
-          </Field>
-          <Field label="UF pública">
-            <Input
-              disabled={disabled}
-              placeholder="Ex: SP"
-              maxLength={2}
-              value={address.estado ?? ""}
-              onChange={(event) =>
-                onChange({
-                  ...value,
-                  endereco_publico: { ...address, estado: event.target.value.toUpperCase() },
-                })
-              }
-              className="h-11 sm:h-10 text-base sm:text-sm uppercase font-medium"
-            />
-          </Field>
+        <div className="flex items-center gap-1.5 rounded-md border border-border/40 bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+          <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+          {location ? (
+            <span>
+              No site: <span className="font-medium text-foreground">{location}</span>
+            </span>
+          ) : (
+            <span>Preencha bairro, cidade e UF no endereço da aba Geral.</span>
+          )}
         </div>
 
-        <Field
-          label="Descrição de referência da região"
-          hint="Destaque pontos turísticos, comodidades ao redor e facilidades de acesso."
-        >
+        <Field label="Detalhes da região" hint="Distâncias, pontos de referência e facilidades por perto. Não informe rua nem número.">
           <Textarea
             disabled={disabled}
             placeholder="Ex: Localizado a 150m da praia, próximo a padarias, farmácias e aos melhores restaurantes da orla..."
             rows={3}
+            maxLength={1000}
             value={address.localizacao_aproximada ?? ""}
             onChange={(event) =>
               onChange({
@@ -413,6 +359,17 @@ export function PublicationPanel({
             className="text-base sm:text-sm"
           />
         </Field>
+      </section>
+
+      <section className="space-y-4 rounded-xl border border-border/60 bg-card p-4 sm:p-5 shadow-xs">
+        <div>
+          <h3 className="font-semibold text-sm sm:text-base text-foreground">Prévia do anúncio no site</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            O card do catálogo e a página do imóvel, com os dados desta tela, inclusive os ainda não salvos. As
+            fotos são as já enviadas na aba Mídia, na mesma ordem.
+          </p>
+        </div>
+        <AnuncioPreview value={value} gallery={gallery} />
       </section>
     </div>
   );
@@ -657,429 +614,8 @@ export function FilesPanel({
   );
 }
 
-export function PortalAccessPanel({
-  item,
-  onSaved,
-}: {
-  item: Entity;
-  onSaved: () => void;
-}) {
-  const [email, setEmail] = useState(item.portal_email ?? "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<Entity | null>(null);
+// O painel de acesso cresceu (convite, senha, e-mail, bloqueio) e mora no próprio arquivo.
+export { PortalAccessPanel } from "./portal-access-panel";
 
-  const account = result ?? item;
-  const connected = Boolean(account.user_id ?? account.portal_user_id ?? account.acesso?.user_id);
-
-  const execute = async (acao: string) => {
-    if (
-      ["BLOQUEAR", "REVOGAR"].includes(acao) &&
-      !window.confirm(
-        acao === "REVOGAR"
-          ? "Revogar o acesso deste proprietário ao portal?"
-          : "Bloquear temporariamente o acesso deste proprietário?"
-      )
-    )
-      return;
-
-    setBusy(true);
-    setError("");
-    try {
-      const response = await requestJson(`${endpoint("proprietarios", item.id)}/acesso`, {
-        method: "POST",
-        body: JSON.stringify({ acao, email }),
-      });
-      setResult(response.item ?? response);
-      toast.success(response.inviteSent ? "Convite de acesso enviado!" : "Acesso atualizado!");
-      onSaved();
-    } catch (error) {
-      setError((error as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="rounded-xl border border-border/60 bg-muted/20 p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary border border-primary/20">
-              <ShieldCheck className="h-4 w-4" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-sm sm:text-base text-foreground">Portal do Proprietário</h3>
-              <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 max-w-xl">
-                Permite ao proprietário consultar relatórios, extratos e ocupação dos seus imóveis. O e-mail de acesso
-                deve ser único e não pode pertencer a uma conta de hóspede comum.
-              </p>
-            </div>
-          </div>
-          <StatusBadge
-            status={account.portal_status ?? account.acesso?.status ?? (connected ? "ATIVO" : "SEM_ACESSO")}
-          />
-        </div>
-      </div>
-
-      <section className="space-y-4 rounded-xl border border-border/60 bg-card p-4 sm:p-5 shadow-xs">
-        <Field label="E-mail de acesso ao portal do proprietário" hint="O proprietário receberá o convite com link de login">
-          <Input
-            type="email"
-            required
-            placeholder="proprietario@email.com"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm max-w-md"
-          />
-        </Field>
-
-        <div className="flex flex-wrap gap-2 pt-2">
-          {!connected ? (
-            <Button
-              disabled={busy || !email.includes("@")}
-              onClick={() => execute("CRIAR")}
-              className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
-            >
-              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
-              <span>Criar acesso e enviar convite</span>
-            </Button>
-          ) : (
-            <>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => execute("REENVIAR")}
-                className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
-              >
-                <Mail className="h-3.5 w-3.5" />
-                <span>Reenviar convite</span>
-              </Button>
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => execute("BLOQUEAR")}
-                className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
-              >
-                <Lock className="h-3.5 w-3.5" />
-                <span>Bloquear acesso</span>
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={busy}
-                onClick={() => execute("REVOGAR")}
-                className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
-              >
-                <UserX className="h-3.5 w-3.5" />
-                <span>Revogar acesso</span>
-              </Button>
-            </>
-          )}
-        </div>
-      </section>
-
-      {error ? (
-        <div
-          role="alert"
-          className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs sm:text-sm text-destructive"
-        >
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-export function AvailabilityPanel({
-  item,
-  editable,
-}: {
-  item: Entity;
-  editable: boolean;
-}) {
-  const remote = useRemote(`/api/imoveis/${item.id}/disponibilidade`);
-  const rates = useRemote(`/api/imoveis/${item.id}/tarifas`);
-  const [modal, setModal] = useState<"BLOQUEIO" | "TARIFA" | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [value, setValue] = useState<Entity>({
-    inicio: "",
-    fim: "",
-    motivo: "",
-    diaria: "",
-    minimo_noites: 1,
-  });
-
-  const rows: Entity[] = remote.data?.items ?? [];
-  const tariffs: Entity[] = rates.data?.items ?? [];
-
-  const set = (key: string, data: unknown) => setValue((current) => ({ ...current, [key]: data }));
-
-  const save = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await requestJson(`/api/imoveis/${item.id}/${modal === "TARIFA" ? "tarifas" : "bloqueios"}`, {
-        method: "POST",
-        body: JSON.stringify(value),
-      });
-      toast.success(modal === "TARIFA" ? "Tarifa registrada com sucesso" : "Bloqueio registrado com sucesso");
-      setModal(null);
-      remote.reload();
-      rates.reload();
-    } catch (error) {
-      setError((error as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const removeBlock = async (row: Entity) => {
-    if (!window.confirm("Remover este bloqueio e liberar o período para reservas?")) return;
-    try {
-      await requestJson(`/api/imoveis/${item.id}/bloqueios/${row.bloqueio_id ?? row.id}`, {
-        method: "DELETE",
-      });
-      remote.reload();
-      toast.success("Bloqueio removido com sucesso");
-    } catch (error) {
-      toast.error((error as Error).message);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="font-semibold text-sm sm:text-base text-foreground">Disponibilidade e Tarifário</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Gerencie bloqueios de manutenção, datas indisponíveis e regras de diárias por período.
-          </p>
-        </div>
-        {editable ? (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
-              onClick={() => {
-                setError("");
-                setModal("TARIFA");
-              }}
-            >
-              <Coins className="h-3.5 w-3.5 text-primary" />
-              <span>Nova tarifa</span>
-            </Button>
-            <Button
-              size="sm"
-              className="h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
-              onClick={() => {
-                setError("");
-                setModal("BLOQUEIO");
-              }}
-            >
-              <CalendarX className="h-3.5 w-3.5" />
-              <span>Bloquear período</span>
-            </Button>
-          </div>
-        ) : null}
-      </div>
-
-      <section className="space-y-3">
-        <h4 className="font-semibold text-xs sm:text-sm text-foreground flex items-center gap-2">
-          <CalendarCheck className="h-4 w-4 text-primary" />
-          Calendário de ocupação e bloqueios
-        </h4>
-        <RemoteState loading={remote.loading} error={remote.error} retry={remote.reload} empty={!rows.length}>
-          <div className="space-y-2">
-            {rows.map((row, index) => {
-              const type = String(row.tipo ?? row.origem ?? row.tipo_origem ?? "");
-              const block = Boolean(row.bloqueio_id || type.includes("BLOQUEIO") || type.includes("MANUTENCAO"));
-              return (
-                <div
-                  key={row.id ?? index}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card p-4 shadow-xs"
-                >
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">
-                      {titleCase(type)} {row.motivo ? `· ${row.motivo}` : ""}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {dateLabel(row.inicio)} a {dateLabel(row.fim)}
-                      {row.reserva_id
-                        ? ` · Reserva #${row.reserva_id}`
-                        : row.locacao_id
-                        ? ` · Locação #${row.locacao_id}`
-                        : ""}
-                    </p>
-                  </div>
-                  {editable && block ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive gap-1 hover:cursor-pointer"
-                      onClick={() => removeBlock(row)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      <span>Remover bloqueio</span>
-                    </Button>
-                  ) : (
-                    <StatusBadge status={row.status ?? "OCUPADO"} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </RemoteState>
-      </section>
-
-      <section className="space-y-3">
-        <h4 className="font-semibold text-xs sm:text-sm text-foreground flex items-center gap-2">
-          <Coins className="h-4 w-4 text-primary" />
-          Tarifas sazonais por período
-        </h4>
-        <RemoteState loading={rates.loading} error={rates.error} retry={rates.reload} empty={!tariffs.length}>
-          <div className="space-y-2">
-            {tariffs.map((row) => (
-              <div
-                key={row.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card p-4 text-sm shadow-xs"
-              >
-                <div>
-                  <span className="font-medium text-foreground block">
-                    {dateLabel(row.inicio)} a {dateLabel(row.fim)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Mínimo de {row.minimo_noites ?? 1} noite(s)
-                  </span>
-                </div>
-                <strong className="text-base font-bold text-primary">
-                  {money(row.diaria ?? row.valor_diaria)} <span className="text-xs font-normal text-muted-foreground">/ noite</span>
-                </strong>
-              </div>
-            ))}
-          </div>
-        </RemoteState>
-      </section>
-
-      {modal ? (
-        <EntityShell
-          open
-          onOpenChange={(open) => {
-            if (!open && !busy) setModal(null);
-          }}
-          title={modal === "TARIFA" ? "Nova tarifa por período" : "Bloquear período do imóvel"}
-          description={
-            modal === "TARIFA"
-              ? "A cotação aplicará automaticamente o valor da diária para reservas dentro deste período."
-              : "O período selecionado ficará indisponível para novas reservas e locações no calendário."
-          }
-          className="w-[95vw] max-w-xl max-h-[85vh]"
-          footer={
-            <div className="flex items-center justify-end gap-2 w-full">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setModal(null)}
-                disabled={busy}
-                className="h-10 sm:h-9 text-xs hover:cursor-pointer"
-              >
-                Cancelar
-              </Button>
-              <Button
-                form="availability-form"
-                type="submit"
-                size="sm"
-                disabled={busy}
-                className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer"
-              >
-                {busy ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Salvando…</span>
-                  </>
-                ) : (
-                  <span>Salvar configuração</span>
-                )}
-              </Button>
-            </div>
-          }
-        >
-          <form id="availability-form" className="space-y-4" onSubmit={save}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Data de início">
-                <Input
-                  type="date"
-                  required
-                  value={value.inicio}
-                  onChange={(event) => set("inicio", event.target.value)}
-                  className="h-11 sm:h-10 text-base sm:text-sm"
-                />
-              </Field>
-              <Field label="Data de fim (exclusivo)">
-                <Input
-                  type="date"
-                  required
-                  min={value.inicio || undefined}
-                  value={value.fim}
-                  onChange={(event) => set("fim", event.target.value)}
-                  className="h-11 sm:h-10 text-base sm:text-sm"
-                />
-              </Field>
-              {modal === "TARIFA" ? (
-                <>
-                  <Field label="Diária padrão do período">
-                    <ValueInput
-                      required
-                      placeholder="R$ 0,00"
-                      value={value.diaria != null && value.diaria !== "" ? Number(value.diaria) : null}
-                      onValueChange={(val) => set("diaria", val)}
-                      onEmpty={() => set("diaria", 0)}
-                      className="h-11 sm:h-10 text-base sm:text-sm"
-                    />
-                  </Field>
-                  <Field label="Mínimo de noites">
-                    <Input
-                      type="number"
-                      min="1"
-                      step="1"
-                      required
-                      value={value.minimo_noites}
-                      onChange={(event) => set("minimo_noites", Number(event.target.value))}
-                      className="h-11 sm:h-10 text-base sm:text-sm"
-                    />
-                  </Field>
-                </>
-              ) : null}
-            </div>
-            <Field label={modal === "TARIFA" ? "Descrição da tarifa" : "Motivo do bloqueio"}>
-              <Textarea
-                required
-                placeholder={
-                  modal === "TARIFA"
-                    ? "Ex: Alta temporada de réveillon, Carnaval..."
-                    : "Ex: Reforma na pintura, Uso do proprietário..."
-                }
-                value={value.motivo}
-                onChange={(event) => set("motivo", event.target.value)}
-                className="text-base sm:text-sm"
-                rows={3}
-              />
-            </Field>
-            {error ? (
-              <div
-                role="alert"
-                className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs sm:text-sm text-destructive"
-              >
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{error}</span>
-              </div>
-            ) : null}
-          </form>
-        </EntityShell>
-      ) : null}
-    </div>
-  );
-}
+// Calendário, bloqueios, tarifas e simulador moram no próprio arquivo.
+export { AvailabilityPanel } from "./availability-panel";
