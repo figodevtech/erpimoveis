@@ -403,8 +403,13 @@ export default function ConcluidoAlert({
         if (!isSubmitting) setIsAlertOpen(open);
       }}
     >
-      <DialogContent className="max-h-[calc(100dvh-1rem)] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader className="pr-6 text-left">
+      {/*
+        Altura fixa, com cabeçalho e rodapé presos: só o miolo rola. Assim o
+        Concluir fica sempre à vista, e o diálogo não muda de tamanho quando um
+        bloco (antecipação, crédito do cliente, ajustes) aparece ou some.
+      */}
+      <DialogContent className="flex h-[min(52rem,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="shrink-0 border-b px-6 pt-6 pb-4 pr-12 text-left">
           <DialogTitle className="flex items-center gap-2">
             <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
             Concluir transação
@@ -414,6 +419,7 @@ export default function ConcluidoAlert({
           </DialogDescription>
         </DialogHeader>
 
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-4">
         <section className="rounded-xl border bg-card p-4" aria-label="Resumo da transação">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
@@ -882,8 +888,9 @@ export default function ConcluidoAlert({
             ) : null}
           </ul>
         </section>
+        </div>
 
-        <DialogFooter className="mt-1 flex-col-reverse gap-2 sm:flex-row sm:gap-2">
+        <DialogFooter className="shrink-0 flex-col-reverse gap-2 border-t bg-background px-6 py-4 sm:flex-row sm:gap-2">
           <Button
             type="button"
             variant="outline"

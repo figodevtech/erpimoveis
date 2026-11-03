@@ -57,9 +57,31 @@ export async function financeReport(scope: FinanceScope, url: URL) {
   const filtered = items.filter((r) => (!inicio || Date.parse(r.data_movimento) >= Date.parse(`${inicio}T00:00:00-03:00`)) && (!fim || Date.parse(r.data_movimento) < Date.parse(`${fim}T00:00:00-03:00`) + 86400000));
   const sum = (tipo: string) => Math.round(filtered.filter((r) => r.tipo === tipo).reduce((s, r) => s + Number(r.valor), 0) * 100) / 100;
   const recebido = sum("BRUTO_RECEBIDO"), receita_administradora = sum("TAXA_ADMIN"), despesas = sum("DESPESA_PROPRIETARIO"), repassado = sum("REPASSE");
-  const tx = await scoped(db.from("transacao").select("id,descricao,valor,valorLiquido,valor_baixado,pendente,data,pago_em,imovel_id,proprietario_id,reserva_imovel_id,locacao_imovel_id,venda_imovel_id,imovel_natureza,imovel_competencia,banco_id,metodopagamento").eq("is_deleted", false).not("imovel_id", "is", null).is("baixa_de_transacao_id", null).order("data", { ascending: false }).limit(1000), scope, true);
+  const tx = await scoped(db.from("transacao").select("id,descricao,valor,valorLiquido,valor_baixado,pendente,data,vencimento_em,pago_em,tipo,created_at,imovel_id,proprietario_id,reserva_imovel_id,locacao_imovel_id,venda_imovel_id,imovel_natureza,imovel_competencia,banco_id,metodopagamento,banco:bancoconta!transacao_banco_id_fkey(id,titulo)").eq("is_deleted", false).not("imovel_id", "is", null).is("baixa_de_transacao_id", null).order("data", { ascending: false }).limit(1000), scope, true);
   if (tx.error) throw tx.error;
+  // Lançamentos contábeis são do imóvel e do proprietário; reserva, locação e venda não os têm.
+  let lancamentos: Record<string, any>[] = [];
+  if (Object.keys(scope).every((k) => k === "imovel_id" || k === "proprietario_id")) {
+    let query = scoped(db.from("imovel_lancamento").select("*,imovel:imovel_id(id,titulo),proprietario:proprietario_id(id,nomerazaosocial,cpfcnpj),transacao:transacao_id(id,tipo,pendente,is_deleted,valor,valorLiquido,valor_baixado,data,pago_em,metodopagamento,banco:bancoconta!transacao_banco_id_fkey(id,titulo))")
+      .order("data", { ascending: false }).order("id", { ascending: false }).limit(1000), scope);
+    if (inicio) query = query.gte("data", inicio);
+    if (fim) query = query.lte("data", fim);
+    const result = await query;
+    // Sem a migration do lançamento contábil aplicada, o relatório segue sem a seção.
+    const semTabela = result.error && ["42P01", "PGRST205", "PGRST200"].includes(String(result.error.code));
+    if (result.error && !semTabela) throw result.error;
+    // Transação excluída no financeiro não conta: o lançamento volta a poder ser lançado.
+    lancamentos = (result.data ?? []).map((r: any) => ({ ...r, transacao: r.transacao && !r.transacao.is_deleted ? r.transacao : null }));
+  }
+  // Na reserva, a aba Pagamentos lança contra o total dela e sugere o cliente como pagador.
+  let reserva: Record<string, any> | null = null;
+  if (scope.reserva_id) {
+    const result = await db.from("reserva_imovel").select("id,valor_total,status,cliente_id,cliente:cliente_id(id,nomerazaosocial,cpfcnpj)").eq("id", scope.reserva_id).maybeSingle();
+    if (result.error) throw result.error;
+    reserva = result.data;
+  }
   return { items: filtered.map((r) => ({ ...r, data: r.data_movimento })),
+    lancamentos, reserva,
     totais: { recebido, receita_administradora, despesas, repassado, saldo_repassar: saldoAtual, saldo_periodo: Math.round((recebido - receita_administradora - despesas - repassado) * 100) / 100 },
     cobrancas: (tx.data ?? []).filter((r: any) => !["REPASSE", "DESPESA_PROPRIETARIO"].includes(r.imovel_natureza)).map((r: any) => ({ ...r, vencimento: r.data, valor_pago: Number(r.valor_baixado ?? 0) || (r.pendente ? 0 : Number(r.valorLiquido ?? r.valor)), status: r.pendente ? Number(r.valor_baixado) > 0 ? "PARCIAL" : "PENDENTE" : "PAGO" })),
     repasses: (tx.data ?? []).filter((r: any) => r.imovel_natureza === "REPASSE"),

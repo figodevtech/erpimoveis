@@ -307,8 +307,8 @@ export default function ReservasDataTable({
                           <TableRow
                             key={reserva.id}
                             className="hover:cursor-pointer hover:bg-muted/30 transition-colors group"
+                            // Dois cliques abrem, como nas outras listas; o menu de ações da linha também abre.
                             onDoubleClick={() => onSelectReserva(reserva.id)}
-                            onClick={() => onSelectReserva(reserva.id)}
                           >
                             {/* Código */}
                             <TableCell className="font-mono">

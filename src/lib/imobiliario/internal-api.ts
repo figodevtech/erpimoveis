@@ -6,6 +6,7 @@ import { db, identifier, ImobError, internal, internalAny, json, bodyOf, one, pa
 import { civilDate, imovelSchema, locacaoSchema, proprietarioSchema, reservaSchema, tarifaSchema, vendaImovelSchema, visitaSchema } from "./schemas";
 import { activeOperations, deleteFile, enrich, filesFor, fileScope, fileUrl, publicationValid, removeStoredFiles, reorderGallery, uploadFile } from "./data";
 import { cotacaoPublica, hojeImobiliario } from "./types";
+import bairrosPorMunicipio from "@/data/bairros-por-municipio.json";
 import { financeAccess, financeReport, payCharge, scopeFromUrl, type FinanceScope } from "./finance";
 
 const resources = {
@@ -265,6 +266,52 @@ function tariffConflict(error: { code?: string }) {
   return error.code === "23P01" ? new ImobError(409, "Essas datas já têm outra tarifa especial. Atualize a tela e escolha outras datas.") : error;
 }
 
+const placeNameKey = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "").toLocaleLowerCase("pt-BR").trim().replace(/\s+/g, " ");
+
+/**
+ * Lista fixa de bairros das cidades de atuação (src/data/bairros-por-municipio.json, por código
+ * IBGE; dados © OpenStreetMap, ODbL, levantados em 02/11/2026). Cidade fora dela começa vazia.
+ */
+const fixedNeighborhoods = bairrosPorMunicipio as Record<string, { cidade: string; estado: string; bairros: string[] } | undefined>;
+
+function fixedListFor(codigo: string, cidade: string, estado: string) {
+  const byCode = /^\d{7}$/.test(codigo) ? fixedNeighborhoods[codigo] : undefined;
+  if (byCode) return byCode.bairros;
+  // Sem código (cidade digitada à mão): pelo nome e UF.
+  const key = placeNameKey(cidade);
+  return Object.values(fixedNeighborhoods).find((c) => c && c.estado === estado && placeNameKey(c.cidade) === key)?.bairros ?? [];
+}
+
+/**
+ * Bairros para o combobox do endereço do imóvel: a lista fixa da cidade mais os bairros dos
+ * imóveis cadastrados. Bairro novo (digitado ou vindo do CEP) entra na lista de todos assim
+ * que o imóvel é salvo. Na repetição, vale a grafia já usada nos imóveis.
+ */
+async function knownNeighborhoods(url: URL) {
+  const estado = (url.searchParams.get("estado") ?? "").trim().toUpperCase().slice(0, 2);
+  const cidade = filterText(url.searchParams.get("cidade"));
+  if (!/^[A-Z]{2}$/.test(estado) || !cidade) return { items: [], fonte: [] };
+  const registered = await db.from("imovel").select("endereco").eq("endereco->>estado", estado).ilike("endereco->>cidade", cidade).limit(5000);
+  if (registered.error) throw registered.error;
+  const groups = new Map<string, Map<string, number>>();
+  for (const row of registered.data ?? []) {
+    const name = String(row.endereco?.bairro ?? "").trim().replace(/\s+/g, " ");
+    if (!name) continue;
+    const spellings = groups.get(placeNameKey(name)) ?? new Map<string, number>();
+    spellings.set(name, (spellings.get(name) ?? 0) + 1);
+    groups.set(placeNameKey(name), spellings);
+  }
+  const names = new Map<string, string>();
+  for (const [key, spellings] of groups) names.set(key, [...spellings].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"))[0][0]);
+  const fixed = fixedListFor((url.searchParams.get("codigo") ?? "").trim(), cidade, estado);
+  for (const name of fixed) if (!names.has(placeNameKey(name))) names.set(placeNameKey(name), name);
+  return {
+    items: [...names.values()].sort((a, b) => a.localeCompare(b, "pt-BR")),
+    // Atribuição exigida pela licença do OpenStreetMap (ODbL), de onde veio a lista fixa.
+    fonte: fixed.length ? ["OpenStreetMap"] : [],
+  };
+}
+
 async function statusCounter(resource: Resource) {
   if (resource === "proprietarios") {
     const [total, ativos, inativos] = await Promise.all([
@@ -329,10 +376,24 @@ async function statusCounter(resource: Resource) {
   return { total: 0, countsByStatus: {} };
 }
 
+/** Horário de entrada e saída escolhido na reserva ("14:00"); o que não vier fica com o do imóvel. */
+function reservationTimes(body: Record<string, any>) {
+  const out: Record<string, string> = {};
+  for (const key of ["horario_checkin", "horario_checkout"]) {
+    const raw = body[key];
+    if (raw == null || raw === "") continue;
+    const match = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/.exec(String(raw));
+    if (!match) throw new ImobError(400, key === "horario_checkin" ? "Horário de entrada inválido." : "Horário de saída inválido.");
+    out[key] = `${match[1]}:${match[2]}`;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 export async function internalResource(request: Request, resource: Resource, path: string[]) {
   const config = resources[resource];
   const url = new URL(request.url), method = request.method;
   const access = await internal(`${config.perm}:visualizar`);
+  if (resource === "imoveis" && path[0] === "bairros" && method === "GET") return json(await knownNeighborhoods(url));
   if (path[0] === "status-counter" && method === "GET") {
     return json(await statusCounter(resource));
   }
@@ -375,7 +436,15 @@ export async function internalResource(request: Request, resource: Resource, pat
     const property = await one("imovel", id);
     if (segment === "cotacao" && method === "GET") {
       await internal(PERMS.RESERVAS_CRIAR);
-      const quote = await rpc("imob_cotar_reserva", { p_imovel_id: id, p_inicio: civilDate.parse(url.searchParams.get("inicio")), p_fim: civilDate.parse(url.searchParams.get("fim")), p_hospedes: identifier(url.searchParams.get("hospedes")) });
+      const args = { p_imovel_id: id, p_inicio: civilDate.parse(url.searchParams.get("inicio")), p_fim: civilDate.parse(url.searchParams.get("fim")), p_hospedes: identifier(url.searchParams.get("hospedes")) };
+      // Na reserva do ERP as regras de tarifa voltam como aviso (violacoes); o simulador e o site seguem barrando.
+      // Sem a migration da cotação do ERP aplicada, cai na cotação de sempre.
+      const quote = url.searchParams.get("regras") === "avisar"
+        ? await rpc("imob_cotar_reserva_erp", args).catch((error) => {
+            if (["PGRST202", "42883"].includes(String(error?.code))) return rpc("imob_cotar_reserva", args);
+            throw error;
+          })
+        : await rpc("imob_cotar_reserva", args);
       return json({ ...cotacaoPublica(quote), ...quote });
     }
     if (segment === "disponibilidade" && method === "GET") {
@@ -485,7 +554,18 @@ export async function internalResource(request: Request, resource: Resource, pat
     }
     const name = resource === "reservas" ? "imob_salvar_reserva" : resource === "locacoes-imobiliarias" ? "imob_salvar_locacao" : "imob_salvar_venda";
     data.idempotency_key = body.idempotency_key ?? previous.idempotency_key ?? randomUUID();
-    return json({ item: await rpc(name, { p_payload: data, p_actor: access.id, p_id: id }) }, id ? 200 : 201);
+    const saved = await rpc(name, { p_payload: data, p_actor: access.id, p_id: id });
+    if (resource === "reservas") {
+      const horarios = reservationTimes(body);
+      if (horarios && saved?.id) {
+        // Fora do payload da RPC de propósito: ele entra no hash de idempotência da reserva.
+        const result = await db.from("reserva_imovel").update(horarios).eq("id", saved.id).select().single();
+        // Sem a migration dos horários aplicada, a reserva vale com o horário do imóvel.
+        if (result.error && !["42703", "PGRST204"].includes(String(result.error.code))) throw result.error;
+        if (result.data) return json({ item: result.data }, id ? 200 : 201);
+      }
+    }
+    return json({ item: saved }, id ? 200 : 201);
   }
   if (id && !segment && method === "DELETE") {
     await internal(`${config.perm}:excluir`);
@@ -577,8 +657,14 @@ export async function internalShared(request: Request, path: string[]) {
       if (!actual.imovel_id) throw new ImobError(400, "Selecione o imóvel para vincular o movimento.");
       if (!actual.proprietario_id) actual.proprietario_id = (await one("imovel", actual.imovel_id)).proprietario_id;
       const day = civilDate.parse(body.data ?? hojeImobiliario());
-      return json({ item: await rpc("imob_registrar_repasse", { p_payload: { ...body, ...actual, vencimento: day, pago_em: `${day}T12:00:00-03:00`, metodopagamento: body.metodo_pagamento ?? body.metodopagamento, idempotency_key: body.idempotency_key ?? randomUUID() }, p_actor: access.id }) }, 201);
+      // Só contábil: entra no extrato do proprietário; a transação sai depois, pelo diálogo do financeiro.
+      return json({ item: await rpc("imob_registrar_lancamento", { p_payload: { tipo: body.tipo, valor: body.valor, descricao: body.descricao, ...actual, data: day, idempotency_key: body.idempotency_key ?? randomUUID() }, p_actor: access.id }) }, 201);
     }
+  }
+  if (path[0] === "lancamentos" && path[2] === "estornar" && method === "POST") {
+    const row = await one("imovel_lancamento", identifier(path[1]));
+    const access = await financeAccess({ imovel_id: row.imovel_id }, true);
+    return json({ item: await rpc("imob_cancelar_lancamento", { p_id: row.id, p_actor: access.id }) });
   }
   if (path[0] === "cobrancas" && path[2] === "baixar" && method === "POST") {
     const id = identifier(path[1]), row = await one("transacao", id);

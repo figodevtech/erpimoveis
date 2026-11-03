@@ -290,10 +290,14 @@ export default function RegisterContent({
   const { options: metodosPagamento } = usePaymentMethodOptions();
   // Pagamento múltiplo é sempre entrada de dinheiro de OS ou venda: tipo,
   // categoria e descrição saem dos documentos marcados e o formulário só os
-  // exibe. A despesa interna continua sendo o único caso de DESPESA travada.
+  // exibe. Despesa interna e lançamento contábil do imóvel (despesa do
+  // proprietário ou repasse a ele) são saídas: o tipo fica travado em DESPESA.
+  const doLancamentoImobiliario = newTransaction.imovel_lancamento_id != null;
+  // Pagamento de reserva é sempre entrada.
+  const daReserva = newTransaction.reserva_imovel_id != null;
   const tipoTravado = pagamentoMultiplo
     ? Tipo_transacao.RECEITA
-    : internalCompanyExpense
+    : internalCompanyExpense || doLancamentoImobiliario
       ? Tipo_transacao.DESPESA
       : Tipo_transacao.RECEITA;
   const categoriaTravadaMultiplo = pagamentoMultiplo
@@ -1204,7 +1208,7 @@ export default function RegisterContent({
                   <Label htmlFor="tipo">
                     Tipo <span className="text-red-500">*</span>
                   </Label>
-                  {osId || vendaId || pagamentoMultiplo ? (
+                  {osId || vendaId || pagamentoMultiplo || doLancamentoImobiliario || daReserva ? (
                     <Select
                       disabled
                       value={tipoTravado}

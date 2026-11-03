@@ -44,6 +44,8 @@ export const reservaSchema = z.object({
   hospedes: z.coerce.number().int().min(1).max(1000), observacoes: text.max(10000).default(""),
   cotacao_id: z.string().uuid().optional(), expected_total: money.optional(),
   idempotency_key: text.min(8).max(200), origem: z.enum(["ERP", "SITE"]).default("ERP"),
+  // Só o caminho do ERP lê: valores ajustados pelo operador e a confirmação de passar por cima das regras de tarifa.
+  valor_diarias: money.optional(), taxa_limpeza: money.optional(), ignorar_regras: z.boolean().optional(),
 }).refine((v) => v.fim > v.inicio, { path: ["fim"], message: "Saída deve ser posterior à entrada" });
 
 export const locacaoSchema = z.object({

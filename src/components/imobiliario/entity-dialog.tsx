@@ -7,6 +7,16 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   EntityShell,
   RemoteState,
   StatusBadge,
@@ -28,7 +38,7 @@ import { AnexosPanel } from "./midia/anexos-panel";
 import { useImovelMidia } from "./midia/use-imovel-midia";
 import { notifyRemoval } from "./row-actions";
 import { OperationAction } from "./actions-dialog";
-import { CommercialPanel } from "./commercial-panel";
+import { PropertyReservations } from "./property-reservations";
 import {
   MODULES,
   type Entity,
@@ -53,7 +63,6 @@ import {
   CalendarCheck,
   WalletCards,
   ShieldCheck,
-  MapPin,
   Info,
   Trash2,
   Save,
@@ -123,7 +132,6 @@ const tabIcons: Record<string, any> = {
   anexos: Paperclip,
   publicacao: Globe,
   disponibilidade: CalendarCheck,
-  visitas: MapPin,
 };
 
 const kindIcons: Record<ModuleKind, any> = {
@@ -153,6 +161,8 @@ export default function EntityDialog({
   const [busy, setBusy] = useState(false);
   const [action, setAction] = useState<string | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
+  // Regras de tarifa que o período quebra, aguardando o "prosseguir mesmo assim".
+  const [rulesToConfirm, setRulesToConfirm] = useState<string[] | null>(null);
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const [operation, setOperation] = useState<ModuleKind | null>(null);
   // Fica no diálogo, e não na aba, para as fotos pendentes sobreviverem à troca de aba.
@@ -162,9 +172,11 @@ export default function EntityDialog({
     if (remote.data) setValue(itemFrom(remote.data));
   }, [remote.data]);
 
+  // A cotação só deixa de valer quando muda o que entra nela; observações e horários não.
+  const quoteKey = (item: Entity) => `${item.imovel_id}-${item.inicio}-${item.fim}-${item.hospedes}`;
   const update = (next: Entity) => {
+    if (quoteKey(next) !== quoteKey(value)) setQuote(null);
     setValue(next);
-    setQuote(null);
     setRequestKey(crypto.randomUUID());
   };
 
@@ -187,15 +199,22 @@ export default function EntityDialog({
 
   // Sem evento quando vem do botão da aba Mídia do imóvel novo: salva dali mesmo, com os dados
   // já em `value`, e a tela fica na Mídia para acompanhar o envio das fotos.
-  const save = async (event?: React.FormEvent) => {
+  // `ignorarRegras` vem do AlertDialog: o operador viu as regras de tarifa quebradas e quis seguir.
+  const save = async (event?: React.FormEvent, ignorarRegras = false) => {
     event?.preventDefault();
     if (!editable && !(kind === "imoveis" && can("imoveis:publicar") && tab === "publicacao")) return;
     const block = (message: string) => {
       setTab("geral");
       toast.error(`Não foi possível ${currentId ? "salvar" : "cadastrar"} o ${config.singular}`, { description: message });
     };
-    if (reservationChanged && !quote) return block("Consulte a cotação antes de confirmar as datas e valores da reserva.");
+    if (reservationChanged && !quote) return block("A cotação destas datas ainda não foi calculada ou o imóvel não está disponível no período.");
     if (value.inicio && value.fim && value.fim <= value.inicio) return block("A data final deve ser posterior ao início.");
+    if (reservationChanged && Number(value.valor_diarias ?? 0) + Number(value.taxa_limpeza ?? 0) <= 0)
+      return block("O valor total da reserva deve ser maior que zero.");
+    if (reservationChanged && quote?.violacoes?.length && !ignorarRegras) {
+      setRulesToConfirm(quote.violacoes.map((violacao) => violacao.mensagem));
+      return;
+    }
     if (kind === "imoveis" && !(value.modalidades ?? []).length) return block("Selecione ao menos uma modalidade do imóvel.");
     if (kind === "imoveis" && !value.proprietario_id) return block("Selecione o proprietário do imóvel.");
 
@@ -255,6 +274,7 @@ export default function EntityDialog({
         ...payload,
         expected_total: quote?.total,
         cotacao_id: (quote as Entity)?.quoteId,
+        ...(ignorarRegras ? { ignorar_regras: true } : {}),
       };
     }
 
@@ -319,7 +339,7 @@ export default function EntityDialog({
   if (currentId) {
     if (kind === "proprietarios") {
       tabs.push({ key: "imoveis", label: "Imóveis" }, { key: "reservas", label: "Reservas" });
-      if (financial) tabs.push({ key: "financeiro", label: "Financeiro" });
+      if (financial) tabs.push({ key: "financeiro", label: "Pagamentos" });
       if (can("proprietarios:acesso_portal")) tabs.push({ key: "acesso", label: "Acesso ao portal" });
       tabs.push({ key: "arquivos", label: "Documentos / fotos" });
     } else if (kind === "imoveis") {
@@ -332,11 +352,10 @@ export default function EntityDialog({
         { key: "locacoes-imobiliarias", label: "Locações" },
         { key: "vendas-imobiliarias", label: "Vendas" }
       );
-      if (financial) tabs.push({ key: "financeiro", label: "Financeiro" });
-      tabs.push({ key: "visitas", label: "Visitas" });
+      // Sem aba Pagamentos: o imóvel não é cobrado; os pagamentos ficam na reserva, locação e venda.
     } else {
       tabs.push({ key: "arquivos", label: "Documentos" });
-      if (financial) tabs.push({ key: "financeiro", label: "Financeiro" });
+      if (financial) tabs.push({ key: "financeiro", label: "Pagamentos" });
     }
   } else if (kind === "imoveis") {
     // Já no cadastro novo dá para escolher as fotos; elas sobem ao salvar.
@@ -577,9 +596,11 @@ export default function EntityDialog({
 
                     {kind === "reservas" && reservationChanged && editable ? (
                       <ReservationQuote
-                        key={`${value.imovel_id}-${value.inicio}-${value.fim}-${value.hospedes}`}
+                        key={quoteKey(value)}
                         value={value}
                         onQuote={setQuote}
+                        // Direto no valor, sem `update`: ajustar diária ou limpeza não invalida a cotação.
+                        onAdjust={(patch) => setValue((current) => ({ ...current, ...patch }))}
                       />
                     ) : null}
 
@@ -669,7 +690,12 @@ export default function EntityDialog({
                   >
                     <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
                       {tab === relation && currentId ? (
-                        <RelationshipPanel kind={kind} item={value} relation={relation} />
+                        // No imóvel, a aba Reservas é o mesmo card do módulo de Reservas, filtrado por ele.
+                        kind === "imoveis" && relation === "reservas" ? (
+                          <PropertyReservations item={value} />
+                        ) : (
+                          <RelationshipPanel kind={kind} item={value} relation={relation} />
+                        )
                       ) : null}
                     </div>
                   </TabsContent>
@@ -700,17 +726,6 @@ export default function EntityDialog({
                   ) : null}
                 </div>
               </TabsContent>
-
-              <TabsContent
-                value="visitas"
-                className="h-full min-h-0 overflow-hidden p-0 m-0 focus-visible:outline-none"
-              >
-                <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
-                  {tab === "visitas" && currentId && kind === "imoveis" ? (
-                    <CommercialPanel imovelId={currentId} />
-                  ) : null}
-                </div>
-              </TabsContent>
             </div>
           </Tabs>
         </RemoteState>
@@ -728,6 +743,40 @@ export default function EntityDialog({
           }}
         />
       ) : null}
+
+      <AlertDialog
+        open={Boolean(rulesToConfirm)}
+        onOpenChange={(open) => {
+          if (!open) setRulesToConfirm(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reserva fora das regras de tarifa</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <ul className="list-disc space-y-1 pl-5">
+                  {(rulesToConfirm ?? []).map((mensagem) => (
+                    <li key={mensagem}>{mensagem}</li>
+                  ))}
+                </ul>
+                <p className="font-medium text-foreground">Deseja prosseguir mesmo assim?</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Revisar datas</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setRulesToConfirm(null);
+                void save(undefined, true);
+              }}
+            >
+              Prosseguir mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {operation && currentId ? (
         <EntityDialog

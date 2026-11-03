@@ -127,6 +127,29 @@ async function publicAgenda(property: Record<string, any>) {
 
 export async function publicApi(request: Request, path: string[]) {
   const url = new URL(request.url), method = request.method;
+  if (path[0] === "destinos" && method === "GET") {
+    // Destinos da busca do site: só cidade/UF com imóvel publicado de proprietário ativo.
+    const modality = url.searchParams.get("modality") ?? url.searchParams.get("modalidade");
+    const inactiveOwners = await inactiveOwnerIds();
+    const groups = new Map<string, { cidade: string; estado: string; total: number }>();
+    for (let offset = 0; ; offset += 1000) {
+      let query = db.from("imovel_resumo").select("endereco_publico").eq("ativo", true).eq("publicado", true);
+      if (inactiveOwners.length) query = query.not("proprietario_id", "in", `(${inactiveOwners.join(",")})`);
+      if (modality) query = query.contains("modalidades", [z.enum(["TEMPORADA", "LOCACAO", "VENDA"]).parse(modality)]);
+      const result = await query.order("id").range(offset, offset + 999);
+      if (result.error) throw result.error;
+      for (const row of result.data) {
+        const cidade = String(row.endereco_publico?.cidade ?? "").trim(), estado = String(row.endereco_publico?.estado ?? "").trim().toUpperCase();
+        if (!cidade || !estado) continue;
+        const key = `${amenityKey(cidade)}|${estado}`;
+        const group = groups.get(key) ?? { cidade, estado, total: 0 };
+        group.total += 1;
+        groups.set(key, group);
+      }
+      if (result.data.length < 1000) break;
+    }
+    return json({ items: [...groups.values()].sort((a, b) => a.cidade.localeCompare(b.cidade, "pt-BR") || a.estado.localeCompare(b.estado)) });
+  }
   if (path[0] === "comodidades" && method === "GET") {
     // Opções do filtro do site: só o que existe em imóveis publicados, com o nome do tipo cadastrado no ERP quando houver.
     const modality = url.searchParams.get("modality") ?? url.searchParams.get("modalidade");
@@ -174,6 +197,10 @@ export async function publicApi(request: Request, path: string[]) {
     if (search) query = query.or(`titulo.ilike.%${search}%,endereco_publico->>cidade.ilike.%${search}%,endereco_publico->>bairro.ilike.%${search}%`);
     const neighborhood = url.searchParams.get("neighborhood");
     if (neighborhood) query = query.eq("endereco_publico->>bairro", z.string().trim().max(120).parse(neighborhood));
+    // Destino do site: cidade + UF (as opções vêm de /public/destinos). ilike sem curinga = igual sem caixa.
+    const city = filterText(url.searchParams.get("city")), state = url.searchParams.get("state");
+    if (city) query = query.ilike("endereco_publico->>cidade", city);
+    if (state) query = query.eq("endereco_publico->>estado", z.string().trim().length(2).transform((v) => v.toUpperCase()).parse(state));
     if (url.searchParams.get("guests")) query = query.gte("capacidade", identifier(url.searchParams.get("guests")));
     const priceColumn = modality === "VENDA" ? "valor_venda" : modality === "LOCACAO" ? "valor_locacao" : "diaria";
     const minPrice = url.searchParams.get("minPrice"), maxPrice = url.searchParams.get("maxPrice");

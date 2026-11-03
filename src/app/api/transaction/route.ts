@@ -21,6 +21,12 @@ import {
 import { hasVendasAccess } from "@/app/api/_authz/perms";
 import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
 import { reportErpDiagnostic } from "@/lib/monitoring/erp-diagnostic";
+import {
+  conferirLancamentoImobiliario,
+  conferirPagamentoDeReserva,
+  vincularLancamentoImobiliario,
+  type LancamentoImobiliario,
+} from "./_lib/lancamento-imobiliario";
 
 const WRITABLE_FIELDS = new Set([
   "ordemservicoid",
@@ -577,6 +583,20 @@ export async function POST(req: Request) {
       payload.categoria = categoriaSistema.nome;
     }
     const parcelasDetalhadas = sanitizeParcelasDetalhadas(body?.parcelasDetalhadas);
+
+    // Lado financeiro de um lançamento contábil do imóvel (despesa do proprietário ou repasse).
+    let lancamentoImobiliario: LancamentoImobiliario | null = null;
+    if (json.imovel_lancamento_id != null) {
+      const conferencia = await conferirLancamentoImobiliario(
+        json.imovel_lancamento_id,
+        payload,
+        parcelasDetalhadas.length,
+      );
+      if (!conferencia.ok) {
+        return NextResponse.json({ error: conferencia.erro }, { status: conferencia.status });
+      }
+      lancamentoImobiliario = conferencia.lancamento;
+    }
     if (payload.evento_financeiro_id != null && parcelasDetalhadas.length > 1) {
       return NextResponse.json({ error: "Um evento financeiro deve gerar uma única transação." }, { status: 400 });
     }
@@ -631,6 +651,16 @@ export async function POST(req: Request) {
       ? distribuirPorPesos(parcelasNetCents, valorTotalCents)
       : [valorTotalCents];
     const totalNovoValorCents = parcelasGrossCents.reduce((acc, value) => acc + value, 0);
+
+    // Pagamento de reserva: vínculos do imobiliário e teto no total da reserva, como na OS.
+    let vinculoDaReserva: Record<string, unknown> | null = null;
+    if (json.reserva_imovel_id != null) {
+      const conferencia = await conferirPagamentoDeReserva(json.reserva_imovel_id, payload, totalNovoValorCents);
+      if (!conferencia.ok) {
+        return NextResponse.json({ error: conferencia.erro }, { status: conferencia.status });
+      }
+      vinculoDaReserva = conferencia.campos;
+    }
 
     if (payload.vendaid != null && isReceita) {
       vendaId = Number(payload.vendaid);
@@ -734,6 +764,11 @@ export async function POST(req: Request) {
 
         return {
           ...payload,
+          // Dinheiro do proprietário: fica fora da DRE da imobiliária.
+          ...(lancamentoImobiliario ? { recurso_terceiros: true } : {}),
+          ...(vinculoDaReserva ?? {}),
+          // O extrato do proprietário só lança o que tem data de pagamento, como a baixa grava.
+          ...(vinculoDaReserva && !pendenteLinha ? { pago_em: payload.data, vencimento_em: payload.data } : {}),
           ...(parcelamentoId != null ? { parcelamento_id: parcelamentoId } : {}),
           descricao:
             totalParcelas > 1
@@ -845,6 +880,13 @@ export async function POST(req: Request) {
     }
 
     const createdRows = data ?? [];
+
+    if (lancamentoImobiliario && createdRows[0]?.id != null) {
+      const erroDoVinculo = await vincularLancamentoImobiliario(lancamentoImobiliario.id, Number(createdRows[0].id));
+      if (erroDoVinculo) {
+        return NextResponse.json({ error: erroDoVinculo }, { status: 409 });
+      }
+    }
     const createdPayload = createdRows.length === 1 ? createdRows[0] : createdRows;
 
     if (vendaId != null && preSumCents != null && vendaTotalCents != null) {

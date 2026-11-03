@@ -160,6 +160,7 @@ function montar(options: { administrativo?: boolean; podeEditar?: boolean; acess
     "./_lib/documento": {}, "./_lib/bandeira": {},
   };
   dependencies["@/lib/supabase-pagination"] = load("src/lib/supabase-pagination.ts", dependencies);
+  dependencies["./_lib/lancamento-imobiliario"] = load("src/app/api/transaction/_lib/lancamento-imobiliario.ts", dependencies);
   const autoria = load("src/app/api/transaction/_lib/autoria.ts", dependencies);
   for (const alias of ["./autoria", "../_lib/autoria", "../../_lib/autoria", "./_lib/autoria", "@/app/api/transaction/_lib/autoria"]) dependencies[alias] = autoria;
   const afetadas = load("src/app/api/transaction/_lib/autoria-afetadas.ts", dependencies);

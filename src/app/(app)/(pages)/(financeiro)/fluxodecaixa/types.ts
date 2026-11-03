@@ -388,6 +388,17 @@ export interface NewTransaction {
   bandeira_parcelas?: number | null
   bandeira_taxa_percentual?: number | null
   bandeira_taxa_ajustada?: boolean | null
+  /**
+   * Lançamento contábil do imóvel (despesa do proprietário ou repasse) que esta
+   * transação leva ao financeiro. Com ele o tipo fica travado em DESPESA e o
+   * valor é o do lançamento.
+   */
+  imovel_lancamento_id?: number | null
+  /**
+   * Reserva que este pagamento quita, total ou em parte. Com ela o tipo fica travado
+   * em RECEITA e o servidor limita a soma dos pagamentos ao total da reserva.
+   */
+  reserva_imovel_id?: number | null
 }
 
 export interface Pagination {

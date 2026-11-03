@@ -1,496 +1,588 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ElementType, type ReactNode } from "react";
 import dynamic from "next/dynamic";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import ValueInput from "@/components/ui/value-input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import {
-  EntityShell,
-  Field,
-  Lookup,
-  RemoteState,
-  SelectField,
-  StatusBadge,
-  requestJson,
-  useModulePermission,
-  useRemote,
-} from "./shared";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
+import { RemoteState, requestJson, useModulePermission, useRemote } from "./shared";
 import { type Entity, dateLabel, money, titleCase } from "./model";
+import { Tipo_transacao, type Transaction } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/types";
 import {
-  AlertCircle,
-  ArrowDownLeft,
-  ArrowUpRight,
-  Calendar,
   CheckCircle2,
-  CreditCard,
-  FileText,
+  Clock3,
+  Eye,
+  Info,
   Loader2,
+  MoreHorizontal,
+  Pencil,
   Plus,
   Receipt,
   RefreshCw,
-  Wallet,
+  Sparkles,
+  Trash2,
+  TrendingUp,
+  WalletCards,
 } from "lucide-react";
 
-const ServiceInvoiceDialog = dynamic(() => import("./service-invoice-dialog"), {
-  loading: () => (
-    <div className="flex items-center justify-center p-8 gap-2 text-sm text-muted-foreground">
-      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-      <span>Carregando NFS-e…</span>
-    </div>
-  ),
-});
+// Os mesmos diálogos do fluxo de caixa: ver/editar a transação e dar baixa nela.
+const TransactionDialog = dynamic(
+  () => import("@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/transactionDialog/transactionDialog"),
+  { ssr: false }
+);
+const ConcluidoAlert = dynamic(
+  () => import("@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/concluidoAlert"),
+  { ssr: false }
+);
 
-/** Linhas de carregamento com a mesma grade da tabela: a altura não muda quando os dados chegam. */
-function SkeletonRows({ widths }: { widths: string[] }) {
+type Scheme = "blue" | "emerald" | "amber" | "sky";
+
+const schemes: Record<Scheme, { icon: string; hover: string }> = {
+  blue: { icon: "bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400", hover: "hover:border-blue-500/30" },
+  emerald: { icon: "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400", hover: "hover:border-emerald-500/30" },
+  amber: { icon: "bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400", hover: "hover:border-amber-500/30" },
+  sky: { icon: "bg-sky-500/10 text-sky-600 dark:bg-sky-500/20 dark:text-sky-400", hover: "hover:border-sky-500/30" },
+};
+
+function CartaoResumo({
+  titulo,
+  valor,
+  detalhe,
+  icon: Icon,
+  scheme,
+  loading,
+}: {
+  titulo: string;
+  valor: number;
+  detalhe: string;
+  icon: ElementType;
+  scheme: Scheme;
+  loading: boolean;
+}) {
+  return (
+    <div className={`group rounded-xl border bg-card/95 p-4 shadow-sm transition-all duration-200 hover:shadow-md ${schemes[scheme].hover}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{titulo}</span>
+        <div className={`rounded-lg p-2 transition-transform duration-200 group-hover:scale-105 ${schemes[scheme].icon}`}>
+          <Icon className="size-4" />
+        </div>
+      </div>
+      <div className="mt-2">
+        {loading ? (
+          <Skeleton className="h-8 w-32" />
+        ) : (
+          <p className="text-2xl font-bold tracking-tight tabular-nums text-foreground">{money(valor)}</p>
+        )}
+        <p className="mt-1 text-xs text-muted-foreground">{detalhe}</p>
+      </div>
+    </div>
+  );
+}
+
+/** Quanto das cobranças já entrou, quanto falta. */
+function ProgressoRecebimento({ total, recebido, loading }: { total: number; recebido: number; loading: boolean }) {
+  const pct = total > 0 ? Math.min(100, Math.max(0, Math.round((recebido / total) * 100))) : 0;
+  return (
+    <div className="rounded-xl border bg-card p-4 shadow-sm">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2">
+          <div className="rounded-lg bg-emerald-500/10 p-1.5 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400">
+            <TrendingUp className="size-4" />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold">Progresso de recebimento</h4>
+            {loading ? (
+              <Skeleton className="mt-1 h-3 w-40" />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {pct}% recebido de {money(total)}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-xs">
+          <span className="flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="size-2 rounded-full bg-emerald-500" />
+            Recebido ({pct}%)
+          </span>
+          <span className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+            <span className="size-2 rounded-full bg-amber-500" />
+            A receber ({100 - pct}%)
+          </span>
+        </div>
+      </div>
+      <div className="mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-amber-500/25">
+        <div
+          style={{ width: `${loading ? 0 : pct}%` }}
+          className="bg-emerald-500 transition-all duration-500 ease-out"
+          title={`Recebido: ${money(recebido)} (${pct}%)`}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Situacao({ row }: { row: Entity }) {
+  const [classe, Icon, rotulo] =
+    row.status === "PAGO" || row.pendente === false
+      ? ["border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", CheckCircle2, "Recebido"]
+      : row.status === "PARCIAL"
+        ? ["border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300", Clock3, "Parcial"]
+        : ["border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300", Clock3, "A receber"];
+  return (
+    <Badge variant="outline" className={`gap-1 whitespace-nowrap ${classe}`}>
+      <Icon className="size-3 shrink-0" />
+      {rotulo}
+    </Badge>
+  );
+}
+
+/** Vencimento enquanto está em aberto; data do pagamento depois de pago. */
+function DataDoTitulo({ row }: { row: Entity }) {
   return (
     <>
-      {Array.from({ length: 3 }, (_, row) => (
-        <tr key={row} aria-hidden>
-          {widths.map((width, col) => (
-            <td key={col} className="p-3.5 sm:px-4">
-              <Skeleton className={`h-4 ${width}`} />
-            </td>
-          ))}
-        </tr>
-      ))}
+      <p className="font-medium text-foreground">
+        {dateLabel(row.pendente ? row.vencimento_em ?? row.vencimento ?? row.data : row.pago_em ?? row.data)}
+      </p>
+      <p className="text-xs text-muted-foreground">{row.pendente ? "Vencimento" : "Pagamento"}</p>
     </>
   );
 }
 
+function ContaEMetodo({ row }: { row: Entity }) {
+  return (
+    <>
+      <p className="truncate font-medium text-foreground">{row.banco?.titulo || "Conta não informada"}</p>
+      <p className="text-xs text-muted-foreground">{row.metodopagamento ? titleCase(row.metodopagamento) : "Método não informado"}</p>
+    </>
+  );
+}
+
+function TabelaCarregando() {
+  return (
+    <div className="space-y-3 p-4" aria-hidden>
+      {Array.from({ length: 3 }, (_, row) => (
+        <div key={row} className="grid grid-cols-5 gap-4">
+          {Array.from({ length: 5 }, (_, col) => (
+            <Skeleton key={col} className="h-4" />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Acoes({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" className="size-8 shrink-0 opacity-80 group-hover:opacity-100" aria-label={label}>
+          <MoreHorizontal className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        {children}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * Aba Pagamentos: o que o cliente deve pagar (reserva, aluguel, parcelas da venda) e o que
+ * já pagou. As cobranças já são transações a receber no financeiro; aqui se acompanha e dá
+ * baixa nelas, com os mesmos diálogos do fluxo de caixa.
+ *
+ * Na reserva é como no pagamento da OS: os pagamentos são lançados aqui (à vista ou a
+ * prazo, em quantas transações forem) até o total da reserva, e podem ser editados e
+ * excluídos. Cada transação nasce ligada à reserva.
+ */
 export function FinancePanel({ context, permission }: { context: Entity; permission: string }) {
   const { can } = useModulePermission();
-  const [inicio, setInicio] = useState("");
-  const [fim, setFim] = useState("");
+  const config = useConfig();
   const query = new URLSearchParams(
     Object.entries(context)
       .filter(([, value]) => value != null)
       .map(([key, value]) => [key, String(value)])
   );
-  if (inicio) query.set("inicio", inicio);
-  if (fim) query.set("fim", fim);
 
   const remote = useRemote(can(permission) ? `/api/imobiliario/financeiro?${query}` : null);
-  const [action, setAction] = useState<{ tipo: string; row?: Entity } | null>(null);
-  const [invoice, setInvoice] = useState(false);
+  // Título carregado do financeiro para a baixa, e qual linha está buscando o seu.
+  const [baixa, setBaixa] = useState<Transaction | null>(null);
+  const [abrindo, setAbrindo] = useState<number | null>(null);
+  // Transação aberta no diálogo do fluxo de caixa (ver ou editar), e o cadastro de um pagamento novo.
+  const [aberta, setAberta] = useState<number | null>(null);
+  const [novo, setNovo] = useState(false);
+  const [excluindo, setExcluindo] = useState<Entity | null>(null);
+  const [excluindoBusy, setExcluindoBusy] = useState(false);
+
+  // Baixa e edição são as do fluxo de caixa, com as permissões dele.
+  const podeVer = can("financeiro:visualizar");
+  const podeBaixar = podeVer && can("financeiro:editar");
+  const podeEditar = podeBaixar && config?.habilitar_edicao_transacoes === true;
+  // Lançar e excluir pagamento só na reserva: locação e venda geram as próprias cobranças.
+  const naReserva = Boolean(context.reserva_id);
+  const podeCriar = naReserva && podeVer && can("financeiro:criar");
+  const podeExcluir = naReserva && podeVer && can("financeiro:excluir");
+
+  const excluir = async () => {
+    if (!excluindo) return;
+    setExcluindoBusy(true);
+    try {
+      await requestJson(`/api/transaction/${excluindo.id}`, { method: "DELETE" });
+      toast.success("Pagamento excluído.");
+      setExcluindo(null);
+      remote.reload();
+    } catch (error) {
+      toast.error("Não foi possível excluir o pagamento", { description: (error as Error).message });
+    } finally {
+      setExcluindoBusy(false);
+    }
+  };
+
+  const darBaixa = async (row: Entity) => {
+    setAbrindo(Number(row.id));
+    try {
+      const response = await requestJson(`/api/transaction/${row.id}`);
+      setBaixa(response.data as Transaction);
+    } catch (error) {
+      toast.error("Não foi possível abrir a transação", { description: (error as Error).message });
+    } finally {
+      setAbrindo(null);
+    }
+  };
 
   if (!can(permission))
     return (
       <div className="rounded-xl border border-border/60 bg-card p-6 text-center text-sm text-muted-foreground">
-        Seu perfil não tem acesso ao módulo financeiro desta entidade.
+        Seu perfil não tem acesso aos pagamentos desta entidade.
       </div>
     );
 
-  // Também ao trocar o período: a estrutura fica e só os valores viram skeleton.
   const loading = remote.loading;
-  const totals = remote.data?.totais ?? {};
-  const rows = remote.data?.items ?? [];
-  const charges = remote.data?.cobrancas ?? [];
+  // Só o que o cliente paga: reembolso, comissão e o que é do proprietário ficam fora.
+  const charges: Entity[] = (remote.data?.cobrancas ?? []).filter(
+    (row: Entity) => (row.imovel_natureza ?? "RECEBIMENTO") === "RECEBIMENTO"
+  );
+  const totalCobrado = charges.reduce((sum, row) => sum + Number(row.valor ?? 0), 0);
+  const totalRecebido = charges.reduce((sum, row) => sum + Number(row.valor_pago ?? 0), 0);
+  const aReceber = Math.max(totalCobrado - totalRecebido, 0);
+  // Na reserva o total é o dela: o que ainda não virou transação fica disponível para lançar.
+  const reserva: Entity | null = remote.data?.reserva ?? null;
+  const totalDevido = reserva ? Number(reserva.valor_total ?? 0) : totalCobrado;
+  const saldoParaLancar = reserva ? Math.max(Math.round((totalDevido - totalCobrado) * 100) / 100, 0) : 0;
+  const cancelada = reserva?.status === "CANCELADA";
+  const podeLancar = podeCriar && !cancelada && saldoParaLancar > 0;
+
+  const menu = (row: Entity) =>
+    podeVer || podeBaixar || podeExcluir ? (
+      <Acoes label={`Ações da transação ${row.id}`}>
+        {podeVer ? (
+          <DropdownMenuItem onSelect={() => setAberta(Number(row.id))}>
+            {podeEditar ? <Pencil className="mr-2 size-4" /> : <Eye className="mr-2 size-4" />}
+            {podeEditar ? "Editar transação" : "Visualizar transação"}
+          </DropdownMenuItem>
+        ) : null}
+        {row.pendente && podeBaixar ? (
+          <DropdownMenuItem onSelect={() => void darBaixa(row)}>
+            <CheckCircle2 className="mr-2 size-4 text-emerald-600 dark:text-emerald-400" />
+            Dar baixa
+          </DropdownMenuItem>
+        ) : null}
+        {podeExcluir ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+              onSelect={() => setExcluindo(row)}
+            >
+              <Trash2 className="mr-2 size-4" />
+              Excluir
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </Acoes>
+    ) : null;
+
+  const botaoReceber = (row: Entity) =>
+    row.pendente && podeBaixar ? (
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={abrindo === Number(row.id)}
+        className="h-8 gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 hover:text-emerald-800 dark:text-emerald-300"
+        onClick={() => void darBaixa(row)}
+      >
+        {abrindo === Number(row.id) ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
+        Receber
+      </Button>
+    ) : null;
+
+  if (remote.error && !remote.data) return <RemoteState error={remote.error} retry={remote.reload} />;
 
   return (
-    <div className="space-y-6">
-      {/* Barra de Filtros e Ações Financeiras */}
-      <div className="flex flex-wrap items-end justify-between gap-3 bg-muted/20 p-4 rounded-xl border border-border/60">
-        <div className="flex flex-wrap items-end gap-3">
-          <Field label="Data inicial">
-            <Input
-              type="date"
-              value={inicio}
-              onChange={(event) => setInicio(event.target.value)}
-              className="h-10 sm:h-9 text-xs sm:text-sm bg-background"
-            />
-          </Field>
-          <Field label="Data final">
-            <Input
-              type="date"
-              value={fim}
-              onChange={(event) => setFim(event.target.value)}
-              className="h-10 sm:h-9 text-xs sm:text-sm bg-background"
-            />
-          </Field>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={remote.reload}
-            disabled={loading}
-            className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Atualizar</span>
-          </Button>
-        </div>
+    <div className="space-y-4" aria-busy={loading}>
+      <ProgressoRecebimento total={totalDevido} recebido={totalRecebido} loading={loading} />
 
-        <div className="flex flex-wrap items-center gap-2">
-          {can("financeiro:criar") || can(permission) ? (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setAction({ tipo: "DESPESA" })}
-                className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation text-destructive hover:bg-destructive/10"
-              >
-                <ArrowDownLeft className="h-3.5 w-3.5" />
-                <span>Registrar despesa</span>
-              </Button>
-              {context.proprietario_id || context.imovel_id ? (
-                <Button
-                  size="sm"
-                  onClick={() => setAction({ tipo: "REPASSE" })}
-                  className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
-                >
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                  <span>Registrar repasse</span>
-                </Button>
-              ) : null}
-            </>
-          ) : null}
-          {can("financeiro:notas_fiscais") ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setInvoice(true)}
-              className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer touch-manipulation"
-            >
-              <FileText className="h-3.5 w-3.5 text-primary" />
-              <span>NFS-e de serviços</span>
-            </Button>
-          ) : null}
+      {naReserva ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <CartaoResumo titulo="Total da reserva" valor={totalDevido} icon={Receipt} scheme="blue" loading={loading} detalhe="Diárias e taxas" />
+          <CartaoResumo titulo="Recebido" valor={totalRecebido} icon={CheckCircle2} scheme="emerald" loading={loading} detalhe="Já pago pelo cliente" />
+          <CartaoResumo titulo="Títulos pendentes" valor={aReceber} icon={Clock3} scheme="amber" loading={loading} detalhe="Lançados a prazo" />
+          <CartaoResumo titulo="Saldo a lançar" valor={saldoParaLancar} icon={Sparkles} scheme="sky" loading={loading} detalhe="Ainda sem transação" />
         </div>
-      </div>
-
-      {remote.error && !remote.data ? (
-        <RemoteState error={remote.error} retry={remote.reload} />
       ) : (
-        <div className="space-y-6" aria-busy={loading}>
-        {/* KPI Cards Financeiros */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {[
-            { key: "recebido", label: "Total Recebido", color: "text-emerald-600 dark:text-emerald-400" },
-            {
-              key: "receita_administradora",
-              label: "Comissão / Adm",
-              color: "text-blue-600 dark:text-blue-400",
-            },
-            { key: "despesas", label: "Despesas e Custos", color: "text-rose-600 dark:text-rose-400" },
-            { key: "repassado", label: "Total Repassado", color: "text-indigo-600 dark:text-indigo-400" },
-            { key: "saldo_repassar", label: "Saldo a Repassar", color: "text-amber-600 dark:text-amber-400" },
-          ].map(({ key, label, color }) => (
-            <div key={key} className="rounded-xl border border-border/60 bg-card p-4 shadow-xs">
-              <p className="text-xs font-medium text-muted-foreground">{label}</p>
-              {loading ? (
-                <Skeleton className="mt-2 h-7 w-28" />
-              ) : (
-                <p className={`mt-2 text-lg font-bold tracking-tight ${color}`}>{money(totals[key])}</p>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Tabela de Cobranças */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-sm sm:text-base text-foreground flex items-center gap-2">
-              <Receipt className="h-4 w-4 text-primary" />
-              Cobranças e Faturas
-            </h3>
-            {loading ? <Skeleton className="h-3 w-20" /> : <span className="text-xs text-muted-foreground">{charges.length} registro(s)</span>}
-          </div>
-          <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/40 border-b border-border/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  <tr>
-                    <th className="p-3.5 sm:px-4">Cobrança</th>
-                    <th className="p-3.5 sm:px-4">Vencimento</th>
-                    <th className="p-3.5 sm:px-4">Valor</th>
-                    <th className="p-3.5 sm:px-4">Pago</th>
-                    <th className="p-3.5 sm:px-4">Situação</th>
-                    <th className="p-3.5 sm:px-4 text-right">
-                      <span className="sr-only">Ações</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40">
-                  {loading ? <SkeletonRows widths={["w-40", "w-20", "w-20", "w-20", "w-16 rounded-full", "w-20 ml-auto"]} /> : charges.map((row: Entity) => (
-                    <tr key={row.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="p-3.5 sm:px-4 font-medium text-foreground">
-                        {row.descricao ?? `Fatura #${row.id}`}
-                      </td>
-                      <td className="p-3.5 sm:px-4 text-muted-foreground">
-                        {dateLabel(row.vencimento ?? row.data_vencimento)}
-                      </td>
-                      <td className="p-3.5 sm:px-4 font-semibold text-foreground">
-                        {money(row.valor ?? row.valor_total)}
-                      </td>
-                      <td className="p-3.5 sm:px-4 text-muted-foreground">{money(row.valor_pago)}</td>
-                      <td className="p-3.5 sm:px-4">
-                        <StatusBadge status={row.status} />
-                      </td>
-                      <td className="p-3.5 sm:px-4 text-right">
-                        {(can("financeiro:editar") || can(permission)) &&
-                        !["PAGO", "CANCELADA", "CANCELADO"].includes(row.status) ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 text-xs gap-1 hover:cursor-pointer touch-manipulation"
-                            onClick={() => setAction({ tipo: "BAIXA", row })}
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                            <span>Receber</span>
-                          </Button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
-                  {!loading && !charges.length ? (
-                    <tr>
-                      <td colSpan={6} className="p-8 text-center text-sm text-muted-foreground">
-                        Nenhuma cobrança registrada neste período.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        {/* Tabela de Movimentações e Extrato */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-sm sm:text-base text-foreground flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-primary" />
-              Movimentações e Extrato da Conta
-            </h3>
-            {loading ? <Skeleton className="h-3 w-24" /> : <span className="text-xs text-muted-foreground">{rows.length} lançamento(s)</span>}
-          </div>
-          <div className="overflow-hidden rounded-xl border border-border/60 bg-card shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/40 border-b border-border/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  <tr>
-                    <th className="p-3.5 sm:px-4">Data</th>
-                    <th className="p-3.5 sm:px-4">Descrição</th>
-                    <th className="p-3.5 sm:px-4">Tipo</th>
-                    <th className="p-3.5 sm:px-4">Valor</th>
-                    <th className="p-3.5 sm:px-4">Situação</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40">
-                  {loading ? <SkeletonRows widths={["w-20", "w-48", "w-16", "w-20", "w-16 rounded-full"]} /> : rows.map((row: Entity, index: number) => (
-                    <tr key={row.id ?? index} className="hover:bg-muted/30 transition-colors">
-                      <td className="p-3.5 sm:px-4 text-muted-foreground">{dateLabel(row.data ?? row.created_at)}</td>
-                      <td className="p-3.5 sm:px-4 font-medium text-foreground">
-                        {row.descricao ?? row.observacoes ?? `Lançamento #${row.id}`}
-                      </td>
-                      <td className="p-3.5 sm:px-4 text-xs font-medium text-muted-foreground">
-                        {titleCase(row.tipo ?? row.natureza ?? row.origem)}
-                      </td>
-                      <td className="p-3.5 sm:px-4 font-bold text-foreground">{money(row.valor)}</td>
-                      <td className="p-3.5 sm:px-4">
-                        <StatusBadge status={row.status ?? (row.pendente ? "PENDENTE" : "PAGO")} />
-                      </td>
-                    </tr>
-                  ))}
-                  {!loading && !rows.length ? (
-                    <tr>
-                      <td colSpan={5} className="p-8 text-center text-sm text-muted-foreground">
-                        Nenhuma movimentação no período selecionado.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <CartaoResumo titulo="Total cobrado" valor={totalCobrado} icon={Receipt} scheme="blue" loading={loading} detalhe="Soma das cobranças" />
+          <CartaoResumo titulo="Recebido" valor={totalRecebido} icon={CheckCircle2} scheme="emerald" loading={loading} detalhe="Já pago pelo cliente" />
+          <CartaoResumo titulo="A receber" valor={aReceber} icon={Clock3} scheme="amber" loading={loading} detalhe="Em aberto" />
         </div>
       )}
 
-      {action ? (
-        <FinancialAction
-          action={action}
-          context={context}
-          onClose={() => setAction(null)}
-          onSaved={() => {
-            setAction(null);
-            remote.reload();
+      <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-primary/10 p-2 text-primary">
+            <WalletCards className="size-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold tracking-tight text-foreground">Cobranças</h3>
+              {loading ? (
+                <Skeleton className="h-5 w-6 rounded-full" />
+              ) : (
+                <Badge variant="secondary" className="rounded-full px-2 py-0.5 text-xs font-semibold">
+                  {charges.length}
+                </Badge>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={remote.reload}
+              className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <RefreshCw className={`size-3 ${loading ? "animate-spin" : ""}`} />
+              Atualizar dados
+            </button>
+          </div>
+        </div>
+        {podeCriar ? (
+          <Button disabled={loading || !podeLancar} className="w-full gap-2 sm:w-auto" onClick={() => setNovo(true)}>
+            <Plus className="size-4" /> Registrar pagamento
+          </Button>
+        ) : null}
+        </div>
+
+        {naReserva && !loading ? (
+          cancelada ? (
+            <div className="flex items-center gap-2 border-b bg-muted px-4 py-2.5 text-xs font-medium text-muted-foreground">
+              <Info className="size-4 shrink-0" />
+              <span>Reserva cancelada: não recebe novos pagamentos.</span>
+            </div>
+          ) : saldoParaLancar <= 0 && totalDevido > 0 ? (
+            <div className="flex items-center gap-2 border-b bg-emerald-500/10 px-4 py-2.5 text-xs font-medium text-emerald-800 dark:text-emerald-300">
+              <CheckCircle2 className="size-4 shrink-0" />
+              <span>Todo o valor da reserva já foi recebido ou está coberto por títulos pendentes.</span>
+            </div>
+          ) : null
+        ) : null}
+
+        {loading ? (
+          <TabelaCarregando />
+        ) : !charges.length ? (
+          <div className="flex flex-col items-center justify-center p-12 text-center">
+            <div className="rounded-full bg-muted p-4 text-muted-foreground">
+              <WalletCards className="size-8" />
+            </div>
+            <h4 className="mt-4 font-semibold">{naReserva ? "Nenhum pagamento lançado" : "Nenhuma cobrança"}</h4>
+            <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+              {naReserva
+                ? "Lance os pagamentos do cliente, à vista ou a prazo, em quantas transações forem até o total da reserva."
+                : "As cobranças do cliente aparecem aqui quando a reserva, a locação ou a venda é registrada."}
+            </p>
+            {podeLancar ? (
+              <Button variant="outline" size="sm" className="mt-4 gap-1.5" onClick={() => setNovo(true)}>
+                <Plus className="size-4" /> Registrar primeiro pagamento
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <div className="hidden sm:block">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-28">Status</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead>Vencimento / Pagamento</TableHead>
+                    <TableHead>Conta e Método</TableHead>
+                    <TableHead className="text-right">Valor</TableHead>
+                    <TableHead className="w-14" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {charges.map((row) => (
+                    <TableRow key={row.id} className="group transition-colors hover:bg-muted/40">
+                      <TableCell>
+                        <Situacao row={row} />
+                      </TableCell>
+                      <TableCell>
+                        <p className="font-medium text-foreground">{row.descricao || `Transação #${row.id}`}</p>
+                        <p className="text-[11px] text-muted-foreground/80">Transação #{row.id} · lançada no financeiro</p>
+                      </TableCell>
+                      <TableCell>
+                        <DataDoTitulo row={row} />
+                      </TableCell>
+                      <TableCell className="max-w-48">
+                        <ContaEMetodo row={row} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <p className="font-semibold tabular-nums text-foreground">{money(row.valor)}</p>
+                        {Number(row.valor_pago ?? 0) > 0 && row.status !== "PAGO" ? (
+                          <p className="text-[11px] tabular-nums text-muted-foreground">Recebido {money(row.valor_pago)}</p>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>{menu(row)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="divide-y sm:hidden">
+              {charges.map((row) => (
+                <div key={row.id} className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Situacao row={row} />
+                        <span className="font-mono text-xs text-muted-foreground">#{row.id}</span>
+                      </div>
+                      <h4 className="text-sm font-semibold leading-snug text-foreground">{row.descricao || `Transação #${row.id}`}</h4>
+                    </div>
+                    {menu(row)}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/30 p-2.5 text-xs">
+                    <div>
+                      <DataDoTitulo row={row} />
+                    </div>
+                    <div className="min-w-0">
+                      <ContaEMetodo row={row} />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border/50 pt-2">
+                    <div>
+                      <span className="text-xs text-muted-foreground">Valor</span>
+                      <p className="text-base font-bold tabular-nums text-foreground">{money(row.valor)}</p>
+                    </div>
+                    {botaoReceber(row)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      {aberta != null ? (
+        <TransactionDialog
+          open
+          setOpen={(open) => {
+            if (!open) setAberta(null);
+          }}
+          selectedTransactionId={aberta}
+          setSelectedTransactionId={(id) => {
+            if (id == null) setAberta(null);
+          }}
+          editable={podeEditar}
+          handleGetTransactions={() => remote.reload()}
+        />
+      ) : null}
+
+      {novo && reserva ? (
+        <TransactionDialog
+          open
+          setOpen={(open) => {
+            if (!open) setNovo(false);
+          }}
+          handleGetTransactions={() => remote.reload()}
+          maximumAmount={saldoParaLancar}
+          initialTransaction={{
+            tipo: Tipo_transacao.RECEITA,
+            reserva_imovel_id: Number(reserva.id),
+            valor: saldoParaLancar,
+            valorLiquido: saldoParaLancar,
+            descricao: `Pagamento da Reserva #${reserva.id}`,
+            data: new Date(),
+            pendente: false,
+            parcelas: 1,
+            // O hóspede é o pagador provável; dá para trocar no diálogo.
+            cliente_id: reserva.cliente_id ?? null,
+            nomepagador: reserva.cliente?.nomerazaosocial ?? undefined,
+            cpfcnpjpagador: reserva.cliente?.cpfcnpj ?? undefined,
           }}
         />
       ) : null}
 
-      {invoice ? (
-        <ServiceInvoiceDialog context={context} onClose={() => setInvoice(false)} onSaved={remote.reload} />
+      <AlertDialog
+        open={Boolean(excluindo)}
+        onOpenChange={(open) => {
+          if (!open && !excluindoBusy) setExcluindo(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir pagamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A transação #{excluindo?.id} ({money(excluindo?.valor)}) será excluída do financeiro. O valor volta ao saldo
+              a lançar da reserva e, se já tinha sido recebido, o extrato do proprietário registra o estorno.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluindoBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={excluindoBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                void excluir();
+              }}
+            >
+              {excluindoBusy ? <Loader2 className="size-4 animate-spin" /> : null}
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {baixa ? (
+        <ConcluidoAlert
+          isAlertOpen
+          setIsAlertOpen={(open) => {
+            if (!open) setBaixa(null);
+          }}
+          transaction={baixa}
+          onSuccess={remote.reload}
+        />
       ) : null}
     </div>
-  );
-}
-
-function FinancialAction({
-  action,
-  context,
-  onClose,
-  onSaved,
-}: {
-  action: { tipo: string; row?: Entity };
-  context: Entity;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [value, setValue] = useState<Entity>({
-    tipo: action.tipo,
-    idempotency_key: crypto.randomUUID(),
-    data: new Date().toLocaleDateString("en-CA"),
-    valor:
-      action.tipo === "BAIXA"
-        ? Math.max(0, Number(action.row?.valor ?? action.row?.valor_total ?? 0) - Number(action.row?.valor_pago ?? 0))
-        : "",
-    metodo_pagamento: "PIX",
-    descricao: "",
-  });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await requestJson(
-        action.tipo === "BAIXA"
-          ? `/api/imobiliario/cobrancas/${action.row?.id}/baixar`
-          : "/api/imobiliario/financeiro",
-        {
-          method: "POST",
-          body: JSON.stringify({ ...context, ...value, valor: Number(value.valor) }),
-        }
-      );
-      toast.success(action.tipo === "BAIXA" ? "Recebimento registrado com sucesso!" : "Movimentação registrada com sucesso!");
-      onSaved();
-    } catch (error) {
-      setError((error as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const update = (key: string, field: unknown) =>
-    setValue((current) => ({ ...current, [key]: field, idempotency_key: crypto.randomUUID() }));
-
-  return (
-    <EntityShell
-      open
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose();
-      }}
-      title={
-        action.tipo === "BAIXA"
-          ? "Registrar recebimento de cobrança"
-          : action.tipo === "REPASSE"
-          ? "Registrar repasse ao proprietário"
-          : "Registrar despesa / custo"
-      }
-      description="O lançamento financeiro será vinculado à conta e ao extrato contábil do imóvel."
-      className="w-[95vw] max-w-xl max-h-[85vh]"
-      footer={
-        <div className="flex items-center justify-end gap-2 w-full">
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={onClose}
-            className="h-10 sm:h-9 text-xs hover:cursor-pointer"
-          >
-            Cancelar
-          </Button>
-          <Button
-            type="submit"
-            form="financial-action"
-            disabled={busy}
-            className="h-10 sm:h-9 text-xs gap-1.5 hover:cursor-pointer"
-          >
-            {busy ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>Registrando…</span>
-              </>
-            ) : (
-              <span>Confirmar lançamento</span>
-            )}
-          </Button>
-        </div>
-      }
-    >
-      <form id="financial-action" onSubmit={submit} className="space-y-4">
-        {context.proprietario_id && !context.imovel_id && action.tipo !== "BAIXA" ? (
-          <Lookup
-            tipo="imoveis"
-            label="Imóvel vinculado ao movimento"
-            value={value.imovel_id}
-            onChange={(id) => update("imovel_id", id)}
-          />
-        ) : null}
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Valor">
-            <ValueInput
-              required
-              placeholder="R$ 0,00"
-              value={value.valor != null && value.valor !== "" ? Number(value.valor) : null}
-              onValueChange={(val) => update("valor", val)}
-              onEmpty={() => update("valor", "")}
-              allowEmpty
-              className="h-11 sm:h-10 text-base sm:text-sm font-semibold"
-            />
-          </Field>
-          <Field label="Data da operação">
-            <Input
-              type="date"
-              required
-              value={value.data}
-              onChange={(event) => update("data", event.target.value)}
-              className="h-11 sm:h-10 text-base sm:text-sm"
-            />
-          </Field>
-          <Lookup
-            tipo="bancos"
-            label="Conta bancária do ERP"
-            value={value.banco_id}
-            required
-            onChange={(id) => update("banco_id", id)}
-          />
-          <SelectField
-            label="Método de pagamento"
-            value={value.metodo_pagamento}
-            options={["PIX", "DINHEIRO", "TRANSFERENCIA", "CARTAO", "BOLETO"]}
-            required
-            onChange={(field) => update("metodo_pagamento", field)}
-          />
-        </div>
-
-        <Field label="Descrição / Justificativa">
-          <Textarea
-            required
-            placeholder="Descreva detalhes ou anote referências deste lançamento..."
-            value={value.descricao}
-            onChange={(event) => update("descricao", event.target.value)}
-            className="text-base sm:text-sm"
-            rows={3}
-          />
-        </Field>
-
-        {error ? (
-          <div
-            role="alert"
-            className="flex items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs sm:text-sm text-destructive"
-          >
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        ) : null}
-      </form>
-    </EntityShell>
   );
 }

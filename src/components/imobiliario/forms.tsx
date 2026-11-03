@@ -26,6 +26,9 @@ import ImovelSelect, { type ImovelItem } from "@/app/(app)/components/imovelSele
 import type { Customer } from "@/app/(app)/(pages)/clientes/types";
 import ValueInput from "@/components/ui/value-input";
 import { ComodidadesField } from "./comodidades-field";
+import { AddressPlaceFields, placeKey } from "./address-fields";
+import { DecimalInput, IntegerInput } from "./numeric-inputs";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import {
   AlertCircle,
   Building2,
@@ -164,6 +167,11 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
           bairro: result.bairro || address.bairro || "",
           cidade: result.cidade || address.cidade || "",
           estado: result.estado || address.estado || "",
+          // Cidade nova: o código IBGE é refeito pelo combobox quando a lista da UF chega.
+          codigo_municipio:
+            result.cidade && placeKey(result.cidade) !== placeKey(String(address.cidade ?? ""))
+              ? null
+              : address.codigo_municipio ?? null,
           ...(result.complemento && !address.complemento ? { complemento: result.complemento } : {}),
         },
       });
@@ -925,46 +933,12 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="bairro" className="text-sm">
-                  Bairro
-                </Label>
-                <Input
-                  id="bairro"
-                  disabled={disabled}
-                  value={address.bairro || ""}
-                  onChange={(e) => set("endereco", { ...address, bairro: e.target.value })}
-                  placeholder="Bairro"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="cidade" className="text-sm">
-                  Cidade
-                </Label>
-                <Input
-                  id="cidade"
-                  disabled={disabled}
-                  value={address.cidade || ""}
-                  onChange={(e) => set("endereco", { ...address, cidade: e.target.value })}
-                  placeholder="Cidade"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="estado" className="text-sm">
-                  Estado (UF)
-                </Label>
-                <Input
-                  id="estado"
-                  disabled={disabled}
-                  maxLength={2}
-                  className="uppercase"
-                  value={address.estado || ""}
-                  onChange={(e) => set("endereco", { ...address, estado: e.target.value.toUpperCase() })}
-                  placeholder="UF"
-                />
-              </div>
+              {/* Estado → cidade (IBGE) → bairro (já cadastrados ou novo); o CEP preenche os três. */}
+              <AddressPlaceFields
+                address={address}
+                disabled={disabled}
+                onChange={(next) => set("endereco", next)}
+              />
             </div>
           </div>
         </div>
@@ -981,66 +955,57 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
               <Label htmlFor="capacidade" className="text-sm">
                 Máx. Hóspedes *
               </Label>
-              <Input
+              <IntegerInput
                 id="capacidade"
-                type="number"
-                min="1"
+                fallback={1}
                 disabled={disabled}
-                value={value.capacidade ?? 1}
-                onChange={(e) => set("capacidade", Number(e.target.value))}
+                value={value.capacidade}
+                onChange={(n) => set("capacidade", n)}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="area" className="text-sm">
                 Área (m²)
               </Label>
-              <Input
+              <DecimalInput
                 id="area"
-                type="number"
-                min="0"
-                step="0.01"
+                placeholder="0,00"
                 disabled={disabled}
-                value={value.area ?? ""}
-                onChange={(e) => set("area", e.target.value === "" ? null : Number(e.target.value))}
+                value={value.area}
+                onChange={(n) => set("area", n)}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="quartos" className="text-sm">
                 Quartos
               </Label>
-              <Input
+              <IntegerInput
                 id="quartos"
-                type="number"
-                min="0"
                 disabled={disabled}
-                value={value.quartos ?? 0}
-                onChange={(e) => set("quartos", Number(e.target.value))}
+                value={value.quartos}
+                onChange={(n) => set("quartos", n)}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="banheiros" className="text-sm">
                 Banheiros
               </Label>
-              <Input
+              <IntegerInput
                 id="banheiros"
-                type="number"
-                min="0"
                 disabled={disabled}
-                value={value.banheiros ?? 0}
-                onChange={(e) => set("banheiros", Number(e.target.value))}
+                value={value.banheiros}
+                onChange={(n) => set("banheiros", n)}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="vagas" className="text-sm">
                 Vagas
               </Label>
-              <Input
+              <IntegerInput
                 id="vagas"
-                type="number"
-                min="0"
                 disabled={disabled}
-                value={value.vagas ?? 0}
-                onChange={(e) => set("vagas", Number(e.target.value))}
+                value={value.vagas}
+                onChange={(n) => set("vagas", n)}
               />
             </div>
           </div>
@@ -1413,6 +1378,24 @@ function calculateNights(inicio?: string | null, fim?: string | null): number | 
   return isNaN(diffDays) ? null : diffDays;
 }
 
+/** "14:00:00" → "14:00". */
+const hhmm = (value: unknown) => (value ? String(value).slice(0, 5) : "");
+
+/** Diz se o horário é o do imóvel ou foi trocado nesta reserva. */
+function defaultHint(own: unknown, property: unknown, fallback: string) {
+  const padrao = hhmm(property) || fallback;
+  if (!hhmm(own) || hhmm(own) === padrao) return `Padrão do imóvel: ${padrao}`;
+  return `Alterado nesta reserva (padrão do imóvel: ${padrao})`;
+}
+
+/** "2026-11-02" → "2026-11-03"; vazio continua vazio. */
+function nextDay(day: string) {
+  if (!day) return undefined;
+  const [year, month, date] = day.split("-").map(Number);
+  const next = new Date(year, month - 1, date + 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+}
+
 function ReservationGeneralFields({
   value,
   onChange,
@@ -1431,6 +1414,9 @@ function ReservationGeneralFields({
   const imovel = value.imovel;
   const cliente = value.cliente;
   const nights = calculateNights(value.inicio, value.fim);
+  // Sem horário próprio, a reserva mostra (e o banco grava) o padrão do imóvel.
+  const checkin = hhmm(value.horario_checkin) || hhmm(imovel?.horario_checkin) || "14:00";
+  const checkout = hhmm(value.horario_checkout) || hhmm(imovel?.horario_checkout) || "12:00";
 
   // Fallback seguro caso imovel_id exista mas os detalhes ainda não tenham sido injetados
   useEffect(() => {
@@ -1776,16 +1762,18 @@ function ReservationGeneralFields({
             <Label htmlFor="res-inicio" className="text-sm">
               Data de Check-in *
             </Label>
-            <Input
+            <DateTimePicker
               id="res-inicio"
-              type="date"
               disabled={disabled}
-              value={dateInput(value.inicio)}
-              onChange={(e) => set("inicio", e.target.value)}
+              date={dateInput(value.inicio)}
+              time={checkin}
+              onDateChange={(day) => set("inicio", day)}
+              onTimeChange={(hora) => set("horario_checkin", hora)}
+              placeholder="Selecione a entrada"
               className="h-10 sm:h-11"
             />
             <p className="text-[11px] text-muted-foreground">
-              Entrada: {imovel?.horario_checkin ? `a partir das ${imovel.horario_checkin}` : "padrão às 14:00"}
+              {defaultHint(value.horario_checkin, imovel?.horario_checkin, "14:00")}
             </p>
           </div>
 
@@ -1793,16 +1781,20 @@ function ReservationGeneralFields({
             <Label htmlFor="res-fim" className="text-sm">
               Data de Check-out *
             </Label>
-            <Input
+            <DateTimePicker
               id="res-fim"
-              type="date"
               disabled={disabled}
-              value={dateInput(value.fim)}
-              onChange={(e) => set("fim", e.target.value)}
+              date={dateInput(value.fim)}
+              time={checkout}
+              onDateChange={(day) => set("fim", day)}
+              onTimeChange={(hora) => set("horario_checkout", hora)}
+              // A saída é no mínimo um dia depois da entrada.
+              min={nextDay(dateInput(value.inicio))}
+              placeholder="Selecione a saída"
               className="h-10 sm:h-11"
             />
             <p className="text-[11px] text-muted-foreground">
-              Saída: {imovel?.horario_checkout ? `até as ${imovel.horario_checkout}` : "padrão às 11:00"}
+              {defaultHint(value.horario_checkout, imovel?.horario_checkout, "12:00")}
             </p>
           </div>
 
@@ -1810,14 +1802,13 @@ function ReservationGeneralFields({
             <Label htmlFor="res-hospedes" className="text-sm">
               Quantidade de Hóspedes *
             </Label>
-            <Input
+            <IntegerInput
               id="res-hospedes"
-              type="number"
-              min="1"
-              max={imovel?.capacidade || undefined}
+              fallback={1}
+              maxDigits={3}
               disabled={disabled}
-              value={value.hospedes ?? 1}
-              onChange={(e) => set("hospedes", Number(e.target.value))}
+              value={value.hospedes}
+              onChange={(n) => set("hospedes", n)}
               className="h-10 sm:h-11"
             />
             <p className="text-[11px] text-muted-foreground">
@@ -2023,49 +2014,83 @@ export type Quote = {
   taxes?: any;
   nightlyBreakdown?: Entity[];
   currency?: string;
+  /** Regras de tarifa que o período quebra (pacote fechado, mínimo/máximo de noites). No ERP, pede confirmação ao salvar. */
+  violacoes?: { codigo: string; mensagem: string }[];
 };
+
+const centavos = (n: number) => Math.round(n * 100) / 100;
+
+/** "3× R$ 300,00 · 2× R$ 450,00": as diárias da cotação agrupadas por valor. */
+function nightlySummary(nights: Entity[]) {
+  const groups = new Map<number, number>();
+  for (const night of nights) groups.set(Number(night.amount), (groups.get(Number(night.amount)) ?? 0) + 1);
+  return [...groups.entries()].map(([amount, count]) => `${count}× ${money(amount)}`).join(" · ");
+}
 
 export function ReservationQuote({
   value,
   onQuote,
+  onAdjust,
 }: {
   value: Entity;
   onQuote: (quote: Quote | null) => void;
+  /** Diárias e limpeza da reserva: nascem da cotação e o operador pode alterar. */
+  onAdjust: (patch: { valor_diarias?: number | null; taxa_limpeza?: number | null }) => void;
 }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  const calculate = async () => {
-    setLoading(true);
-    setError("");
-    onQuote(null);
-    try {
-      const params = new URLSearchParams({
-        inicio: value.inicio,
-        fim: value.fim,
-        hospedes: String(value.hospedes ?? 1),
-      });
-      const result = await requestJson(`/api/imoveis/${value.imovel_id}/cotacao?${params}`);
-      setQuote(result);
-      if (result.available) {
-        onQuote(result);
-      } else {
-        setError("O imóvel não está disponível no período solicitado.");
-      }
-    } catch (error) {
-      setError((error as Error).message);
-      setQuote(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [attempt, setAttempt] = useState(0);
 
   const isFormValid =
     Boolean(value.imovel_id) &&
     Boolean(value.inicio) &&
     Boolean(value.fim) &&
     value.fim > value.inicio;
+
+  /*
+   * Calcula sozinho. O componente é remontado (key) a cada troca de imóvel, datas ou
+   * hóspedes, então cada combinação faz a sua consulta; a espera curta evita uma
+   * consulta por tecla ao digitar os hóspedes, e a resposta de uma combinação já
+   * trocada é descartada.
+   */
+  useEffect(() => {
+    if (!isFormValid) return;
+    let active = true;
+    setLoading(true);
+    setError("");
+    const timer = window.setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          inicio: value.inicio,
+          fim: value.fim,
+          hospedes: String(value.hospedes ?? 1),
+        });
+        // Regras de tarifa voltam como aviso: no ERP dá para passar por cima, com confirmação ao salvar.
+        params.set("regras", "avisar");
+        const result = await requestJson(`/api/imoveis/${value.imovel_id}/cotacao?${params}`);
+        if (!active) return;
+        setQuote(result);
+        if (result.available) {
+          onQuote(result);
+          // Valores padrão do imóvel e das tarifas; daqui em diante, editáveis.
+          onAdjust({ valor_diarias: Number(result.subtotal), taxa_limpeza: Number(result.fees ?? 0) });
+        } else setError("O imóvel não está disponível no período solicitado.");
+      } catch (error) {
+        if (!active) return;
+        setError((error as Error).message);
+        setQuote(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    }, 350);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+    // A combinação já está na key do componente; `attempt` é o "tentar de novo".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
 
   return (
     <div className="rounded-xl border bg-card p-4 sm:p-5 shadow-xs space-y-4">
@@ -2076,28 +2101,27 @@ export function ReservationQuote({
             Cotação da Hospedagem & Disponibilidade
           </p>
           <p className="text-xs text-muted-foreground">
-            Consulte a disponibilidade em tempo real e confirme os valores das diárias antes de salvar.
+            {isFormValid
+              ? "Calculada automaticamente com o imóvel, as datas e os hóspedes informados."
+              : "Escolha o imóvel, a entrada e a saída para calcular as diárias."}
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          disabled={loading || !isFormValid}
-          onClick={calculate}
-          className="h-9 text-xs gap-1.5 hover:cursor-pointer"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Calculando…
-            </>
-          ) : (
-            <>
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
-              Calcular Diárias
-            </>
-          )}
-        </Button>
+        {loading ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            Calculando…
+          </span>
+        ) : error && isFormValid ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setAttempt((n) => n + 1)}
+            className="h-9 text-xs gap-1.5 hover:cursor-pointer"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
+            Tentar de novo
+          </Button>
+        ) : null}
       </div>
 
       {error ? (
@@ -2110,34 +2134,113 @@ export function ReservationQuote({
         </div>
       ) : null}
 
-      {quote ? (
-        <div className="space-y-3 pt-1 border-t border-border/40">
-          <div className="flex items-center gap-2">
-            <Badge
-              variant="outline"
-              className="border-emerald-500/30 text-emerald-700 bg-emerald-500/10 dark:text-emerald-400 text-xs gap-1.5 py-1 px-2.5"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Disponibilidade confirmada no período
-            </Badge>
-          </div>
+      {quote && quote.available ? (
+        <QuoteValues quote={quote} value={value} onAdjust={onAdjust} loading={loading} />
+      ) : null}
+    </div>
+  );
+}
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg bg-muted/30 p-3.5 border border-border/50">
-              <p className="text-xs text-muted-foreground">Total das Diárias</p>
-              <p className="text-base sm:text-lg font-bold text-foreground mt-0.5">{money(quote.subtotal)}</p>
-            </div>
-            <div className="rounded-lg bg-muted/30 p-3.5 border border-border/50">
-              <p className="text-xs text-muted-foreground">Taxas e Serviços</p>
-              <p className="text-base sm:text-lg font-bold text-foreground mt-0.5">
-                {money(Number(quote.total) - Number(quote.subtotal))}
-              </p>
-            </div>
-            <div className="rounded-lg bg-primary/10 p-3.5 border border-primary/20">
-              <p className="text-xs text-primary font-semibold">Valor Total da Reserva</p>
-              <p className="text-lg sm:text-xl font-extrabold text-foreground mt-0.5">{money(quote.total)}</p>
-            </div>
-          </div>
+/** Diária, total das diárias e limpeza: vêm da cotação e podem ser alterados nesta reserva. */
+function QuoteValues({
+  quote,
+  value,
+  onAdjust,
+  loading,
+}: {
+  quote: Quote;
+  value: Entity;
+  onAdjust: (patch: { valor_diarias?: number | null; taxa_limpeza?: number | null }) => void;
+  loading: boolean;
+}) {
+  const nights = quote.nightlyBreakdown ?? [];
+  const noites = nights.length || 1;
+  const diarias = Number(value.valor_diarias ?? quote.subtotal ?? 0);
+  const limpeza = Number(value.taxa_limpeza ?? quote.fees ?? 0);
+  const total = centavos(diarias + limpeza);
+  const cotado = { diarias: Number(quote.subtotal ?? 0), limpeza: Number(quote.fees ?? 0) };
+  const alterado = centavos(diarias) !== centavos(cotado.diarias) || centavos(limpeza) !== centavos(cotado.limpeza);
+  const violacoes = quote.violacoes ?? [];
+
+  return (
+    <div className={cn("space-y-3 pt-1 border-t border-border/40 transition-opacity", loading && "opacity-50")}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge
+          variant="outline"
+          className="border-emerald-500/30 text-emerald-700 bg-emerald-500/10 dark:text-emerald-400 text-xs gap-1.5 py-1 px-2.5"
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          Disponível no período
+        </Badge>
+        <span className="text-xs text-muted-foreground">
+          {noites} {noites === 1 ? "noite" : "noites"} · tarifa: {nightlySummary(nights)}
+        </span>
+      </div>
+
+      {violacoes.length ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300 space-y-1.5" role="status">
+          <p className="flex items-center gap-1.5 font-semibold">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+            Regras de tarifa não atendidas
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            {violacoes.map((violacao) => (
+              <li key={violacao.codigo + violacao.mensagem}>{violacao.mensagem}</li>
+            ))}
+          </ul>
+          <p className="text-amber-700/90 dark:text-amber-300/80">Você pode prosseguir: ao salvar, será pedida confirmação.</p>
+        </div>
+      ) : null}
+
+      <div className="grid gap-3 sm:grid-cols-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="res-diaria" className="text-xs text-muted-foreground">Diária (por noite)</Label>
+          <ValueInput
+            id="res-diaria"
+            value={centavos(diarias / noites)}
+            onValueChange={(diaria) => onAdjust({ valor_diarias: centavos(diaria * noites) })}
+            className="h-10"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="res-diarias" className="text-xs text-muted-foreground">Total das diárias</Label>
+          <ValueInput
+            id="res-diarias"
+            value={diarias}
+            onValueChange={(valor) => onAdjust({ valor_diarias: valor })}
+            className="h-10"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="res-limpeza" className="text-xs text-muted-foreground">Taxa de limpeza</Label>
+          <ValueInput
+            id="res-limpeza"
+            value={limpeza}
+            onValueChange={(valor) => onAdjust({ taxa_limpeza: valor })}
+            className="h-10"
+          />
+        </div>
+        <div className="rounded-lg bg-primary/10 px-3 py-2 border border-primary/20 flex flex-col justify-center">
+          <p className="text-xs text-primary font-semibold">Valor total da reserva</p>
+          <p className="text-lg font-extrabold text-foreground tabular-nums">{money(total)}</p>
+        </div>
+      </div>
+
+      {alterado ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>
+            Valores alterados nesta reserva. Pela tarifa: diárias {money(cotado.diarias)} + limpeza {money(cotado.limpeza)} ={" "}
+            {money(cotado.diarias + cotado.limpeza)}.
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => onAdjust({ valor_diarias: cotado.diarias, taxa_limpeza: cotado.limpeza })}
+          >
+            Restaurar valores da tarifa
+          </Button>
         </div>
       ) : null}
     </div>
