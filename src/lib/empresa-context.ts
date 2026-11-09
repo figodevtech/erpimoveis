@@ -8,7 +8,7 @@ export async function requireEmpresaId() {
     .limit(2);
   if (empresasError) throw empresasError;
 
-  if (!empresas?.length) throw httpError("Nenhuma empresa cadastrada nesta instalação.", 409);
+  if (!empresas?.length) throw httpError("Nenhuma empresa cadastrada nesta instalação. Cadastre os dados em Configurações → Empresa.", 409);
   if (empresas.length > 1) {
     throw httpError("Esta instalação possui mais de uma empresa. O marketplace exige uma empresa única por banco de dados.", 409);
   }

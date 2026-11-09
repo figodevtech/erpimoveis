@@ -370,13 +370,13 @@ export async function siteApi(request: Request, path: string[]) {
     }
     if (path[1] === "dashboard" && method === "GET") {
       const current = hojeImobiliario();
-      let reservationsQuery = db.from("reserva_imovel").select("id,imovel_id,inicio,fim,hospedes,status,valor_total,financeiro_status").eq("proprietario_id", ownerId);
+      let reservationsQuery = db.from("reserva_imovel").select("id,imovel_id,inicio,fim,hospedes,status,valor_total,financeiro_status,created_at").eq("proprietario_id", ownerId);
       if (selectedId) reservationsQuery = reservationsQuery.eq("imovel_id", selectedId);
       const periodStart = url.searchParams.get("inicio"), periodEnd = url.searchParams.get("fim");
       if (periodStart) reservationsQuery = reservationsQuery.gt("fim", civilDate.parse(periodStart));
       if (periodEnd) reservationsQuery = reservationsQuery.lte("inicio", civilDate.parse(periodEnd));
       const [reservations, occupations] = await Promise.all([
-        reservationsQuery.order("inicio", { ascending: false }).limit(100),
+        reservationsQuery.order("inicio", { ascending: false }).limit(300),
         selectedProperties.length ? db.from("imovel_ocupacao").select("id,imovel_id,tipo,inicio,fim,motivo").in("imovel_id", selectedProperties.map((p) => p.id)).eq("ativo", true).or(`fim.is.null,fim.gt.${current}`).limit(1000) : Promise.resolve({ data: [], error: null }),
       ]);
       if (reservations.error) throw reservations.error;
@@ -384,7 +384,12 @@ export async function siteApi(request: Request, path: string[]) {
       const occupied = selectedProperties.filter((p) => !["DISPONIVEL", "EM_NEGOCIACAO"].includes(p.situacao_operacional)).length;
       const enrichedReservations = await enrich(reservations.data);
       return json({ occupancy: selectedProperties.length ? Math.round(occupied / selectedProperties.length * 100) : 0, revenue: report.totais.recebido, expenses: report.totais.despesas + report.totais.receita_administradora, payout: report.totais.saldo_repassar,
-        reservations: enrichedReservations.map((reservation) => ({ id: String(reservation.id), flat: reservation.imovel?.titulo ?? "Imóvel", period: `${reservation.inicio} a ${reservation.fim}`, amount: Number(reservation.valor_total), status: publicBooking(reservation).status })),
+        // Campos novos (flatId, checkin...) são aditivos: o site antigo continua lendo period/flat.
+        reservations: enrichedReservations.map((reservation) => {
+          const booking = publicBooking(reservation);
+          return { id: String(reservation.id), flat: reservation.imovel?.titulo ?? "Imóvel", period: `${reservation.inicio} a ${reservation.fim}`, amount: Number(reservation.valor_total), status: booking.status,
+            flatId: String(reservation.imovel_id), checkin: reservation.inicio, checkout: reservation.fim, guests: Number(reservation.hospedes ?? 0), paymentStatus: booking.paymentStatus, createdAt: reservation.created_at ?? null };
+        }),
         maintenance: occupations.data.filter((o) => ["MANUTENCAO", "BLOQUEIO"].includes(o.tipo)).map((occupation) => ({ title: occupation.motivo ?? "Bloqueio do imóvel", status: occupation.tipo === "MANUTENCAO" ? "Manutenção" : "Bloqueio", amount: null })), ocupacoes: occupations.data, totais: report.totais, imoveis: await publicFlats(selectedProperties) });
     }
   }

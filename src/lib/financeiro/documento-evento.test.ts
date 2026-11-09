@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { despesaDeVendaLancavel, eventoManualDoOperador, modalidadeDeCriacaoVenda } from "./documento-evento";
+import { despesaDeReservaLancavel, despesaDeVendaLancavel, eventoManualDoOperador, modalidadeDeCriacaoVenda } from "./documento-evento";
 import { analisarExclusaoEventoFinanceiro } from "@/lib/ordens/exclusao-evento-financeiro";
 import { capacidadesDoEvento, montarLinhas } from "@/components/financeiro/eventos-financeiros/modelo";
 import { endpointsDeOrdem, endpointsDeVenda, endpointsDoFinanceiro } from "@/components/financeiro/eventos-financeiros/endpoints";
@@ -107,4 +107,20 @@ test("OS mantém override de comissão, bloqueio de cancelamento e endpoints pr�
   assert.deepEqual(endpointsDoFinanceiro().criar({ tipo: "ORDEM_SERVICO", id: 9 }).corpoExtra, { ordemServicoId: 9 });
   assert.deepEqual(endpointsDeVenda().criar({ tipo: "VENDA", id: 10 }), { url: "/api/venda/10/eventos-financeiros", corpoExtra: { modalidade: "AVULSO" } });
   assert.deepEqual(endpointsDeVenda().criarDespesaVenda!(10).corpoExtra, { modalidade: "DESPESA_FRETE" });
+});
+
+test("custo de reserva vai ao caixa pelo lançamento de eventos; o resto da reserva não", () => {
+  const custo = {
+    source_type: "RESERVA", source_id: 7, origem: "DESPESA_RESERVA", natureza: "DESPESA",
+    is_manual: true, pode_gerar_transacao: true,
+  };
+  assert.equal(despesaDeReservaLancavel(custo), true);
+  // Taxa de administração é automática e não gera transação: o dinheiro já entrou.
+  assert.equal(despesaDeReservaLancavel({ ...custo, source_type: "IMOVEL_TAXA", origem: "ADMINISTRACAO_IMOBILIARIA" }), false);
+  assert.equal(despesaDeReservaLancavel({ ...custo, natureza: "RECEITA" }), false);
+  assert.equal(despesaDeReservaLancavel({ ...custo, is_manual: false }), false);
+  assert.equal(despesaDeReservaLancavel({ ...custo, pode_gerar_transacao: false }), false);
+  assert.equal(despesaDeReservaLancavel({ ...custo, source_id: null }), false);
+  // Custo de reserva não passa pela regra da venda, e vice-versa.
+  assert.equal(despesaDeVendaLancavel({ ...custo, chave_origem: "MANUAL:x" }), false);
 });

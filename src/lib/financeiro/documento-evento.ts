@@ -30,6 +30,15 @@ export function eventoEditavelDaVenda(evento: {
   return eventoManualDoOperador(evento) || (evento.origem === "PRODUTO" && evento.natureza === "RECEITA");
 }
 
+/** Custo da imobiliária lançado na reserva: vai ao caixa pelo lançamento de eventos, como na OS. */
+export function despesaDeReservaLancavel(evento: {
+  source_type?: string | null; source_id?: number | null; origem: string;
+  natureza: string; is_manual?: boolean | null; pode_gerar_transacao?: boolean;
+}) {
+  return evento.source_type === "RESERVA" && evento.source_id != null && evento.origem === "DESPESA_RESERVA"
+    && evento.natureza === "DESPESA" && evento.is_manual === true && evento.pode_gerar_transacao === true;
+}
+
 export function despesaDeVendaLancavel(evento: {
   source_type?: string | null; source_id?: number | null; origem: string;
   natureza: string; is_manual?: boolean | null; chave_origem?: string | null;

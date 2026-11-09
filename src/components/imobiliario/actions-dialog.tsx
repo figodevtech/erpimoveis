@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import {
   EntityShell,
   Field,
@@ -37,6 +38,7 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
+  Clock,
   FileText,
   Loader2,
   LogOut,
@@ -79,6 +81,15 @@ export function OperationAction({
     fim: new Date().toLocaleDateString("en-CA"),
     competencia_inicio: "",
     competencia_fim: "",
+  });
+  // Momento da entrada/saída: começa no agora e pode voltar no tempo, para registrar depois
+  // uma entrada que já aconteceu. O banco lê no fuso do imobiliário e recusa o futuro.
+  const [momento, setMomento] = useState(() => {
+    const agora = new Date();
+    return {
+      data: agora.toLocaleDateString("en-CA"),
+      hora: `${String(agora.getHours()).padStart(2, "0")}:${String(agora.getMinutes()).padStart(2, "0")}`,
+    };
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -178,6 +189,10 @@ export function OperationAction({
       setError("Revise o resumo das decisões e confirme a conclusão da venda.");
       return;
     }
+    if ((isReservaCheckin || isReservaCheckout) && (!momento.data || !momento.hora)) {
+      setError(`Informe a data e a hora do ${isReservaCheckin ? "check-in" : "check-out"}.`);
+      return;
+    }
 
     setBusy(true);
     setError("");
@@ -193,6 +208,7 @@ export function OperationAction({
           acao: action,
           ...data,
           ...(concluding ? { operacoes, decisoes: operacoes } : {}),
+          ...(isReservaCheckin || isReservaCheckout ? { data_registro: momento.data, hora_registro: momento.hora } : {}),
           tratamento_financeiro: data.tratamento_recebidos || undefined,
         }),
       });
@@ -409,7 +425,44 @@ export function OperationAction({
               </p>
             </div>
           </div>
-        ) : destructive ? (
+        ) : null}
+
+        {/* ========================================================================= */}
+        {/* DATA E HORA DO CHECK-IN / CHECK-OUT                                       */}
+        {/* ========================================================================= */}
+        {isReservaCheckin || isReservaCheckout ? (
+          <div className="rounded-xl border border-border/70 bg-card p-3.5 sm:p-4 space-y-2.5 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-primary shrink-0" />
+              <p className="text-sm font-semibold text-foreground">
+                {isReservaCheckin ? "Data e hora da entrada *" : "Data e hora da saída *"}
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Já vem com o momento atual. Ajuste para registrar uma {isReservaCheckin ? "entrada" : "saída"} que já aconteceu.
+            </p>
+            <DateTimePicker
+              id="momento-registro"
+              date={momento.data}
+              time={momento.hora}
+              onDateChange={(dia) => setMomento((atual) => ({ ...atual, data: dia }))}
+              onTimeChange={(hora) => setMomento((atual) => ({ ...atual, hora }))}
+              // Registra-se o que já aconteceu; a saída não vem antes da entrada.
+              max={new Date().toLocaleDateString("en-CA")}
+              min={isReservaCheckout && item.checkin_em ? new Date(item.checkin_em).toLocaleDateString("en-CA") : undefined}
+              placeholder="Selecione a data e a hora"
+              className="h-11 sm:h-10 w-full"
+            />
+            {isReservaCheckout && item.checkin_em ? (
+              <p className="text-[11px] text-muted-foreground">
+                Check-in registrado em{" "}
+                {new Date(item.checkin_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {destructive && !isReservaCancel ? (
           <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 sm:p-4 text-xs sm:text-sm text-destructive">
             <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5 text-destructive" />
             <div className="space-y-1">

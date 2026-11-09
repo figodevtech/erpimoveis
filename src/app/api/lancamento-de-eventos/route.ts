@@ -1,4 +1,4 @@
-import { despesaDeVendaLancavel } from "@/lib/financeiro/documento-evento";
+import { despesaDeReservaLancavel, despesaDeVendaLancavel } from "@/lib/financeiro/documento-evento";
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -105,11 +105,11 @@ export async function POST(req: NextRequest) {
       await requireVendasAccess();
       await requireFinanceirosAccess();
     }
-    /** Aceita despesas de OS, comissões e despesas manuais de vendas. */
+    /** Aceita despesas de OS, comissões e despesas manuais de vendas e custos de reserva. */
     const foraDaOs = (evento: any) =>
       ordemServicoInformada
         ? Number(evento.ordemservicoid) !== ordemServicoId
-        : evento.ordemservicoid == null && !despesaDeVendaLancavel(evento);
+        : evento.ordemservicoid == null && !despesaDeVendaLancavel(evento) && !despesaDeReservaLancavel(evento);
 
     const problema = (eventos ?? []).find((evento: any) => {
       if (foraDaOs(evento)) return true;
@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
         foraDaOs(problema)
           ? ordemServicoInformada
             ? "não pertence a esta OS"
-            : "não pertence a uma OS, comissão ou despesa manual de venda"
+            : "não pertence a uma OS, comissão, despesa manual de venda ou custo de reserva"
           : String(problema.natureza) !== "DESPESA"
             ? "não é uma despesa"
             : problema.pode_gerar_transacao !== true

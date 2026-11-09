@@ -1046,7 +1046,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             <div className="space-y-2">
               <Label htmlFor="diaria" className="text-sm">
-                Diária Padrão
+                Diária Padrão <span className="text-xs text-muted-foreground">(Reservas de Temporada)</span>
               </Label>
               <ValueInput
                 id="diaria"
@@ -1061,7 +1061,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
             </div>
             <div className="space-y-2">
               <Label htmlFor="valor_locacao" className="text-sm">
-                Aluguel Mensal
+                Aluguel Mensal <span className="text-xs text-muted-foreground">(Locação de Longo Prazo)</span>
               </Label>
               <ValueInput
                 id="valor_locacao"
@@ -1076,7 +1076,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
             </div>
             <div className="space-y-2">
               <Label htmlFor="valor_venda" className="text-sm">
-                Valor de Venda
+                Valor de Venda 
               </Label>
               <ValueInput
                 id="valor_venda"
@@ -1089,39 +1089,11 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
                 className="h-10 sm:h-11"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="taxa_limpeza" className="text-sm">
-                Taxa de Limpeza
-              </Label>
-              <ValueInput
-                id="taxa_limpeza"
-                disabled={disabled}
-                allowEmpty
-                value={value.taxa_limpeza != null && value.taxa_limpeza !== "" ? Number(value.taxa_limpeza) : null}
-                onValueChange={(val) => set("taxa_limpeza", val)}
-                onEmpty={() => set("taxa_limpeza", null)}
-                placeholder="R$ 0,00"
-                className="h-10 sm:h-11"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="caucao" className="text-sm">
-                Caução de Garantia
-              </Label>
-              <ValueInput
-                id="caucao"
-                disabled={disabled}
-                allowEmpty
-                value={value.caucao != null && value.caucao !== "" ? Number(value.caucao) : null}
-                onValueChange={(val) => set("caucao", val)}
-                onEmpty={() => set("caucao", null)}
-                placeholder="R$ 0,00"
-                className="h-10 sm:h-11"
-              />
-            </div>
+            {/* Sem taxa de limpeza fixa nem caução no imóvel: a limpeza é lançada na reserva,
+                como evento financeiro (custo da imobiliária ou despesa do proprietário). */}
             <div className="space-y-2">
               <Label htmlFor="percentual_admin" className="text-sm">
-                Taxa de Administração (%)
+                Taxa de Administração (%) <span className="text-xs text-muted-foreground">(Reservas )</span>
               </Label>
               <Input
                 id="percentual_admin"

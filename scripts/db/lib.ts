@@ -607,13 +607,8 @@ export async function runDatabasePush(
   const temporaryProject = createTemporarySupabaseProject();
   const args = ["db", "push"];
   if (dryRun) args.push("--dry-run");
-  // Sem --include-all a CLI recusa migration cuja versão seja anterior à última
-  // já aplicada no remoto, e para com "Rerun the command with --include-all".
-  // Isso acontece toda vez que uma branch cria migration com timestamp menor que
-  // outra que já subiu — situação normal aqui, porque os três bancos avançam em
-  // ritmos diferentes. Quem decide o que aplicar é o `pending` calculado por
-  // inspectDatabase, e o histórico já foi validado contra `remoteOnly` antes.
-  args.push("--include-all", "--db-url", connectionString, "--yes");
+  // Segue o fluxo documentado: não reaplica versões antigas por --include-all.
+  args.push("--db-url", connectionString, "--skip-vault", "--yes");
 
   try {
     const result = await new Promise<{ code: number; output: string }>(
@@ -643,6 +638,12 @@ export async function runDatabasePush(
       );
     }
   } finally {
-    fs.rmSync(temporaryProject, { recursive: true, force: true });
+    const temporaryRoot = fs.realpathSync(os.tmpdir());
+    const resolvedProject = fs.realpathSync(temporaryProject);
+    if (path.dirname(resolvedProject).toLowerCase() !== temporaryRoot.toLowerCase()
+      || !path.basename(resolvedProject).startsWith("erpimoveis-supabase-")) {
+      throw new Error("Diretório temporário fora do local esperado; limpeza interrompida.");
+    }
+    fs.rmSync(resolvedProject, { recursive: true, force: true });
   }
 }

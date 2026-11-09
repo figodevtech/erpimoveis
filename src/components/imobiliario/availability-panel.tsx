@@ -31,7 +31,16 @@ import {
   Calculator,
   ChevronLeft,
   ChevronRight,
+  ArrowUpRight,
+  CheckCircle2,
+  CircleDashed,
+  Clock3,
   Coins,
+  DoorOpen,
+  Undo2,
+  User,
+  Users,
+  XCircle,
   Loader2,
   Lock,
   Pencil,
@@ -579,9 +588,171 @@ type TariffForm = {
   reserva_exclusiva: boolean;
 };
 
-export function AvailabilityPanel({ item, editable }: { item: Entity; editable: boolean }) {
+/** Situação da reserva ou locação: cor e ícone por estado, legível de relance. */
+const OPERATION_STATUS: Record<string, { label: string; icon: React.ElementType; className: string; pulse?: boolean }> = {
+  CONFIRMADA: { label: "Confirmada", icon: CalendarCheck, className: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300" },
+  EM_ANDAMENTO: { label: "Hospedado", icon: DoorOpen, className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", pulse: true },
+  CONCLUIDA: { label: "Concluída", icon: CheckCircle2, className: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300" },
+  CANCELADA: { label: "Cancelada", icon: XCircle, className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300" },
+  RASCUNHO: { label: "Rascunho", icon: Pencil, className: "border-border bg-muted text-muted-foreground" },
+  ATIVA: { label: "Ativa", icon: CheckCircle2, className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", pulse: true },
+  ENCERRADA: { label: "Encerrada", icon: CheckCircle2, className: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300" },
+};
+
+/** Situação do pagamento da reserva. */
+const PAYMENT_STATUS: Record<string, { label: string; icon: React.ElementType; className: string }> = {
+  PAGO: { label: "Pago", icon: CheckCircle2, className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+  PARCIAL: { label: "Pago em parte", icon: CircleDashed, className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300" },
+  PENDENTE: { label: "A receber", icon: Clock3, className: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300" },
+  ESTORNADO: { label: "Estornado", icon: Undo2, className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300" },
+};
+
+function Pill({
+  config,
+  fallback,
+}: {
+  config?: { label: string; icon: React.ElementType; className: string; pulse?: boolean };
+  fallback: string;
+}) {
+  const Icon = config?.icon ?? Clock3;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        config?.className ?? "border-border bg-muted text-muted-foreground"
+      )}
+    >
+      {config?.pulse ? (
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-60" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
+        </span>
+      ) : (
+        <Icon className="h-3 w-3 shrink-0" />
+      )}
+      {config?.label ?? fallback}
+    </span>
+  );
+}
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "?";
+
+/**
+ * Reserva ou locação do mês: quem está, quanto vale, em que situação, e o atalho para abrir.
+ * Hóspede e valor só chegam para quem pode ver aquele módulo; sem eles, fica o período.
+ */
+function OperationCard({
+  row,
+  kind,
+  onOpen,
+}: {
+  row: Entity;
+  kind: { label: string; dot: string };
+  onOpen?: (kind: "reservas" | "locacoes-imobiliarias", id: number) => void;
+}) {
+  const reserva = Boolean(row.reserva_id);
+  const operacao: Entity | null = (reserva ? row.reserva : row.locacao) ?? null;
+  const id = Number(row.reserva_id ?? row.locacao_id);
+  const pessoa: string | undefined = operacao?.cliente?.nomerazaosocial;
+  const valor = reserva ? operacao?.valor_total : operacao?.valor_mensal;
+  const status = String(operacao?.status ?? "");
+  const pagamento = String(operacao?.financeiro_status ?? "");
+  const abrir = onOpen && operacao ? () => onOpen(reserva ? "reservas" : "locacoes-imobiliarias", id) : undefined;
+  const accent = reserva ? "before:bg-sky-500" : "before:bg-amber-500";
+  const avatar = reserva
+    ? "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
+    : "bg-amber-500/10 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300";
+
+  return (
+    <div
+      className={cn(
+        "group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 pl-5 shadow-xs transition-all duration-200",
+        "before:absolute before:inset-y-0 before:left-0 before:w-1",
+        accent,
+        abrir && "hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md",
+        status === "CANCELADA" && "opacity-75"
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold", avatar)}>
+          {pessoa ? initials(pessoa) : <User className="h-4 w-4" />}
+        </div>
+
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">{pessoa ?? `${kind.label} #${id}`}</p>
+              <p className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
+                <span className="font-mono">
+                  {kind.label} #{id}
+                </span>
+                {reserva && operacao?.hospedes ? (
+                  <span className="inline-flex items-center gap-1">
+                    · <Users className="h-3 w-3" /> {plural(Number(operacao.hospedes), "hóspede", "hóspedes")}
+                  </span>
+                ) : null}
+              </p>
+            </div>
+            {valor != null ? (
+              <div className="shrink-0 text-right">
+                <p className="text-base font-bold leading-tight tabular-nums text-foreground">{money(valor)}</p>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{reserva ? "Total" : "Por mês"}</p>
+              </div>
+            ) : null}
+          </div>
+
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <CalendarRange className="h-3.5 w-3.5 shrink-0" />
+            <span>{periodText(row)}</span>
+          </p>
+        </div>
+      </div>
+
+      {status || pagamento || abrir ? (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/50 pt-3">
+          {status ? <Pill config={OPERATION_STATUS[status]} fallback={status} /> : null}
+          {pagamento ? <Pill config={PAYMENT_STATUS[pagamento]} fallback={pagamento} /> : null}
+          {abrir ? (
+            <button
+              type="button"
+              onClick={abrir}
+              className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-full bg-primary/10 px-3.5 text-xs font-semibold text-primary transition-all duration-200 hover:cursor-pointer hover:bg-primary hover:text-primary-foreground hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97]"
+            >
+              Abrir {reserva ? "reserva" : "locação"}
+              <ArrowUpRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function AvailabilityPanel({
+  item,
+  editable,
+  onOpenOperation,
+  versao = 0,
+}: {
+  item: Entity;
+  editable: boolean;
+  /** Abre o diálogo da reserva ou locação a partir da lista do mês. */
+  onOpenOperation?: (kind: "reservas" | "locacoes-imobiliarias", id: number) => void;
+  /** Muda quando uma operação aberta daqui é salva: recarrega sem perder o mês exibido. */
+  versao?: number;
+}) {
   const { can } = useModulePermission();
   const remote = useRemote(`/api/imoveis/${item.id}/disponibilidade`);
+  const recarregarOcupacao = remote.reload;
+  useEffect(() => {
+    if (versao) recarregarOcupacao();
+  }, [versao, recarregarOcupacao]);
   const rates = useRemote(`/api/imoveis/${item.id}/tarifas`);
   const [month, setMonth] = useState(() => monthStart(todayCivil()));
   const [busy, setBusy] = useState(false);
@@ -770,6 +941,16 @@ export function AvailabilityPanel({ item, editable }: { item: Entity; editable: 
               </p>
               {monthRows.map((row, index) => {
                 const kind = KINDS[kindOf(row)] ?? KINDS.BLOQUEIO;
+                if (!isBlock(row) && (row.reserva_id || row.locacao_id)) {
+                  return (
+                    <OperationCard
+                      key={row.id ?? index}
+                      row={row}
+                      kind={kind}
+                      onOpen={onOpenOperation}
+                    />
+                  );
+                }
                 return (
                   <div key={row.id ?? index} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card p-3.5 shadow-xs">
                     <div className="min-w-0 space-y-1">

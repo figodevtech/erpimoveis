@@ -33,6 +33,7 @@ import {
   RelationshipPanel,
 } from "./detail-panels";
 import { FinancePanel } from "./finance-panel";
+import { ReservationEventsPanel } from "./reservation-events-panel";
 import { MidiaPanel } from "./midia/midia-panel";
 import { AnexosPanel } from "./midia/anexos-panel";
 import { useImovelMidia } from "./midia/use-imovel-midia";
@@ -75,6 +76,7 @@ import {
   Percent,
   Image as ImageIcon,
   Paperclip,
+  Calculator,
 } from "lucide-react";
 
 export type EntityDialogProps = {
@@ -126,6 +128,7 @@ const tabIcons: Record<string, any> = {
   "locacoes-imobiliarias": Key,
   "vendas-imobiliarias": BadgePercent,
   financeiro: WalletCards,
+  "eventos-financeiros": Calculator,
   acesso: ShieldCheck,
   arquivos: FolderArchive,
   midia: ImageIcon,
@@ -165,6 +168,10 @@ export default function EntityDialog({
   const [rulesToConfirm, setRulesToConfirm] = useState<string[] | null>(null);
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const [operation, setOperation] = useState<ModuleKind | null>(null);
+  // Reserva ou locação aberta a partir da aba Disponibilidade do imóvel.
+  const [aberta, setAberta] = useState<{ kind: ModuleKind; id: number } | null>(null);
+  // Salvar a operação aberta recarrega a aba (outro valor, outro status, outro período).
+  const [disponibilidadeVersao, setDisponibilidadeVersao] = useState(0);
   // Fica no diálogo, e não na aba, para as fotos pendentes sobreviverem à troca de aba.
   const midia = useImovelMidia(kind === "imoveis" ? currentId : undefined);
 
@@ -356,6 +363,8 @@ export default function EntityDialog({
     } else {
       tabs.push({ key: "arquivos", label: "Documentos" });
       if (financial) tabs.push({ key: "financeiro", label: "Pagamentos" });
+      // Como na OS: o que a reserva rende e custa à imobiliária, e o que movimenta na conta do proprietário.
+      if (financial && kind === "reservas") tabs.push({ key: "eventos-financeiros", label: "Eventos financeiros" });
     }
   } else if (kind === "imoveis") {
     // Já no cadastro novo dá para escolher as fotos; elas sobem ao salvar.
@@ -676,7 +685,12 @@ export default function EntityDialog({
               >
                 <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
                   {tab === "disponibilidade" && currentId ? (
-                    <AvailabilityPanel item={value} editable={editable} />
+                    <AvailabilityPanel
+                      versao={disponibilidadeVersao}
+                      item={value}
+                      editable={editable}
+                      onOpenOperation={(operacao, operacaoId) => setAberta({ kind: operacao, id: operacaoId })}
+                    />
                   ) : null}
                 </div>
               </TabsContent>
@@ -712,6 +726,17 @@ export default function EntityDialog({
                       context={{ [financeKey]: currentId }}
                       permission={`${permission}:financeiro`}
                     />
+                  ) : null}
+                </div>
+              </TabsContent>
+
+              <TabsContent
+                value="eventos-financeiros"
+                className="h-full min-h-0 overflow-hidden p-0 m-0 focus-visible:outline-none"
+              >
+                <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
+                  {tab === "eventos-financeiros" && currentId && financial && kind === "reservas" ? (
+                    <ReservationEventsPanel reservaId={currentId} />
                   ) : null}
                 </div>
               </TabsContent>
@@ -777,6 +802,19 @@ export default function EntityDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {aberta ? (
+        <EntityDialog
+          key={`${aberta.kind}-${aberta.id}`}
+          kind={aberta.kind}
+          id={aberta.id}
+          open
+          onOpenChange={(open) => {
+            if (!open) setAberta(null);
+          }}
+          onSaved={() => setDisponibilidadeVersao((versao) => versao + 1)}
+        />
+      ) : null}
 
       {operation && currentId ? (
         <EntityDialog

@@ -26,6 +26,7 @@ export function imobFailure(error: unknown) {
   if (["23503", "23514", "22023", "22P02"].includes(e.code ?? "")) return json({ error: e.code === "23503" ? "O registro está vinculado a outros dados ou a referência informada não existe." : e.message ?? "Dados inválidos." }, 400);
   if (e.code === "P0002") return json({ error: "Registro não encontrado." }, 404);
   if (e.code === "42501") return json({ error: "Você não tem autorização para esta operação." }, 403);
+  if (["40001", "55P03", "40P01"].includes(e.code ?? "")) return json({ error: "O lançamento mudou ou está sendo atualizado. Atualize a lista e tente novamente." }, 409);
   if (e.code === "P0001") return json({ error: e.message ?? "A operação não pode ser realizada." }, 409);
   console.error("[imobiliario]", error);
   return json({ error: "Não foi possível concluir a operação imobiliária." }, 500);

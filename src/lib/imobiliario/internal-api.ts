@@ -8,6 +8,7 @@ import { activeOperations, deleteFile, enrich, filesFor, fileScope, fileUrl, pub
 import { cotacaoPublica, hojeImobiliario } from "./types";
 import bairrosPorMunicipio from "@/data/bairros-por-municipio.json";
 import { financeAccess, financeReport, payCharge, scopeFromUrl, type FinanceScope } from "./finance";
+import { alterarEventoDaReserva, cancelarConsumoDaReserva, criarEventoDaReserva, editarLancamentoDaReserva, estornarLancamentoDaReserva, excluirEventoDaReserva, excluirLancamentoDaReserva, listarEventosDaReserva, registrarConsumoDaReserva } from "./reserva-eventos";
 
 const resources = {
   proprietarios: { table: "proprietario", perm: "proprietarios", schema: proprietarioSchema },
@@ -78,6 +79,32 @@ async function list(resource: Resource, url: URL, extra: Record<string, unknown>
   const { data, count, error } = await query.order(resource === "proprietarios" ? "nomerazaosocial" : resource === "imoveis" ? "titulo" : "created_at", { ascending: ["proprietarios", "imoveis"].includes(resource) }).order("id").range(from, to);
   if (error) throw error;
   return { items: await enrich(data ?? []), total: count ?? 0, page, pageSize };
+}
+
+/**
+ * Hóspede/locatário, valor e situação de cada reserva e locação do calendário do imóvel.
+ * Só para quem pode ver aquele módulo: a ocupação em si (o período) segue visível a todos
+ * que veem o imóvel.
+ */
+async function detalhesDasOcupacoes(rows: Record<string, any>[], permissoes: unknown) {
+  const pode = (permissao: string) => permissionSetHas(permissoes as string[] | undefined, permissao as any);
+  const ids = (key: string) => [...new Set(rows.map((r) => r[key]).filter((v) => v != null).map(Number))];
+  const reservaIds = pode(PERMS.RESERVAS) ? ids("reserva_id") : [];
+  const locacaoIds = pode(PERMS.LOCACOES_IMOBILIARIAS) ? ids("locacao_id") : [];
+  const [reservas, locacoes] = await Promise.all([
+    reservaIds.length
+      ? db.from("reserva_imovel").select("id,status,financeiro_status,valor_total,hospedes,inicio,fim,cliente:cliente_id(id,nomerazaosocial)").in("id", reservaIds)
+      : Promise.resolve({ data: [], error: null }),
+    locacaoIds.length
+      ? db.from("locacao_imovel").select("id,status,valor_mensal,inicio,fim,cliente:cliente_id(id,nomerazaosocial)").in("id", locacaoIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (reservas.error) throw reservas.error;
+  if (locacoes.error) throw locacoes.error;
+  return {
+    reservas: new Map((reservas.data ?? []).map((r: any) => [Number(r.id), r])),
+    locacoes: new Map((locacoes.data ?? []).map((l: any) => [Number(l.id), l])),
+  };
 }
 
 function stripPrivateFinance(items: Record<string, any>[], allowed: boolean) {
@@ -453,7 +480,15 @@ export async function internalResource(request: Request, resource: Resource, pat
       if (url.searchParams.get("fim")) query = query.lt("inicio", civilDate.parse(url.searchParams.get("fim")));
       const result = await query;
       if (result.error) throw result.error;
-      return json({ items: result.data.map((r) => ({ ...r, operacao_id: r.reserva_id ?? r.locacao_id ?? r.id })) });
+      const operacoes = await detalhesDasOcupacoes(result.data, access.permissoes);
+      return json({
+        items: result.data.map((r) => ({
+          ...r,
+          operacao_id: r.reserva_id ?? r.locacao_id ?? r.id,
+          ...(r.reserva_id ? { reserva: operacoes.reservas.get(Number(r.reserva_id)) ?? null } : {}),
+          ...(r.locacao_id ? { locacao: operacoes.locacoes.get(Number(r.locacao_id)) ?? null } : {}),
+        })),
+      });
     }
     if (segment === "tarifas") {
       if (method === "GET") { const r = await db.from("imovel_tarifa").select("*").eq("imovel_id", id).order("inicio"); if (r.error) throw r.error; return json({ items: r.data }); }
@@ -508,6 +543,26 @@ export async function internalResource(request: Request, resource: Resource, pat
       await internal(`${resources[linked].perm}:visualizar`);
       return json(await list(linked, url, { imovel_id: id }));
     }
+  }
+  // Aba "Eventos financeiros" da reserva: custos da imobiliária (DRE) e conta do proprietário.
+  if (id && resource === "reservas" && segment === "eventos") {
+    if (!path[2] && method === "GET") return json(await listarEventosDaReserva(id));
+    if (!path[2] && method === "POST") return json(await criarEventoDaReserva(id, await bodyOf(request)), 201);
+    if (path[2] && !path[3] && method === "PATCH") return json(await alterarEventoDaReserva(id, identifier(path[2]), "EDITAR", await bodyOf(request)));
+    if (path[2] && !path[3] && method === "DELETE") return json(await excluirEventoDaReserva(id, identifier(path[2]), await bodyOf(request)));
+  }
+  if (id && resource === "reservas" && segment === "consumo-estoque" && method === "POST") {
+    if (!path[2]) return json(await registrarConsumoDaReserva(id, await bodyOf(request)), 201);
+    if (path[3] === "cancelar" && !path[4]) return json(await cancelarConsumoDaReserva(id, identifier(path[2]), await bodyOf(request)));
+  }
+  if (id && resource === "reservas" && segment === "lancamentos" && path[3] === "estornar" && method === "POST") {
+    return json(await estornarLancamentoDaReserva(id, identifier(path[2])));
+  }
+  if (id && resource === "reservas" && segment === "lancamentos" && path[2] && !path[3] && method === "PATCH") {
+    return json(await editarLancamentoDaReserva(id, identifier(path[2]), await bodyOf(request)));
+  }
+  if (id && resource === "reservas" && segment === "lancamentos" && path[2] && !path[3] && method === "DELETE") {
+    return json(await excluirLancamentoDaReserva(id, identifier(path[2]), await bodyOf(request)));
   }
   if (id && segment === "acoes" && method === "POST" && !["imoveis", "proprietarios"].includes(resource)) {
     const body = await bodyOf(request); const action = String(body.acao ?? "").toUpperCase();

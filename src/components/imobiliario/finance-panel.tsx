@@ -292,6 +292,9 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
   const saldoParaLancar = reserva ? Math.max(Math.round((totalDevido - totalCobrado) * 100) / 100, 0) : 0;
   const cancelada = reserva?.status === "CANCELADA";
   const podeLancar = podeCriar && !cancelada && saldoParaLancar > 0;
+  // A receita da reserva só é reconhecida no check-out: antes dele, o que o hóspede paga é
+  // pagamento ou adiantamento da estadia.
+  const rotuloPagamento = reserva && reserva.status !== "CONCLUIDA" ? "pagamento/adiantamento" : "pagamento";
 
   const menu = (row: Entity) =>
     podeVer || podeBaixar || podeExcluir ? (
@@ -387,7 +390,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
         </div>
         {podeCriar ? (
           <Button disabled={loading || !podeLancar} className="w-full gap-2 sm:w-auto" onClick={() => setNovo(true)}>
-            <Plus className="size-4" /> Registrar pagamento
+            <Plus className="size-4" /> Registrar {rotuloPagamento}
           </Button>
         ) : null}
         </div>
@@ -421,7 +424,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
             </p>
             {podeLancar ? (
               <Button variant="outline" size="sm" className="mt-4 gap-1.5" onClick={() => setNovo(true)}>
-                <Plus className="size-4" /> Registrar primeiro pagamento
+                <Plus className="size-4" /> Registrar primeiro {rotuloPagamento}
               </Button>
             ) : null}
           </div>
