@@ -25,6 +25,7 @@ import {
   Tipo_transacao,
   TransactionCustomer,
   TransactionFornecedor,
+  TransactionProprietario,
 } from "../../types";
 import ValueInput from "./valueInput";
 import {
@@ -38,8 +39,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Calendar } from "@/components/ui/calendar";
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import FornecedorSelect from "@/app/(app)/components/fornecedorSelect";
+import { useModulePermission } from "@/components/imobiliario/shared";
 import { formatCpfCnpj } from "../../utils";
 import axios, { isAxiosError } from "axios";
 import { DOCUMENTO_NAO_INFORMADO } from "@/lib/clientes/consumidor-final";
@@ -113,6 +116,9 @@ import {
   type ContextoConciliacaoOfx,
 } from "./conciliacao-ofx";
 import { erroDeBancoNoLancamento } from "@/lib/financeiro/banco-lancamento";
+
+// Sob demanda: o seletor traz o cadastro do imobiliário, que o fluxo de caixa só usa aqui.
+const ProprietarioSelect = dynamic(() => import("@/app/(app)/components/proprietarioSelect"), { ssr: false });
 
 interface ParcelaFormulario {
   id: number;
@@ -209,6 +215,8 @@ interface RegisterContentProps {
   lockValue?: boolean;
   maximumAmount?: number;
   conciliacaoOfx?: ContextoConciliacaoOfx;
+  /** Abre com este proprietário como pagador/recebedor (ex.: o repasse a ele). */
+  initialProprietario?: TransactionProprietario;
 }
 
 export default function RegisterContent({
@@ -229,10 +237,16 @@ export default function RegisterContent({
   lockValue = false,
   maximumAmount,
   conciliacaoOfx,
+  initialProprietario,
 }: RegisterContentProps) {
   const conciliandoOfx = Boolean(conciliacaoOfx);
+  const { can } = useModulePermission();
   const [isCustomerSelectOpen, setIsCustomerSelectOpen] = useState(false);
   const [isFornecedorSelectOpen, setIsFornecedorSelectOpen] = useState(false);
+  const [isProprietarioSelectOpen, setIsProprietarioSelectOpen] = useState(false);
+  // Proprietário, cliente e fornecedor são exclusivos: os três preenchem nomepagador/cpfcnpjpagador.
+  // O proprietário não tem coluna própria na transação; fica só no nome e no documento.
+  const [selectedProprietario, setSelectedProprietario] = useState<TransactionProprietario | undefined>(initialProprietario);
   const [selectedFornecedor, setSelectedFornecedor] = useState<TransactionFornecedor | undefined>(
     () => conciliacaoOfx && newTransaction.fornecedor_id ? {
       id: newTransaction.fornecedor_id,
@@ -598,6 +612,23 @@ export default function RegisterContent({
       documento_valor: null,
       documento_observacao: null,
     }));
+  };
+
+  // Proprietário escolhido (ou recebido ao abrir): nome e documento dele, sem cliente nem fornecedor.
+  useEffect(() => {
+    if (!selectedProprietario) return;
+    setNewTransaction((prev) => ({
+      ...prev,
+      nomepagador: selectedProprietario.nomerazaosocial,
+      cpfcnpjpagador: normalizeCpfOrCnpj(selectedProprietario.cpfcnpj ?? "") || prev.cpfcnpjpagador || "",
+      cliente_id: null,
+      fornecedor_id: null,
+    }));
+  }, [setNewTransaction, selectedProprietario]);
+
+  const limparProprietario = () => {
+    setSelectedProprietario(undefined);
+    setNewTransaction((prev) => ({ ...prev, nomepagador: "", cpfcnpjpagador: "" }));
   };
 
   const limparFornecedor = () => {
@@ -1202,6 +1233,16 @@ export default function RegisterContent({
             description="Informe natureza, valor, vencimento e organização contábil do lançamento."
             icon={CircleDollarSign}
           >
+              {doLancamentoImobiliario ? (
+                <div className="mb-4 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50/70 p-3 text-xs text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-300">
+                  <Info className="mt-0.5 size-3.5 shrink-0" />
+                  <p>
+                    O dinheiro sai do caixa, mas é do proprietário: a transação é gravada como recurso de
+                    terceiros e não entra na DRE da imobiliária. No repasse, a dívida com o proprietário
+                    só é quitada quando esta transação for paga; a despesa dele já abateu o saldo no registro.
+                  </p>
+                </div>
+              ) : null}
               {/* dados da transação */}
               <div className="grid gap-x-4 gap-y-5 sm:grid-cols-3">
                 <div className="space-y-2 w-full">
@@ -1218,7 +1259,8 @@ export default function RegisterContent({
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={tipoTravado}>{tipoTravado}</SelectItem>
+                        {/* Repasse e despesa do proprietário: DESPESA é só a direção no caixa (saída). */}
+                        <SelectItem value={tipoTravado}>{doLancamentoImobiliario ? "SAÍDA (fora da DRE)" : tipoTravado}</SelectItem>
                       </SelectContent>
                     </Select>
                   ) : (
@@ -2141,8 +2183,9 @@ export default function RegisterContent({
                     open={isCustomerSelectOpen}
                     setOpen={setIsCustomerSelectOpen}
                     OnSelect={(c) => {
-                      // Escolher cliente descarta o fornecedor (mutuamente exclusivos).
+                      // Escolher cliente descarta o fornecedor e o proprietário (mutuamente exclusivos).
                       setSelectedFornecedor(undefined);
+                      setSelectedProprietario(undefined);
                       setNewTransaction((prev) => ({ ...prev, fornecedor_id: null }));
                       setSelectedCustomer({
                         cpfcnpj: c.cpfcnpj,
@@ -2155,8 +2198,9 @@ export default function RegisterContent({
                     open={isFornecedorSelectOpen}
                     setOpen={setIsFornecedorSelectOpen}
                     OnSelect={(f) => {
-                      // Escolher fornecedor descarta o cliente (mutuamente exclusivos).
+                      // Escolher fornecedor descarta o cliente e o proprietário (mutuamente exclusivos).
                       setSelectedCustomer(undefined);
+                      setSelectedProprietario(undefined);
                       setSelectedFornecedor({
                         id: f.id,
                         nomerazaosocial: f.nomerazaosocial,
@@ -2165,6 +2209,18 @@ export default function RegisterContent({
                       });
                     }}
                   />
+                  {isProprietarioSelectOpen ? (
+                    <ProprietarioSelect
+                      open={isProprietarioSelectOpen}
+                      setOpen={setIsProprietarioSelectOpen}
+                      OnSelect={(p) => {
+                        setSelectedCustomer(undefined);
+                        setSelectedFornecedor(undefined);
+                        setSelectedProprietario({ id: p.id, nomerazaosocial: p.nomerazaosocial, cpfcnpj: p.cpfcnpj });
+                        setIsProprietarioSelectOpen(false);
+                      }}
+                    />
+                  ) : null}
 
                   {selectedCustomer ? (
                     <Button
@@ -2194,6 +2250,16 @@ export default function RegisterContent({
                     >
                       Remover Fornecedor
                     </Button>
+                  ) : selectedProprietario ? (
+                    <Button
+                      disabled={pagoPeloMesmo}
+                      onClick={limparProprietario}
+                      className="h-11 rounded-none hover:cursor-pointer sm:h-9"
+                      variant={"ghost"}
+                      size={"sm"}
+                    >
+                      Remover Proprietário
+                    </Button>
                   ) : (
                     <>
                       <Button
@@ -2214,6 +2280,17 @@ export default function RegisterContent({
                       >
                         Selecionar Fornecedor
                       </Button>
+                      {can("proprietarios:visualizar") ? (
+                        <Button
+                          disabled={pagoPeloMesmo}
+                          onClick={() => setIsProprietarioSelectOpen(true)}
+                          className="h-11 rounded-none hover:cursor-pointer sm:h-9"
+                          variant={"outline"}
+                          size={"sm"}
+                        >
+                          Selecionar Proprietário
+                        </Button>
+                      ) : null}
                     </>
                   )}
                 </div>
@@ -2224,7 +2301,7 @@ export default function RegisterContent({
                     Nome do pagador/recebedor {!conciliacaoOfx && <span className="text-red-500">*</span>}
                   </Label>
                   <Input
-                    disabled={Boolean(selectedCustomer) || Boolean(selectedFornecedor)}
+                    disabled={Boolean(selectedCustomer) || Boolean(selectedFornecedor) || Boolean(selectedProprietario)}
                     id="nomepagador"
                     value={newTransaction.nomepagador || ""}
                     onChange={(e) =>
@@ -2239,7 +2316,8 @@ export default function RegisterContent({
                     CPF/CNPJ do pagador/recebedor {!conciliacaoOfx && <span className="text-red-500">*</span>}
                   </Label>
                   <Input
-                    disabled={Boolean(selectedCustomer) || Boolean(selectedFornecedor)}
+                    // Proprietário sem documento no cadastro: o campo fica livre para completar.
+                    disabled={Boolean(selectedCustomer) || Boolean(selectedFornecedor) || Boolean(selectedProprietario?.cpfcnpj)}
                     id="cpfcnpjpagador"
                     inputMode="text"
                     maxLength={18}

@@ -712,7 +712,7 @@ export async function internalShared(request: Request, path: string[]) {
       if (!actual.imovel_id) throw new ImobError(400, "Selecione o imóvel para vincular o movimento.");
       if (!actual.proprietario_id) actual.proprietario_id = (await one("imovel", actual.imovel_id)).proprietario_id;
       const day = civilDate.parse(body.data ?? hojeImobiliario());
-      // Só contábil: entra no extrato do proprietário; a transação sai depois, pelo diálogo do financeiro.
+      // Só contábil: a despesa entra no extrato na hora; o repasse, quando a transação dele for paga.
       return json({ item: await rpc("imob_registrar_lancamento", { p_payload: { tipo: body.tipo, valor: body.valor, descricao: body.descricao, ...actual, data: day, idempotency_key: body.idempotency_key ?? randomUUID() }, p_actor: access.id }) }, 201);
     }
   }

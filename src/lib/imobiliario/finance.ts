@@ -3,6 +3,7 @@ import { permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { getCurrentUserAccess } from "@/app/api/_authz/perms";
 import { db, identifier, ImobError, one, rpc } from "./server";
 import { civilDate } from "./schemas";
+import { consolidarMovimentos } from "./extrato-consolidado";
 import { hojeImobiliario } from "./types";
 
 const scopes = {
@@ -40,7 +41,56 @@ function scoped(query: any, scope: FinanceScope, transaction = false) {
   return query;
 }
 
-export async function financeReport(scope: FinanceScope, url: URL) {
+/**
+ * Movimentos de lançamentos gravados antes de 20261112120000 não têm reserva_id (o vínculo
+ * fica no lançamento). Sem completar, o portal não os mostra na página da reserva.
+ */
+async function completarReserva(items: Record<string, any>[]) {
+  const ids = [...new Set(items.filter((r) => r.lancamento_id != null && r.reserva_id == null).map((r) => Number(r.lancamento_id)))];
+  const reservaDoLancamento = new Map<number, unknown>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const result = await db.from("imovel_lancamento").select("id,reserva_id").in("id", ids.slice(i, i + 200)).not("reserva_id", "is", null);
+    // Banco sem a coluna reserva_id em imovel_lancamento: segue sem completar.
+    if (result.error) {
+      if (["42703", "PGRST204"].includes(String(result.error.code))) return;
+      throw result.error;
+    }
+    for (const l of result.data ?? []) reservaDoLancamento.set(Number(l.id), l.reserva_id);
+  }
+  for (const r of items) if (r.reserva_id == null && reservaDoLancamento.has(Number(r.lancamento_id))) r.reserva_id = reservaDoLancamento.get(Number(r.lancamento_id));
+}
+
+/**
+ * Repasses registrados que ainda não foram pagos. Desde 20261112120000 eles não estão no razão
+ * (a dívida com o proprietário só é quitada no pagamento); o portal os mostra como "(pendente)",
+ * fora dos totais e do saldo. Uma linha por lançamento, com o que falta pagar dele.
+ */
+async function repassesPendentes(scope: FinanceScope, pagos: Record<string, any>[]) {
+  if (Object.keys(scope).some((k) => !["proprietario_id", "imovel_id", "reserva_id"].includes(k))) return [];
+  let query = db.from("imovel_lancamento").select("id,imovel_id,proprietario_id,reserva_id,valor,data,descricao,imovel:imovel_id(id,titulo)")
+    .eq("natureza", "REPASSE").is("cancelado_em", null).limit(1000);
+  for (const [key, value] of Object.entries(scope)) query = query.eq(key, value);
+  const { data, error } = await query;
+  if (error) {
+    if (["42703", "PGRST204", "42P01", "PGRST205"].includes(String(error.code))) return [];
+    throw error;
+  }
+  const pago = new Map<number, number>();
+  for (const r of pagos) if (r.tipo === "REPASSE" && r.lancamento_id != null) pago.set(Number(r.lancamento_id), (pago.get(Number(r.lancamento_id)) ?? 0) + Math.round(Number(r.valor) * 100));
+  return (data ?? []).flatMap((l: any) => {
+    const falta = Math.round(Number(l.valor) * 100) - (pago.get(Number(l.id)) ?? 0);
+    if (falta <= 0) return [];
+    return [{
+      // Id negativo: não colide com os do razão e serve de chave na tela.
+      id: -Number(l.id), lancamento_id: l.id, tipo: "REPASSE", valor: falta / 100, repasse_pendente: true,
+      imovel_id: l.imovel_id, proprietario_id: l.proprietario_id, reserva_id: l.reserva_id, imovel: l.imovel,
+      descricao: l.descricao, data_movimento: new Date(`${l.data}T12:00:00-03:00`).toISOString(),
+    }];
+  });
+}
+
+/** `consolidar`: uma linha por pagamento/lançamento, como o portal do proprietário mostra. */
+export async function financeReport(scope: FinanceScope, url: URL, opcoes: { consolidar?: boolean } = {}) {
   const inicio = url.searchParams.get("inicio"); const fim = url.searchParams.get("fim");
   if (inicio) civilDate.parse(inicio);
   if (fim) civilDate.parse(fim);
@@ -53,9 +103,13 @@ export async function financeReport(scope: FinanceScope, url: URL) {
     items.push(...data);
     if (data.length < 1000) break;
   }
+  await completarReserva(items);
   const saldoAtual = Math.round(items.reduce((s, r) => s + (r.tipo === "BRUTO_RECEBIDO" ? 1 : -1) * Number(r.valor), 0) * 100) / 100;
-  const filtered = items.filter((r) => (!inicio || Date.parse(r.data_movimento) >= Date.parse(`${inicio}T00:00:00-03:00`)) && (!fim || Date.parse(r.data_movimento) < Date.parse(`${fim}T00:00:00-03:00`) + 86400000));
-  const sum = (tipo: string) => Math.round(filtered.filter((r) => r.tipo === tipo).reduce((s, r) => s + Number(r.valor), 0) * 100) / 100;
+  // Portal: repasses ainda não pagos entram como linhas "(pendente)", fora dos totais e do saldo.
+  const comPendentes = opcoes.consolidar ? [...items, ...(await repassesPendentes(scope, items))] : items;
+  // Consolida antes do filtro de período: o ajuste fica na data do pagamento, não na do ajuste.
+  const filtered = (opcoes.consolidar ? consolidarMovimentos(comPendentes) : items).filter((r) => (!inicio || Date.parse(r.data_movimento) >= Date.parse(`${inicio}T00:00:00-03:00`)) && (!fim || Date.parse(r.data_movimento) < Date.parse(`${fim}T00:00:00-03:00`) + 86400000));
+  const sum = (tipo: string) => Math.round(filtered.filter((r) => r.tipo === tipo && !r.repasse_pendente).reduce((s, r) => s + Number(r.valor), 0) * 100) / 100;
   const recebido = sum("BRUTO_RECEBIDO"), receita_administradora = sum("TAXA_ADMIN"), despesas = sum("DESPESA_PROPRIETARIO"), repassado = sum("REPASSE");
   const tx = await scoped(db.from("transacao").select("id,descricao,valor,valorLiquido,valor_baixado,pendente,data,vencimento_em,pago_em,tipo,created_at,imovel_id,proprietario_id,reserva_imovel_id,locacao_imovel_id,venda_imovel_id,imovel_natureza,imovel_competencia,banco_id,metodopagamento,banco:bancoconta!transacao_banco_id_fkey(id,titulo)").eq("is_deleted", false).not("imovel_id", "is", null).is("baixa_de_transacao_id", null).order("data", { ascending: false }).limit(1000), scope, true);
   if (tx.error) throw tx.error;

@@ -69,6 +69,13 @@ export interface TransactionFornecedor {
   cpfcnpj?: string | null;
 }
 
+/** Proprietário de imóvel como recebedor (repasse) ou pagador; só preenche nome e documento. */
+export interface TransactionProprietario {
+  id: number;
+  nomerazaosocial: string;
+  cpfcnpj?: string | null;
+}
+
 export interface Banco {
   id: number;
   titulo: string;

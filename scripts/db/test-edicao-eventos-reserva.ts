@@ -18,12 +18,21 @@ async function main() {
     await client.query(body);
     // A migration também deve aceitar a reexecução sem alterar novamente a função original.
     await client.query(body);
+    // A edição acima redefine imob_editar_lancamento_reserva: a regra atual (repasse no
+    // pagamento, taxa no check-out) é reaplicada por cima, também duas vezes.
+    const regraAtual = fs.readFileSync(path.join(projectRoot, "supabase/migrations/20261112120000_repasse_no_pagamento_e_taxa_no_checkout.sql"), "utf8")
+      .replace(/^BEGIN;\s*$/gm, "").replace(/^COMMIT;\s*$/gm, "");
+    await client.query(regraAtual);
+    await client.query(regraAtual);
     await client.query(tests.replace(/^BEGIN;\s*$/gm, "").replace(/^ROLLBACK;\s*$/gm, ""));
+    const repasse = fs.readFileSync(path.join(projectRoot, "supabase/tests/repasse_no_pagamento.sql"), "utf8");
+    await client.query(repasse.replace(/^BEGIN;\s*$/gm, "").replace(/^ROLLBACK;\s*$/gm, ""));
     if (testarExclusao) {
       const exclusao = fs.readFileSync(path.join(projectRoot, "supabase/migrations/20261109002607_excluir_lancamentos_reserva.sql"), "utf8")
         .replace(/^BEGIN;\s*$/gm, "").replace(/^COMMIT;\s*$/gm, "");
       await client.query(exclusao);
       await client.query(exclusao);
+      await client.query(regraAtual);
       const cenarios = fs.readFileSync(path.join(projectRoot, "supabase/tests/exclusao_lancamentos_reserva.sql"), "utf8");
       await client.query(cenarios.replace(/^BEGIN;\s*$/gm, "").replace(/^ROLLBACK;\s*$/gm, ""));
     }

@@ -363,14 +363,15 @@ export async function siteApi(request: Request, path: string[]) {
     const selectedId = selected ? identifier(selected) : null;
     const selectedProperties = selectedId ? properties.data.filter((property) => property.id === selectedId) : properties.data;
     // Extrato histórico filtra pelo beneficiário, mesmo se o imóvel já tiver sido transferido.
-    const report = await financeReport({ proprietario_id: ownerId, ...(selectedId ? { imovel_id: selectedId } : {}) }, url);
+    // O proprietário vê uma linha por pagamento: ajustes de taxa e edições já vêm somados.
+    const report = await financeReport({ proprietario_id: ownerId, ...(selectedId ? { imovel_id: selectedId } : {}) }, url, { consolidar: true });
     if (path[1] === "extratos" && method === "GET") {
       const publicReport = { items: report.items, totais: report.totais, periodo: report.periodo };
       return json({ ...publicReport, imoveis: properties.data.map((p) => ({ id: p.id, titulo: p.titulo })) });
     }
     if (path[1] === "dashboard" && method === "GET") {
       const current = hojeImobiliario();
-      let reservationsQuery = db.from("reserva_imovel").select("id,imovel_id,inicio,fim,hospedes,status,valor_total,financeiro_status,created_at").eq("proprietario_id", ownerId);
+      let reservationsQuery = db.from("reserva_imovel").select("id,imovel_id,cliente_id,inicio,fim,hospedes,status,valor_total,financeiro_status,created_at").eq("proprietario_id", ownerId);
       if (selectedId) reservationsQuery = reservationsQuery.eq("imovel_id", selectedId);
       const periodStart = url.searchParams.get("inicio"), periodEnd = url.searchParams.get("fim");
       if (periodStart) reservationsQuery = reservationsQuery.gt("fim", civilDate.parse(periodStart));
@@ -388,7 +389,10 @@ export async function siteApi(request: Request, path: string[]) {
         reservations: enrichedReservations.map((reservation) => {
           const booking = publicBooking(reservation);
           return { id: String(reservation.id), flat: reservation.imovel?.titulo ?? "Imóvel", period: `${reservation.inicio} a ${reservation.fim}`, amount: Number(reservation.valor_total), status: booking.status,
-            flatId: String(reservation.imovel_id), checkin: reservation.inicio, checkout: reservation.fim, guests: Number(reservation.hospedes ?? 0), paymentStatus: booking.paymentStatus, createdAt: reservation.created_at ?? null };
+            flatId: String(reservation.imovel_id), checkin: reservation.inicio, checkout: reservation.fim, guests: Number(reservation.hospedes ?? 0), paymentStatus: booking.paymentStatus, createdAt: reservation.created_at ?? null,
+            // Titular da reserva: só nome, contato e cidade. Documento (CPF/CNPJ) não sai para o proprietário.
+            guest: reservation.cliente ? { name: reservation.cliente.nomerazaosocial ?? null, phone: reservation.cliente.telefone ?? null, email: reservation.cliente.email ?? null,
+              city: reservation.cliente.cidade ?? null, state: reservation.cliente.estado ?? null } : null };
         }),
         maintenance: occupations.data.filter((o) => ["MANUTENCAO", "BLOQUEIO"].includes(o.tipo)).map((occupation) => ({ title: occupation.motivo ?? "Bloqueio do imóvel", status: occupation.tipo === "MANUTENCAO" ? "Manutenção" : "Bloqueio", amount: null })), ocupacoes: occupations.data, totais: report.totais, imoveis: await publicFlats(selectedProperties) });
     }

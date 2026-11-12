@@ -19,6 +19,7 @@ import {
   NewTransaction,
   Tipo_transacao,
   TransactionCustomer,
+  TransactionProprietario,
 } from "../../types";
 import EditContent from "./editContent";
 import RegisterContent from "./registerContent";
@@ -55,6 +56,8 @@ interface TransactionDialogProps {
   lancamentoDeEventos?: ContextoLancamentoDeEventos;
   /** Prepara uma criação OFX no mesmo formulário, sem gravar uma transação avulsa. */
   conciliacaoOfx?: ContextoConciliacaoOfx;
+  /** Abre com este proprietário como pagador/recebedor (ex.: o repasse a ele). */
+  initialProprietario?: TransactionProprietario;
 }
 
 type SementeProps = Pick<
@@ -144,6 +147,7 @@ export default function TransactionDialog({
   lancamentoDeEventos,
   maximumAmount,
   conciliacaoOfx,
+  initialProprietario,
 }: TransactionDialogProps) {
   const semente: SementeProps = {
     osId,
@@ -250,6 +254,7 @@ export default function TransactionDialog({
       lancamentoDeEventos={lancamentoDeEventos}
       maximumAmount={maximumAmount}
       conciliacaoOfx={conciliacaoOfx}
+      initialProprietario={initialProprietario}
     />
   );
 

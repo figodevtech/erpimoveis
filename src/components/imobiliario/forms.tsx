@@ -130,9 +130,12 @@ type Props = {
   onChange: (value: Entity) => void;
   editing?: boolean;
   disabled?: boolean;
+  /** Reserva: abre o cadastro do imóvel ou do cliente vinculado. Sem o callback, o nome é texto puro. */
+  onOpenImovel?: (id: number) => void;
+  onOpenCliente?: (id: number) => void;
 };
 
-export function GeneralFields({ kind, value, onChange, editing, disabled }: Props) {
+export function GeneralFields({ kind, value, onChange, editing, disabled, onOpenImovel, onOpenCliente }: Props) {
   const [cepLoading, setCepLoading] = useState(false);
   const lastSearchedCep = useRef<string>("");
   const numeroInputRef = useRef<HTMLInputElement>(null);
@@ -1120,6 +1123,8 @@ export function GeneralFields({ kind, value, onChange, editing, disabled }: Prop
         onChange={onChange}
         editing={editing}
         disabled={disabled}
+        onOpenImovel={onOpenImovel}
+        onOpenCliente={onOpenCliente}
       />
     );
   }
@@ -1368,15 +1373,34 @@ function nextDay(day: string) {
   return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
 }
 
+/** Nome que abre o cadastro vinculado; segue clicável mesmo com o formulário bloqueado, pois só navega. */
+function LinkedName({ label, title, onOpen }: { label: string; title: string; onOpen?: () => void }) {
+  if (!onOpen) return <>{label}</>;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={title}
+      className="text-left underline-offset-4 transition-colors hover:cursor-pointer hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-sm"
+    >
+      {label}
+    </button>
+  );
+}
+
 function ReservationGeneralFields({
   value,
   onChange,
   disabled,
+  onOpenImovel,
+  onOpenCliente,
 }: {
   value: Entity;
   onChange: (value: Entity) => void;
   editing?: boolean;
   disabled?: boolean;
+  onOpenImovel?: (id: number) => void;
+  onOpenCliente?: (id: number) => void;
 }) {
   const [imovelSelectOpen, setImovelSelectOpen] = useState(false);
   const [customerSelectOpen, setCustomerSelectOpen] = useState(false);
@@ -1501,7 +1525,11 @@ function ReservationGeneralFields({
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h4 className="font-semibold text-sm sm:text-base text-foreground leading-snug">
-                    {imovel?.titulo || `Imóvel #${value.imovel_id}`}
+                    <LinkedName
+                      label={imovel?.titulo || `Imóvel #${value.imovel_id}`}
+                      title="Abrir cadastro do imóvel"
+                      onOpen={value.imovel_id && onOpenImovel ? () => onOpenImovel(Number(value.imovel_id)) : undefined}
+                    />
                   </h4>
                   {imovel?.tipo ? (
                     <Badge variant="secondary" className="text-[11px] font-normal">
@@ -1642,7 +1670,11 @@ function ReservationGeneralFields({
             <div className="flex-1 min-w-0 space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
                 <h4 className="font-semibold text-sm sm:text-base text-foreground leading-snug">
-                  {cliente?.nomerazaosocial || `Cliente #${value.cliente_id}`}
+                  <LinkedName
+                    label={cliente?.nomerazaosocial || `Cliente #${value.cliente_id}`}
+                    title="Abrir cadastro do cliente"
+                    onOpen={value.cliente_id && onOpenCliente ? () => onOpenCliente(Number(value.cliente_id)) : undefined}
+                  />
                 </h4>
                 {cliente?.cpfcnpj ? (
                   <Badge variant="outline" className="font-mono text-[11px] text-muted-foreground">

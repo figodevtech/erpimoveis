@@ -297,7 +297,8 @@ function Vazio({ texto }: { texto: string }) {
  *
  * O pagamento do hóspede não aparece aqui: ele é do proprietário e fica na aba Pagamentos.
  * A taxa de administração não é lançada na lista: ela é o resultado da reserva (o valor menos
- * repasses e despesas do proprietário), mostrado nos cartões. O "Valor da reserva" só entra na
+ * repasses e despesas do proprietário), mostrado nos cartões. "Ajustar taxa", no cartão Receitas,
+ * corrige o valor de um pagamento e, com ele, a DRE e o extrato. O "Valor da reserva" só entra na
  * lista no check-out, quando a hospedagem foi prestada (migration 20261109010000).
  */
 export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
@@ -343,6 +344,9 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
   const reserva: Entity = remote.data?.reserva ?? {};
   const totais: Entity = remote.data?.totais ?? {};
   const eventos: Entity[] = remote.data?.eventos ?? [];
+  // Uma taxa por pagamento do hóspede (ou estorno, no reembolso); só existe depois do pagamento.
+  const taxas: Entity[] = remote.data?.taxas ?? [];
+  const taxaAjustada = taxas.some((evento) => evento.dados_snapshot?.taxa_admin_ajustada === true);
   const lancamentos: Entity[] = remote.data?.lancamentos ?? [];
   const contaDisponivel = remote.data?.contaProprietarioDisponivel !== false;
   const cancelada = reserva.status === "CANCELADA";
@@ -394,7 +398,10 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
 
   const hoje = new Date().toLocaleDateString("en-CA");
   const datas = { inicio: dateInput(reserva.inicio), hoje };
-  const percentual = Number(reserva.percentual_admin ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+  // Com a taxa ajustada, a porcentagem da reserva deixa de valer: mostra a que o valor representa.
+  const percentual = (taxaAjustada && receitaReserva > 0 ? (taxa / receitaReserva) * 100 : Number(reserva.percentual_admin ?? 0))
+    .toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+  const rotuloTaxa = `Taxa de administração (${percentual}%${taxaAjustada ? ", ajustada" : ""})`;
   // O formulário mostra o efeito do lançamento nestes números e sugere o repasse.
   const contexto: ContextoDaReserva = {
     reservaId,
@@ -414,6 +421,9 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
     if (!formulario) return;
     if (!formulario.descricao.trim()) return toast.error("Informe o título do lançamento.");
     if (!(formulario.valor > 0)) return toast.error("Informe um valor maior que zero.");
+    if (formulario.base && centavos(formulario.valor) > centavos(formulario.base.valor)) {
+      return toast.error("A taxa não pode passar do valor pago pelo hóspede.");
+    }
     setSalvando(true);
     try {
       const corpo = {
@@ -429,7 +439,7 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
             method: "POST",
             body: JSON.stringify({ ...corpo, tipo: formulario.tipo, idempotency_key: crypto.randomUUID() }),
           });
-      toast.success(formulario.modo === "editar" ? "Lançamento atualizado." : `${TIPOS[formulario.tipo].titulo} registrado.`, {
+      toast.success(formulario.base ? "Taxa ajustada. O extrato do proprietário já mostra o novo valor." : formulario.modo === "editar" ? "Lançamento atualizado." : `${TIPOS[formulario.tipo].titulo} registrado.`, {
         description: resposta?.aviso ?? undefined,
       });
       setFormulario(null);
@@ -463,6 +473,27 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
     data: dateInput(evento.competencia_em), atualizadoEm: evento.updated_at,
     vinculado: evento.lancamento_id != null || evento.transacaoid != null,
   });
+
+  // A taxa de um pagamento: o operador corrige o valor (ou o percentual) só daquele pagamento.
+  const ajustarTaxa = (evento: Entity) => {
+    const valor = Number(evento.valor ?? 0);
+    const baseValor = Number(evento.valor_base_snapshot ?? 0);
+    const automatico = Number(evento.dados_snapshot?.taxa_admin_valor_automatico ?? valor);
+    setFormulario({
+      modo: "editar", fonte: "EVENTO",
+      tipo: evento.natureza === "DESPESA" ? "ESTORNO_TAXA" : "TAXA_ADMIN",
+      id: Number(evento.id), descricao: evento.descricao ?? "", detalhe: evento.detalhe ?? "",
+      valor, valorOriginal: valor,
+      data: dateInput(evento.competencia_em), atualizadoEm: evento.updated_at,
+      vinculado: false,
+      base: baseValor > 0
+        ? { valor: baseValor, percentual: Number(evento.percentual_snapshot ?? reserva.percentual_admin ?? 0), automatico }
+        : undefined,
+    });
+  };
+  const podeAjustarTaxa = podeRegistrar && !cancelada;
+  const descricaoTaxa = (evento: Entity) =>
+    `${evento.natureza === "DESPESA" ? "Estorno" : "Pagamento"} de ${dateLabel(evento.data_evento)} · ${money(evento.valor_base_snapshot)}`;
 
   const menuDoEvento = (evento: Entity) => {
     if (evento.automatico) return podeRegistrar ? (
@@ -598,8 +629,36 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
           linhas={[
             { rotulo: "Recebido", valor: money(recebido) },
             { rotulo: "A receber", valor: money(aReceber), classe: aReceber > 0 ? "text-amber-700 dark:text-amber-400" : undefined },
-            { rotulo: `Taxa de administração (${percentual}%)`, valor: money(taxa) },
+            { rotulo: rotuloTaxa, valor: money(taxa) },
           ]}
+          rodape={
+            !podeAjustarTaxa || loading ? null : taxas.length === 0 ? (
+              <span className="text-muted-foreground">A taxa é calculada quando o hóspede paga; depois, pode ser ajustada aqui.</span>
+            ) : taxas.length === 1 ? (
+              <Button variant="outline" size="sm" className="h-8 w-full gap-1.5 text-xs" onClick={() => ajustarTaxa(taxas[0])}>
+                <Pencil className="size-3.5" /> Ajustar taxa
+              </Button>
+            ) : (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 w-full gap-1.5 text-xs">
+                    <Pencil className="size-3.5" /> Ajustar taxa <ChevronDown className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-72">
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    Uma taxa por pagamento do hóspede
+                  </DropdownMenuLabel>
+                  {taxas.map((evento) => (
+                    <DropdownMenuItem key={evento.id} onSelect={() => ajustarTaxa(evento)} className="justify-between gap-3">
+                      <span className="truncate text-xs">{descricaoTaxa(evento)}</span>
+                      <span className="shrink-0 text-xs font-medium tabular-nums">{money(evento.valor)}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
+          }
         />
         <Indicador
           icon={ArrowDown}
@@ -632,7 +691,7 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
             </span>
           ) : null}
           linhas={[
-            { rotulo: `Taxa de administração (${percentual}%)`, valor: money(taxa) },
+            { rotulo: rotuloTaxa, valor: money(taxa) },
             { rotulo: "Custos da imobiliária", valor: custos > 0 ? `− ${money(custos)}` : money(0) },
             { rotulo: "Repasse devido ao proprietário", valor: money(repasseDevido) },
           ]}
@@ -661,7 +720,7 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
         icon={Calculator}
         titulo="Resultado da imobiliária"
         descricao="Valor da reserva menos repasses, despesas do proprietário e custos."
-        nota="Repasses e despesas do proprietário abatem o saldo dele no extrato e não entram na DRE."
+        nota="Despesas do proprietário abatem o saldo dele ao serem registradas; repasses, quando são pagos. Nenhum dos dois entra na DRE."
         acoes={
           <>
             <Button variant="ghost" size="icon" className="size-9 text-muted-foreground" aria-label="Atualizar eventos" disabled={remote.loading} onClick={remote.reload}>
@@ -922,6 +981,12 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
           }}
           handleGetTransactions={() => remote.reload()}
           lockValue
+          // No repasse, quem recebe é o proprietário da reserva; despesa dele fica livre (é o fornecedor).
+          initialProprietario={
+            lancarConta.natureza === "REPASSE" && reserva.proprietario?.id
+              ? { id: Number(reserva.proprietario.id), nomerazaosocial: reserva.proprietario.nomerazaosocial, cpfcnpj: reserva.proprietario.cpfcnpj ?? null }
+              : undefined
+          }
           initialTransaction={{
             tipo: Tipo_transacao.DESPESA,
             imovel_lancamento_id: Number(lancarConta.id),

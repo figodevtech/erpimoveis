@@ -18,7 +18,8 @@ import { hojeImobiliario } from "./types";
  * - `eventos_financeiros`: os lançamentos da reserva, inclusive seu valor bruto informativo,
  *   criado pelo banco somente no check-out. A receita da DRE é a taxa de administração
  *   (automática, nasce quando o cliente paga); ela não aparece na lista, porque no painel ela é o
- *   resultado da reserva, e só entra nos totais. Os custos são lançados aqui (origem
+ *   resultado da reserva, e só entra nos totais. O valor de cada uma pode ser ajustado pelo
+ *   botão "Ajustar taxa" do cartão Receitas, o que corrige a DRE e o extrato. Os custos são lançados aqui (origem
  *   DESPESA_RESERVA). Entra na DRE pela competência; vai ao caixa pelo lançamento de eventos.
  * - `imovel_lancamento`: a conta do proprietário. Despesa que ele arca (ex.: a limpeza), deduzida
  *   do repasse, e o repasse. Abate o saldo a repassar no extrato e fica fora da DRE.
@@ -69,7 +70,8 @@ async function reservaDoEvento(reservaId: number) {
 export async function listarEventosDaReserva(reservaId: number) {
   await financeAccess({ reserva_id: reservaId });
   // O nome do proprietário vai no título sugerido do repasse.
-  const reserva = await one("reserva_imovel", reservaId, `${RESERVA_FIELDS},proprietario:proprietario_id(id,nomerazaosocial)`);
+  // O documento vai junto para o diálogo do repasse abrir com o proprietário como recebedor.
+  const reserva = await one("reserva_imovel", reservaId, `${RESERVA_FIELDS},proprietario:proprietario_id(id,nomerazaosocial,cpfcnpj)`);
 
   const [custos, taxas, lancamentos, recebimentos] = await Promise.all([
     db.from("eventos_financeiros").select(EVENTO_FIELDS)
@@ -154,6 +156,8 @@ export async function listarEventosDaReserva(reservaId: number) {
   return {
     reserva,
     eventos: linhas,
+    // Fora da lista, mas ajustáveis pelo cartão "Receitas": uma por pagamento (ou reembolso) do hóspede.
+    taxas: taxasAtivas,
     lancamentos: conta,
     // Sem a coluna reserva_id em imovel_lancamento, a seção da conta do proprietário fica de fora.
     contaProprietarioDisponivel: !lancamentos.error,

@@ -83,6 +83,10 @@ BEGIN
   PERFORM public.baixar_transacao_pendente(tx,now(),b,'PIX',NULL,NULL,actor);
   SELECT id INTO taxa FROM public.eventos_financeiros WHERE source_type='IMOVEL_TAXA' AND source_id=tx AND natureza='RECEITA';
   PERFORM pg_temp.exigir((SELECT valor=10 FROM public.eventos_financeiros WHERE id=taxa),'pagamento gera taxa automática');
+  -- 20261112120000: a receita é reconhecida no check-out; o caixa fica na data do pagamento.
+  PERFORM pg_temp.exigir((SELECT competencia_em=((current_date+2)+time '12:00') AT TIME ZONE 'America/Fortaleza'
+      AND data_evento=(SELECT pago_em FROM public.transacao WHERE id=tx) FROM public.eventos_financeiros WHERE id=taxa),
+    'taxa da reserva entra na DRE no mês do check-out e no caixa na data do pagamento');
   j:=public.imob_alterar_evento_reserva(r,taxa,'EDITAR',jsonb_build_object('valor',15,'descricao','Taxa negociada','detalhe','Acordo','data',current_date-2),actor);
   UPDATE public.transacao SET updated_at=clock_timestamp() WHERE id=tx;
   PERFORM pg_temp.exigir((SELECT valor=15 AND descricao='Taxa negociada' AND detalhe='Acordo' AND competencia_em::date=current_date-2 FROM public.eventos_financeiros WHERE id=taxa),'taxa editada e competência sobrevivem à sincronização');
@@ -112,16 +116,21 @@ BEGIN
   j:=public.imob_registrar_lancamento(jsonb_build_object('tipo','REPASSE','valor',50,'descricao','Repasse de teste','imovel_id',i,'proprietario_id',p,'reserva_id',r,'idempotency_key',gen_random_uuid()),actor);
   conta:=(j->>'id')::bigint;
   j:=public.imob_editar_lancamento_reserva(r,conta,'{"valor":60,"descricao":"Repasse ajustado"}',actor);
-  PERFORM pg_temp.exigir((SELECT sum(valor)=60 FROM public.imovel_movimento WHERE lancamento_id=conta),'editar repasse corrige saldo preservando razão');
+  -- Repasse só abate o saldo quando é pago (20261112120000).
+  PERFORM pg_temp.exigir((SELECT coalesce(sum(valor),0)=0 FROM public.imovel_movimento WHERE lancamento_id=conta)
+    AND (SELECT valor=60 FROM public.imovel_lancamento WHERE id=conta),'editar repasse não pago muda o lançamento sem mexer no saldo');
   INSERT INTO public.transacao(descricao,valor,"valorLiquido",data,tipo,pendente,recurso_terceiros,created_by,nomepagador,cpfcnpjpagador)
     VALUES('Repasse no caixa',60,60,now(),'DESPESA',true,true,actor,'Proprietário','NAO INFORMADO') RETURNING id INTO tx;
   PERFORM public.imob_vincular_lancamento(conta,tx);
   j:=public.imob_editar_lancamento_reserva(r,conta,'{"valor":70,"pode_editar_financeiro":true}',actor);
   PERFORM pg_temp.exigir((SELECT valor=70 FROM public.transacao WHERE id=tx),'editar repasse em aberto atualiza transação vinculada');
   PERFORM public.baixar_transacao_pendente(tx,now(),b,'PIX',NULL,NULL,actor);
+  PERFORM pg_temp.exigir((SELECT sum(valor)=70 FROM public.imovel_movimento WHERE lancamento_id=conta),'baixa do repasse abate o saldo do proprietário');
   j:=public.imob_editar_lancamento_reserva(r,conta,'{"valor":65,"pode_editar_financeiro":true}',actor); ajuste:=(j->>'ajuste_transacao_id')::bigint;
   PERFORM pg_temp.exigir((SELECT tipo::text='RECEITA' AND valor=5 AND pendente AND recurso_terceiros AND imovel_lancamento_contabil_id=conta FROM public.transacao WHERE id=ajuste),'repasse pago recebe ajuste fora da DRE');
-  PERFORM pg_temp.exigir((SELECT sum(valor)=65 FROM public.imovel_movimento WHERE lancamento_id=conta),'saldo do proprietário acompanha edição de repasse pago');
+  PERFORM pg_temp.exigir((SELECT sum(valor)=70 FROM public.imovel_movimento WHERE lancamento_id=conta),'ajuste do repasse ainda não recebido não muda o saldo');
+  PERFORM public.baixar_transacao_pendente(ajuste,now(),b,'PIX',NULL,NULL,actor);
+  PERFORM pg_temp.exigir((SELECT sum(valor)=65 FROM public.imovel_movimento WHERE lancamento_id=conta),'saldo do proprietário acompanha o ajuste recebido');
   BEGIN
     PERFORM public.imob_editar_lancamento_reserva(r2,conta,'{"valor":30}',actor);
     RAISE EXCEPTION 'aceitou conta de outra reserva';

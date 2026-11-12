@@ -40,6 +40,7 @@ import { useImovelMidia } from "./midia/use-imovel-midia";
 import { notifyRemoval } from "./row-actions";
 import { OperationAction } from "./actions-dialog";
 import { PropertyReservations } from "./property-reservations";
+import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
 import {
   MODULES,
   type Entity,
@@ -170,6 +171,8 @@ export default function EntityDialog({
   const [operation, setOperation] = useState<ModuleKind | null>(null);
   // Reserva ou locação aberta a partir da aba Disponibilidade do imóvel.
   const [aberta, setAberta] = useState<{ kind: ModuleKind; id: number } | null>(null);
+  // Cadastro do cliente aberto pelo nome do hóspede, na reserva.
+  const [clienteAberto, setClienteAberto] = useState<number | null>(null);
   // Salvar a operação aberta recarrega a aba (outro valor, outro status, outro período).
   const [disponibilidadeVersao, setDisponibilidadeVersao] = useState(0);
   // Fica no diálogo, e não na aba, para as fotos pendentes sobreviverem à troca de aba.
@@ -202,6 +205,16 @@ export default function EntityDialog({
   const saved = () => {
     remote.reload();
     onSaved?.();
+  };
+
+  // Imóvel editado a partir da reserva: atualiza o card sem mexer no resto do formulário (nem na cotação).
+  const refreshImovel = async (imovelId: number) => {
+    try {
+      const item = itemFrom(await requestJson(endpoint("imoveis", imovelId)));
+      setValue((current) => (Number(current.imovel_id) === imovelId ? { ...current, imovel: item } : current));
+    } catch {
+      // O card fica com os dados anteriores; o próximo carregamento da reserva traz os novos.
+    }
   };
 
   // Sem evento quando vem do botão da aba Mídia do imóvel novo: salva dali mesmo, com os dados
@@ -596,6 +609,14 @@ export default function EntityDialog({
                       value={value}
                       editing={Boolean(currentId)}
                       onChange={update}
+                      onOpenImovel={
+                        kind === "reservas" && can("imoveis:visualizar")
+                          ? (imovelId) => setAberta({ kind: "imoveis", id: imovelId })
+                          : undefined
+                      }
+                      onOpenCliente={
+                        kind === "reservas" && can("clientes:visualizar") ? setClienteAberto : undefined
+                      }
                       disabled={
                         !editable ||
                         busy ||
@@ -812,8 +833,31 @@ export default function EntityDialog({
           onOpenChange={(open) => {
             if (!open) setAberta(null);
           }}
-          onSaved={() => setDisponibilidadeVersao((versao) => versao + 1)}
+          onSaved={() => {
+            setDisponibilidadeVersao((versao) => versao + 1);
+            if (aberta.kind === "imoveis") void refreshImovel(aberta.id);
+          }}
         />
+      ) : null}
+
+      {/* Fora do <form> da reserva: o submit do cadastro do cliente não pode disparar o salvamento dela. */}
+      {clienteAberto ? (
+        <CustomerDialog
+          customerId={clienteAberto}
+          isOpen
+          setIsOpen={(next) => {
+            if (!next) setClienteAberto(null);
+          }}
+          onUpdate={(customer) =>
+            setValue((current) =>
+              Number(current.cliente_id) === Number(customer.id)
+                ? { ...current, cliente: { ...current.cliente, ...customer } }
+                : current
+            )
+          }
+        >
+          <span className="hidden" />
+        </CustomerDialog>
       ) : null}
 
       {operation && currentId ? (

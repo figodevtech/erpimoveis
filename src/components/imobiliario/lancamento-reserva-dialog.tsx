@@ -34,7 +34,13 @@ export type Formulario = {
   data: string;
   /** Na edição, o valor gravado: o efeito mostrado é a diferença. */
   valorOriginal?: number;
+  /** Taxa de administração: o pagamento sobre o qual ela incide e o valor que o sistema calculou. */
+  base?: TaxaBase;
+  /** O percentual como o operador digita; sem ele, o campo mostra o percentual do valor. */
+  percentualTexto?: string;
 };
+
+export type TaxaBase = { valor: number; percentual: number; automatico: number };
 
 /** O que a tela já sabe da reserva, para sugerir e mostrar o efeito do lançamento. */
 export type ContextoDaReserva = {
@@ -140,6 +146,18 @@ export const TIPOS: Record<
 const centavos = (valor: number) => Math.round(Number(valor || 0) * 100);
 const subtrair = (a: number, b: number) => (centavos(a) - centavos(b)) / 100;
 
+const formatarPercentual = (valor: number) => valor.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+
+/** Percentual que o valor representa sobre o pagamento, para o campo da taxa. */
+const percentualDoValor = (valor: number, base: TaxaBase) =>
+  base.valor > 0 ? formatarPercentual(Math.round((valor / base.valor) * 10000) / 100) : "";
+
+/** "12,5" → 12.5; vazio ou inválido → null. */
+function lerPercentual(texto: string) {
+  const numero = Number(texto.replace(/\./g, "").replace(",", ".").trim());
+  return texto.trim() && Number.isFinite(numero) ? numero : null;
+}
+
 /** O repasse sugerido é o que falta da parte do proprietário; nunca negativo. */
 export const repasseSugerido = (contexto: ContextoDaReserva) => Math.max(contexto.faltaRepassar, 0);
 
@@ -229,9 +247,15 @@ function Efeito({ formulario, contexto, onUsarSugerido }: { formulario: Formular
 
   if (formulario.tipo === "TAXA_ADMIN" || formulario.tipo === "ESTORNO_TAXA") {
     const ajuste = formulario.tipo === "TAXA_ADMIN" ? delta : -delta;
+    const acimaDoPagamento = formulario.base && centavos(formulario.valor) > centavos(formulario.base.valor);
     return <div className="space-y-3 rounded-xl border bg-muted/30 p-3.5">
       <AntesDepois rotulo="Lucro esperado da imobiliária" antes={contexto.lucroDre} depois={contexto.lucroDre + ajuste} />
-      <AntesDepois rotulo="Falta repassar ao proprietário" antes={contexto.faltaRepassar} depois={contexto.faltaRepassar - ajuste} />
+      <AntesDepois
+        rotulo="Falta repassar ao proprietário"
+        antes={contexto.faltaRepassar}
+        depois={contexto.faltaRepassar - ajuste}
+        alerta={acimaDoPagamento ? `A taxa não pode passar do pagamento de ${money(formulario.base!.valor)}.` : null}
+      />
     </div>;
   }
 
@@ -287,6 +311,7 @@ export function LancamentoReservaDialog({
   const tipo = formulario ? TIPOS[formulario.tipo] : null;
   const Icon = tipo?.icon ?? Building2;
   const editando = formulario?.modo === "editar";
+  const ehTaxa = formulario?.tipo === "TAXA_ADMIN" || formulario?.tipo === "ESTORNO_TAXA";
 
   const trocarTipo = (novo: TipoNovo) => {
     if (!formulario || novo === formulario.tipo) return;
@@ -361,6 +386,8 @@ export function LancamentoReservaDialog({
                 </div>
               ) : null}
 
+              {/* Na taxa, os campos ficam num card, separados do efeito e da explicação abaixo. */}
+              <div className={cn("space-y-5", ehTaxa && "rounded-xl border bg-card p-4 shadow-xs")}>
               <div className="space-y-2">
                 <Label htmlFor="evento-titulo">Título</Label>
                 <Input
@@ -393,12 +420,37 @@ export function LancamentoReservaDialog({
                   <ValueInput
                     id="evento-valor"
                     value={formulario.valor}
-                    onValueChange={(valor) => onChange({ ...formulario, valor })}
+                    // O percentual volta a ser calculado a partir do valor digitado.
+                    onValueChange={(valor) => onChange({ ...formulario, valor, percentualTexto: undefined })}
                     placeholder="R$ 0,00"
                     className="text-base font-semibold"
                   />
                 </div>
-                <div className="space-y-2">
+                {formulario.base ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="evento-percentual">Percentual</Label>
+                    <div className="relative">
+                      <Input
+                        id="evento-percentual"
+                        inputMode="decimal"
+                        className="pr-8 text-base font-semibold tabular-nums"
+                        value={formulario.percentualTexto ?? percentualDoValor(formulario.valor, formulario.base)}
+                        onChange={(event) => {
+                          const texto = event.target.value.replace(/[^\d.,]/g, "");
+                          const percentual = lerPercentual(texto);
+                          onChange({
+                            ...formulario,
+                            percentualTexto: texto,
+                            valor: percentual == null ? formulario.valor : Math.round(formulario.base!.valor * percentual) / 100,
+                          });
+                        }}
+                      />
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">%</span>
+                    </div>
+                  </div>
+                ) : null}
+                {/* Com valor e percentual lado a lado, a competência ocupa a linha de baixo. */}
+                <div className={cn("space-y-2", formulario.base && "sm:col-span-2")}>
                   <Label htmlFor="evento-data">{tipo.dre ? "Competência (mês da DRE)" : "Data"}</Label>
                   <Input
                     id="evento-data"
@@ -408,6 +460,27 @@ export function LancamentoReservaDialog({
                   />
                 </div>
               </div>
+
+              {formulario.base ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                  <span>
+                    Calculado pelo sistema:{" "}
+                    <span className="font-medium tabular-nums text-foreground">{money(formulario.base.automatico)}</span>{" "}
+                    ({formatarPercentual(formulario.base.percentual)}% de {money(formulario.base.valor)} pagos pelo hóspede)
+                  </span>
+                  {centavos(formulario.valor) !== centavos(formulario.base.automatico) ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => onChange({ ...formulario, valor: formulario.base!.automatico, percentualTexto: undefined })}
+                    >
+                      Usar o valor calculado
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
 
               {tipo.dre ? (
                 <div className="space-y-2">
@@ -422,6 +495,7 @@ export function LancamentoReservaDialog({
                   />
                 </div>
               ) : null}
+              </div>
 
               <Efeito
                 formulario={formulario}
@@ -437,9 +511,11 @@ export function LancamentoReservaDialog({
                     : formulario.tipo === "VALOR_RESERVA"
                       ? "Gerado na criação da reserva. Os pagamentos são acompanhados na aba Pagamentos."
                     : formulario.tipo === "TAXA_ADMIN" || formulario.tipo === "ESTORNO_TAXA"
-                      ? "O ajuste vale para este evento. A porcentagem padrão da reserva é mantida para os próximos pagamentos."
+                      ? "O ajuste vale só para este pagamento e já aparece no extrato do proprietário. Os próximos pagamentos da reserva seguem a porcentagem dela."
                     : formulario.tipo === "CUSTO"
                     ? "Para pagar, use “Lançar no financeiro” na lista: aceita à vista, a prazo ou boleto parcelado."
+                    : formulario.tipo === "REPASSE"
+                    ? "Quita a parte do proprietário quando for pago: use “Lançar no financeiro” na lista e dê baixa no pagamento. Até lá, ele aparece como pendente para o proprietário."
                     : "Entra no extrato do proprietário na hora. A saída do dinheiro vai ao caixa por “Lançar no financeiro” na lista."}
                 </p>
               </div>
