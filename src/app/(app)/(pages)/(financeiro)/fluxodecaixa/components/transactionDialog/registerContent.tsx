@@ -26,6 +26,7 @@ import {
   TransactionCustomer,
   TransactionFornecedor,
   TransactionProprietario,
+  TIPOS_DE_LANCAMENTO_AVULSO,
 } from "../../types";
 import ValueInput from "./valueInput";
 import {
@@ -304,16 +305,19 @@ export default function RegisterContent({
   const { options: metodosPagamento } = usePaymentMethodOptions();
   // Pagamento múltiplo é sempre entrada de dinheiro de OS ou venda: tipo,
   // categoria e descrição saem dos documentos marcados e o formulário só os
-  // exibe. Despesa interna e lançamento contábil do imóvel (despesa do
-  // proprietário ou repasse a ele) são saídas: o tipo fica travado em DESPESA.
+  // exibe. Despesa interna e despesa do proprietário são DESPESA; o repasse ao
+  // proprietário é REPASSE (saída fora da DRE). O tipo fica travado.
   const doLancamentoImobiliario = newTransaction.imovel_lancamento_id != null;
+  const doRepasse = doLancamentoImobiliario && newTransaction.tipo === Tipo_transacao.REPASSE;
   // Pagamento de reserva é sempre entrada.
   const daReserva = newTransaction.reserva_imovel_id != null;
   const tipoTravado = pagamentoMultiplo
     ? Tipo_transacao.RECEITA
-    : internalCompanyExpense || doLancamentoImobiliario
-      ? Tipo_transacao.DESPESA
-      : Tipo_transacao.RECEITA;
+    : doRepasse
+      ? Tipo_transacao.REPASSE
+      : internalCompanyExpense || doLancamentoImobiliario
+        ? Tipo_transacao.DESPESA
+        : Tipo_transacao.RECEITA;
   const categoriaTravadaMultiplo = pagamentoMultiplo
     ? categoriaDoPagamentoMultiplo(pagamentoMultiplo.tipoDocumento)
     : null;
@@ -987,10 +991,8 @@ export default function RegisterContent({
   }, []);
 
   useEffect(() => {
-    setNewTransaction({
-      ...newTransaction,
-      valorLiquido: newTransaction.valor,
-    });
+    // Funcional pelo mesmo motivo dos efeitos do valor: não apagar o que outros efeitos preencheram.
+    setNewTransaction((atual) => ({ ...atual, valorLiquido: atual.valor }));
     setIsChecked(false);
   }, [, newTransaction.metodopagamento]);
 
@@ -1118,12 +1120,12 @@ export default function RegisterContent({
     valorTotalParcelamento,
   ]);
 
+  // Atualização funcional: estes efeitos rodam ao abrir, junto com os que preenchem o
+  // pagador/recebedor (ex.: o proprietário do repasse). Copiar `newTransaction` daqui
+  // gravaria por cima o que eles acabaram de preencher.
   useEffect(() => {
     if (!isChecked) {
-      setNewTransaction({
-        ...newTransaction,
-        valorLiquido: newTransaction.valor,
-      });
+      setNewTransaction((atual) => ({ ...atual, valorLiquido: atual.valor }));
     }
   }, [newTransaction.valor]);
 
@@ -1132,10 +1134,7 @@ export default function RegisterContent({
       newTransaction.tipo === Tipo_transacao.SAQUE ||
       newTransaction.tipo === Tipo_transacao.DEPOSITO
     ) {
-      setNewTransaction({
-        ...newTransaction,
-        pendente: false,
-      });
+      setNewTransaction((atual) => ({ ...atual, pendente: false }));
     }
   }, [newTransaction.tipo]);
 
@@ -1237,9 +1236,9 @@ export default function RegisterContent({
                 <div className="mb-4 flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50/70 p-3 text-xs text-sky-900 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-300">
                   <Info className="mt-0.5 size-3.5 shrink-0" />
                   <p>
-                    O dinheiro sai do caixa, mas é do proprietário: a transação é gravada como recurso de
-                    terceiros e não entra na DRE da imobiliária. No repasse, a dívida com o proprietário
-                    só é quitada quando esta transação for paga; a despesa dele já abateu o saldo no registro.
+                    {doRepasse
+                      ? "Repasse: o dinheiro sai do caixa e vai ao proprietário, mas é dele, não da imobiliária. Fica fora da DRE e quita a parte dele quando esta transação for paga."
+                      : "Despesa paga com o dinheiro do proprietário: sai do caixa, fica fora da DRE da imobiliária e já abateu o saldo dele quando foi registrada."}
                   </p>
                 </div>
               ) : null}
@@ -1260,7 +1259,7 @@ export default function RegisterContent({
                       </SelectTrigger>
                       <SelectContent>
                         {/* Repasse e despesa do proprietário: DESPESA é só a direção no caixa (saída). */}
-                        <SelectItem value={tipoTravado}>{doLancamentoImobiliario ? "SAÍDA (fora da DRE)" : tipoTravado}</SelectItem>
+                        <SelectItem value={tipoTravado}>{tipoTravado}</SelectItem>
                       </SelectContent>
                     </Select>
                   ) : (
@@ -1272,7 +1271,7 @@ export default function RegisterContent({
                         <SelectValue placeholder="Selecione" />
                       </SelectTrigger>
                       <SelectContent>
-                        {(conciliacaoOfx ? tiposDaConciliacao(conciliacaoOfx.valorCentavos) : Object.values(Tipo_transacao)).map((u) => (
+                        {(conciliacaoOfx ? tiposDaConciliacao(conciliacaoOfx.valorCentavos) : TIPOS_DE_LANCAMENTO_AVULSO).map((u) => (
                           <SelectItem key={u} value={u}>
                             {u}
                           </SelectItem>
@@ -1329,7 +1328,7 @@ export default function RegisterContent({
                         <span>LANÇAMENTO A RECEBER</span>
                       </div>
                     )}
-                    {newTransaction.tipo === Tipo_transacao.DESPESA && (
+                    {(newTransaction.tipo === Tipo_transacao.DESPESA || newTransaction.tipo === Tipo_transacao.REPASSE) && (
                       <div
                         className={`flex flex-row gap-1 items-center text-xs text-muted-foreground ${
                           newTransaction.pendente ? "opacity-100" : "opacity-50"

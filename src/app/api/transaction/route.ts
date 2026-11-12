@@ -73,7 +73,7 @@ const WRITABLE_FIELDS = new Set([
  * é descartado em silêncio, e uma lista que sobrou vazia não filtra nada — o
  * contrário faria a tela vir vazia sem explicar por quê.
  */
-const TIPOS_TRANSACAO = new Set(["RECEITA", "DESPESA", "DEPOSITO", "SAQUE"]);
+const TIPOS_TRANSACAO = new Set(["RECEITA", "DESPESA", "DEPOSITO", "SAQUE", "REPASSE"]);
 
 function TIPOS_VALIDOS(bruto: string | null): string[] {
   return String(bruto ?? "")
@@ -596,6 +596,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: conferencia.erro }, { status: conferencia.status });
       }
       lancamentoImobiliario = conferencia.lancamento;
+    }
+    // REPASSE é a saída do repasse ao proprietário: sem o lançamento dele, não existe.
+    if (String(payload.tipo ?? "").toUpperCase() === "REPASSE" && !lancamentoImobiliario) {
+      return NextResponse.json(
+        { error: "O tipo REPASSE só é usado ao lançar no financeiro um repasse registrado na reserva." },
+        { status: 400 },
+      );
     }
     if (payload.evento_financeiro_id != null && parcelasDetalhadas.length > 1) {
       return NextResponse.json({ error: "Um evento financeiro deve gerar uma única transação." }, { status: 400 });

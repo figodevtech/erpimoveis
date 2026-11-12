@@ -455,7 +455,7 @@ export default function ConcluidoAlert({
                   ? "Valor do título"
                   : saldo < liquido
                     ? "Saldo em aberto"
-                    : transaction.tipo === "DESPESA" || transaction.tipo === "SAQUE" ? "Sai da conta" : "Entra na conta"}
+                    : transaction.tipo === "DESPESA" || transaction.tipo === "SAQUE" || transaction.tipo === "REPASSE" ? "Sai da conta" : "Entra na conta"}
               </p>
             </div>
           </div>
@@ -845,7 +845,7 @@ export default function ConcluidoAlert({
                 {entraNaConta > 0 ? (
                   <>
                     <strong>{formatarEmReal(entraNaConta)}</strong>{" "}
-                    {transaction.tipo === "DESPESA" || transaction.tipo === "SAQUE"
+                    {transaction.tipo === "DESPESA" || transaction.tipo === "SAQUE" || transaction.tipo === "REPASSE"
                       ? "saem de"
                       : "entram em"}{" "}
                     <strong>{bancoEscolhido}</strong>

@@ -568,6 +568,18 @@ async function validarEdicaoDeTransacao(id: string, body: any) {
     }
   }
 
+  // REPASSE só nasce do repasse ao proprietário: nenhuma transação vira REPASSE nem deixa de ser.
+  if (
+    body?.tipo !== undefined &&
+    String(body.tipo).toUpperCase() !== String(atual.tipo ?? "").toUpperCase() &&
+    [String(body.tipo).toUpperCase(), String(atual.tipo ?? "").toUpperCase()].includes("REPASSE")
+  ) {
+    return NextResponse.json(
+      { error: "O tipo REPASSE é do repasse ao proprietário e não pode ser trocado." },
+      { status: 400 },
+    );
+  }
+
   const origem = origemDaTransacao(atual);
 
   if (origem) {

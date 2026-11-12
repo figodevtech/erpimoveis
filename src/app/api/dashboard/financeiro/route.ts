@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 const FORTALEZA_OFFSET = "-03:00";
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ENTRY_TYPES = new Set(["RECEITA", "DEPOSITO"]);
-const EXIT_TYPES = new Set(["DESPESA", "SAQUE"]);
+const EXIT_TYPES = new Set(["DESPESA", "SAQUE", "REPASSE"]);
 
 type TransactionRow = {
   id: number;
@@ -122,7 +122,7 @@ export async function GET(request: Request) {
           .eq("is_deleted", false)
           .eq("pendente", true)
           .is("baixa_de_transacao_id", null)
-          .in("tipo", ["RECEITA", "DESPESA"])
+          .in("tipo", ["RECEITA", "DESPESA", "REPASSE"])
           .order("data", { ascending: true })
           .order("id", { ascending: true }),
       ),
@@ -162,7 +162,7 @@ export async function GET(request: Request) {
       const valor = saldoEmAberto(titulo);
       if (valor <= 0) continue;
       const vencimento = String(titulo.data ?? "");
-      if (tipo === "DESPESA") {
+      if (tipo === "DESPESA" || tipo === "REPASSE") {
         pendencias.aPagar += valor;
         if (vencimento < hoje) pendencias.aPagarVencido += valor;
       } else if (tipo === "RECEITA") {

@@ -988,7 +988,8 @@ export function ReservationEventsPanel({ reservaId }: { reservaId: number }) {
               : undefined
           }
           initialTransaction={{
-            tipo: Tipo_transacao.DESPESA,
+            // Repasse ao proprietário tem tipo próprio (fora da DRE); a despesa dele é DESPESA.
+            tipo: lancarConta.natureza === "REPASSE" ? Tipo_transacao.REPASSE : Tipo_transacao.DESPESA,
             imovel_lancamento_id: Number(lancarConta.id),
             descricao: lancarConta.descricao,
             valor: Number(lancarConta.valor),

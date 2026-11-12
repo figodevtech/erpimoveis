@@ -5,11 +5,11 @@
  * a receber ou a pagar ainda não mexeu no dinheiro.
  */
 
-/** RECEITA e DEPOSITO entram na conta; DESPESA e SAQUE saem. Outro tipo não move saldo. */
+/** RECEITA e DEPOSITO entram na conta; DESPESA, SAQUE e REPASSE saem. Outro tipo não move saldo. */
 export function valorAssinadoNoBanco(tipo: string, valor: number): number {
   const normalizado = String(tipo ?? "").toUpperCase();
   if (normalizado === "RECEITA" || normalizado === "DEPOSITO") return valor;
-  if (normalizado === "DESPESA" || normalizado === "SAQUE") return -valor;
+  if (normalizado === "DESPESA" || normalizado === "SAQUE" || normalizado === "REPASSE") return -valor;
   return 0;
 }
 

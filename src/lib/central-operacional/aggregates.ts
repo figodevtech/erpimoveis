@@ -16,7 +16,7 @@ export type CashFlowRow = {
 };
 
 const CASH_ENTRY_TYPES = new Set(["RECEITA", "DEPOSITO"]);
-const CASH_EXIT_TYPES = new Set(["DESPESA", "SAQUE"]);
+const CASH_EXIT_TYPES = new Set(["DESPESA", "SAQUE", "REPASSE"]);
 
 export function summarizeCompletedOrders(rows: CompletedOrderRow[]) {
   return {

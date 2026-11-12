@@ -188,6 +188,7 @@ const ROTULO_DO_TIPO: Record<string, string> = {
   DESPESA: "Despesa",
   DEPOSITO: "Depósito",
   SAQUE: "Saque",
+  REPASSE: "Repasse",
 };
 
 /** Os filtros que a barra oferece, e que por isso contam no badge. */
@@ -635,8 +636,9 @@ export default function TransactionSelect({
                       <SelectItem value="DESPESA">Despesas</SelectItem>
                       <SelectItem value="DEPOSITO">Depósitos</SelectItem>
                       <SelectItem value="SAQUE">Saques</SelectItem>
+                      <SelectItem value="REPASSE">Repasses</SelectItem>
                       <SelectItem value="RECEITA,DEPOSITO">Entradas (receita + depósito)</SelectItem>
-                      <SelectItem value="DESPESA,SAQUE">Saídas (despesa + saque)</SelectItem>
+                      <SelectItem value="DESPESA,SAQUE,REPASSE">Saídas (despesa + saque + repasse)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

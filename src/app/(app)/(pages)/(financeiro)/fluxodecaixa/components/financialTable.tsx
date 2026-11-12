@@ -1146,7 +1146,7 @@ export default function FinancialTable({
                   <TableCell
                     className={`hidden md:table-cell ${t.pendente && "text-primary font-semibold"}`}
                   >
-                    {t.pendente && t.tipo === Tipo_transacao.DESPESA ? (
+                    {t.pendente && (t.tipo === Tipo_transacao.DESPESA || t.tipo === Tipo_transacao.REPASSE) ? (
                       <span className=" flex flex-nowrap gap-1 items-center">
                         A PAGAR
                       </span>
@@ -1194,7 +1194,7 @@ export default function FinancialTable({
                   >
                     <div className="flex flex-col items-end">
                       {(t.tipo === "RECEITA" || t.tipo === "DEPOSITO") && "+ "}
-                      {(t.tipo === "DESPESA" || t.tipo === "SAQUE") && "- "}
+                      {(t.tipo === "DESPESA" || t.tipo === "SAQUE" || t.tipo === "REPASSE") && "- "}
                       {/* Linha sem líquido (despesa, ou registro antigo) vale o
                           bruto — antes exibia R$ 0,00 com o bruto embaixo. */}
                       {/* Em título parcial o número grande é o que falta: é o

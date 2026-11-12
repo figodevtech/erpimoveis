@@ -3,7 +3,12 @@ export enum Tipo_transacao {
   DESPESA = "DESPESA",
   DEPOSITO = "DEPOSITO",
   SAQUE = "SAQUE",
+  /** Saída que entrega ao proprietário do imóvel o dinheiro dele: fora da DRE. Só nasce de um repasse registrado. */
+  REPASSE = "REPASSE",
 }
+
+/** Tipos que o operador escolhe num lançamento avulso: REPASSE só nasce do repasse do imóvel. */
+export const TIPOS_DE_LANCAMENTO_AVULSO = Object.values(Tipo_transacao).filter((tipo) => tipo !== Tipo_transacao.REPASSE);
 
 export interface Categoria_transacao {
   id: number;

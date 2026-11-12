@@ -139,7 +139,7 @@ export async function GET(req: NextRequest) {
      * Nas abas A Pagar e A Receber o tipo já é fixo pela própria aba, e o que
      * vier daqui é ignorado — o `tipo` do ramo delas continua mandando.
      */
-    const TIPOS_CONHECIDOS = new Set(["RECEITA", "DESPESA", "SAQUE", "DEPOSITO"]);
+    const TIPOS_CONHECIDOS = new Set(["RECEITA", "DESPESA", "SAQUE", "DEPOSITO", "REPASSE"]);
     const tipos = (searchParams.get("tipos") ?? "")
       .split(",")
       .map((valor) => valor.trim().toUpperCase())
@@ -215,7 +215,7 @@ export async function GET(req: NextRequest) {
       const mes = comparavel ? 0 : undefined;
       const [entradas, saidas] = await Promise.all([
         todas(() => doMes(mes).in("tipo", ["RECEITA", "DEPOSITO"])),
-        todas(() => doMes(mes).in("tipo", ["DESPESA", "SAQUE"])),
+        todas(() => doMes(mes).in("tipo", ["DESPESA", "SAQUE", "REPASSE"])),
       ]);
       const entrou = soma(entradas);
       const saiu = soma(saidas);
@@ -224,7 +224,7 @@ export async function GET(req: NextRequest) {
       if (comparavel) {
         const [e, s2] = await Promise.all([
           todas(() => doMes(-1).in("tipo", ["RECEITA", "DEPOSITO"])),
-          todas(() => doMes(-1).in("tipo", ["DESPESA", "SAQUE"])),
+          todas(() => doMes(-1).in("tipo", ["DESPESA", "SAQUE", "REPASSE"])),
         ]);
         antes = { entrou: soma(e), saiu: soma(s2) };
       }
@@ -255,7 +255,8 @@ export async function GET(req: NextRequest) {
         },
       ];
     } else if (viewMode === "A_PAGAR" || viewMode === "A_RECEBER") {
-      const tipo = viewMode === "A_PAGAR" ? "DESPESA" : "RECEITA";
+      // A pagar inclui o repasse ao proprietário ainda não feito: é dinheiro que vai sair.
+      const tiposEmAberto = viewMode === "A_PAGAR" ? ["DESPESA", "REPASSE"] : ["RECEITA"];
       /*
        * O título antecipado e ainda em aberto fica de fora da conta.
        *
@@ -269,7 +270,7 @@ export async function GET(req: NextRequest) {
        * desandar.
        */
       const emAberto = () =>
-        base().eq("pendente", true).eq("tipo", tipo).is("adiantamento_id", null);
+        base().eq("pendente", true).in("tipo", tiposEmAberto).is("adiantamento_id", null);
 
       const [tudo, vencido] = await Promise.all([
         todas(emAberto),
@@ -299,7 +300,7 @@ export async function GET(req: NextRequest) {
       const mes = comparavel ? 0 : undefined;
       const [recebido, pago] = await Promise.all([
         todas(() => doMes(mes).in("tipo", ["RECEITA", "DEPOSITO"])),
-        todas(() => doMes(mes).in("tipo", ["DESPESA", "SAQUE"])),
+        todas(() => doMes(mes).in("tipo", ["DESPESA", "SAQUE", "REPASSE"])),
       ]);
       const entrou = soma(recebido);
       const saiu = soma(pago);
@@ -308,7 +309,7 @@ export async function GET(req: NextRequest) {
       if (comparavel) {
         const [r, p2] = await Promise.all([
           todas(() => doMes(-1).in("tipo", ["RECEITA", "DEPOSITO"])),
-          todas(() => doMes(-1).in("tipo", ["DESPESA", "SAQUE"])),
+          todas(() => doMes(-1).in("tipo", ["DESPESA", "SAQUE", "REPASSE"])),
         ]);
         antes = { entrou: soma(r), saiu: soma(p2) };
       }

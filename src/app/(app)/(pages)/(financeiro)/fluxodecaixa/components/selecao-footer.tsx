@@ -56,7 +56,7 @@ export function SelecaoFooter({
   // Receita e despesa somam para lados opostos; misturar num total só esconderia
   // o que está sendo feito. A barra mostra os dois separados.
   const receitas = escolhidas.filter((t) => String(t.tipo).toUpperCase() === "RECEITA");
-  const despesas = escolhidas.filter((t) => String(t.tipo).toUpperCase() === "DESPESA");
+  const despesas = escolhidas.filter((t) => ["DESPESA", "REPASSE"].includes(String(t.tipo).toUpperCase()));
 
   const somar = (linhas: Transaction[]) =>
     linhas.reduce((total, t) => total + Math.round(valorLiquidoEfetivo(t) * 100), 0) / 100;

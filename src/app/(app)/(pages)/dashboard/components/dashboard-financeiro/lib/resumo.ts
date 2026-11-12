@@ -123,7 +123,7 @@ export function montarResumoDeLista(
     if (!chaveDia || chaveDia < inicioKey || chaveDia > fimKey) continue;
 
     const ehEntrada = tipo === "RECEITA" || tipo === "DEPOSITO";
-    const ehSaida = tipo === "DESPESA" || tipo === "SAQUE";
+    const ehSaida = tipo === "DESPESA" || tipo === "SAQUE" || tipo === "REPASSE";
 
     const pendenteFlag = item?.pendente === true || String(item?.pendente).toLowerCase() === "true";
     if (pendenteFlag) {

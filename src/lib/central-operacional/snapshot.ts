@@ -165,12 +165,12 @@ async function loadAccounts(window: OperationalPeriodWindow, nowIso: string) {
         cliente:cliente!transacao_cliente_id_fkey ( nomerazaosocial )
       `)
       .eq("is_deleted", false)
-      .in("tipo", ["DESPESA", "RECEITA"])
+      .in("tipo", ["DESPESA", "RECEITA", "REPASSE"])
       .eq("pendente", true)
       .order("vencimento_em", { ascending: true, nullsFirst: false }),
   );
   const eligibleRows = rows.filter((row) => row.tipo !== "RECEITA" || row.adiantamento_id === null);
-  const payables = eligibleRows.filter((row) => row.tipo === "DESPESA");
+  const payables = eligibleRows.filter((row) => row.tipo === "DESPESA" || row.tipo === "REPASSE");
   const receivables = eligibleRows.filter((row) => row.tipo === "RECEITA");
   const payablesInPeriod = payables.filter((row) => dateFallsWithinPeriod(row.vencimento_em ?? row.data, window));
   const receivablesInPeriod = receivables.filter((row) => dateFallsWithinPeriod(row.vencimento_em ?? row.data, window));
@@ -180,7 +180,7 @@ async function loadAccounts(window: OperationalPeriodWindow, nowIso: string) {
   const overdue = eligibleRows.filter((row) => Boolean(
     row.vencimento_em && new Date(row.vencimento_em).getTime() < nowTimestamp,
   ));
-  const overduePayables = overdue.filter((row) => row.tipo === "DESPESA");
+  const overduePayables = overdue.filter((row) => row.tipo === "DESPESA" || row.tipo === "REPASSE");
   const overdueReceivables = overdue.filter((row) => row.tipo === "RECEITA");
   const attentions: OperationalAttention[] = overdue.slice(0, 8).map((row) => {
     const client = Array.isArray(row.cliente) ? row.cliente[0] ?? null : row.cliente;

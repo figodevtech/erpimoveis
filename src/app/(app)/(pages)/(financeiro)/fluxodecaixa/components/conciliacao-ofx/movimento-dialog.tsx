@@ -339,6 +339,7 @@ function LinhaDeSugestao({
                 DESPESA: "Despesa",
                 DEPOSITO: "Depósito",
                 SAQUE: "Saque",
+                REPASSE: "Repasse",
               } as Record<string, string>
             )[sugestao.tipo] ?? sugestao.tipo}{" "}
             ·{" "}

@@ -70,6 +70,30 @@ BEGIN
   PERFORM public.imob_cancelar_lancamento(conta,actor);
   PERFORM pg_temp.exigir(NOT EXISTS(SELECT 1 FROM public.imovel_movimento WHERE lancamento_id=conta),'estornar repasse não pago não mexe no extrato');
 
+  -- Tipo REPASSE (20261112130000/130100): só quando o valor do enum já está gravado no banco.
+  IF EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid='public.tipos_transacao'::regtype AND enumlabel='REPASSE') THEN
+    j:=public.imob_registrar_lancamento(jsonb_build_object('tipo','REPASSE','valor',200,'descricao','Repasse com tipo próprio','imovel_id',i,'proprietario_id',p,'reserva_id',r,'idempotency_key',gen_random_uuid()),actor);
+    conta:=(j->>'id')::bigint;
+    EXECUTE $q$INSERT INTO public.transacao(descricao,valor,"valorLiquido",data,tipo,pendente,recurso_terceiros,created_by,nomepagador,cpfcnpjpagador)
+      VALUES('Repasse tipo REPASSE',200,200,now(),'REPASSE',true,true,$1,'Proprietário','NAO INFORMADO') RETURNING id$q$ INTO tx USING actor;
+    PERFORM public.imob_vincular_lancamento(conta,tx);
+    PERFORM pg_temp.exigir(NOT EXISTS(SELECT 1 FROM public.imovel_movimento WHERE lancamento_id=conta),'repasse REPASSE a pagar não quita a dívida');
+    PERFORM public.baixar_transacao_pendente(tx,now(),b,'PIX',NULL,NULL,actor);
+    PERFORM pg_temp.exigir((SELECT sum(valor)=200 FROM public.imovel_movimento WHERE lancamento_id=conta),'repasse REPASSE pago quita a dívida');
+    PERFORM pg_temp.exigir(NOT public.transacao_gera_evento_de_resultado(tx),'tipo REPASSE fica fora da DRE');
+    -- Despesa do proprietário não aceita transação REPASSE.
+    j:=public.imob_registrar_lancamento(jsonb_build_object('tipo','DESPESA_PROPRIETARIO','valor',10,'descricao','Despesa não é repasse','imovel_id',i,'proprietario_id',p,'reserva_id',r,'idempotency_key',gen_random_uuid()),actor);
+    EXECUTE $q$INSERT INTO public.transacao(descricao,valor,"valorLiquido",data,tipo,pendente,recurso_terceiros,created_by,nomepagador,cpfcnpjpagador)
+      VALUES('Tipo errado',10,10,now(),'REPASSE',true,true,$1,'Fornecedor','NAO INFORMADO') RETURNING id$q$ INTO tx USING actor;
+    BEGIN
+      PERFORM public.imob_vincular_lancamento((j->>'id')::bigint,tx);
+      RAISE EXCEPTION 'aceitou REPASSE numa despesa do proprietário';
+    EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
+    PERFORM pg_temp.exigir(true,'despesa do proprietário recusa transação REPASSE');
+  ELSE
+    RAISE NOTICE 'PULADO: cenários do tipo REPASSE (enum ainda sem o valor gravado)';
+  END IF;
+
   -- Despesa do proprietário continua abatendo na hora, já com a reserva.
   j:=public.imob_registrar_lancamento(jsonb_build_object('tipo','DESPESA_PROPRIETARIO','valor',30,'descricao','Limpeza','imovel_id',i,'proprietario_id',p,'reserva_id',r,'idempotency_key',gen_random_uuid()),actor);
   conta:=(j->>'id')::bigint;

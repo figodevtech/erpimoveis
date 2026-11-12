@@ -9,6 +9,7 @@ export const getTypeColor = (tipo: Tipo_transacao) => {
       return "text-green-400 not-dark:text-green-700";
     case Tipo_transacao.DESPESA:
     case Tipo_transacao.SAQUE:
+    case Tipo_transacao.REPASSE:
       return "text-red-400 not-dark:text-red-700";
     default:
       return "text-gray-500";

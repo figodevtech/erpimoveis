@@ -33,7 +33,7 @@ import { useCategoriasTransacao } from "../../../hooks/use-categoria-transacao";
 import { useCentrosCusto } from "../../../hooks/use-centros-custo";
 import { usePlanosDeConta } from "../../../hooks/use-planos-de-conta";
 import { useTiposDocumento } from "../../../hooks/use-tipos-documento";
-import { Metodo_pagamento, Tipo_transacao } from "../../../types";
+import { Metodo_pagamento, TIPOS_DE_LANCAMENTO_AVULSO, Tipo_transacao } from "../../../types";
 import {
   origemDaTransacao,
   rotuloDaOrigem,
@@ -390,8 +390,9 @@ export function DetalhesTab({
               <Lock className="h-3 w-3 text-muted-foreground" aria-hidden />
             ) : null}
           </Label>
+          {/* REPASSE só nasce do repasse ao proprietário: não vira outro tipo nem é escolhido aqui. */}
           <Select
-            disabled={!editavel || !!origem}
+            disabled={!editavel || !!origem || form.tipo === Tipo_transacao.REPASSE}
             value={form.tipo}
             onValueChange={(valor) => setCampo("tipo", valor as Tipo_transacao)}
           >
@@ -399,7 +400,7 @@ export function DetalhesTab({
               <SelectValue placeholder="Selecione" />
             </SelectTrigger>
             <SelectContent>
-              {Object.values(Tipo_transacao).map((item) => (
+              {(form.tipo === Tipo_transacao.REPASSE ? Object.values(Tipo_transacao) : TIPOS_DE_LANCAMENTO_AVULSO).map((item) => (
                 <SelectItem key={item} value={item}>
                   {item}
                 </SelectItem>

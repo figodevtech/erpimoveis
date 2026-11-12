@@ -166,7 +166,7 @@ function Formulario({
   const movimento = useMemo(() => movimentoSomado(linhas), [linhas]);
   const entrada = movimento.valorCentavos > 0;
   const soma = reais(Math.abs(movimento.valorCentavos));
-  const tipos = entrada ? "RECEITA,DEPOSITO" : "DESPESA,SAQUE";
+  const tipos = entrada ? "RECEITA,DEPOSITO" : "DESPESA,SAQUE,REPASSE";
 
   const filtrosFixos: Partial<TransactionFiltros> = useMemo(
     () =>

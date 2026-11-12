@@ -127,7 +127,7 @@ export default function FinanceiroPage() {
     viewMode === "A_RECEBER"
       ? [Tipo_transacao.RECEITA, Tipo_transacao.DEPOSITO]
       : viewMode === "A_PAGAR"
-      ? [Tipo_transacao.DESPESA, Tipo_transacao.SAQUE]
+      ? [Tipo_transacao.DESPESA, Tipo_transacao.SAQUE, Tipo_transacao.REPASSE]
       : tipo
       ? [tipo]
       : [];

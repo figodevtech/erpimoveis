@@ -330,6 +330,7 @@ export default function SearchFilter({
                       <SelectItem value={Tipo_transacao.DESPESA}>Despesas</SelectItem>
                       <SelectItem value={Tipo_transacao.DEPOSITO}>Depósitos</SelectItem>
                       <SelectItem value={Tipo_transacao.SAQUE}>Saques</SelectItem>
+                      <SelectItem value={Tipo_transacao.REPASSE}>Repasses</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

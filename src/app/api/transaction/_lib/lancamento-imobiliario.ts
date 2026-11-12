@@ -25,7 +25,7 @@ export async function conferirLancamentoImobiliario(
 
   const { data: lancamento, error } = await supabaseAdmin
     .from("imovel_lancamento")
-    .select("id, valor, cancelado_em, transacao:transacao_id ( id, is_deleted )")
+    .select("id, valor, natureza, cancelado_em, transacao:transacao_id ( id, is_deleted )")
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
@@ -37,8 +37,14 @@ export async function conferirLancamentoImobiliario(
   if (atual && !atual.is_deleted) {
     return { ok: false, erro: `Este lançamento já está no financeiro (transação #${atual.id}).`, status: 409 };
   }
-  if (String(payload.tipo ?? "").toUpperCase() !== "DESPESA") {
-    return { ok: false, erro: "Despesa do proprietário e repasse são saídas: o tipo deve ser DESPESA.", status: 400 };
+  // O repasse tem tipo próprio (saída fora da DRE); a despesa do proprietário é DESPESA.
+  const tipoEsperado = lancamento.natureza === "REPASSE" ? "REPASSE" : "DESPESA";
+  if (String(payload.tipo ?? "").toUpperCase() !== tipoEsperado) {
+    return {
+      ok: false,
+      erro: tipoEsperado === "REPASSE" ? "O repasse ao proprietário deve ser lançado com o tipo REPASSE." : "A despesa do proprietário deve ser lançada com o tipo DESPESA.",
+      status: 400,
+    };
   }
   if (payload.ordemservicoid != null || payload.vendaid != null || payload.evento_financeiro_id != null) {
     return { ok: false, erro: "Lançamento do imóvel não pode estar ligado a OS, venda ou evento.", status: 400 };

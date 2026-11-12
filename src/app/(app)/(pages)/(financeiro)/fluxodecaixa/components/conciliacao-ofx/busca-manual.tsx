@@ -74,7 +74,7 @@ export function BuscaManual({
   const entrada = movimento.valorCentavos > 0;
   const alvoEmCentavos = Math.abs(movimento.valorCentavos);
   const alvo = reais(alvoEmCentavos);
-  const tipos = entrada ? "RECEITA,DEPOSITO" : "DESPESA,SAQUE";
+  const tipos = entrada ? "RECEITA,DEPOSITO" : "DESPESA,SAQUE,REPASSE";
 
   /*
    * O escopo que a barra de filtros não pode desfazer.

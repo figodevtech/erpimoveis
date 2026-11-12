@@ -89,7 +89,7 @@ export async function GET(req: Request) {
     const tipos = String(searchParams.get("tipos") ?? "")
       .split(",")
       .map((item) => item.trim().toUpperCase())
-      .filter((item) => ["RECEITA", "DESPESA", "DEPOSITO", "SAQUE"].includes(item));
+      .filter((item) => ["RECEITA", "DESPESA", "DEPOSITO", "SAQUE", "REPASSE"].includes(item));
     const categoria = (searchParams.get("categoria") ?? "").trim();
     const categoriaId = toIntFilter(searchParams.get("categoriaId"));
 

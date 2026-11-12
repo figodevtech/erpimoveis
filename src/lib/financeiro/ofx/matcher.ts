@@ -323,6 +323,8 @@ function artigoDoTipo(tipo: string): string {
       return "um depósito";
     case "SAQUE":
       return "um saque";
+    case "REPASSE":
+      return "um repasse ao proprietário";
     default:
       return `um lançamento do tipo ${tipo}`;
   }

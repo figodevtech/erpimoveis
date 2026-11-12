@@ -20,8 +20,12 @@ async function main() {
     await client.query(body);
     // A edição acima redefine imob_editar_lancamento_reserva: a regra atual (repasse no
     // pagamento, taxa no check-out) é reaplicada por cima, também duas vezes.
-    const regraAtual = fs.readFileSync(path.join(projectRoot, "supabase/migrations/20261112120000_repasse_no_pagamento_e_taxa_no_checkout.sql"), "utf8")
-      .replace(/^BEGIN;\s*$/gm, "").replace(/^COMMIT;\s*$/gm, "");
+    // O tipo REPASSE (20261112130000) não entra aqui: valor novo de enum só vale depois de
+    // gravado. Os cenários com ele rodam quando o banco já o tem.
+    const regraAtual = ["20261112120000_repasse_no_pagamento_e_taxa_no_checkout.sql", "20261112130100_repasse_como_tipo_de_transacao.sql"]
+      .map((arquivo) => fs.readFileSync(path.join(projectRoot, "supabase/migrations", arquivo), "utf8")
+        .replace(/^BEGIN;\s*$/gm, "").replace(/^COMMIT;\s*$/gm, ""))
+      .join("\n");
     await client.query(regraAtual);
     await client.query(regraAtual);
     await client.query(tests.replace(/^BEGIN;\s*$/gm, "").replace(/^ROLLBACK;\s*$/gm, ""));
