@@ -39,9 +39,14 @@ import { AnimatePresence, motion } from "motion/react";
 import { Pagination, Reserva, ReservasTab, RESERVAS_TABS } from "../types";
 import { StatusBadge } from "@/components/imobiliario/shared";
 import { clientName, dateLabel, money, propertyName } from "@/components/imobiliario/model";
-import { ReservationsCalendar } from "@/components/imobiliario/reservations-calendar";
+import dynamic from "next/dynamic";
 import { RowActions } from "@/components/imobiliario/row-actions";
 import { cn } from "@/lib/utils";
+
+const ReservationsCalendar = dynamic(
+  () => import("@/components/imobiliario/reservations-calendar").then(module => module.ReservationsCalendar),
+  { loading: () => <p role="status" className="p-4 text-sm">Carregando calendário…</p> },
+);
 
 interface ReservasDataTableProps {
   reservas: Reserva[];
@@ -298,7 +303,7 @@ export default function ReservasDataTable({
                         </TableCell>
                       </TableRow>
                     ) : (
-                      reservas.map((reserva, idx) => {
+                      reservas.map((reserva) => {
                         const nomeImovel = propertyName(reserva as any);
                         const nomeCliente = clientName(reserva as any);
                         const nights = getNights(reserva.inicio, reserva.fim);

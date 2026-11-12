@@ -14,7 +14,10 @@ import {
 import { Plus, RefreshCw, CalendarDays, List } from "lucide-react";
 import { Field, Lookup, RemoteState, SelectField, StatusBadge, useModulePermission, useRemote } from "./shared";
 import { MODULES, type Entity, type ModuleKind, clientName, dateLabel, endpoint, entityName, listFrom, money, ownerName, propertyName, rowStatus } from "./model";
-import { ReservationsCalendar } from "./reservations-calendar";
+const ReservationsCalendar = dynamic(
+  () => import("./reservations-calendar").then(module => module.ReservationsCalendar),
+  { loading: () => <p role="status" className="p-4 text-sm">Carregando calendário…</p> },
+);
 const EntityDialog = dynamic(() => import("./entity-dialog"), { loading: () => <p role="status" className="p-3 text-sm">Carregando cadastro…</p> });
 
 export default function RealEstateModulePage({ kind }: { kind: ModuleKind }) {
