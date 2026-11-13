@@ -43,7 +43,7 @@ export default function ReservasPage() {
     finalizadas,
     loadingStatusCounter,
     fetchStatusCounts,
-  } = useReservasStatusCounter();
+  } = useReservasStatusCounter({ auto: ready && can("reservas:visualizar") });
 
   const [selectedDialog, setSelectedDialog] = useState<{ id?: number; seed?: any } | null>(null);
 
@@ -60,24 +60,16 @@ export default function ReservasPage() {
 
   const fetchReservas = useCallback(
     async (
-      pageNumber?: number,
-      limitNumber?: number,
-      searchTerm?: string,
-      statusFilter?: StatusReserva,
-      inicioFilter?: string,
-      fimFilter?: string,
-      propertyFilter?: number | null
+      pageToUse: number,
+      limitToUse: number,
+      searchToUse: string,
+      statusToUse: StatusReserva,
+      inicioToUse: string,
+      fimToUse: string,
+      propertyToUse: number | null
     ) => {
       // O calendário busca os próprios dados; buscar a lista aqui sobrescreveria a lista da aba ativa.
       if (view === "calendar") return;
-
-      const pageToUse = pageNumber ?? pagination.page;
-      const limitToUse = limitNumber ?? pagination.limit;
-      const searchToUse = searchTerm !== undefined ? searchTerm : search;
-      const statusToUse = statusFilter ?? status;
-      const inicioToUse = inicioFilter !== undefined ? inicioFilter : inicio;
-      const fimToUse = fimFilter !== undefined ? fimFilter : fim;
-      const propertyToUse = propertyFilter !== undefined ? propertyFilter : propertyId;
 
       const requestId = ++requestSequence.current;
       requestController.current?.abort();
@@ -136,7 +128,7 @@ export default function ReservasPage() {
         }
       }
     },
-    [pagination.page, pagination.limit, search, status, inicio, fim, propertyId, view]
+    [view]
   );
 
   useEffect(() => {
@@ -157,17 +149,18 @@ export default function ReservasPage() {
   useEffect(() => {
     if (!ready || !can("reservas:visualizar")) return;
     void fetchReservas(1, pagination.limit, search, status, inicio, fim, propertyId);
-  }, [status, search, inicio, fim, propertyId, ready, can, pagination.limit, view]);
+  }, [status, search, inicio, fim, propertyId, ready, can, pagination.limit, fetchReservas]);
 
   const handleTabChange = (newTab: ReservasTab) => {
     setTab(newTab);
     const newStatus = newTab === "ABERTAS" ? StatusReserva.ABERTAS : StatusReserva.FINALIZADAS;
     setStatus(newStatus);
     setPagination((prev) => ({ ...prev, page: 1 }));
-    void fetchReservas(1, pagination.limit, search, newStatus, inicio, fim, propertyId);
   };
 
   const handleViewChange = (newView: "list" | "calendar") => {
+    requestSequence.current += 1;
+    requestController.current?.abort();
     setView(newView);
     if (newView === "calendar") {
       setStatus(StatusReserva.TODOS);
@@ -250,7 +243,7 @@ export default function ReservasPage() {
         ativasCount={ativas}
         finalizadasCount={finalizadas}
         onPageChange={(page) => fetchReservas(page, pagination.limit, search, status, inicio, fim, propertyId)}
-        onPageSizeChange={(limit) => fetchReservas(1, limit, search, status, inicio, fim, propertyId)}
+        onPageSizeChange={(limit) => setPagination(prev => ({ ...prev, page: 1, limit }))}
         onRefresh={handleRefresh}
         onSelectReserva={(id) => handleOpenDialog(id)}
         onNewReserva={can("reservas:criar") ? (seed) => handleOpenDialog(undefined, seed) : undefined}

@@ -16,15 +16,21 @@ export async function enrich(items: Record<string, any>[]): Promise<Record<strin
   ]);
   for (const result of [imoveis, clientes, proprietarios, fotos]) if (result.error) throw result.error;
 
-  const getCoverPhoto = (targetId?: number | null) => {
-    if (!targetId) return null;
-    const file = fotos.data?.find((f) => f.imovel_id === targetId);
-    if (!file) return null;
-    return db.storage.from(IMOBILIARIO_BUCKET_FOTOS).getPublicUrl(file.path).data.publicUrl;
-  };
+  // As relações já chegam em lote; indexá-las evita percorrer as mesmas listas
+  // para cada reserva/imóvel e gerar a mesma URL de capa várias vezes.
+  const imoveisById = new Map((imoveis.data ?? []).map(row => [row.id, row]));
+  const clientesById = new Map((clientes.data ?? []).map(row => [row.id, row]));
+  const proprietariosById = new Map((proprietarios.data ?? []).map(row => [row.id, row]));
+  const coversById = new Map<number, string>();
+  for (const file of fotos.data ?? []) {
+    if (!coversById.has(file.imovel_id)) {
+      coversById.set(file.imovel_id, db.storage.from(IMOBILIARIO_BUCKET_FOTOS).getPublicUrl(file.path).data.publicUrl);
+    }
+  }
+  const getCoverPhoto = (targetId?: number | null) => coversById.get(targetId ?? 0) ?? null;
 
   return items.map((r) => {
-    const imovelObj = imoveis.data?.find((i) => i.id === r.imovel_id);
+    const imovelObj = imoveisById.get(r.imovel_id);
     const targetImovelId = r.imovel_id ?? (r.titulo && r.id ? r.id : null);
     const cover = getCoverPhoto(targetImovelId);
 
@@ -32,8 +38,8 @@ export async function enrich(items: Record<string, any>[]): Promise<Record<strin
       ...r,
       foto_capa: r.foto_capa ?? cover,
       imovel: imovelObj ? { ...imovelObj, foto_capa: getCoverPhoto(imovelObj.id) } : undefined,
-      cliente: clientes.data?.find((i) => i.id === (r.cliente_id ?? r.comprador_id)),
-      proprietario: proprietarios.data?.find((i) => i.id === r.proprietario_id),
+      cliente: clientesById.get(r.cliente_id ?? r.comprador_id),
+      proprietario: proprietariosById.get(r.proprietario_id),
     };
   });
 }
@@ -42,8 +48,14 @@ export async function publicFlats(rows: Record<string, any>[]) {
   if (!rows.length) return [];
   const { data: files, error } = await db.from("imovel_arquivo").select("imovel_id,path,ordem").in("imovel_id", rows.map((r) => r.id)).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).is("reserva_id", null).is("locacao_id", null).is("venda_id", null).is("proprietario_id", null).order("ordem").order("id");
   if (error) throw error;
+  const galleriesById = new Map<number, string[]>();
+  for (const file of files ?? []) {
+    const gallery = galleriesById.get(file.imovel_id) ?? [];
+    gallery.push(db.storage.from(IMOBILIARIO_BUCKET_FOTOS).getPublicUrl(file.path).data.publicUrl);
+    galleriesById.set(file.imovel_id, gallery);
+  }
   return rows.map((r) => {
-    const gallery = (files ?? []).filter((f) => f.imovel_id === r.id).map((f) => db.storage.from(IMOBILIARIO_BUCKET_FOTOS).getPublicUrl(f.path).data.publicUrl);
+    const gallery = galleriesById.get(r.id) ?? [];
     const address = r.endereco_publico ?? {};
     return {
       id: String(r.id), slug: r.slug, title: r.titulo, neighborhood: address.bairro ?? "", city: address.cidade ?? "", state: address.estado ?? "",

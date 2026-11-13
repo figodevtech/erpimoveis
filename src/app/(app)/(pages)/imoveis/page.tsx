@@ -36,7 +36,7 @@ export default function ImoveisPage() {
     ocupados,
     loadingStatusCounter,
     fetchStatusCounts,
-  } = useImoveisStatusCounter();
+  } = useImoveisStatusCounter({ auto: ready && can("imoveis:visualizar") });
 
   const [selectedId, setSelectedId] = useState<number | undefined>(undefined);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -46,16 +46,11 @@ export default function ImoveisPage() {
 
   const fetchImoveis = useCallback(
     async (
-      pageNumber?: number,
-      limitNumber?: number,
-      searchTerm?: string,
-      situacaoFilter?: SituacaoImovel
+      pageToUse: number,
+      limitToUse: number,
+      searchToUse: string,
+      situacaoToUse: SituacaoImovel
     ) => {
-      const pageToUse = pageNumber ?? pagination.page;
-      const limitToUse = limitNumber ?? pagination.limit;
-      const searchToUse = searchTerm !== undefined ? searchTerm : search;
-      const situacaoToUse = situacaoFilter ?? situacao;
-
       const requestId = ++requestSequence.current;
       requestController.current?.abort();
       const controller = new AbortController();
@@ -101,7 +96,7 @@ export default function ImoveisPage() {
         }
       }
     },
-    [pagination.page, pagination.limit, search, situacao]
+    []
   );
 
   useEffect(() => {
@@ -122,7 +117,7 @@ export default function ImoveisPage() {
   useEffect(() => {
     if (!ready || !can("imoveis:visualizar")) return;
     void fetchImoveis(1, pagination.limit, search, situacao);
-  }, [situacao, search, ready, can, pagination.limit]);
+  }, [situacao, search, ready, can, pagination.limit, fetchImoveis]);
 
   const handleRefresh = () => {
     void fetchImoveis(pagination.page, pagination.limit, search, situacao);
@@ -183,7 +178,7 @@ export default function ImoveisPage() {
         isLoading={isLoading}
         pagination={pagination}
         onPageChange={(page) => fetchImoveis(page, pagination.limit, search, situacao)}
-        onPageSizeChange={(limit) => fetchImoveis(1, limit, search, situacao)}
+        onPageSizeChange={(limit) => setPagination(prev => ({ ...prev, page: 1, limit }))}
         onRefresh={handleRefresh}
         onSelectImovel={(id) => handleOpenDialog(id)}
         onNewImovel={can("imoveis:criar") ? () => handleOpenDialog(undefined) : undefined}

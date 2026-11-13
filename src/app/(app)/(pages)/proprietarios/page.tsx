@@ -34,7 +34,7 @@ export default function ProprietariosPage() {
     totalProprietarios,
     loadingStatusCounter,
     fetchStatusCounts,
-  } = useProprietariosStatusCounter();
+  } = useProprietariosStatusCounter({ auto: ready && can("proprietarios:visualizar") });
 
   const [selectedId, setSelectedId] = useState<number | undefined>(undefined);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -43,12 +43,7 @@ export default function ProprietariosPage() {
   const requestController = useRef<AbortController | null>(null);
 
   const fetchProprietarios = useCallback(
-    async (pageNumber?: number, limitNumber?: number, searchTerm?: string, statusFilter?: StatusProprietario) => {
-      const pageToUse = pageNumber ?? pagination.page;
-      const limitToUse = limitNumber ?? pagination.limit;
-      const searchToUse = searchTerm !== undefined ? searchTerm : search;
-      const statusToUse = statusFilter ?? status;
-
+    async (pageToUse: number, limitToUse: number, searchToUse: string, statusToUse: StatusProprietario) => {
       const requestId = ++requestSequence.current;
       requestController.current?.abort();
       const controller = new AbortController();
@@ -94,7 +89,7 @@ export default function ProprietariosPage() {
         }
       }
     },
-    [pagination.page, pagination.limit, search, status]
+    []
   );
 
   useEffect(() => {
@@ -115,7 +110,7 @@ export default function ProprietariosPage() {
   useEffect(() => {
     if (!ready || !can("proprietarios:visualizar")) return;
     void fetchProprietarios(1, pagination.limit, search, status);
-  }, [status, search, ready, can, pagination.limit]);
+  }, [status, search, ready, can, pagination.limit, fetchProprietarios]);
 
   const handleRefresh = () => {
     void fetchProprietarios(pagination.page, pagination.limit, search, status);
@@ -174,7 +169,7 @@ export default function ProprietariosPage() {
         isLoading={isLoading}
         pagination={pagination}
         onPageChange={(page) => fetchProprietarios(page, pagination.limit, search, status)}
-        onPageSizeChange={(limit) => fetchProprietarios(1, limit, search, status)}
+        onPageSizeChange={(limit) => setPagination(prev => ({ ...prev, page: 1, limit }))}
         onRefresh={handleRefresh}
         onSelectProprietario={(id) => handleOpenDialog(id)}
         onNewProprietario={can("proprietarios:criar") ? () => handleOpenDialog(undefined) : undefined}

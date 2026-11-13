@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
-export const DEFAULT_ROUTES = ['/dashboard', '/ordens', '/clientes', '/estoque', '/veiculos', '/agendamentos', '/fluxodecaixa', '/bancos', '/fiscal', '/relatorios'];
+export const DEFAULT_ROUTES = ['/dashboard', '/imoveis', '/proprietarios', '/reservas', '/locacoes-imobiliarias', '/vendas-imobiliarias', '/clientes', '/fluxodecaixa', '/bancos', '/fiscal', '/relatorios'];
 const AUTH_FILE = path.resolve('playwright/.auth/performance-user.json');
 const PAGE_CONTENT_SELECTOR = 'main:not([data-slot="sidebar-inset"])';
 const BACKGROUND = /^\/api\/(?:auth(?:\/|$)|chat(?:\/|$)|notifications(?:\/|$)|radios?(?:\/|$)|plano\/status)/;
@@ -181,7 +181,7 @@ async function main() {
   const args = process.argv.slice(2);
   const option = (name, fallback) => args.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
   if (args.includes('--help')) {
-    console.log('npm run perf:login -- [--url=http://localhost:3000]\nnpm run perf:navigation -- [--routes=/dashboard,/ordens,/estoque] [--rounds=2] [--budget=5000] [--headed] [--url=http://localhost:3000]');
+    console.log('npm run perf:login -- [--url=http://localhost:3000]\nnpm run perf:navigation -- [--routes=/dashboard,/imoveis,/reservas] [--rounds=2] [--budget=5000] [--headed] [--url=http://localhost:3000]');
     return;
   }
   const base = new URL(option('url', 'http://localhost:3000'));
