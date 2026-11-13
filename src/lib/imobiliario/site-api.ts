@@ -274,6 +274,10 @@ async function syncedAccount(request: Request) {
       }
     }
   } else {
+    // O login do site é único: a conta da equipe (usuario do ERP) recebe orientação clara em vez de "cadastro pendente".
+    const staff = await db.from("usuario").select("id").eq("id", user.id).maybeSingle();
+    if (staff.error) throw staff.error;
+    if (staff.data) throw new ImobError(403, "Esta é uma conta da equipe. Acesse pelo ERP.", { code: "CONTA_INTERNA" });
     const sync = await rpc("imob_sincronizar_cliente_site", { p_auth_id: user.id });
     if (sync.status !== "ATIVO") throw new ImobError(409, "Seu cadastro precisa ser conferido pela equipe. Entre em contato para concluir o acesso.", { pending: true, code: "CADASTRO_PENDENTE" });
     result = await db.from("site_usuario").select("*").eq("user_id", user.id).single();
@@ -281,6 +285,75 @@ async function syncedAccount(request: Request) {
   }
   if (!result.data || result.data.status !== "ATIVO") throw new ImobError(403, "O acesso desta conta está bloqueado ou ainda não foi ativado.");
   return { user, account: result.data };
+}
+
+/* ------------------------------------------------ reserva de uso próprio (proprietário) */
+
+const OWN_USE_REASON = "Reserva de uso próprio do proprietário";
+const OWN_USE_MAX_DAYS = 180;
+const OWN_USE_MAX_AHEAD_DAYS = 730;
+// reserva_id: o site desenha como "Ocupado" a ocupação de reserva que não está na lista do proprietário.
+const OCCUPATION_COLUMNS = "id,imovel_id,tipo,inicio,fim,motivo,reserva_id,solicitado_por";
+
+/**
+ * Primeiro e último dia escolhidos pelo proprietário → período do bloqueio (fim exclusivo,
+ * como em toda imovel_ocupacao). Só datas de hoje em diante, até 2 anos à frente e 180 dias.
+ */
+function ownUsePeriod(body: Record<string, any>) {
+  const { inicio, ultimo } = z.object({ inicio: civilDate, ultimo: civilDate }).parse(body);
+  const today = hojeImobiliario();
+  if (inicio < today) throw new ImobError(400, "Escolha datas a partir de hoje.");
+  if (ultimo < inicio) throw new ImobError(400, "O último dia deve ser igual ou posterior ao primeiro.");
+  if (inicio > civilPlus(today, OWN_USE_MAX_AHEAD_DAYS)) throw new ImobError(400, "A reserva de uso próprio pode ser feita com até 2 anos de antecedência.");
+  const fim = civilPlus(ultimo, 1);
+  if (Math.round((Date.parse(fim) - Date.parse(inicio)) / 86_400_000) > OWN_USE_MAX_DAYS) throw new ImobError(400, `Escolha no máximo ${OWN_USE_MAX_DAYS} dias por vez.`);
+  return { inicio, fim };
+}
+
+/** Ocupação como o site do proprietário vê: sem o login de quem criou, só se o bloqueio é dele. */
+function ownerOccupation(row: Record<string, any>, userId: string) {
+  const { solicitado_por: requestedBy, ...rest } = row;
+  return { ...rest, uso_proprio: Boolean(requestedBy) && requestedBy === userId };
+}
+
+/**
+ * CRUD da reserva de uso próprio. É um BLOQUEIO comum (a regra de exclusão do banco impede
+ * conflito com reservas e outros bloqueios), marcado com o login do proprietário: ele só altera
+ * ou exclui os próprios, e só antes de começarem. Bloqueios e manutenções da equipe ficam fora.
+ */
+async function ownerBlocks(request: Request, method: string, blockId: string | undefined, userId: string, properties: Record<string, any>[]) {
+  const propertyIds = properties.map((property) => property.id);
+  if (method === "POST" && !blockId) {
+    const body = await bodyOf(request);
+    const propertyId = identifier(body.imovelId ?? body.imovel_id);
+    const property = properties.find((item) => item.id === propertyId);
+    if (!property) throw new ImobError(404, "Imóvel não encontrado.");
+    if (property.ativo === false) throw new ImobError(409, "Este imóvel está inativo; fale com a equipe.");
+    const result = await db.from("imovel_ocupacao")
+      .insert({ imovel_id: propertyId, tipo: "BLOQUEIO", ...ownUsePeriod(body), motivo: OWN_USE_REASON, solicitado_por: userId })
+      .select(OCCUPATION_COLUMNS).single();
+    if (result.error) throw result.error;
+    return json({ item: ownerOccupation(result.data, userId) }, 201);
+  }
+  if (!blockId || !["PATCH", "DELETE"].includes(method)) throw new ImobError(404, "Rota da conta não encontrada.");
+  const id = identifier(blockId);
+  const current = await db.from("imovel_ocupacao").select(OCCUPATION_COLUMNS)
+    .eq("id", id).eq("ativo", true).eq("tipo", "BLOQUEIO").eq("solicitado_por", userId).in("imovel_id", propertyIds).maybeSingle();
+  if (current.error) throw current.error;
+  if (!current.data) throw new ImobError(404, "Reserva de uso próprio não encontrada.");
+  if (current.data.inicio < hojeImobiliario()) throw new ImobError(409, "Este período já começou e não pode mais ser alterado pelo site. Fale com a equipe.");
+  const now = new Date().toISOString();
+  if (method === "DELETE") {
+    // Como no ERP: o bloqueio é desativado, não apagado (fica no histórico e na auditoria).
+    const result = await db.from("imovel_ocupacao").update({ ativo: false, updated_at: now }).eq("id", id).eq("solicitado_por", userId).eq("ativo", true).select("id").maybeSingle();
+    if (result.error) throw result.error;
+    if (!result.data) throw new ImobError(404, "Reserva de uso próprio não encontrada.");
+    return json({ ok: true });
+  }
+  const result = await db.from("imovel_ocupacao").update({ ...ownUsePeriod(await bodyOf(request)), updated_at: now })
+    .eq("id", id).eq("solicitado_por", userId).eq("ativo", true).select(OCCUPATION_COLUMNS).single();
+  if (result.error) throw result.error;
+  return json({ item: ownerOccupation(result.data, userId) });
 }
 
 async function profile(account: Record<string, any>, email: string) {
@@ -359,6 +432,7 @@ export async function siteApi(request: Request, path: string[]) {
     const properties = await db.from("imovel_resumo").select("*").eq("proprietario_id", ownerId).order("titulo");
     if (properties.error) throw properties.error;
     if (path[1] === "imoveis" && method === "GET") return json({ items: await publicFlats(properties.data) });
+    if (path[1] === "bloqueios") return ownerBlocks(request, method, path[2], account.user_id, properties.data);
     const selected = url.searchParams.get("imovelId") ?? url.searchParams.get("imovel_id");
     const selectedId = selected ? identifier(selected) : null;
     const selectedProperties = selectedId ? properties.data.filter((property) => property.id === selectedId) : properties.data;
@@ -371,14 +445,16 @@ export async function siteApi(request: Request, path: string[]) {
     }
     if (path[1] === "dashboard" && method === "GET") {
       const current = hojeImobiliario();
-      let reservationsQuery = db.from("reserva_imovel").select("id,imovel_id,cliente_id,inicio,fim,hospedes,status,valor_total,financeiro_status,created_at").eq("proprietario_id", ownerId);
+      let reservationsQuery = db.from("reserva_imovel").select("id,imovel_id,cliente_id,inicio,fim,horario_checkin,horario_checkout,checkin_em,checkout_em,hospedes,status,valor_total,financeiro_status,created_at").eq("proprietario_id", ownerId);
       if (selectedId) reservationsQuery = reservationsQuery.eq("imovel_id", selectedId);
       const periodStart = url.searchParams.get("inicio"), periodEnd = url.searchParams.get("fim");
       if (periodStart) reservationsQuery = reservationsQuery.gt("fim", civilDate.parse(periodStart));
       if (periodEnd) reservationsQuery = reservationsQuery.lte("inicio", civilDate.parse(periodEnd));
+      // Bloqueios dos últimos 12 meses em diante: o calendário do imóvel também mostra os que já passaram.
+      const blocksSince = new Date(Date.parse(`${current}T00:00:00Z`) - 365 * 86_400_000).toISOString().slice(0, 10);
       const [reservations, occupations] = await Promise.all([
         reservationsQuery.order("inicio", { ascending: false }).limit(300),
-        selectedProperties.length ? db.from("imovel_ocupacao").select("id,imovel_id,tipo,inicio,fim,motivo").in("imovel_id", selectedProperties.map((p) => p.id)).eq("ativo", true).or(`fim.is.null,fim.gt.${current}`).limit(1000) : Promise.resolve({ data: [], error: null }),
+        selectedProperties.length ? db.from("imovel_ocupacao").select(OCCUPATION_COLUMNS).in("imovel_id", selectedProperties.map((p) => p.id)).eq("ativo", true).or(`fim.is.null,fim.gt.${blocksSince}`).order("inicio", { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
       ]);
       if (reservations.error) throw reservations.error;
       if (occupations.error) throw occupations.error;
@@ -390,11 +466,13 @@ export async function siteApi(request: Request, path: string[]) {
           const booking = publicBooking(reservation);
           return { id: String(reservation.id), flat: reservation.imovel?.titulo ?? "Imóvel", period: `${reservation.inicio} a ${reservation.fim}`, amount: Number(reservation.valor_total), status: booking.status,
             flatId: String(reservation.imovel_id), checkin: reservation.inicio, checkout: reservation.fim, guests: Number(reservation.hospedes ?? 0), paymentStatus: booking.paymentStatus, createdAt: reservation.created_at ?? null,
-            // Titular da reserva: só nome, contato e cidade. Documento (CPF/CNPJ) não sai para o proprietário.
-            guest: reservation.cliente ? { name: reservation.cliente.nomerazaosocial ?? null, phone: reservation.cliente.telefone ?? null, email: reservation.cliente.email ?? null,
-              city: reservation.cliente.cidade ?? null, state: reservation.cliente.estado ?? null } : null };
+            // Calendário do imóvel: horário previsto (HH:MM) e, quando registrados no ERP, entrada e saída reais.
+            checkinTime: reservation.horario_checkin ? String(reservation.horario_checkin).slice(0, 5) : null, checkoutTime: reservation.horario_checkout ? String(reservation.horario_checkout).slice(0, 5) : null,
+            checkedInAt: reservation.checkin_em ?? null, checkedOutAt: reservation.checkout_em ?? null,
+            // Titular da reserva: só nome e cidade. Documento (CPF/CNPJ), telefone e e-mail não saem para o proprietário.
+            guest: reservation.cliente ? { name: reservation.cliente.nomerazaosocial ?? null, city: reservation.cliente.cidade ?? null, state: reservation.cliente.estado ?? null } : null };
         }),
-        maintenance: occupations.data.filter((o) => ["MANUTENCAO", "BLOQUEIO"].includes(o.tipo)).map((occupation) => ({ title: occupation.motivo ?? "Bloqueio do imóvel", status: occupation.tipo === "MANUTENCAO" ? "Manutenção" : "Bloqueio", amount: null })), ocupacoes: occupations.data, totais: report.totais, imoveis: await publicFlats(selectedProperties) });
+        maintenance: occupations.data.filter((o) => ["MANUTENCAO", "BLOQUEIO"].includes(o.tipo) && (!o.fim || o.fim > current)).map((occupation) => ({ title: occupation.motivo ?? "Bloqueio do imóvel", status: occupation.tipo === "MANUTENCAO" ? "Manutenção" : "Bloqueio", amount: null })), ocupacoes: occupations.data.map((occupation) => ownerOccupation(occupation, account.user_id)), totais: report.totais, imoveis: await publicFlats(selectedProperties) });
     }
   }
   throw new ImobError(404, "Rota da conta não encontrada.");

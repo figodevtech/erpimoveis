@@ -514,6 +514,13 @@ export async function internalResource(request: Request, resource: Resource, pat
       }
       if (method === "DELETE") { const r = await db.from("imovel_tarifa").delete().eq("imovel_id", id).eq("id", identifier(path[2] ?? url.searchParams.get("id"))); if (r.error) throw r.error; return json({ ok: true }); }
     }
+    // Troca (ou correção) de proprietário com tudo o que acompanha o imóvel. Com o mesmo dono atual
+    // e modo CORRECAO, recolhe para ele o que ficou ligado a outro proprietário.
+    if (segment === "proprietario" && method === "POST") {
+      await internal(PERMS.IMOVEIS_EDITAR);
+      const body = z.object({ proprietario_id: z.coerce.number().int().positive(), modo: z.enum(["TRANSFERENCIA", "CORRECAO"]) }).parse(await bodyOf(request));
+      return json({ resultado: await rpc("imob_trocar_proprietario", { p_imovel_id: id, p_novo_id: body.proprietario_id, p_modo: body.modo, p_actor: access.id }) });
+    }
     if (segment === "bloqueios") {
       await internal(PERMS.IMOVEIS_EDITAR);
       if (method === "POST") {
@@ -601,6 +608,14 @@ export async function internalResource(request: Request, resource: Resource, pat
     const data = config.schema.parse({ ...previous, ...body, ...(resource === "reservas" ? { idempotency_key: body.idempotency_key ?? previous.idempotency_key ?? randomUUID(), origem: "ERP" } : {}) }) as Record<string, any>;
     if (resource === "proprietarios") data.cpfcnpj = data.cpfcnpj.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
     if (resource === "imoveis") await publicationValid(data, id ?? undefined);
+    // Troca de proprietário nunca é um update solto: reservas, cobranças e extrato acompanham o
+    // imóvel conforme o motivo (imob_trocar_proprietario). Sem motivo, o ERP pergunta antes.
+    if (resource === "imoveis" && id && Number(data.proprietario_id) !== Number(previous.proprietario_id)) {
+      const modo = String(body.troca_proprietario ?? "").toUpperCase();
+      if (!["TRANSFERENCIA", "CORRECAO"].includes(modo))
+        throw new ImobError(409, "Informe se a troca de proprietário é uma transferência do imóvel ou uma correção de cadastro.", { code: "TROCA_PROPRIETARIO" });
+      await rpc("imob_trocar_proprietario", { p_imovel_id: id, p_novo_id: identifier(data.proprietario_id), p_modo: modo, p_actor: access.id });
+    }
     if (["proprietarios", "imoveis"].includes(resource)) {
       const query = id ? db.from(config.table).update({ ...data, updated_by: access.id }).eq("id", id) : db.from(config.table).insert({ ...data, created_by: access.id });
       const result = await query.select().single();

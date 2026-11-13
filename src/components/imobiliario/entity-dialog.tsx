@@ -167,6 +167,8 @@ export default function EntityDialog({
   const [quote, setQuote] = useState<Quote | null>(null);
   // Regras de tarifa que o período quebra, aguardando o "prosseguir mesmo assim".
   const [rulesToConfirm, setRulesToConfirm] = useState<string[] | null>(null);
+  // Troca do proprietário do imóvel: o motivo decide o que acompanha o imóvel (ver imob_trocar_proprietario).
+  const [ownerChangeOpen, setOwnerChangeOpen] = useState(false);
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const [operation, setOperation] = useState<ModuleKind | null>(null);
   // Reserva ou locação aberta a partir da aba Disponibilidade do imóvel.
@@ -220,7 +222,8 @@ export default function EntityDialog({
   // Sem evento quando vem do botão da aba Mídia do imóvel novo: salva dali mesmo, com os dados
   // já em `value`, e a tela fica na Mídia para acompanhar o envio das fotos.
   // `ignorarRegras` vem do AlertDialog: o operador viu as regras de tarifa quebradas e quis seguir.
-  const save = async (event?: React.FormEvent, ignorarRegras = false) => {
+  // `trocaProprietario` vem do AlertDialog da troca de proprietário: o motivo escolhido.
+  const save = async (event?: React.FormEvent, ignorarRegras = false, trocaProprietario?: "TRANSFERENCIA" | "CORRECAO") => {
     event?.preventDefault();
     if (!editable && !(kind === "imoveis" && can("imoveis:publicar") && tab === "publicacao")) return;
     const block = (message: string) => {
@@ -237,10 +240,17 @@ export default function EntityDialog({
     }
     if (kind === "imoveis" && !(value.modalidades ?? []).length) return block("Selecione ao menos uma modalidade do imóvel.");
     if (kind === "imoveis" && !value.proprietario_id) return block("Selecione o proprietário do imóvel.");
+    const ownerChanged =
+      kind === "imoveis" && Boolean(currentId) && original && String(value.proprietario_id) !== String(original.proprietario_id);
+    if (ownerChanged && !trocaProprietario) {
+      setOwnerChangeOpen(true);
+      return;
+    }
 
     let payload: Entity = {
       ...value,
       idempotency_key: currentId ? value.idempotency_key : requestKey,
+      ...(ownerChanged && trocaProprietario ? { troca_proprietario: trocaProprietario } : {}),
     };
 
     if (kind === "proprietarios") {
@@ -819,6 +829,56 @@ export default function EntityDialog({
               }}
             >
               Prosseguir mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={ownerChangeOpen} onOpenChange={setOwnerChangeOpen}>
+        <AlertDialogContent className="sm:max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Por que o proprietário está mudando?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  De <b className="text-foreground">{original?.proprietario?.nomerazaosocial || `Proprietário #${original?.proprietario_id}`}</b>{" "}
+                  para <b className="text-foreground">{value.proprietario?.nomerazaosocial || `Proprietário #${value.proprietario_id}`}</b>.
+                </p>
+                <div className="rounded-md border p-3">
+                  <p className="font-medium text-foreground">O imóvel mudou de dono</p>
+                  <p>
+                    Reservas confirmadas e em andamento, locações ativas e as cobranças delas ainda não pagas passam para o novo dono.
+                    O que já foi recebido, taxado ou repassado continua no extrato do dono anterior.
+                  </p>
+                </div>
+                <div className="rounded-md border p-3">
+                  <p className="font-medium text-foreground">O cadastro estava errado</p>
+                  <p>
+                    Tudo do imóvel passa para o novo dono, inclusive o histórico: reservas concluídas, extrato, repasses e transações pagas.
+                    Ficam de fora a venda do imóvel e notas fiscais já emitidas.
+                  </p>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-secondary text-secondary-foreground hover:bg-secondary/80"
+              onClick={() => {
+                setOwnerChangeOpen(false);
+                void save(undefined, false, "CORRECAO");
+              }}
+            >
+              Corrigir cadastro
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                setOwnerChangeOpen(false);
+                void save(undefined, false, "TRANSFERENCIA");
+              }}
+            >
+              Transferir imóvel
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
