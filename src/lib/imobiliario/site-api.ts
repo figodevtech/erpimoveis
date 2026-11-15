@@ -6,6 +6,9 @@ import { civilDate, reservaSchema } from "./schemas";
 import { enrich, minNoitesGeral, publicBooking, publicFlats } from "./data";
 import { cotacaoPublica, hojeImobiliario } from "./types";
 import { financeReport } from "./finance";
+import { ownerBlockNotification, type OwnerBlockEvent } from "./owner-block-notification";
+import { notifyUsersWithPermission } from "@/lib/system-notifications";
+import { PERMS } from "@/app/api/_authz/permission-constants";
 
 // Limitador por instância para formulários públicos; o banco continua sendo a autoridade
 // para identidade, idempotência, preços e ocupação.
@@ -323,12 +326,30 @@ function ownerOccupation(row: Record<string, any>, userId: string) {
 }
 
 /**
+ * Avisa no ERP quem acompanha os imóveis (imoveis:visualizar). Roda depois de o bloqueio estar
+ * gravado: falha no aviso não desfaz nem recusa a ação do proprietário, só fica no log.
+ */
+async function notifyOwnerBlock(event: OwnerBlockEvent) {
+  try {
+    await notifyUsersWithPermission(PERMS.IMOVEIS, [ownerBlockNotification(event)]);
+  } catch (error) {
+    console.error("[imobiliario] notificação do bloqueio", event.ocupacaoId, error);
+  }
+}
+
+/**
  * CRUD da reserva de uso próprio. É um BLOQUEIO comum (a regra de exclusão do banco impede
  * conflito com reservas e outros bloqueios), marcado com o login do proprietário: ele só altera
  * ou exclui os próprios, e só antes de começarem. Bloqueios e manutenções da equipe ficam fora.
+ * Cada criação, alteração e cancelamento vira um aviso na central de notificações do ERP.
  */
-async function ownerBlocks(request: Request, method: string, blockId: string | undefined, userId: string, properties: Record<string, any>[]) {
+async function ownerBlocks(request: Request, method: string, blockId: string | undefined, userId: string, properties: Record<string, any>[], owner: { id: number; nome: string }) {
   const propertyIds = properties.map((property) => property.id);
+  const event = (row: Record<string, any>) => ({
+    ocupacaoId: Number(row.id), imovelId: Number(row.imovel_id),
+    imovelTitulo: String(properties.find((item) => item.id === row.imovel_id)?.titulo ?? ""),
+    proprietarioId: owner.id, proprietarioNome: owner.nome, inicio: String(row.inicio), fim: String(row.fim),
+  });
   if (method === "POST" && !blockId) {
     const body = await bodyOf(request);
     const propertyId = identifier(body.imovelId ?? body.imovel_id);
@@ -339,6 +360,7 @@ async function ownerBlocks(request: Request, method: string, blockId: string | u
       .insert({ imovel_id: propertyId, tipo: "BLOQUEIO", ...ownUsePeriod(body), motivo: OWN_USE_REASON, solicitado_por: userId })
       .select(OCCUPATION_COLUMNS).single();
     if (result.error) throw result.error;
+    await notifyOwnerBlock({ acao: "CRIADO", ...event(result.data) });
     return json({ item: ownerOccupation(result.data, userId) }, 201);
   }
   if (!blockId || !["PATCH", "DELETE"].includes(method)) throw new ImobError(404, "Rota da conta não encontrada.");
@@ -354,11 +376,16 @@ async function ownerBlocks(request: Request, method: string, blockId: string | u
     const result = await db.from("imovel_ocupacao").update({ ativo: false, updated_at: now }).eq("id", id).eq("solicitado_por", userId).eq("ativo", true).select("id").maybeSingle();
     if (result.error) throw result.error;
     if (!result.data) throw new ImobError(404, "Reserva de uso próprio não encontrada.");
+    await notifyOwnerBlock({ acao: "CANCELADO", ...event(current.data) });
     return json({ ok: true });
   }
   const result = await db.from("imovel_ocupacao").update({ ...ownUsePeriod(await bodyOf(request)), updated_at: now })
     .eq("id", id).eq("solicitado_por", userId).eq("ativo", true).select(OCCUPATION_COLUMNS).single();
   if (result.error) throw result.error;
+  // Salvar sem mudar as datas não mexe no calendário: sem aviso.
+  if (result.data.inicio !== current.data.inicio || result.data.fim !== current.data.fim) {
+    await notifyOwnerBlock({ acao: "ALTERADO", ...event(result.data), anterior: { inicio: String(current.data.inicio), fim: String(current.data.fim) }, versao: now });
+  }
   return json({ item: ownerOccupation(result.data, userId) });
 }
 
@@ -432,13 +459,13 @@ export async function siteApi(request: Request, path: string[]) {
   if (path[0] === "proprietario") {
     const { account } = await external(request, "PROPRIETARIO");
     const ownerId = identifier(account.proprietario_id);
-    const owner = await db.from("proprietario").select("id").eq("id", ownerId).eq("user_id", account.user_id).eq("ativo", true).maybeSingle();
+    const owner = await db.from("proprietario").select("id,nomerazaosocial").eq("id", ownerId).eq("user_id", account.user_id).eq("ativo", true).maybeSingle();
     if (owner.error) throw owner.error;
     if (!owner.data) throw new ImobError(403, "O acesso deste proprietário foi suspenso.");
     const properties = await db.from("imovel_resumo").select("*").eq("proprietario_id", ownerId).order("titulo");
     if (properties.error) throw properties.error;
     if (path[1] === "imoveis" && method === "GET") return json({ items: await publicFlats(properties.data) });
-    if (path[1] === "bloqueios") return ownerBlocks(request, method, path[2], account.user_id, properties.data);
+    if (path[1] === "bloqueios") return ownerBlocks(request, method, path[2], account.user_id, properties.data, { id: ownerId, nome: String(owner.data.nomerazaosocial ?? "") });
     const selected = url.searchParams.get("imovelId") ?? url.searchParams.get("imovel_id");
     const selectedId = selected ? identifier(selected) : null;
     const selectedProperties = selectedId ? properties.data.filter((property) => property.id === selectedId) : properties.data;

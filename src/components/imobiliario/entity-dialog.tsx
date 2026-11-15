@@ -87,6 +87,8 @@ export type EntityDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => void;
+  /** Aba aberta de início (link de notificação, por exemplo); sem ela, "geral". */
+  initialTab?: string;
 };
 
 function defaults(kind: ModuleKind): Entity {
@@ -153,6 +155,7 @@ export default function EntityDialog({
   open,
   onOpenChange,
   onSaved,
+  initialTab,
 }: EntityDialogProps) {
   const config = MODULES[kind];
   const permission = config.permission;
@@ -161,7 +164,8 @@ export default function EntityDialog({
   const [currentId, setCurrentId] = useState(id);
   const remote = useRemote(currentId && open ? endpoint(kind, currentId) : null);
   const [value, setValue] = useState<Entity>(() => ({ ...defaults(kind), ...initial }));
-  const [tab, setTab] = useState("geral");
+  // As abas além de "geral" só existem para um registro já salvo.
+  const [tab, setTab] = useState(id && initialTab ? initialTab : "geral");
   const [busy, setBusy] = useState(false);
   const [action, setAction] = useState<string | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
