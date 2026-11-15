@@ -8,9 +8,14 @@ import ts from "typescript";
 type Row = Record<string, any>;
 
 // Exercita a implementação real sem abrir conexões nem carregar credenciais.
-function loadData(tables: Record<string, Row[]>, failure?: string) {
+function loadData(tables: Record<string, Row[]>, failure?: string, minimoGeral: unknown = 1) {
   const queries: string[] = [], urls: string[] = [];
   const db = {
+    // Mínimo de noites geral (imob_min_noites_geral); um código de erro simula a migration ausente.
+    rpc: async (name: string) => {
+      queries.push(`rpc:${name}`);
+      return typeof minimoGeral === "string" ? { data: null, error: { code: minimoGeral } } : { data: minimoGeral, error: null };
+    },
     from(table: string) {
       queries.push(table);
       const filters: Array<(row: Row) => boolean> = [];
@@ -84,6 +89,18 @@ test("galeria mantém ordem e isolamento por imóvel e não expõe anexos privad
   assert.equal(result[2].gallery.length, 0);
   assert.equal("endereco" in result[0], false);
   assert.equal("cpf" in result[0], false);
+});
+
+test("mínimo de noites do anúncio é o maior entre o geral e o do imóvel", async () => {
+  const { api } = loadData({}, undefined, 2);
+  const [semMinimo, comMinimoMaior] = await api.publicFlats([{ id: 10, min_noites: 1 }, { id: 20, min_noites: 5 }]);
+  assert.equal(semMinimo.minNights, 2);
+  assert.equal(comMinimoMaior.minNights, 5);
+  // Sem a migration aplicada (função inexistente), vale o mínimo do imóvel.
+  const [antigo] = await loadData({}, undefined, "PGRST202").api.publicFlats([{ id: 10, min_noites: 1 }]);
+  assert.equal(antigo.minNights, 1);
+  // Outro erro do banco não é engolido.
+  await assert.rejects(loadData({}, undefined, "57014").api.publicFlats([{ id: 10 }]));
 });
 
 test("lista vazia não consulta banco e falha de relação não vira cadastro parcial", async () => {

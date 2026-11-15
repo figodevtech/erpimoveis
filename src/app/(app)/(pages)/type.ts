@@ -25,5 +25,10 @@ export interface Config {
     setor_padrao_os_id: number | null;
     /** Cor (e texto opcional) aplicados a toda OS num dado status na listagem. */
     destaque_os_por_status: RegrasDestaqueStatus;
+    /**
+     * Mínimo de noites de toda reserva de temporada (site e ERP). Imóvel e tarifa podem exigir
+     * mais. Ausente enquanto a migration 20261115120000 não foi aplicada.
+     */
+    reserva_min_noites?: number;
     created_at: string;
 }

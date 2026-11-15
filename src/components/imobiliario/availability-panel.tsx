@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 import {
   AlertTriangle,
   ArrowRight,
@@ -1580,7 +1581,9 @@ function groupNights(nights: { date: string; amount: number }[], tariffs: Entity
 /** Mesma cotação da reserva: diárias noite a noite (com tarifas), taxa de limpeza e total. */
 function QuoteSimulator({ item, tariffs, request }: { item: Entity; tariffs: Entity[]; request: SimulationRequest | null }) {
   const today = todayCivil();
-  const minNights = Math.max(1, Number(item.min_noites) || 1);
+  // O maior entre o mínimo geral (Configurações > Geral) e o do imóvel; tarifas aparecem na simulação.
+  const minimoGeral = Number(useConfig()?.reserva_min_noites) || 1;
+  const minNights = Math.max(1, Number(item.min_noites) || 1, minimoGeral);
   const capacity = Math.max(1, Number(item.capacidade) || 1);
   const [form, setForm] = useState({ inicio: today, fim: addDays(today, minNights), hospedes: 1 });
   const [loading, setLoading] = useState(false);
@@ -1688,7 +1691,7 @@ function QuoteSimulator({ item, tariffs, request }: { item: Entity; tariffs: Ent
             {nightsCount ? (
               <span className="mr-2 rounded-full bg-primary/10 px-2.5 py-1 font-semibold text-primary">{plural(nightsCount, "noite", "noites")}</span>
             ) : null}
-            Mínimo do imóvel: {plural(minNights, "noite", "noites")} · até {plural(capacity, "hóspede", "hóspedes")}
+            Mínimo: {plural(minNights, "noite", "noites")} · até {plural(capacity, "hóspede", "hóspedes")}
           </p>
           <Button type="button" onClick={() => simulate()} disabled={loading || !nightsCount} className="h-10 gap-2 rounded-xl px-5 hover:cursor-pointer">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}

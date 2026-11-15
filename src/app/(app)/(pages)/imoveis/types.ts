@@ -18,6 +18,8 @@ export interface Imovel {
   status?: string;
   publicado?: boolean;
   ativo?: boolean;
+  foto_capa?: string | null;
+  fotos?: string[] | null;
   diaria?: number;
   valor_locacao?: number;
   valor_venda?: number;

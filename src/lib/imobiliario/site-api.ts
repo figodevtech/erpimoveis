@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { db, identifier, ImobError, json, bodyOf, pagination, rpc, verifiedIdentity, external, filterText } from "./server";
 import { civilDate, reservaSchema } from "./schemas";
-import { enrich, publicBooking, publicFlats } from "./data";
+import { enrich, minNoitesGeral, publicBooking, publicFlats } from "./data";
 import { cotacaoPublica, hojeImobiliario } from "./types";
 import { financeReport } from "./finance";
 
@@ -127,6 +127,10 @@ async function publicAgenda(property: Record<string, any>) {
 
 export async function publicApi(request: Request, path: string[]) {
   const url = new URL(request.url), method = request.method;
+  if (path[0] === "regras-reserva" && method === "GET") {
+    // Regra geral de temporada para a busca do site (o mínimo de cada imóvel vem no próprio anúncio).
+    return json({ min_noites: await minNoitesGeral() });
+  }
   if (path[0] === "destinos" && method === "GET") {
     // Destinos da busca do site: só cidade/UF com imóvel publicado de proprietário ativo.
     const modality = url.searchParams.get("modality") ?? url.searchParams.get("modalidade");
@@ -228,6 +232,8 @@ export async function publicApi(request: Request, path: string[]) {
       if (start < hojeImobiliario() || end <= start || (modality && modality !== "TEMPORADA")) throw new ImobError(400, "Informe um período válido de temporada.");
       query = query.contains("modalidades", ["TEMPORADA"]);
       const nights = (Date.parse(end) - Date.parse(start)) / 86400000;
+      // Abaixo do mínimo geral nenhum imóvel aceita a estadia (a cotação recusaria todos).
+      if (nights < await minNoitesGeral()) return json({ items: [], total: 0, page, pageSize });
       query = query.lte("min_noites", nights).or(`max_noites.is.null,max_noites.gte.${nights}`);
       const unavailable = new Set<number>();
       for (let offset = 0; ; offset += 1000) {

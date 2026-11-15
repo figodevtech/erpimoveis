@@ -35,7 +35,8 @@ const CONFIG_SELECT_SEM_MODO_BAIXA = `${CONFIG_SELECT_BASE_SEM_MODO_BAIXA}, ${CO
 const CONFIG_SELECT_SEM_DESTAQUE_STATUS = `${CONFIG_SELECT_BASE}, ${CONFIG_SELECT_IMPRESSAO}`;
 const CONFIG_SELECT_SEM_FATURAMENTO = `${CONFIG_SELECT_SEM_DESTAQUE_STATUS}, destaque_os_por_status`;
 const CONFIG_SELECT_SEM_STATUS_EMISSAO = `${CONFIG_SELECT_SEM_FATURAMENTO}, habilitar_faturamento_os`;
-const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_STATUS_EMISSAO}, emissao_nf_status_os`;
+const CONFIG_SELECT_SEM_MIN_NOITES = `${CONFIG_SELECT_SEM_STATUS_EMISSAO}, emissao_nf_status_os`;
+const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_MIN_NOITES}, reserva_min_noites`;
 
 function colunaNaoExiste(error: any) {
   return error?.code === "42703";
@@ -63,6 +64,11 @@ function corHexValida(v: any) {
   return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : undefined;
 }
 
+function minNoitesValido(v: any) {
+  const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
+  return Number.isInteger(n) && n >= 1 && n <= 365 ? (n as number) : undefined;
+}
+
 function modoBaixaEstoqueOSValido(v: any) {
   const s = String(v ?? "").trim().toUpperCase();
   return s === "ORCAMENTO" || s === "EXECUCAO" ? s : undefined;
@@ -88,6 +94,10 @@ function comPadroesConfig(config: any) {
       : null,
     destaque_os_por_status: normalizarRegrasDestaque(config.destaque_os_por_status),
     emissao_nf_status_os: normalizarStatusEmissaoOS(config.emissao_nf_status_os, config.emissao_nf_ordens_nao_pagas),
+    // Só com a coluna no banco: sem ela a tela não mostra nem envia o campo (o PUT falharia por inteiro).
+    ...(config.reserva_min_noites !== undefined
+      ? { reserva_min_noites: minNoitesValido(config.reserva_min_noites) ?? 1 }
+      : {}),
   };
 }
 
@@ -102,6 +112,11 @@ async function buscarConfigAtual() {
 
   if (!error) return comPadroesConfig(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semMinNoites = await supabase.from("config_geral")
+    .select(CONFIG_SELECT_SEM_MIN_NOITES).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (!semMinNoites.error) return comPadroesConfig(semMinNoites.data);
+  if (!colunaNaoExiste(semMinNoites.error)) throw semMinNoites.error;
 
   const semStatusEmissao = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_STATUS_EMISSAO).order("id", { ascending: false }).limit(1).maybeSingle();
@@ -206,6 +221,11 @@ async function criarConfigPadraoSeNaoExistir() {
 
   if (!error) return comPadroesConfig(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semMinNoites = await supabase.from("config_geral")
+    .select(CONFIG_SELECT_SEM_MIN_NOITES).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (!semMinNoites.error) return comPadroesConfig(semMinNoites.data);
+  if (!colunaNaoExiste(semMinNoites.error)) throw semMinNoites.error;
 
   const semStatusEmissao = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_STATUS_EMISSAO).order("id", { ascending: false }).limit(1).maybeSingle();
@@ -360,6 +380,14 @@ export async function PUT(request: Request) {
       const val = corHexValida(body.impressao_cor_texto);
       if (val === undefined) return respostaJSON({ error: "Cor do texto de impressao invalida." }, 400);
       patch.impressao_cor_texto = val;
+    }
+
+    if (body.reserva_min_noites !== undefined) {
+      const val = minNoitesValido(body.reserva_min_noites);
+      if (val === undefined) {
+        return respostaJSON({ error: "O mínimo de noites da reserva deve ser um número inteiro entre 1 e 365." }, 400);
+      }
+      patch.reserva_min_noites = val;
     }
 
     if (body.modo_baixa_estoque_os !== undefined) {

@@ -44,9 +44,26 @@ export async function enrich(items: Record<string, any>[]): Promise<Record<strin
   });
 }
 
+/**
+ * Mínimo de noites que vale para todos os imóveis (Configurações > Geral). A cotação no banco
+ * aplica o maior entre ele, o do imóvel e o da tarifa; aqui serve para o site já avisar antes.
+ * Sem a migration aplicada, vale 1 (o comportamento anterior).
+ */
+export async function minNoitesGeral(): Promise<number> {
+  const { data, error } = await db.rpc("imob_min_noites_geral");
+  if (error) {
+    if (["PGRST202", "42883"].includes(String(error.code))) return 1;
+    throw error;
+  }
+  return Math.max(1, Math.floor(Number(data)) || 1);
+}
+
 export async function publicFlats(rows: Record<string, any>[]) {
   if (!rows.length) return [];
-  const { data: files, error } = await db.from("imovel_arquivo").select("imovel_id,path,ordem").in("imovel_id", rows.map((r) => r.id)).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).is("reserva_id", null).is("locacao_id", null).is("venda_id", null).is("proprietario_id", null).order("ordem").order("id");
+  const [{ data: files, error }, minimoGeral] = await Promise.all([
+    db.from("imovel_arquivo").select("imovel_id,path,ordem").in("imovel_id", rows.map((r) => r.id)).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).is("reserva_id", null).is("locacao_id", null).is("venda_id", null).is("proprietario_id", null).order("ordem").order("id"),
+    minNoitesGeral(),
+  ]);
   if (error) throw error;
   const galleriesById = new Map<number, string[]>();
   for (const file of files ?? []) {
@@ -63,7 +80,9 @@ export async function publicFlats(rows: Record<string, any>[]) {
       maxGuests: Number(r.capacidade ?? 1), bedrooms: Number(r.quartos ?? 0), bathrooms: Number(r.banheiros ?? 0), areaSqm: Number(r.area ?? 0), amenities: r.comodidades ?? [],
       active: r.ativo, published: r.publicado, fromPrice: Number(r.diaria ?? 0), tag: r.selo_anuncio ?? "",
       modalities: r.modalidades, prices: { nightly: r.modalidades?.includes("TEMPORADA") ? Number(r.diaria ?? 0) : null, monthly: r.modalidades?.includes("LOCACAO") ? Number(r.valor_locacao ?? 0) : null, sale: r.modalidades?.includes("VENDA") ? Number(r.valor_venda ?? 0) : null },
-      occupancyStatus: r.situacao_comercial === "VENDIDO" ? "VENDIDO" : r.situacao_operacional ?? "DISPONIVEL", rules: r.regras ?? "", checkinTime: r.horario_checkin, checkoutTime: r.horario_checkout, minNights: r.min_noites, maxNights: r.max_noites,
+      occupancyStatus: r.situacao_comercial === "VENDIDO" ? "VENDIDO" : r.situacao_operacional ?? "DISPONIVEL", rules: r.regras ?? "", checkinTime: r.horario_checkin, checkoutTime: r.horario_checkout,
+      // O mínimo que o hóspede precisa cumprir: o geral ou o do imóvel, o que for maior (tarifas chegam na cotação).
+      minNights: Math.max(Number(r.min_noites ?? 1) || 1, minimoGeral), maxNights: r.max_noites,
       publicLocation: { latitude: address.latitude ?? null, longitude: address.longitude ?? null },
       locationDetails: String(address.localizacao_aproximada ?? "").trim(),
     };

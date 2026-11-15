@@ -24,6 +24,7 @@ import {
   ExternalLink,
   MapPin,
   RefreshCcw,
+  CalendarDays,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -766,6 +767,80 @@ function MercadoLivreOperationSettingsCard({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * Mínimo de noites de toda reserva de temporada. A regra vale na cotação do banco (site e ERP);
+ * aqui só se escolhe o número, salvo junto com o restante da página.
+ */
+function ReservasTemporadaCard({
+  minNoites,
+  onChange,
+}: {
+  /** Ausente enquanto a coluna não existe no banco. */
+  minNoites: number | undefined;
+  onChange: (value: number) => void;
+}) {
+  const stepClass =
+    "grid h-full w-10 place-items-center text-lg text-muted-foreground transition-colors hover:cursor-pointer hover:bg-muted disabled:cursor-default disabled:opacity-40";
+  return (
+    <Card className="min-w-0 border-primary/10 shadow-sm">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-5 w-5 text-primary" />
+          <CardTitle>Reservas de temporada</CardTitle>
+        </div>
+        <CardDescription>
+          Regras que valem para todas as reservas de diárias, no site e no ERP.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1 space-y-1">
+            <Label id="reserva-min-noites-label">Mínimo de noites por reserva</Label>
+            <span className="block text-xs text-muted-foreground">
+              O site não aceita estadias mais curtas. No ERP, uma reserva abaixo do
+              mínimo pede confirmação ao salvar. Imóveis e tarifas podem exigir mais
+              noites: vale sempre o maior mínimo.
+            </span>
+          </div>
+          {minNoites === undefined ? (
+            <span className="text-xs text-muted-foreground sm:max-w-56 sm:text-right">
+              Disponível depois de aplicar a migration do mínimo de noites no banco.
+            </span>
+          ) : (
+            <div
+              role="group"
+              aria-labelledby="reserva-min-noites-label"
+              className="flex h-10 shrink-0 items-center self-start overflow-hidden rounded-xl border border-input bg-background sm:self-auto"
+            >
+              <button
+                type="button"
+                aria-label="Menos uma noite"
+                disabled={minNoites <= 1}
+                onClick={() => onChange(Math.max(1, minNoites - 1))}
+                className={stepClass}
+              >
+                −
+              </button>
+              <span className="min-w-20 px-2 text-center text-sm font-semibold tabular-nums" aria-live="polite">
+                {minNoites} {minNoites === 1 ? "noite" : "noites"}
+              </span>
+              <button
+                type="button"
+                aria-label="Mais uma noite"
+                disabled={minNoites >= 365}
+                onClick={() => onChange(Math.min(365, minNoites + 1))}
+                className={stepClass}
+              >
+                +
+              </button>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1607,6 +1682,16 @@ export default function ConfigGeralPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* RESERVAS DE TEMPORADA */}
+        <div className="space-y-6 lg:col-span-12">
+          <ReservasTemporadaCard
+            minNoites={watch("reserva_min_noites")}
+            onChange={(value) =>
+              setValue("reserva_min_noites", value, { shouldDirty: true })
+            }
+          />
+        </div>
 
         {/* SISTEMA E INTERFACE */}
         <div className="space-y-6 lg:col-span-12">
