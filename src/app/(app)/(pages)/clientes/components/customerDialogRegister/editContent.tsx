@@ -40,7 +40,8 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusCliente, TelefoneSecundario, TipoPessoa, ESTADOS_BRASIL } from "./types";
-import { formatCep, formatCpfCnpj, formatTelefone, getRankEmoji, toTelefonesSecundarios } from "./utils";
+import { formatCpfCnpj, getRankEmoji, toTelefonesSecundarios } from "./utils";
+import { cepDigitos, mascaraCep, mascaraTelefone, telefoneDigitos } from "@/lib/format-contato";
 import { Cliente_rank, Customer } from "../../types";
 import axios, { isAxiosError } from "axios";
 import { useGetCidades } from "@/app/(app)/hooks/useGetCidades";
@@ -657,11 +658,8 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                       id="telefone"
                       inputMode="tel"
                       className=""
-                      value={formatTelefone(selectedCustomer.telefone) || ""}
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(/\D/g, "").slice(0, 11);
-                        handleInputChange("telefone", raw);
-                      }}
+                      value={mascaraTelefone(selectedCustomer.telefone)}
+                      onChange={(e) => handleInputChange("telefone", telefoneDigitos(e.target.value))}
                       placeholder="(11) 99999-9999"
                       maxLength={15}
                     />
@@ -691,8 +689,9 @@ export default function EditContent({ customerId, isDesktop = true, onUpdate }: 
                         <Input
                           id="cep"
                           className=""
-                          value={formatCep(selectedCustomer.cep) || ""}
-                          onChange={(e) => handleInputChange("cep", e.target.value)}
+                          inputMode="numeric"
+                          value={mascaraCep(selectedCustomer.cep)}
+                          onChange={(e) => handleInputChange("cep", cepDigitos(e.target.value))}
                           placeholder="00000-000"
                           maxLength={9}
                         />

@@ -52,6 +52,15 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  documentoCanonico,
+  exibirDocumento,
+  exibirTelefone,
+  mascaraDocumento,
+  mascaraTelefone,
+  telefoneDigitos,
+  type TipoPessoa,
+} from "@/lib/format-contato";
 
 const statusOptionClass: Record<string, string> = {
   ATIVO:
@@ -240,6 +249,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
   };
 
   if (kind === "proprietarios") {
+    const tipoPessoa: TipoPessoa = value.tipopessoa === "JURIDICA" ? "JURIDICA" : "FISICA";
     return (
       <div className="space-y-6">
         {/* Card Topo com Avatar e Status (padrão customerDialogRegister) */}
@@ -309,7 +319,11 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
                 </Label>
                 <Select
                   value={value.tipopessoa ?? "FISICA"}
-                  onValueChange={(val) => set("tipopessoa", val)}
+                  // Como no cadastro de cliente: CPF não serve de CNPJ (nem o contrário), então
+                  // trocar o tipo limpa o documento para ser digitado com a máscara certa.
+                  onValueChange={(val) =>
+                    onChange({ ...value, tipopessoa: val, ...(val !== tipoPessoa ? { cpfcnpj: "" } : {}) })
+                  }
                   disabled={disabled}
                 >
                   <SelectTrigger className="h-10 sm:h-11">
@@ -342,12 +356,16 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
               <Label htmlFor="cpfcnpj" className="text-sm">
                 {value.tipopessoa === "JURIDICA" ? "CNPJ" : "CPF"} *
               </Label>
+              {/* Mostra com máscara e grava o canônico (só dígitos; CNPJ alfanumérico em maiúsculas). */}
               <Input
                 id="cpfcnpj"
                 disabled={disabled}
-                value={value.cpfcnpj || ""}
-                onChange={(e) => set("cpfcnpj", e.target.value)}
-                placeholder={value.tipopessoa === "JURIDICA" ? "00.000.000/0000-00" : "000.000.000-00"}
+                inputMode={tipoPessoa === "JURIDICA" ? "text" : "numeric"}
+                autoComplete="off"
+                maxLength={18}
+                value={mascaraDocumento(value.cpfcnpj, tipoPessoa)}
+                onChange={(e) => set("cpfcnpj", documentoCanonico(e.target.value, tipoPessoa))}
+                placeholder={tipoPessoa === "JURIDICA" ? "00.000.000/0000-00" : "000.000.000-00"}
               />
             </div>
 
@@ -389,9 +407,11 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
               <Input
                 id="telefone"
                 type="tel"
+                inputMode="tel"
                 disabled={disabled}
-                value={value.telefone || ""}
-                onChange={(e) => set("telefone", e.target.value)}
+                maxLength={15}
+                value={mascaraTelefone(value.telefone)}
+                onChange={(e) => set("telefone", telefoneDigitos(e.target.value))}
                 placeholder="(00) 00000-0000"
               />
             </div>
@@ -735,10 +755,10 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                       {value.proprietario?.cpfcnpj ? (
-                        <span>Documento: {value.proprietario.cpfcnpj}</span>
+                        <span>Documento: {exibirDocumento(value.proprietario.cpfcnpj)}</span>
                       ) : null}
                       {value.proprietario?.telefone ? (
-                        <span>Tel: {value.proprietario.telefone}</span>
+                        <span>Tel: {exibirTelefone(value.proprietario.telefone)}</span>
                       ) : null}
                       {value.proprietario?.email ? (
                         <span>{value.proprietario.email}</span>
@@ -1949,12 +1969,15 @@ function Phones({
             <Label className="text-sm">Telefone</Label>
             <Input
               disabled={disabled}
+              type="tel"
+              inputMode="tel"
+              maxLength={15}
               placeholder="(00) 00000-0000"
-              value={phone.telefone ?? ""}
+              value={mascaraTelefone(phone.telefone)}
               onChange={(event) =>
                 onChange(
                   value.map((item, position) =>
-                    position === index ? { ...item, telefone: event.target.value } : item
+                    position === index ? { ...item, telefone: telefoneDigitos(event.target.value) } : item
                   )
                 )
               }
