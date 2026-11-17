@@ -21,10 +21,10 @@ const emissionSchema = z.object({
   codigos_fiscais: z.record(z.string(), z.unknown()).default({}), data_competencia: civilDate.optional(), discriminacao: z.string().trim().min(5).max(1000),
   tomador: z.object({ codigomunicipio: z.string().regex(/^\d{7}$/), endereco: z.string().trim().max(200).optional(), endereconumero: z.string().trim().max(30).optional(), enderecocomplemento: z.string().trim().max(200).optional(), bairro: z.string().trim().max(100).optional(), estado: z.string().trim().length(2).optional(), cep: z.string().regex(/^\d{8}$/).optional() }),
 });
-const scopeFields = { proprietario_id: "proprietario_id", imovel_id: "imovel_id", reserva_id: "reserva_id", locacao_id: "locacao_id", venda_id: "venda_id" } as const;
+const scopeFields = { proprietario_id: "proprietario_id", imovel_id: "imovel_id", reserva_id: "reserva_id" } as const;
 
 function applyScope(query: any, scope: FinanceScope, transaction = false) {
-  for (const [key, value] of Object.entries(scope)) query = query.eq(transaction && ["reserva_id", "locacao_id", "venda_id"].includes(key) ? key.replace("_id", "_imovel_id") : scopeFields[key as keyof FinanceScope], value);
+  for (const [key, value] of Object.entries(scope)) query = query.eq(transaction && key === "reserva_id" ? "reserva_imovel_id" : scopeFields[key as keyof FinanceScope], value);
   return query;
 }
 async function fiscalCompany() {

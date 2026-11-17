@@ -5,8 +5,6 @@ const ROUTE_PRIORITY: Array<{ perm: string; href: string }> = [
   { perm: PERMS.IMOVEIS, href: "/imoveis" },
   { perm: PERMS.RESERVAS, href: "/reservas" },
   { perm: PERMS.PROPRIETARIOS, href: "/proprietarios" },
-  { perm: PERMS.LOCACOES_IMOBILIARIAS, href: "/locacoes-imobiliarias" },
-  { perm: PERMS.VENDAS_IMOBILIARIAS, href: "/vendas-imobiliarias" },
   { perm: PERMS.CLIENTES, href: "/clientes" },
   { perm: PERMS.ESTOQUE, href: "/estoque" },
   { perm: PERMS.USOCONSUMO, href: "/estoque/uso-consumo" },

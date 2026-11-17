@@ -3,26 +3,19 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import {
   EntityShell,
-  Field,
-  Lookup,
-  RemoteState,
-  SelectField,
   StatusBadge,
   requestJson,
-  useRemote,
 } from "./shared";
 import {
   type Entity,
   type ModuleKind,
   clientName,
-  dateInput,
   dateLabel,
   endpoint,
   money,
@@ -76,11 +69,6 @@ export function OperationAction({
     motivo: "",
     tratamento_pendentes: "CANCELAR_PENDENTES",
     tratamento_recebidos: "ESTORNAR",
-    percentual: "",
-    inicio: dateInput(item.proximo_reajuste),
-    fim: new Date().toLocaleDateString("en-CA"),
-    competencia_inicio: "",
-    competencia_fim: "",
   });
   // Momento da entrada/saída: começa no agora e pode voltar no tempo, para registrar depois
   // uma entrada que já aconteceu. O banco lê no fuso do imobiliário e recusa o futuro.
@@ -93,38 +81,10 @@ export function OperationAction({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [decisions, setDecisions] = useState<Record<string, Entity>>({});
-  const [reviewed, setReviewed] = useState(false);
-  const concluding = kind === "vendas-imobiliarias" && action === "CONCLUIR";
-  const operations = useRemote(
-    concluding ? `/api/imoveis/${item.imovel_id}/disponibilidade?inicio=${dateInput(item.data_venda)}` : null
-  );
-
-  const entries: Entity[] = (operations.data?.items ?? [])
-    .filter((row: Entity) => {
-      const type = String(row.tipo ?? row.origem ?? row.tipo_origem ?? "").toUpperCase();
-      return (
-        (row.reserva_id || row.locacao_id || type.includes("RESERVA") || type.includes("LOCACAO")) &&
-        !["CANCELADA", "ENCERRADA", "CONCLUIDA"].includes(row.status) &&
-        (!row.fim || dateInput(row.fim) > dateInput(item.data_venda))
-      );
-    })
-    .map((row: Entity) => ({
-      ...row,
-      tipo: row.reserva_id
-        ? "RESERVA"
-        : row.locacao_id
-        ? "LOCACAO"
-        : String(row.tipo ?? row.origem ?? row.tipo_origem).toUpperCase().includes("RESERVA")
-        ? "RESERVA"
-        : "LOCACAO",
-      id: row.reserva_id ?? row.locacao_id ?? row.origem_id ?? row.id,
-    }));
-
   const isReservaCancel = kind === "reservas" && action === "CANCELAR";
   const isReservaCheckin = kind === "reservas" && action === "CHECKIN";
   const isReservaCheckout = kind === "reservas" && action === "CHECKOUT";
-  const destructive = action === "CANCELAR" || action === "ENCERRAR";
+  const destructive = action === "CANCELAR";
   const nights = getNights(item.inicio, item.fim);
 
   const set = (key: string, value: unknown) => setData((current) => ({ ...current, [key]: value }));
@@ -147,19 +107,10 @@ export function OperationAction({
   ) : destructive ? (
     <div className="flex items-center gap-2 text-destructive">
       <XCircle className="h-5 w-5 shrink-0" />
-      <span>
-        {action === "ENCERRAR" ? "Encerrar Contrato de Locação" : "Cancelar Operação"}
-      </span>
+      <span>Cancelar Operação</span>
     </div>
   ) : (
-    <span>
-      {({
-        GERAR_COBRANCAS: "Gerar cobranças mensais",
-        REAJUSTAR: "Reajustar valor do contrato",
-        ATIVAR: "Ativar contrato de locação",
-        CONCLUIR: "Concluir venda imobiliária",
-      } as Record<string, string>)[action] ?? titleCase(action)}
-    </span>
+    <span>{titleCase(action)}</span>
   );
 
   const headerDescription = isReservaCancel
@@ -177,18 +128,6 @@ export function OperationAction({
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (concluding && (operations.loading || operations.error)) {
-      setError("Carregue todas as operações antes de concluir.");
-      return;
-    }
-    if (concluding && entries.some((row) => !decisions[`${row.tipo}-${row.id}`]?.decisao)) {
-      setError("Defina o destino de cada reserva e locação ativa do imóvel.");
-      return;
-    }
-    if (concluding && !reviewed) {
-      setError("Revise o resumo das decisões e confirme a conclusão da venda.");
-      return;
-    }
     if ((isReservaCheckin || isReservaCheckout) && (!momento.data || !momento.hora)) {
       setError(`Informe a data e a hora do ${isReservaCheckin ? "check-in" : "check-out"}.`);
       return;
@@ -197,17 +136,11 @@ export function OperationAction({
     setBusy(true);
     setError("");
     try {
-      const operacoes = entries.map((row) => ({
-        tipo: row.tipo,
-        id: row.id,
-        ...decisions[`${row.tipo}-${row.id}`],
-      }));
       await requestJson(`${endpoint(kind, item.id)}/acoes`, {
         method: "POST",
         body: JSON.stringify({
           acao: action,
           ...data,
-          ...(concluding ? { operacoes, decisoes: operacoes } : {}),
           ...(isReservaCheckin || isReservaCheckout ? { data_registro: momento.data, hora_registro: momento.hora } : {}),
           tratamento_financeiro: data.tratamento_recebidos || undefined,
         }),
@@ -224,7 +157,6 @@ export function OperationAction({
       onSaved();
     } catch (error) {
       setError((error as Error).message);
-      operations.reload();
     } finally {
       setBusy(false);
     }
@@ -256,11 +188,7 @@ export function OperationAction({
             type="submit"
             form="operation-action"
             variant={destructive ? "destructive" : "default"}
-            disabled={
-              busy ||
-              (concluding && (operations.loading || Boolean(operations.error))) ||
-              (destructive && !data.motivo?.trim())
-            }
+            disabled={busy || (destructive && !data.motivo?.trim())}
             className="h-11 sm:h-9 text-xs sm:text-sm gap-2 font-semibold hover:cursor-pointer shadow-xs w-full sm:w-auto"
           >
             {busy ? (
@@ -294,12 +222,8 @@ export function OperationAction({
             ) : destructive ? (
               <>
                 <XCircle className="h-4 w-4 shrink-0" />
-                <span>
-                  {action === "ENCERRAR" ? "Confirmar Encerramento" : "Confirmar Cancelamento"}
-                </span>
+                <span>Confirmar Cancelamento</span>
               </>
-            ) : concluding && !reviewed ? (
-              <span>Revisar conclusão</span>
             ) : (
               <span>Confirmar ação</span>
             )}
@@ -310,14 +234,7 @@ export function OperationAction({
       <form
         id="operation-action"
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-4 sm:space-y-5"
-        onSubmit={(event) => {
-          if (concluding && !reviewed) {
-            event.preventDefault();
-            if (event.currentTarget.reportValidity()) setReviewed(true);
-          } else {
-            void submit(event);
-          }
-        }}
+        onSubmit={(event) => void submit(event)}
       >
         {/* ========================================================================= */}
         {/* CARD DE RESUMO DA RESERVA / OPERAÇÃO                                      */}
@@ -462,245 +379,10 @@ export function OperationAction({
           </div>
         ) : null}
 
-        {destructive && !isReservaCancel ? (
-          <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 sm:p-4 text-xs sm:text-sm text-destructive">
-            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5 text-destructive" />
-            <div className="space-y-1">
-              <p className="font-semibold text-foreground">Atenção ao Encerramento</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Defina como tratar cobranças pendentes e valores já recebidos. O estorno registra a obrigação de reembolso para conciliação contábil no ERP.
-              </p>
-            </div>
-          </div>
-        ) : null}
-
         {/* ========================================================================= */}
         {/* TRATAMENTO FINANCEIRO                                                     */}
         {/* ========================================================================= */}
-        {destructive ? (
-          <div className="space-y-4">
-            <FinancialTreatment value={data} onChange={setData} />
-
-            {kind === "locacoes-imobiliarias" ? (
-              <Field label="Data efetiva do encerramento do contrato">
-                <Input
-                  type="date"
-                  required
-                  min={dateInput(item.inicio)}
-                  value={data.fim}
-                  onChange={(event) => set("fim", event.target.value)}
-                  className="h-11 sm:h-10 text-base sm:text-sm"
-                />
-              </Field>
-            ) : null}
-          </div>
-        ) : null}
-
-        {/* ========================================================================= */}
-        {/* CONCLUIR VENDA (MANTÉM OPERAÇÕES VIGENTES)                                */}
-        {/* ========================================================================= */}
-        {concluding ? (
-          <>
-            <div className="rounded-xl border border-border/60 bg-muted/20 p-4 sm:p-5">
-              <p className="font-semibold text-sm sm:text-base text-foreground">
-                {reviewed ? "Revisão da conclusão da venda" : "Destino das operações vigentes do imóvel"}
-              </p>
-              <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-                A conclusão da venda preserva o histórico de lançamentos. Cada reserva e contrato vigente ou futuro
-                precisa de uma decisão definida antes de prosseguir.
-              </p>
-              <div className="mt-3 flex items-center gap-4 text-xs sm:text-sm">
-                <span>
-                  Valor negociado: <strong>{money(item.valor_total)}</strong>
-                </span>
-                <span>·</span>
-                <span>
-                  Data da venda: <strong>{dateLabel(item.data_venda)}</strong>
-                </span>
-              </div>
-            </div>
-
-            <RemoteState loading={operations.loading} error={operations.error} retry={operations.reload}>
-              {entries.length ? (
-                <div className="space-y-4">
-                  {entries.map((row) => {
-                    const key = `${row.tipo}-${row.id}`;
-                    const decision = decisions[key] ?? {};
-                    const update = (field: string, val: unknown) => {
-                      setReviewed(false);
-                      setDecisions((current) => ({
-                        ...current,
-                        [key]: { ...current[key], [field]: val },
-                      }));
-                    };
-
-                    return (
-                      <section
-                        key={key}
-                        className="space-y-4 rounded-xl border border-border/60 bg-card p-4 shadow-xs"
-                      >
-                        <div>
-                          <h4 className="font-semibold text-sm text-foreground">
-                            {titleCase(row.tipo)} #{row.id}
-                          </h4>
-                          <p className="text-xs text-muted-foreground">
-                            {dateLabel(row.inicio)} a {dateLabel(row.fim)} · {titleCase(row.status)}
-                          </p>
-                        </div>
-
-                        <SelectField
-                          label="Destino desta operação"
-                          value={decision.decisao ?? ""}
-                          options={[
-                            { value: "MANTER", label: "Manter operação" },
-                            { value: "ENCERRAR", label: "Encerrar / cancelar operação" },
-                          ]}
-                          required
-                          onChange={(value) => update("decisao", value)}
-                        />
-
-                        {decision.decisao === "MANTER" ? (
-                          <div className="space-y-4 border-t border-border/40 pt-3">
-                            <Lookup
-                              tipo="proprietarios"
-                              label="Novo proprietário beneficiário do repasse"
-                              value={decision.beneficiario_proprietario_id}
-                              onChange={(value) => update("beneficiario_proprietario_id", value)}
-                            />
-                            <div className="grid gap-4 sm:grid-cols-2">
-                              <Field label="Benefício válido a partir de">
-                                <Input
-                                  type="date"
-                                  required
-                                  value={decision.vigencia_inicio ?? ""}
-                                  onChange={(event) => update("vigencia_inicio", event.target.value)}
-                                  className="h-11 sm:h-10 text-base sm:text-sm"
-                                />
-                              </Field>
-                              <Field label="Até (opcional)">
-                                <Input
-                                  type="date"
-                                  value={decision.vigencia_fim ?? ""}
-                                  min={decision.vigencia_inicio || undefined}
-                                  onChange={(event) => update("vigencia_fim", event.target.value)}
-                                  className="h-11 sm:h-10 text-base sm:text-sm"
-                                />
-                              </Field>
-                            </div>
-                          </div>
-                        ) : decision.decisao === "ENCERRAR" ? (
-                          <div className="border-t border-border/40 pt-3">
-                            <FinancialTreatment
-                              value={decision}
-                              onChange={(next) => {
-                                setReviewed(false);
-                                setDecisions((current) => ({ ...current, [key]: next }));
-                              }}
-                            />
-                          </div>
-                        ) : null}
-                      </section>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-border/60 p-6 text-center text-sm text-muted-foreground">
-                  Não há reservas ou locações vigentes ou futuras ativas para este imóvel.
-                </div>
-              )}
-            </RemoteState>
-
-            {reviewed ? (
-              <div
-                role="status"
-                className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs sm:text-sm text-emerald-800 dark:text-emerald-300"
-              >
-                <div className="flex items-start gap-2.5">
-                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
-                  <div>
-                    <p className="font-semibold">Revisão completa das decisões</p>
-                    <p className="mt-1">
-                      A propriedade será registrada como vendida em {dateLabel(item.data_venda)}. As {entries.length}{" "}
-                      operação(ões) vigentes seguirão as definições informadas acima.
-                    </p>
-                    <Button
-                      type="button"
-                      className="mt-3 h-8 text-xs"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setReviewed(false)}
-                    >
-                      Voltar e revisar decisões
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-
-        {/* ========================================================================= */}
-        {/* OUTRAS AÇÕES ESPECÍFICAS                                                  */}
-        {/* ========================================================================= */}
-        {action === "GERAR_COBRANCAS" ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Competência inicial (mês/ano)">
-              <Input
-                type="month"
-                required
-                value={data.competencia_inicio}
-                onChange={(event) => set("competencia_inicio", event.target.value)}
-                className="h-11 sm:h-10 text-base sm:text-sm"
-              />
-            </Field>
-            <Field label="Competência final (mês/ano)">
-              <Input
-                type="month"
-                required
-                min={data.competencia_inicio || undefined}
-                value={data.competencia_fim}
-                onChange={(event) => set("competencia_fim", event.target.value)}
-                className="h-11 sm:h-10 text-base sm:text-sm"
-              />
-            </Field>
-          </div>
-        ) : null}
-
-        {action === "REAJUSTAR" ? (
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Percentual de reajuste (%)">
-                <Input
-                  type="number"
-                  min="-100"
-                  step="0.01"
-                  required
-                  placeholder="Ex: 5.5"
-                  value={data.percentual}
-                  onChange={(event) => set("percentual", Number(event.target.value))}
-                  className="h-11 sm:h-10 text-base sm:text-sm font-semibold"
-                />
-              </Field>
-              <Field label="Vigência do novo valor">
-                <Input
-                  type="date"
-                  required
-                  value={data.inicio}
-                  onChange={(event) => set("inicio", event.target.value)}
-                  className="h-11 sm:h-10 text-base sm:text-sm"
-                />
-              </Field>
-              <Field label="Data prevista do próximo reajuste">
-                <Input
-                  type="date"
-                  value={data.proximo_reajuste ?? ""}
-                  onChange={(event) => set("proximo_reajuste", event.target.value)}
-                  className="h-11 sm:h-10 text-base sm:text-sm"
-                />
-              </Field>
-            </div>
-          </div>
-        ) : null}
+        {destructive ? <FinancialTreatment value={data} onChange={setData} /> : null}
 
         {/* ========================================================================= */}
         {/* JUSTIFICATIVA / OBSERVAÇÕES                                               */}
@@ -709,11 +391,7 @@ export function OperationAction({
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-primary shrink-0" />
             <p className="text-sm font-semibold text-foreground">
-              {destructive
-                ? "Motivo e Justificativa Obrigatória *"
-                : concluding || action === "REAJUSTAR"
-                ? "Justificativa Obrigatória *"
-                : "Observações da Operação"}
+              {destructive ? "Motivo e Justificativa Obrigatória *" : "Observações da Operação"}
             </p>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -723,7 +401,7 @@ export function OperationAction({
           </p>
 
           <Textarea
-            required={destructive || concluding || action === "REAJUSTAR"}
+            required={destructive}
             placeholder={
               isReservaCancel
                 ? "Ex: Desistência pelo hóspede devido a imprevisto pessoal; cancelamento conforme prazo da política de cancelamento..."

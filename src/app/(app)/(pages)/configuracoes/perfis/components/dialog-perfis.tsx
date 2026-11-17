@@ -77,8 +77,6 @@ const MODULE_LABELS: Record<string, string> = {
   proprietarios: "Proprietários",
   imoveis: "Imóveis",
   reservas: "Reservas",
-  locacoes_imobiliarias: "Locações imobiliárias",
-  vendas_imobiliarias: "Vendas imobiliárias",
   alugueis: "Aluguéis",
   usoconsumo: "Uso/Consumo",
   radios: "Rádio",

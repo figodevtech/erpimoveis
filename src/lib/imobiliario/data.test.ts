@@ -63,7 +63,7 @@ test("reservas compartilham relações e capa sem misturar clientes ou gerar a m
   });
   const result = await api.enrich([
     { id: 100, imovel_id: 10, cliente_id: 2, proprietario_id: 4 },
-    { id: 101, imovel_id: 10, comprador_id: 3, proprietario_id: 4, foto_capa: "capa-preservada" },
+    { id: 101, imovel_id: 10, cliente_id: 3, proprietario_id: 4, foto_capa: "capa-preservada" },
     { id: 102, imovel_id: 99, cliente_id: 99 },
   ]);
   assert.equal(result[0].cliente.nome, "Cliente A");

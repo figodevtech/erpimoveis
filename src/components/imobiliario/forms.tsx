@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -18,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Lookup, requestJson } from "./shared";
+import { requestJson } from "./shared";
 import { type Entity, type ModuleKind, dateInput, money, titleCase } from "./model";
 import ProprietarioSelect from "@/app/(app)/components/proprietarioSelect";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
@@ -834,33 +833,6 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm">Modalidades de Negociação</Label>
-            <div className="flex flex-wrap gap-4 pt-1">
-              {[
-                ["TEMPORADA", "Temporada"],
-                ["LOCACAO", "Locação mensal"],
-                ["VENDA", "Venda"],
-              ].map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 text-sm hover:cursor-pointer touch-manipulation">
-                  <Checkbox
-                    disabled={disabled}
-                    checked={(value.modalidades ?? []).includes(key)}
-                    onCheckedChange={(checked) =>
-                      set(
-                        "modalidades",
-                        checked === true
-                          ? [...(value.modalidades ?? []), key]
-                          : (value.modalidades ?? []).filter((item: string) => item !== key)
-                      )
-                    }
-                  />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="descricao" className="text-sm">
               Descrição
             </Label>
@@ -1063,13 +1035,13 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
         <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
           <div className="space-y-1">
             <p className="text-sm font-semibold">Tabela de Preços e Taxas</p>
-            <p className="text-xs text-muted-foreground">Configuração de valores padrões para cotações e contratos.</p>
+            <p className="text-xs text-muted-foreground">Valores padrões para as cotações das reservas.</p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div className="space-y-2">
               <Label htmlFor="diaria" className="text-sm">
-                Diária Padrão <span className="text-xs text-muted-foreground">(Reservas de Temporada)</span>
+                Diária Padrão
               </Label>
               <ValueInput
                 id="diaria"
@@ -1082,41 +1054,11 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
                 className="h-10 sm:h-11"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="valor_locacao" className="text-sm">
-                Aluguel Mensal <span className="text-xs text-muted-foreground">(Locação de Longo Prazo)</span>
-              </Label>
-              <ValueInput
-                id="valor_locacao"
-                disabled={disabled}
-                allowEmpty
-                value={value.valor_locacao != null && value.valor_locacao !== "" ? Number(value.valor_locacao) : null}
-                onValueChange={(val) => set("valor_locacao", val)}
-                onEmpty={() => set("valor_locacao", null)}
-                placeholder="R$ 0,00"
-                className="h-10 sm:h-11"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="valor_venda" className="text-sm">
-                Valor de Venda 
-              </Label>
-              <ValueInput
-                id="valor_venda"
-                disabled={disabled}
-                allowEmpty
-                value={value.valor_venda != null && value.valor_venda !== "" ? Number(value.valor_venda) : null}
-                onValueChange={(val) => set("valor_venda", val)}
-                onEmpty={() => set("valor_venda", null)}
-                placeholder="R$ 0,00"
-                className="h-10 sm:h-11"
-              />
-            </div>
             {/* Sem taxa de limpeza fixa nem caução no imóvel: a limpeza é lançada na reserva,
                 como evento financeiro (custo da imobiliária ou despesa do proprietário). */}
             <div className="space-y-2">
               <Label htmlFor="percentual_admin" className="text-sm">
-                Taxa de Administração (%) <span className="text-xs text-muted-foreground">(Reservas )</span>
+                Taxa de Administração (%)
               </Label>
               <Input
                 id="percentual_admin"
@@ -1149,197 +1091,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
     );
   }
 
-  // Operações (Locações, Vendas)
-  return (
-    <div className="space-y-6">
-      <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
-        <div className="space-y-1">
-          <p className="text-sm font-semibold">Dados da Operação</p>
-          <p className="text-xs text-muted-foreground">Defina os vínculos de imóvel e cliente.</p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <div className="space-y-2">
-            <Label className="text-sm">Imóvel Vinculado *</Label>
-            <Lookup
-              tipo="imoveis"
-              label=""
-              value={value.imovel_id}
-              initial={value.imovel}
-              disabled={Boolean(disabled || editing)}
-              onChange={(id, item) => onChange({ ...value, imovel_id: id, imovel: item })}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm">
-              {kind === "vendas-imobiliarias" ? "Comprador *" : "Cliente / Locatário *"}
-            </Label>
-            <Lookup
-              tipo="clientes"
-              label=""
-              value={kind === "vendas-imobiliarias" ? value.comprador_id : value.cliente_id}
-              initial={value.cliente ?? value.comprador}
-              disabled={Boolean(disabled || editing)}
-              onChange={(id) => set(kind === "vendas-imobiliarias" ? "comprador_id" : "cliente_id", id)}
-            />
-          </div>
-
-          {kind === "vendas-imobiliarias" ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="data_venda" className="text-sm">Data da Venda *</Label>
-                <Input
-                  id="data_venda"
-                  type="date"
-                  disabled={disabled}
-                  value={dateInput(value.data_venda)}
-                  onChange={(e) => set("data_venda", e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="valor_total" className="text-sm">Valor Negociado *</Label>
-                <ValueInput
-                  id="valor_total"
-                  disabled={disabled}
-                  allowEmpty
-                  value={value.valor_total != null && value.valor_total !== "" ? Number(value.valor_total) : null}
-                  onValueChange={(val) => set("valor_total", val)}
-                  onEmpty={() => set("valor_total", null)}
-                  placeholder="R$ 0,00"
-                  className="h-10 sm:h-11"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="comissao_percentual" className="text-sm">Comissão (%)</Label>
-                <Input
-                  id="comissao_percentual"
-                  type="number"
-                  step="0.01"
-                  disabled={disabled}
-                  value={value.comissao_percentual ?? ""}
-                  onChange={(e) => set("comissao_percentual", e.target.value === "" ? null : Number(e.target.value))}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm">Novo Proprietário</Label>
-                <Lookup
-                  tipo="proprietarios"
-                  label=""
-                  required={false}
-                  value={value.novo_proprietario_id}
-                  disabled={disabled}
-                  onChange={(id) => set("novo_proprietario_id", id)}
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="inicio" className="text-sm">
-                  Início do Contrato *
-                </Label>
-                <Input
-                  id="inicio"
-                  type="date"
-                  disabled={disabled}
-                  value={dateInput(value.inicio)}
-                  onChange={(e) => set("inicio", e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="fim" className="text-sm">
-                  Término do Contrato
-                </Label>
-                <Input
-                  id="fim"
-                  type="date"
-                  disabled={disabled}
-                  value={dateInput(value.fim)}
-                  onChange={(e) => set("fim", e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="valor_mensal" className="text-sm">Aluguel Mensal *</Label>
-                <ValueInput
-                  id="valor_mensal"
-                  disabled={disabled}
-                  allowEmpty
-                  value={value.valor_mensal != null && value.valor_mensal !== "" ? Number(value.valor_mensal) : null}
-                  onValueChange={(val) => set("valor_mensal", val)}
-                  onEmpty={() => set("valor_mensal", null)}
-                  placeholder="R$ 0,00"
-                  className="h-10 sm:h-11"
-                />
-              </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="dia_vencimento" className="text-sm">Dia do Vencimento *</Label>
-                    <Input
-                      id="dia_vencimento"
-                      type="number"
-                      min="1"
-                      max="28"
-                      disabled={disabled}
-                      value={value.dia_vencimento ?? 5}
-                      onChange={(e) => set("dia_vencimento", Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="indice_reajuste" className="text-sm">Índice de Reajuste</Label>
-                    <Input
-                      id="indice_reajuste"
-                      disabled={disabled}
-                      value={value.indice_reajuste ?? ""}
-                      onChange={(e) => set("indice_reajuste", e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="percentual_admin" className="text-sm">Administração (%)</Label>
-                    <Input
-                      id="percentual_admin"
-                      type="number"
-                      step="0.01"
-                      disabled={disabled}
-                      value={value.percentual_admin ?? ""}
-                      onChange={(e) => set("percentual_admin", e.target.value === "" ? null : Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="caucao" className="text-sm">Caução</Label>
-                    <ValueInput
-                      id="caucao"
-                      disabled={disabled}
-                      allowEmpty
-                      value={value.caucao != null && value.caucao !== "" ? Number(value.caucao) : null}
-                      onValueChange={(val) => set("caucao", val)}
-                      onEmpty={() => set("caucao", null)}
-                      placeholder="R$ 0,00"
-                      className="h-10 sm:h-11"
-                    />
-                  </div>
-                </>
-              )}
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="observacoes" className="text-sm">Observações</Label>
-          <Textarea
-            id="observacoes"
-            disabled={disabled}
-            rows={3}
-            value={value.observacoes ?? ""}
-            onChange={(e) => set("observacoes", e.target.value)}
-            placeholder="Informações adicionais da operação..."
-          />
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 function formatDocument(val?: string | null): string {
@@ -1486,7 +1238,7 @@ function ReservationGeneralFields({
               </h3>
             </div>
             <p className="text-xs text-muted-foreground">
-              Propriedade vinculada à estadia e parâmetros de locação.
+              Propriedade vinculada à estadia e parâmetros da hospedagem.
             </p>
           </div>
 
@@ -1644,7 +1396,7 @@ function ReservationGeneralFields({
               </h3>
             </div>
             <p className="text-xs text-muted-foreground">
-              Pessoa responsável pelo contrato de locação e titular da reserva.
+              Pessoa responsável pela hospedagem e titular da reserva.
             </p>
           </div>
 
@@ -1905,7 +1657,6 @@ function ReservationGeneralFields({
       <ImovelSelect
         open={imovelSelectOpen}
         setOpen={setImovelSelectOpen}
-        modalidadePadrao="TEMPORADA"
         OnSelect={(selectedImovel) => {
           onChange({
             ...value,

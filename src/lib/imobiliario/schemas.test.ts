@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { civilDate, imovelSchema, proprietarioSchema, reservaSchema, locacaoSchema, vendaImovelSchema } from "./schemas";
+import { civilDate, imovelSchema, proprietarioSchema, reservaSchema } from "./schemas";
 import { cotacaoPublica, hojeImobiliario, statusReservaPublico } from "./types";
 
 test("cadastro de proprietário valida documento PF/PJ e descarta campos de autorização", () => {
@@ -21,20 +21,15 @@ test("datas civis recusam dia inexistente e reserva exige saída posterior", () 
   assert.throws(() => reservaSchema.parse({ ...reservation, expected_total: -10 }));
 });
 
-test("modalidades simultâneas e valores por modalidade têm contrato distinto", () => {
-  const property = imovelSchema.parse({ proprietario_id: 1, titulo: "Imóvel", codigo: "A1", slug: "imovel-a1", tipo: "CASA", modalidades: ["VENDA", "LOCACAO", "TEMPORADA"], diaria: 200, valor_locacao: 2500, valor_venda: 300000 });
-  assert.equal(property.modalidades.length, 3);
-  assert.equal(property.valor_locacao, 2500);
-  assert.throws(() => imovelSchema.parse({ ...property, modalidades: ["OFICINA"] }));
+test("imóvel é só de temporada e descarta valores de locação e venda", () => {
+  const property = imovelSchema.parse({ proprietario_id: 1, titulo: "Imóvel", codigo: "A1", slug: "imovel-a1", tipo: "CASA", diaria: 200, valor_locacao: 2500, valor_venda: 300000 });
+  assert.deepEqual(property.modalidades, ["TEMPORADA"]);
+  assert.equal("valor_locacao" in property, false);
+  assert.equal("valor_venda" in property, false);
+  assert.throws(() => imovelSchema.parse({ ...property, modalidades: ["TEMPORADA", "LOCACAO"] }));
+  assert.throws(() => imovelSchema.parse({ ...property, modalidades: ["VENDA"] }));
   assert.throws(() => imovelSchema.parse({ ...property, percentual_admin: 101 }));
   assert.throws(() => imovelSchema.parse({ ...property, min_noites: 10, max_noites: 2 }));
-});
-
-test("contratos não aceitam fim anterior e venda recusa comissão fora de faixa", () => {
-  const contract = { imovel_id: 1, cliente_id: 1, inicio: "2027-01-01", valor_mensal: 1500, dia_vencimento: 5 };
-  assert.equal(locacaoSchema.parse(contract).fim, undefined);
-  assert.throws(() => locacaoSchema.parse({ ...contract, fim: "2026-01-01" }));
-  assert.throws(() => vendaImovelSchema.parse({ imovel_id: 1, comprador_id: 1, valor_total: 100000, comissao_percentual: 101 }));
 });
 
 test("cotação pública expõe preços e confirmação sem vínculos privados", () => {

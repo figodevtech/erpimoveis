@@ -72,7 +72,7 @@ export function RelationshipPanel({
 }: {
   kind: ModuleKind;
   item: Entity;
-  relation: "imoveis" | "reservas" | "locacoes-imobiliarias" | "vendas-imobiliarias";
+  relation: "imoveis" | "reservas";
 }) {
   const { can } = useModulePermission();
   const [page, setPage] = useState(1);
@@ -153,7 +153,7 @@ export function RelationshipPanel({
                         <>
                           <span className="font-medium text-foreground block">{clientName(row)}</span>
                           <span className="text-xs text-muted-foreground">
-                            {dateLabel(row.inicio ?? row.data_venda)}
+                            {dateLabel(row.inicio)}
                             {row.fim ? ` — ${dateLabel(row.fim)}` : ""}
                           </span>
                         </>
@@ -167,7 +167,7 @@ export function RelationshipPanel({
                       <StatusBadge status={rowStatus(row)} />
                     </td>
                     <td className="p-3.5 sm:px-4 font-medium text-foreground">
-                      {money(row.valor_total ?? row.valor_mensal ?? row.diaria)}
+                      {money(row.valor_total ?? row.diaria)}
                     </td>
                     <td className="p-3.5 sm:px-4 text-right">
                       <Button

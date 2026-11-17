@@ -37,7 +37,7 @@ export default function Cards({
           ) : (
             <div className="text-2xl font-bold text-chart-4">{disponiveis || 0}</div>
           )}
-          <p className="text-xs text-muted-foreground">Prontos para locação / venda</p>
+          <p className="text-xs text-muted-foreground">Livres para novas reservas</p>
         </CardContent>
       </Card>
 
@@ -52,7 +52,7 @@ export default function Cards({
           ) : (
             <div className="text-2xl font-bold text-muted-foreground">{ocupados || 0}</div>
           )}
-          <p className="text-xs text-muted-foreground">Alugados, reservados ou em manutenção</p>
+          <p className="text-xs text-muted-foreground">Ocupados, reservados ou em manutenção</p>
         </CardContent>
       </Card>
     </div>

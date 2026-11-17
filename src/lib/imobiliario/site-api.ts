@@ -73,13 +73,21 @@ async function inactiveOwnerIds() {
   return ids;
 }
 
+/**
+ * O ERP só trabalha com temporada (locação mensal e venda saíram). O site ainda pode mandar
+ * `modality`: TEMPORADA segue normal; LOCACAO e VENDA não encontram imóvel; outro valor é erro.
+ */
+function seasonRequested(url: URL) {
+  const modality = url.searchParams.get("modality") ?? url.searchParams.get("modalidade");
+  return !modality || z.enum(["TEMPORADA", "LOCACAO", "VENDA"]).parse(modality) === "TEMPORADA";
+}
+
 /** Comodidades dos imóveis visíveis no site: chave normalizada → grafias cadastradas → nº de imóveis. */
-async function publishedAmenities(inactiveOwners: number[], modality?: string | null) {
+async function publishedAmenities(inactiveOwners: number[]) {
   const groups = new Map<string, Map<string, number>>();
   for (let offset = 0; ; offset += 1000) {
     let query = db.from("imovel_resumo").select("comodidades").eq("ativo", true).eq("publicado", true);
     if (inactiveOwners.length) query = query.not("proprietario_id", "in", `(${inactiveOwners.join(",")})`);
-    if (modality) query = query.contains("modalidades", [modality]);
     const result = await query.order("id").range(offset, offset + 999);
     if (result.error) throw result.error;
     for (const row of result.data) {
@@ -136,13 +144,12 @@ export async function publicApi(request: Request, path: string[]) {
   }
   if (path[0] === "destinos" && method === "GET") {
     // Destinos da busca do site: só cidade/UF com imóvel publicado de proprietário ativo.
-    const modality = url.searchParams.get("modality") ?? url.searchParams.get("modalidade");
+    if (!seasonRequested(url)) return json({ items: [] });
     const inactiveOwners = await inactiveOwnerIds();
     const groups = new Map<string, { cidade: string; estado: string; total: number }>();
     for (let offset = 0; ; offset += 1000) {
       let query = db.from("imovel_resumo").select("endereco_publico").eq("ativo", true).eq("publicado", true);
       if (inactiveOwners.length) query = query.not("proprietario_id", "in", `(${inactiveOwners.join(",")})`);
-      if (modality) query = query.contains("modalidades", [z.enum(["TEMPORADA", "LOCACAO", "VENDA"]).parse(modality)]);
       const result = await query.order("id").range(offset, offset + 999);
       if (result.error) throw result.error;
       for (const row of result.data) {
@@ -159,8 +166,8 @@ export async function publicApi(request: Request, path: string[]) {
   }
   if (path[0] === "comodidades" && method === "GET") {
     // Opções do filtro do site: só o que existe em imóveis publicados, com o nome do tipo cadastrado no ERP quando houver.
-    const modality = url.searchParams.get("modality") ?? url.searchParams.get("modalidade");
-    const groups = await publishedAmenities(await inactiveOwnerIds(), modality ? z.enum(["TEMPORADA", "LOCACAO", "VENDA"]).parse(modality) : null);
+    if (!seasonRequested(url)) return json({ items: [] });
+    const groups = await publishedAmenities(await inactiveOwnerIds());
     const tipos = await db.from("tipos_comodidade").select("nome").eq("ativo", true);
     if (tipos.error) throw tipos.error;
     const official = new Map(tipos.data.map((t) => [amenityKey(t.nome), String(t.nome).trim()]));
@@ -194,12 +201,11 @@ export async function publicApi(request: Request, path: string[]) {
       return json((await publicFlats([property]))[0]);
     }
     const { page, pageSize, from, to } = pagination(url);
+    if (!seasonRequested(url)) return json({ items: [], total: 0, page, pageSize });
     let query = db.from("imovel_resumo").select("*", { count: "exact" }).eq("ativo", true).eq("publicado", true);
     const inactiveOwners = await inactiveOwnerIds();
     if (inactiveOwners.length) query = query.not("proprietario_id", "in", `(${inactiveOwners.join(",")})`);
     if (path[0] === "flats") query = query.contains("modalidades", ["TEMPORADA"]);
-    const modality = url.searchParams.get("modality") ?? url.searchParams.get("modalidade");
-    if (modality) query = query.contains("modalidades", [z.enum(["TEMPORADA", "LOCACAO", "VENDA"]).parse(modality)]);
     const search = filterText(url.searchParams.get("q"));
     if (search) query = query.or(`titulo.ilike.%${search}%,endereco_publico->>cidade.ilike.%${search}%,endereco_publico->>bairro.ilike.%${search}%`);
     const neighborhood = url.searchParams.get("neighborhood");
@@ -209,11 +215,10 @@ export async function publicApi(request: Request, path: string[]) {
     if (city) query = query.ilike("endereco_publico->>cidade", city);
     if (state) query = query.eq("endereco_publico->>estado", z.string().trim().length(2).transform((v) => v.toUpperCase()).parse(state));
     if (url.searchParams.get("guests")) query = query.gte("capacidade", identifier(url.searchParams.get("guests")));
-    const priceColumn = modality === "VENDA" ? "valor_venda" : modality === "LOCACAO" ? "valor_locacao" : "diaria";
     const minPrice = url.searchParams.get("minPrice"), maxPrice = url.searchParams.get("maxPrice");
     const priceSchema = z.coerce.number().finite().min(0).max(1e12);
-    if (minPrice !== null) query = query.gte(priceColumn, priceSchema.parse(minPrice));
-    if (maxPrice !== null) query = query.lte(priceColumn, priceSchema.parse(maxPrice));
+    if (minPrice !== null) query = query.gte("diaria", priceSchema.parse(minPrice));
+    if (maxPrice !== null) query = query.lte("diaria", priceSchema.parse(maxPrice));
     if (minPrice !== null && maxPrice !== null && Number(minPrice) > Number(maxPrice)) throw new ImobError(400, "Faixa de valores inválida.");
     // `amenity` repetido aceita nomes com vírgula; `amenities` separado por vírgula é o formato antigo do site.
     const requested = z.array(z.string().trim().min(1).max(120)).max(100).parse([
@@ -232,7 +237,7 @@ export async function publicApi(request: Request, path: string[]) {
     if (checkin || checkout) {
       publicRate(request, "calendar-search", 60);
       const start = civilDate.parse(checkin), end = civilDate.parse(checkout);
-      if (start < hojeImobiliario() || end <= start || (modality && modality !== "TEMPORADA")) throw new ImobError(400, "Informe um período válido de temporada.");
+      if (start < hojeImobiliario() || end <= start) throw new ImobError(400, "Informe um período válido de temporada.");
       query = query.contains("modalidades", ["TEMPORADA"]);
       const nights = (Date.parse(end) - Date.parse(start)) / 86400000;
       // Abaixo do mínimo geral nenhum imóvel aceita a estadia (a cotação recusaria todos).
@@ -259,7 +264,7 @@ export async function publicApi(request: Request, path: string[]) {
       if (unavailable.size) query = query.not("id", "in", `(${[...unavailable].join(",")})`);
     }
     const sort = url.searchParams.get("sort");
-    query = sort === "price-asc" || sort === "price-desc" ? query.order(priceColumn, { ascending: sort === "price-asc" }) : sort === "guests" ? query.order("capacidade", { ascending: false }) : query.order("titulo");
+    query = sort === "price-asc" || sort === "price-desc" ? query.order("diaria", { ascending: sort === "price-asc" }) : sort === "guests" ? query.order("capacidade", { ascending: false }) : query.order("titulo");
     const result = await query.order("id").range(from, to);
     if (result.error) throw result.error;
     return json({ items: await publicFlats(result.data ?? []), total: result.count ?? 0, page, pageSize });
@@ -441,7 +446,7 @@ export async function siteApi(request: Request, path: string[]) {
     if (account.tipo === "PROPRIETARIO") {
       // Documentos de outro proprietário ou de outra operação nunca são compartilhados por troca de titular.
       allowed = file.proprietario_id === account.proprietario_id;
-      if (!file.proprietario_id && file.imovel_id && !file.reserva_id && !file.locacao_id && !file.venda_id) {
+      if (!file.proprietario_id && file.imovel_id && !file.reserva_id) {
         const property = await db.from("imovel").select("id").eq("id", file.imovel_id).eq("proprietario_id", account.proprietario_id).maybeSingle();
         if (property.error) throw property.error;
         allowed = !!property.data;
@@ -491,7 +496,7 @@ export async function siteApi(request: Request, path: string[]) {
       ]);
       if (reservations.error) throw reservations.error;
       if (occupations.error) throw occupations.error;
-      const occupied = selectedProperties.filter((p) => !["DISPONIVEL", "EM_NEGOCIACAO"].includes(p.situacao_operacional)).length;
+      const occupied = selectedProperties.filter((p) => p.situacao_operacional !== "DISPONIVEL").length;
       const enrichedReservations = await enrich(reservations.data);
       return json({ occupancy: selectedProperties.length ? Math.round(occupied / selectedProperties.length * 100) : 0, revenue: report.totais.recebido, expenses: report.totais.despesas + report.totais.receita_administradora, payout: report.totais.saldo_repassar,
         // Campos novos (flatId, checkin...) são aditivos: o site antigo continua lendo period/flat.

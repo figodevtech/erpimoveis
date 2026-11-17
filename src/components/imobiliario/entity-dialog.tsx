@@ -57,8 +57,6 @@ import {
   Building2,
   Users,
   CalendarDays,
-  Key,
-  BadgePercent,
   FileText,
   FolderArchive,
   Globe,
@@ -73,8 +71,6 @@ import {
   CheckCircle2,
   LogOut,
   XCircle,
-  Receipt,
-  Percent,
   Image as ImageIcon,
   Paperclip,
   Calculator,
@@ -110,26 +106,13 @@ function defaults(kind: ModuleKind): Entity {
       endereco_publico: {},
       caracteristicas: {},
     };
-  if (kind === "reservas")
-    return { hospedes: 1, inicio: today, fim: "", observacoes: "" };
-  if (kind === "locacoes-imobiliarias")
-    return {
-      inicio: today,
-      fim: "",
-      dia_vencimento: 5,
-      valor_mensal: "",
-      percentual_admin: 0,
-      indice_reajuste: "IPCA",
-    };
-  return { data_venda: today, valor_total: "", comissao_percentual: 0 };
+  return { hospedes: 1, inicio: today, fim: "", observacoes: "" };
 }
 
 const tabIcons: Record<string, any> = {
   geral: FileText,
   imoveis: Building2,
   reservas: CalendarDays,
-  "locacoes-imobiliarias": Key,
-  "vendas-imobiliarias": BadgePercent,
   financeiro: WalletCards,
   "eventos-financeiros": Calculator,
   acesso: ShieldCheck,
@@ -144,8 +127,6 @@ const kindIcons: Record<ModuleKind, any> = {
   imoveis: Building2,
   proprietarios: Users,
   reservas: CalendarDays,
-  "locacoes-imobiliarias": Key,
-  "vendas-imobiliarias": BadgePercent,
 };
 
 export default function EntityDialog({
@@ -175,7 +156,7 @@ export default function EntityDialog({
   const [ownerChangeOpen, setOwnerChangeOpen] = useState(false);
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const [operation, setOperation] = useState<ModuleKind | null>(null);
-  // Reserva ou locação aberta a partir da aba Disponibilidade do imóvel.
+  // Reserva aberta a partir da aba Disponibilidade do imóvel.
   const [aberta, setAberta] = useState<{ kind: ModuleKind; id: number } | null>(null);
   // Cadastro do cliente aberto pelo nome do hóspede, na reserva.
   const [clienteAberto, setClienteAberto] = useState<number | null>(null);
@@ -242,7 +223,6 @@ export default function EntityDialog({
       setRulesToConfirm(quote.violacoes.map((violacao) => violacao.mensagem));
       return;
     }
-    if (kind === "imoveis" && !(value.modalidades ?? []).length) return block("Selecione ao menos uma modalidade do imóvel.");
     if (kind === "imoveis" && !value.proprietario_id) return block("Selecione o proprietário do imóvel.");
     const ownerChanged =
       kind === "imoveis" && Boolean(currentId) && original && String(value.proprietario_id) !== String(original.proprietario_id);
@@ -270,12 +250,6 @@ export default function EntityDialog({
         "enderecocomplemento",
       ]) {
         if (payload[key] === "") payload[key] = null;
-      }
-    }
-
-    if (kind === "locacoes-imobiliarias") {
-      for (const key of ["fim", "proximo_reajuste"]) {
-        if (!payload[key]) payload[key] = null;
       }
     }
 
@@ -352,7 +326,7 @@ export default function EntityDialog({
     if (
       !window.confirm(
         kind === "imoveis"
-          ? "Excluir este imóvel? Sem reservas, locações, vendas ou lançamentos financeiros, ele é apagado definitivamente com fotos e anexos; com algum desses vínculos, é apenas inativado."
+          ? "Excluir este imóvel? Sem reservas ou lançamentos financeiros, ele é apagado definitivamente com fotos e anexos; com algum desses vínculos, é apenas inativado."
           : `Inativar ou excluir este ${config.singular}? Registros com histórico serão preservados pelo sistema.`
       )
     )
@@ -382,11 +356,9 @@ export default function EntityDialog({
         { key: "anexos", label: "Anexos" },
         { key: "publicacao", label: "Publicação" },
         { key: "disponibilidade", label: "Disponibilidade" },
-        { key: "reservas", label: "Reservas" },
-        { key: "locacoes-imobiliarias", label: "Locações" },
-        { key: "vendas-imobiliarias", label: "Vendas" }
+        { key: "reservas", label: "Reservas" }
       );
-      // Sem aba Pagamentos: o imóvel não é cobrado; os pagamentos ficam na reserva, locação e venda.
+      // Sem aba Pagamentos: o imóvel não é cobrado; os pagamentos ficam na reserva.
     } else {
       tabs.push({ key: "arquivos", label: "Documentos" });
       if (financial) tabs.push({ key: "financeiro", label: "Pagamentos" });
@@ -402,8 +374,6 @@ export default function EntityDialog({
     proprietarios: "proprietario_id",
     imoveis: "imovel_id",
     reservas: "reserva_id",
-    "locacoes-imobiliarias": "locacao_id",
-    "vendas-imobiliarias": "venda_id",
   } as const)[kind];
 
   const KindIcon = kindIcons[kind] || Building2;
@@ -486,33 +456,13 @@ export default function EntityDialog({
           currentId ? (
             <div className="flex items-center gap-1.5 flex-wrap">
               {kind === "imoveis" ? (
-                value.ativo !== false && !value.vendido_em ? (
-                  <>
-                    {can("reservas:criar") ? (
-                      <QuickAction
-                        label="Nova reserva"
-                        icon={CalendarDays}
-                        tone="sky"
-                        onClick={() => setOperation("reservas")}
-                      />
-                    ) : null}
-                    {can("locacoes_imobiliarias:criar") ? (
-                      <QuickAction
-                        label="Nova locação"
-                        icon={Key}
-                        tone="amber"
-                        onClick={() => setOperation("locacoes-imobiliarias")}
-                      />
-                    ) : null}
-                    {can("vendas_imobiliarias:criar") ? (
-                      <QuickAction
-                        label="Nova venda"
-                        icon={BadgePercent}
-                        tone="emerald"
-                        onClick={() => setOperation("vendas-imobiliarias")}
-                      />
-                    ) : null}
-                  </>
+                value.ativo !== false && can("reservas:criar") ? (
+                  <QuickAction
+                    label="Nova reserva"
+                    icon={CalendarDays}
+                    tone="sky"
+                    onClick={() => setOperation("reservas")}
+                  />
                 ) : null
               ) : (
                 <OperationButtons kind={kind} item={value} onAction={setAction} />
@@ -730,7 +680,7 @@ export default function EntityDialog({
                 </div>
               </TabsContent>
 
-              {(["imoveis", "reservas", "locacoes-imobiliarias", "vendas-imobiliarias"] as const).map(
+              {(["imoveis", "reservas"] as const).map(
                 (relation) => (
                   <TabsContent
                     value={relation}
@@ -851,7 +801,7 @@ export default function EntityDialog({
                 <div className="rounded-md border p-3">
                   <p className="font-medium text-foreground">O imóvel mudou de dono</p>
                   <p>
-                    Reservas confirmadas e em andamento, locações ativas e as cobranças delas ainda não pagas passam para o novo dono.
+                    Reservas confirmadas e em andamento e as cobranças delas ainda não pagas passam para o novo dono.
                     O que já foi recebido, taxado ou repassado continua no extrato do dono anterior.
                   </p>
                 </div>
@@ -859,7 +809,7 @@ export default function EntityDialog({
                   <p className="font-medium text-foreground">O cadastro estava errado</p>
                   <p>
                     Tudo do imóvel passa para o novo dono, inclusive o histórico: reservas concluídas, extrato, repasses e transações pagas.
-                    Ficam de fora a venda do imóvel e notas fiscais já emitidas.
+                    Ficam de fora as notas fiscais já emitidas.
                   </p>
                 </div>
               </div>
@@ -989,8 +939,6 @@ function notifySaveFailure(
 
 const quickActionTones = {
   sky: "border-sky-500/30 bg-sky-500/10 text-sky-700 hover:bg-sky-500 hover:text-white hover:border-sky-500 dark:text-sky-400",
-  amber: "border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500 hover:text-white hover:border-amber-500 dark:text-amber-400",
-  emerald: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500 hover:text-white hover:border-emerald-500 dark:text-emerald-400",
 } as const;
 
 /** Atalho do topo do diálogo: só ícone, com o nome na dica e no leitor de tela. */
@@ -1067,67 +1015,14 @@ function OperationButtons({
     );
   }
 
-  if (kind === "locacoes-imobiliarias") {
-    choices.push(
-      {
-        action: "ATIVAR",
-        label: "Ativar contrato",
-        permission: "locacoes_imobiliarias:confirmar",
-        show: status === "RASCUNHO",
-        icon: CheckCircle2,
-      },
-      {
-        action: "GERAR_COBRANCAS",
-        label: "Gerar cobranças",
-        permission: "locacoes_imobiliarias:financeiro",
-        show: status === "ATIVA",
-        icon: Receipt,
-      },
-      {
-        action: "REAJUSTAR",
-        label: "Reajustar",
-        permission: "locacoes_imobiliarias:editar",
-        show: status === "ATIVA",
-        icon: Percent,
-      },
-      {
-        action: "ENCERRAR",
-        label: "Encerrar contrato",
-        permission: "locacoes_imobiliarias:cancelar",
-        show: status === "ATIVA",
-        icon: XCircle,
-      }
-    );
-  }
-
-  if (kind === "vendas-imobiliarias") {
-    choices.push(
-      {
-        action: "CONCLUIR",
-        label: "Concluir venda",
-        permission: "vendas_imobiliarias:concluir",
-        show: status === "RASCUNHO",
-        icon: CheckCircle2,
-      },
-      {
-        action: "CANCELAR",
-        label: "Cancelar venda",
-        permission: "vendas_imobiliarias:cancelar",
-        show: status === "RASCUNHO",
-        icon: XCircle,
-      }
-    );
-  }
-
   return (
     <>
       {choices
         .filter((choice) => choice.show && can(choice.permission))
         .map((choice) => {
           const Icon = choice.icon;
-          const isDestructive = choice.action === "CANCELAR" || choice.action === "ENCERRAR";
-          const isPrimary =
-            choice.action === "CONCLUIR" || choice.action === "CHECKIN" || choice.action === "ATIVAR";
+          const isDestructive = choice.action === "CANCELAR";
+          const isPrimary = choice.action === "CHECKIN";
           return (
             <Button
               key={choice.action}

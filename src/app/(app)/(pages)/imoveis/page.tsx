@@ -17,7 +17,7 @@ const EntityDialog = dynamic(() => import("@/components/imobiliario/entity-dialo
 });
 
 /** Abas do imóvel que um link pode abrir (qualquer outro valor cai na aba Geral). */
-const ABAS_POR_LINK = ["geral", "midia", "anexos", "publicacao", "disponibilidade", "reservas", "locacoes-imobiliarias", "vendas-imobiliarias"];
+const ABAS_POR_LINK = ["geral", "midia", "anexos", "publicacao", "disponibilidade", "reservas"];
 
 export default function ImoveisPage() {
   const { can, ready } = useModulePermission();

@@ -28,7 +28,6 @@ import {
   ChevronRightIcon,
   ChevronsLeft,
   ChevronsRight,
-  Filter,
   Globe,
   Home,
   LayoutGrid,
@@ -67,8 +66,6 @@ export interface ImovelItem {
   vagas?: number | null;
   area?: number | null;
   diaria?: number | null;
-  valor_locacao?: number | null;
-  valor_venda?: number | null;
   taxa_limpeza?: number | null;
   caucao?: number | null;
   situacao_operacional?: string | null;
@@ -109,7 +106,6 @@ export interface ImovelSelectProps {
   OnSelect?: (value: ImovelItem) => void;
   setOpen?: (value: boolean) => void;
   open?: boolean;
-  modalidadePadrao?: "TODAS" | "TEMPORADA" | "LOCACAO" | "VENDA";
 }
 
 export default function ImovelSelect({
@@ -117,7 +113,6 @@ export default function ImovelSelect({
   OnSelect,
   setOpen,
   open,
-  modalidadePadrao = "TODAS",
 }: ImovelSelectProps) {
   const { can } = useModulePermission();
   const canCreate = can("imoveis:criar");
@@ -134,7 +129,6 @@ export default function ImovelSelect({
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
-  const [modalidadeFilter, setModalidadeFilter] = useState<string>(modalidadePadrao);
   const [situacaoFilter, setSituacaoFilter] = useState<string>("TODOS");
 
   const [openNewImovel, setOpenNewImovel] = useState(false);
@@ -145,7 +139,6 @@ export default function ImovelSelect({
     pageNumber?: number,
     limit?: number,
     searchText?: string,
-    modalidade?: string,
     situacao?: string
   ) => {
     const requestId = ++requestSequence.current;
@@ -164,7 +157,6 @@ export default function ImovelSelect({
           page: currentPage,
           limit: currentLimit,
           search: searchText !== undefined ? searchText : search,
-          modalidade: modalidade !== undefined ? modalidade : modalidadeFilter,
           situacao: situacao !== undefined ? situacao : situacaoFilter,
         },
       });
@@ -201,17 +193,17 @@ export default function ImovelSelect({
 
   useEffect(() => {
     if (open) {
-      void handleGetImoveis(1, pagination.limit, search, modalidadeFilter, situacaoFilter);
+      void handleGetImoveis(1, pagination.limit, search, situacaoFilter);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, search, modalidadeFilter, situacaoFilter]);
+  }, [open, search, situacaoFilter]);
 
   useEffect(() => () => requestController.current?.abort(), []);
 
   const executarBusca = () => {
     const term = searchInput.trim();
     if (term === search) {
-      void handleGetImoveis(1, pagination.limit, term, modalidadeFilter, situacaoFilter);
+      void handleGetImoveis(1, pagination.limit, term, situacaoFilter);
     } else {
       setSearch(term);
     }
@@ -220,7 +212,7 @@ export default function ImovelSelect({
   const limparBusca = () => {
     setSearchInput("");
     if (search === "") {
-      void handleGetImoveis(1, pagination.limit, "", modalidadeFilter, situacaoFilter);
+      void handleGetImoveis(1, pagination.limit, "", situacaoFilter);
     } else {
       setSearch("");
     }
@@ -260,7 +252,7 @@ export default function ImovelSelect({
                   Selecionar Imóvel
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground">
-                  Busque por código, título, bairro, cidade ou modalidade operacional.
+                  Busque por código, título, bairro ou cidade.
                 </DialogDescription>
               </div>
             </div>
@@ -282,7 +274,7 @@ export default function ImovelSelect({
                   open={openNewImovel}
                   onOpenChange={setOpenNewImovel}
                   onSaved={() => {
-                    void handleGetImoveis(1, pagination.limit, search, modalidadeFilter, situacaoFilter);
+                    void handleGetImoveis(1, pagination.limit, search, situacaoFilter);
                   }}
                 />
               </div>
@@ -326,22 +318,6 @@ export default function ImovelSelect({
             {/* Controles de Visualização & Filtros */}
             <div className="flex items-center gap-2 shrink-0 flex-wrap">
               <Select
-                value={modalidadeFilter}
-                onValueChange={(val) => setModalidadeFilter(val)}
-              >
-                <SelectTrigger className="h-9 text-xs rounded-xl w-32 sm:w-36 bg-card">
-                  <Filter className="size-3.5 mr-1.5 text-muted-foreground" />
-                  <SelectValue placeholder="Modalidade" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="TODAS">Todas Modalidades</SelectItem>
-                  <SelectItem value="TEMPORADA">Temporada</SelectItem>
-                  <SelectItem value="LOCACAO">Locação Mensal</SelectItem>
-                  <SelectItem value="VENDA">Venda</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select
                 value={situacaoFilter}
                 onValueChange={(val) => setSituacaoFilter(val)}
               >
@@ -353,7 +329,6 @@ export default function ImovelSelect({
                   <SelectItem value="DISPONIVEL">Disponível</SelectItem>
                   <SelectItem value="RESERVADO">Reservado</SelectItem>
                   <SelectItem value="OCUPADO">Ocupado</SelectItem>
-                  <SelectItem value="ALUGADO">Alugado</SelectItem>
                   <SelectItem value="MANUTENCAO">Manutenção</SelectItem>
                   <SelectItem value="INATIVO">Inativo</SelectItem>
                 </SelectContent>
@@ -511,28 +486,14 @@ export default function ImovelSelect({
                         ) : null}
                       </div>
 
-                      {/* Modalidades & Preço Principal */}
+                      {/* Diária */}
                       <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-2">
                         <div>
-                          {imovel.modalidades?.includes("TEMPORADA") && imovel.diaria ? (
+                          {imovel.diaria ? (
                             <div className="space-y-0.5">
                               <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Diária</span>
                               <p className="text-xs sm:text-sm font-bold text-foreground">
                                 {money(imovel.diaria)} <span className="text-[10px] font-normal text-muted-foreground">/noite</span>
-                              </p>
-                            </div>
-                          ) : imovel.modalidades?.includes("LOCACAO") && imovel.valor_locacao ? (
-                            <div className="space-y-0.5">
-                              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Aluguel</span>
-                              <p className="text-xs sm:text-sm font-bold text-foreground">
-                                {money(imovel.valor_locacao)} <span className="text-[10px] font-normal text-muted-foreground">/mês</span>
-                              </p>
-                            </div>
-                          ) : imovel.modalidades?.includes("VENDA") && imovel.valor_venda ? (
-                            <div className="space-y-0.5">
-                              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Venda</span>
-                              <p className="text-xs sm:text-sm font-bold text-foreground">
-                                {money(imovel.valor_venda)}
                               </p>
                             </div>
                           ) : (
@@ -559,8 +520,7 @@ export default function ImovelSelect({
                     <TableHead className="w-24">Código</TableHead>
                     <TableHead>Imóvel / Título</TableHead>
                     <TableHead className="hidden sm:table-cell">Localização</TableHead>
-                    <TableHead className="hidden md:table-cell">Modalidades</TableHead>
-                    <TableHead>Diária / Valor</TableHead>
+                    <TableHead>Diária</TableHead>
                     <TableHead className="w-24 text-center">Situação</TableHead>
                     <TableHead className="w-20 text-center">Ação</TableHead>
                   </TableRow>
@@ -603,26 +563,8 @@ export default function ImovelSelect({
                           {localidade || "—"}
                         </TableCell>
 
-                        <TableCell className="hidden md:table-cell text-muted-foreground">
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {(imovel.modalidades ?? []).map((m) => (
-                              <Badge key={m} variant="outline" className="text-[10px] px-1.5 py-0">
-                                {titleCase(m)}
-                              </Badge>
-                            ))}
-                          </div>
-                        </TableCell>
-
                         <TableCell className="font-semibold text-foreground">
-                          {imovel.diaria ? (
-                            <span>{money(imovel.diaria)}/noite</span>
-                          ) : imovel.valor_locacao ? (
-                            <span>{money(imovel.valor_locacao)}/mês</span>
-                          ) : imovel.valor_venda ? (
-                            <span>{money(imovel.valor_venda)}</span>
-                          ) : (
-                            "—"
-                          )}
+                          {imovel.diaria ? <span>{money(imovel.diaria)}/noite</span> : "—"}
                         </TableCell>
 
                         <TableCell className="text-center">
@@ -666,7 +608,7 @@ export default function ImovelSelect({
                 variant="outline"
                 size="icon"
                 className="h-8 w-8 hover:cursor-pointer"
-                onClick={() => handleGetImoveis(1, pagination.limit, search, modalidadeFilter, situacaoFilter)}
+                onClick={() => handleGetImoveis(1, pagination.limit, search, situacaoFilter)}
                 disabled={pagination.page <= 1 || isLoading}
                 title="Primeira página"
               >
@@ -677,7 +619,7 @@ export default function ImovelSelect({
                 variant="outline"
                 size="icon"
                 className="h-8 w-8 hover:cursor-pointer"
-                onClick={() => handleGetImoveis(pagination.page - 1, pagination.limit, search, modalidadeFilter, situacaoFilter)}
+                onClick={() => handleGetImoveis(pagination.page - 1, pagination.limit, search, situacaoFilter)}
                 disabled={pagination.page <= 1 || isLoading}
                 title="Página anterior"
               >
@@ -692,7 +634,7 @@ export default function ImovelSelect({
                 variant="outline"
                 size="icon"
                 className="h-8 w-8 hover:cursor-pointer"
-                onClick={() => handleGetImoveis(pagination.page + 1, pagination.limit, search, modalidadeFilter, situacaoFilter)}
+                onClick={() => handleGetImoveis(pagination.page + 1, pagination.limit, search, situacaoFilter)}
                 disabled={pagination.page >= pagination.totalPages || pagination.totalPages === 0 || isLoading}
                 title="Próxima página"
               >
@@ -703,7 +645,7 @@ export default function ImovelSelect({
                 variant="outline"
                 size="icon"
                 className="h-8 w-8 hover:cursor-pointer"
-                onClick={() => handleGetImoveis(pagination.totalPages, pagination.limit, search, modalidadeFilter, situacaoFilter)}
+                onClick={() => handleGetImoveis(pagination.totalPages, pagination.limit, search, situacaoFilter)}
                 disabled={pagination.page >= pagination.totalPages || pagination.totalPages === 0 || isLoading}
                 title="Última página"
               >
@@ -718,7 +660,7 @@ export default function ImovelSelect({
                 value={String(pagination.limit)}
                 onValueChange={(val) => {
                   const newLimit = Number(val);
-                  void handleGetImoveis(1, newLimit, search, modalidadeFilter, situacaoFilter);
+                  void handleGetImoveis(1, newLimit, search, situacaoFilter);
                 }}
               >
                 <SelectTrigger className="h-8 text-xs w-20 rounded-xl">

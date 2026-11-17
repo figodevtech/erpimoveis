@@ -9,8 +9,8 @@ export async function enrich(items: Record<string, any>[]): Promise<Record<strin
   const imovelIds = [...new Set([...ids("imovel_id"), ...items.filter((r) => r.titulo && r.id).map((r) => r.id)])];
 
   const [imoveis, clientes, proprietarios, fotos] = await Promise.all([
-    ids("imovel_id").length ? db.from("imovel_resumo").select("id,titulo,slug,codigo,modalidades,tipo,capacidade,quartos,banheiros,vagas,area,diaria,valor_locacao,valor_venda,endereco,endereco_publico,situacao_operacional,ativo").in("id", ids("imovel_id")) : Promise.resolve({ data: [], error: null }),
-    [...ids("cliente_id"), ...ids("comprador_id")].length ? db.from("cliente").select("id,nomerazaosocial,cpfcnpj,telefone,email,cidade,estado,tipopessoa,status").in("id", [...ids("cliente_id"), ...ids("comprador_id")]) : Promise.resolve({ data: [], error: null }),
+    ids("imovel_id").length ? db.from("imovel_resumo").select("id,titulo,slug,codigo,modalidades,tipo,capacidade,quartos,banheiros,vagas,area,diaria,endereco,endereco_publico,situacao_operacional,ativo").in("id", ids("imovel_id")) : Promise.resolve({ data: [], error: null }),
+    ids("cliente_id").length ? db.from("cliente").select("id,nomerazaosocial,cpfcnpj,telefone,email,cidade,estado,tipopessoa,status").in("id", ids("cliente_id")) : Promise.resolve({ data: [], error: null }),
     ids("proprietario_id").length ? db.from("proprietario").select("id,nomerazaosocial,cpfcnpj,telefone,email,tipopessoa,ativo").in("id", ids("proprietario_id")) : Promise.resolve({ data: [], error: null }),
     imovelIds.length ? db.from("imovel_arquivo").select("imovel_id,path,ordem").in("imovel_id", imovelIds).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).order("ordem").order("id") : Promise.resolve({ data: [], error: null }),
   ]);
@@ -38,7 +38,7 @@ export async function enrich(items: Record<string, any>[]): Promise<Record<strin
       ...r,
       foto_capa: r.foto_capa ?? cover,
       imovel: imovelObj ? { ...imovelObj, foto_capa: getCoverPhoto(imovelObj.id) } : undefined,
-      cliente: clientesById.get(r.cliente_id ?? r.comprador_id),
+      cliente: clientesById.get(r.cliente_id),
       proprietario: proprietariosById.get(r.proprietario_id),
     };
   });
@@ -61,7 +61,7 @@ export async function minNoitesGeral(): Promise<number> {
 export async function publicFlats(rows: Record<string, any>[]) {
   if (!rows.length) return [];
   const [{ data: files, error }, minimoGeral] = await Promise.all([
-    db.from("imovel_arquivo").select("imovel_id,path,ordem").in("imovel_id", rows.map((r) => r.id)).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).is("reserva_id", null).is("locacao_id", null).is("venda_id", null).is("proprietario_id", null).order("ordem").order("id"),
+    db.from("imovel_arquivo").select("imovel_id,path,ordem").in("imovel_id", rows.map((r) => r.id)).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).is("reserva_id", null).is("proprietario_id", null).order("ordem").order("id"),
     minNoitesGeral(),
   ]);
   if (error) throw error;
@@ -79,8 +79,9 @@ export async function publicFlats(rows: Record<string, any>[]) {
       description: r.descricao ?? "", coverImage: gallery[0] ?? "", gallery, realPhotos: Boolean(r.fotos_reais) && gallery.length > 0,
       maxGuests: Number(r.capacidade ?? 1), bedrooms: Number(r.quartos ?? 0), bathrooms: Number(r.banheiros ?? 0), areaSqm: Number(r.area ?? 0), amenities: r.comodidades ?? [],
       active: r.ativo, published: r.publicado, fromPrice: Number(r.diaria ?? 0), tag: r.selo_anuncio ?? "",
-      modalities: r.modalidades, prices: { nightly: r.modalidades?.includes("TEMPORADA") ? Number(r.diaria ?? 0) : null, monthly: r.modalidades?.includes("LOCACAO") ? Number(r.valor_locacao ?? 0) : null, sale: r.modalidades?.includes("VENDA") ? Number(r.valor_venda ?? 0) : null },
-      occupancyStatus: r.situacao_comercial === "VENDIDO" ? "VENDIDO" : r.situacao_operacional ?? "DISPONIVEL", rules: r.regras ?? "", checkinTime: r.horario_checkin, checkoutTime: r.horario_checkout,
+      // Só temporada; `monthly` e `sale` seguem no contrato do site, sempre nulos.
+      modalities: ["TEMPORADA"], prices: { nightly: Number(r.diaria ?? 0), monthly: null, sale: null },
+      occupancyStatus: r.situacao_operacional ?? "DISPONIVEL", rules: r.regras ?? "", checkinTime: r.horario_checkin, checkoutTime: r.horario_checkout,
       // O mínimo que o hóspede precisa cumprir: o geral ou o do imóvel, o que for maior (tarifas chegam na cotação).
       minNights: Math.max(Number(r.min_noites ?? 1) || 1, minimoGeral), maxNights: r.max_noites,
       publicLocation: { latitude: address.latitude ?? null, longitude: address.longitude ?? null },
@@ -97,16 +98,6 @@ export function publicBooking(row: Record<string, any>) {
   };
 }
 
-export async function activeOperations(imovelId: number, start: string) {
-  const [reservas, locacoes] = await Promise.all([
-    db.from("reserva_imovel").select("*").eq("imovel_id", imovelId).in("status", ["CONFIRMADA", "EM_ANDAMENTO"]).gt("fim", start),
-    db.from("locacao_imovel").select("*").eq("imovel_id", imovelId).eq("status", "ATIVA").or(`fim.is.null,fim.gt.${start}`),
-  ]);
-  if (reservas.error) throw reservas.error;
-  if (locacoes.error) throw locacoes.error;
-  return enrich([...(reservas.data ?? []).map((r) => ({ ...r, tipo: "RESERVA" })), ...(locacoes.data ?? []).map((r) => ({ ...r, tipo: "LOCACAO" }))]);
-}
-
 export async function publicationValid(row: Record<string, any>, id?: number) {
   if (!row.publicado) return;
   const owner = await one("proprietario", row.proprietario_id);
@@ -114,22 +105,19 @@ export async function publicationValid(row: Record<string, any>, id?: number) {
   // Cidade e UF do site vêm do endereço da aba Geral (o banco copia para endereco_publico).
   if (!row.descricao?.trim()) throw new ImobError(400, "Preencha a descrição do imóvel antes de publicar.");
   if (!String(row.endereco?.cidade ?? "").trim() || !String(row.endereco?.estado ?? "").trim()) throw new ImobError(400, "Preencha a cidade e a UF do endereço (aba Geral) antes de publicar.");
-  for (const [mode, price] of [["TEMPORADA", row.diaria], ["LOCACAO", row.valor_locacao], ["VENDA", row.valor_venda]]) {
-    if (row.modalidades.includes(mode) && Number(price) <= 0) throw new ImobError(400, `Informe o valor da modalidade ${mode}.`);
-  }
+  if (Number(row.diaria) <= 0) throw new ImobError(400, "Informe a diária do imóvel antes de publicar.");
   if (!id) throw new ImobError(400, "Salve o imóvel e adicione as fotos antes de publicar.");
-  const { count, error } = await db.from("imovel_arquivo").select("id", { count: "exact", head: true }).eq("imovel_id", id).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).is("proprietario_id", null).is("reserva_id", null).is("locacao_id", null).is("venda_id", null);
+  const { count, error } = await db.from("imovel_arquivo").select("id", { count: "exact", head: true }).eq("imovel_id", id).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).is("proprietario_id", null).is("reserva_id", null);
   if (error) throw error;
   if (!count) throw new ImobError(400, "Adicione pelo menos uma foto antes de publicar.");
 }
 
 export async function fileScope(resource: string, id: number) {
-  if (resource === "proprietarios") return { proprietario_id: (await one("proprietario", id)).id, imovel_id: null, reserva_id: null, locacao_id: null, venda_id: null };
-  if (resource === "imoveis") return { imovel_id: (await one("imovel", id)).id, reserva_id: null, locacao_id: null, venda_id: null };
-  const table = ({ reservas: "reserva_imovel", "locacoes-imobiliarias": "locacao_imovel", "vendas-imobiliarias": "venda_imovel" } as Record<string, string>)[resource];
-  if (!table) throw new ImobError(400, "Documentos devem estar vinculados a um imóvel ou operação.");
-  const row = await one(table, id);
-  return { imovel_id: row.imovel_id, proprietario_id: row.proprietario_id, [resource === "reservas" ? "reserva_id" : resource === "locacoes-imobiliarias" ? "locacao_id" : "venda_id"]: id };
+  if (resource === "proprietarios") return { proprietario_id: (await one("proprietario", id)).id, imovel_id: null, reserva_id: null };
+  if (resource === "imoveis") return { imovel_id: (await one("imovel", id)).id, reserva_id: null };
+  if (resource !== "reservas") throw new ImobError(400, "Documentos devem estar vinculados a um imóvel ou reserva.");
+  const row = await one("reserva_imovel", id);
+  return { imovel_id: row.imovel_id, proprietario_id: row.proprietario_id, reserva_id: id };
 }
 
 const isGalleryRow = (r: Record<string, any>) => r.publico && r.bucket === IMOBILIARIO_BUCKET_FOTOS && r.tipo === "FOTO";
@@ -203,7 +191,7 @@ export async function uploadFile(request: Request, scope: Record<string, unknown
   if (!detected || (tipo === "FOTO" && !detected.image)) {
     throw new ImobError(400, tipo === "FOTO" ? "Use fotos JPG, PNG ou WebP." : "Formato não aceito. Use PDF, imagem, Word, Excel, OpenDocument, TXT ou CSV.");
   }
-  const publicPhoto = tipo === "FOTO" && !!scope.imovel_id && !scope.proprietario_id && !scope.reserva_id && !scope.locacao_id && !scope.venda_id;
+  const publicPhoto = tipo === "FOTO" && !!scope.imovel_id && !scope.proprietario_id && !scope.reserva_id;
   let { mime, ext } = detected;
   let ordem = 0;
   if (publicPhoto) {

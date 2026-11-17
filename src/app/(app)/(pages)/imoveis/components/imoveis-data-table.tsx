@@ -218,9 +218,8 @@ export default function ImoveisDataTable({
                   <TableHead className="w-[60px]">ID</TableHead>
                   <TableHead>Imóvel</TableHead>
                   <TableHead>Proprietário / Localização</TableHead>
-                  <TableHead>Modalidade</TableHead>
                   <TableHead>Situação</TableHead>
-                  <TableHead className="text-right">Valores</TableHead>
+                  <TableHead className="text-right">Diária</TableHead>
                   <TableHead className="w-[50px]">Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -228,7 +227,7 @@ export default function ImoveisDataTable({
               <TableBody>
                 {imoveis.length === 0 && !isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                       Nenhum imóvel encontrado.
                     </TableCell>
                   </TableRow>
@@ -243,13 +242,7 @@ export default function ImoveisDataTable({
                       .join(" · ");
 
                     const valorPrincipal =
-                      imovel.diaria && Number(imovel.diaria) > 0
-                        ? `${money(imovel.diaria)} / diária`
-                        : imovel.valor_locacao && Number(imovel.valor_locacao) > 0
-                        ? `${money(imovel.valor_locacao)} / mês`
-                        : imovel.valor_venda && Number(imovel.valor_venda) > 0
-                        ? money(imovel.valor_venda)
-                        : "—";
+                      imovel.diaria && Number(imovel.diaria) > 0 ? `${money(imovel.diaria)} / diária` : "—";
 
                     return (
                       <TableRow
@@ -272,22 +265,6 @@ export default function ImoveisDataTable({
                           </span>
                         </TableCell>
                         <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {imovel.modalidades && imovel.modalidades.length > 0 ? (
-                              imovel.modalidades.map((m) => (
-                                <span
-                                  key={m}
-                                  className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium"
-                                >
-                                  {m}
-                                </span>
-                              ))
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
                           <StatusBadge status={rowStatus(imovel)} />
                           <p className="mt-0.5 text-[10px] text-muted-foreground">
                             {imovel.publicado ? "Publicado no site" : "Não publicado"}
@@ -301,7 +278,7 @@ export default function ImoveisDataTable({
                             canEdit={canEdit}
                             onOpen={() => onSelectImovel(imovel.id)}
                             onDelete={onDeleteImovel ? () => onDeleteImovel(imovel.id) : undefined}
-                            deleteDescription="Sem reservas, locações, vendas ou lançamentos financeiros, o imóvel é excluído definitivamente, com fotos, anexos, tarifas e agenda. Com qualquer um desses vínculos, ele é apenas inativado e retirado do site."
+                            deleteDescription="Sem reservas ou lançamentos financeiros, o imóvel é excluído definitivamente, com fotos, anexos, tarifas e agenda. Com qualquer um desses vínculos, ele é apenas inativado e retirado do site."
                           />
                         </TableCell>
                       </TableRow>
@@ -335,13 +312,7 @@ export default function ImoveisDataTable({
                       .join(" · ");
 
                     const valorPrincipal =
-                      imovel.diaria && Number(imovel.diaria) > 0
-                        ? `${money(imovel.diaria)} / diária`
-                        : imovel.valor_locacao && Number(imovel.valor_locacao) > 0
-                        ? `${money(imovel.valor_locacao)} / mês`
-                        : imovel.valor_venda && Number(imovel.valor_venda) > 0
-                        ? money(imovel.valor_venda)
-                        : "—";
+                      imovel.diaria && Number(imovel.diaria) > 0 ? `${money(imovel.diaria)} / diária` : "—";
 
                     return (
                       <div
@@ -376,7 +347,7 @@ export default function ImoveisDataTable({
                                   canEdit={canEdit}
                                   onOpen={() => onSelectImovel(imovel.id)}
                                   onDelete={onDeleteImovel ? () => onDeleteImovel(imovel.id) : undefined}
-                                  deleteDescription="Sem reservas, locações, vendas ou lançamentos financeiros, o imóvel é excluído definitivamente, com fotos, anexos, tarifas e agenda. Com qualquer um desses vínculos, ele é apenas inativado e retirado do site."
+                                  deleteDescription="Sem reservas ou lançamentos financeiros, o imóvel é excluído definitivamente, com fotos, anexos, tarifas e agenda. Com qualquer um desses vínculos, ele é apenas inativado e retirado do site."
                                 />
                               </div>
                             </div>
@@ -444,23 +415,9 @@ export default function ImoveisDataTable({
                           </div>
                         </div>
 
-                        {/* Rodapé do Card: Modalidades, Status de Publicação e Valor Principal */}
+                        {/* Rodapé do Card: Status de Publicação e Diária */}
                         <div className="p-3.5 pt-0 mt-1 flex items-end justify-between gap-2">
                           <div className="flex flex-col gap-1 min-w-0">
-                            <div className="flex flex-wrap gap-1">
-                              {imovel.modalidades && imovel.modalidades.length > 0 ? (
-                                imovel.modalidades.map((m) => (
-                                  <span
-                                    key={m}
-                                    className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
-                                  >
-                                    {m}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="text-[10px] text-muted-foreground">—</span>
-                              )}
-                            </div>
                             <span className="text-[10px] text-muted-foreground flex items-center gap-1 truncate">
                               <span
                                 className={cn(

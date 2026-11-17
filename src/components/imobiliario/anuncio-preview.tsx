@@ -30,7 +30,6 @@ import type { Entity } from "./model";
 const display = Playfair_Display({ subsets: ["latin"], weight: ["500"], display: "swap" });
 const body = DM_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], display: "swap" });
 
-const MODALITY_LABELS: Record<string, string> = { TEMPORADA: "Temporada", LOCACAO: "Aluguel", VENDA: "Venda" };
 const GOLD_DARK = "#8a682e";
 
 /** Mesma regra do site (domain/amenities.ts): "Wi-Fi", "Wifi", "Wi-Fi de alta velocidade"... */
@@ -44,7 +43,6 @@ const money = (value: number) => value.toLocaleString("pt-BR", { style: "currenc
 
 /** Dados do formulário no formato que o site recebe (data.ts → publicFlats). */
 function flatFrom(value: Entity, gallery: string[]) {
-  const modalidades: string[] = value.modalidades?.length ? value.modalidades : ["TEMPORADA"];
   const endereco = value.endereco ?? {};
   const text = (v: unknown) => String(v ?? "").trim();
   return {
@@ -63,9 +61,8 @@ function flatFrom(value: Entity, gallery: string[]) {
     areaSqm: Number(value.area ?? 0),
     amenities: ((value.comodidades ?? []) as string[]).filter(Boolean),
     tag: text(value.selo_anuncio),
-    modalidades,
-    // O site mostra só a diária por enquanto (ONLY_NIGHTLY_PRICE no site).
-    nightly: modalidades.includes("TEMPORADA") ? Number(value.diaria ?? 0) : null,
+    // O imóvel é só de temporada: o site mostra a diária.
+    nightly: Number(value.diaria ?? 0),
     rules: text(value.regras),
     checkinTime: text(value.horario_checkin).slice(0, 5) || null,
     checkoutTime: text(value.horario_checkout).slice(0, 5) || null,
@@ -94,7 +91,7 @@ function Cover({ src, alt, className = "" }: { src?: string; alt: string; classN
 
 function PreviewCard({ flat, onOpen }: { flat: PreviewFlat; onOpen: () => void }) {
   const cover = flat.gallery[0];
-  const tag = flat.tag || flat.modalidades.map((m) => MODALITY_LABELS[m] ?? m).join(" · ");
+  const tag = flat.tag || "Temporada";
   return (
     <article
       role="button"
@@ -151,8 +148,8 @@ function PreviewCard({ flat, onOpen }: { flat: PreviewFlat; onOpen: () => void }
         <div className="flex items-center justify-between gap-3 border-t border-[#eceeed] pt-4">
           <div className="text-[1.3rem] font-bold leading-[1.15] tracking-[-0.03em]">
             <small className="mb-1.5 block text-[0.66rem] font-medium tracking-normal text-[#58636b]">A partir de</small>
-            {flat.nightly != null ? money(flat.nightly) : "Sob consulta"}{" "}
-            <span className="text-[0.74rem] font-medium text-[#58636b]">{flat.nightly != null ? "/ noite" : ""}</span>
+            {money(flat.nightly)}{" "}
+            <span className="text-[0.74rem] font-medium text-[#58636b]">/ noite</span>
           </div>
           <span className="inline-flex min-h-[38px] items-center justify-center gap-2 whitespace-nowrap rounded-full bg-[#c9a96a] px-[13px] py-[9px] text-[0.69rem] font-bold text-[#12222a] transition-colors group-hover:bg-[#dbbc80]">
             Ver detalhes <ArrowRight size={15} />
@@ -184,7 +181,6 @@ const GOLD_BUTTON =
 const H2 = `${display.className} mb-6 text-[1.9rem] font-medium leading-[1.2] tracking-[-0.025em]`;
 
 function PreviewPage({ flat, onBack }: { flat: PreviewFlat; onBack: () => void }) {
-  const others = flat.modalidades.filter((m) => m !== "TEMPORADA");
   const images = flat.gallery;
   return (
     <div className="@container">
@@ -341,53 +337,29 @@ function PreviewPage({ flat, onBack }: { flat: PreviewFlat; onBack: () => void }
           </div>
 
           <aside aria-label="Planejar reserva" className="min-w-0">
-            {others.map((m) => (
-              <section key={m} className="mb-[25px] rounded-[10px] border border-[#e4e7e6] bg-white px-[18px] py-6 @[840px]:p-[30px]">
-                <h2 className={`${display.className} mb-[19px] text-[1.7rem] font-medium leading-[1.2] @[840px]:text-[1.9rem]`}>
-                  {MODALITY_LABELS[m] ?? m}
-                </h2>
-                <p>Valor sob consulta</p>
-              </section>
-            ))}
-
-            {flat.modalidades.includes("TEMPORADA") ? (
-              <div className="rounded-[10px] border border-[#e4e7e6] bg-white p-[19px] shadow-[0_12px_40px_#162d3910] @[560px]:p-[25px] @[840px]:p-[22px]">
-                <div className="mb-[22px] border-b border-[#e4e7e6] pb-[23px]">
-                  <span className="mb-[17px] block text-[0.6rem] font-bold uppercase tracking-[0.25em]" style={{ color: GOLD_DARK }}>
-                    PLANEJE SUA ESTADIA
-                  </span>
-                  <div>
-                    <strong className="text-[1.8rem]">{money(flat.nightly ?? 0)}</strong>
-                    <span className="text-[0.76rem] text-[#58636b]"> / noite, a partir de</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 gap-4 @[560px]:grid-cols-2">
-                  <FakeField label="Entrada" value="dd/mm/aaaa" />
-                  <FakeField label="Saída" value="dd/mm/aaaa" />
-                  <FakeField label="Hóspedes" value="1 hóspede" className="@[560px]:col-span-2" />
-                </div>
-                <span className={`${GOLD_BUTTON} mt-5 opacity-60`}>
-                  Reservar <ArrowRight size={18} />
+            <div className="rounded-[10px] border border-[#e4e7e6] bg-white p-[19px] shadow-[0_12px_40px_#162d3910] @[560px]:p-[25px] @[840px]:p-[22px]">
+              <div className="mb-[22px] border-b border-[#e4e7e6] pb-[23px]">
+                <span className="mb-[17px] block text-[0.6rem] font-bold uppercase tracking-[0.25em]" style={{ color: GOLD_DARK }}>
+                  PLANEJE SUA ESTADIA
                 </span>
-                <p className="mt-4 flex items-center gap-1.5 text-[0.72rem] text-[#58636b]">
-                  <ShieldCheck size={15} className="shrink-0" />O pagamento é combinado com o atendimento. A confirmação
-                  bloqueia o período.
-                </p>
+                <div>
+                  <strong className="text-[1.8rem]">{money(flat.nightly)}</strong>
+                  <span className="text-[0.76rem] text-[#58636b]"> / noite, a partir de</span>
+                </div>
               </div>
-            ) : null}
-
-            {others.length ? (
-              <div className="mt-[25px] flex flex-col gap-4 rounded-[10px] border border-[#e4e7e6] bg-white p-[19px] shadow-[0_12px_40px_#162d3910] @[560px]:p-[25px]">
-                <h2 className={`${display.className} m-0 text-[1.7rem] font-medium leading-[1.2]`}>Conheça este imóvel</h2>
-                <FakeField label="Como podemos ajudar?" value="Tenho interesse" />
-                {others.length > 1 ? <FakeField label="Interesse em" value={MODALITY_LABELS[others[0]]} /> : null}
-                <FakeField label="Nome" />
-                <FakeField label="Mensagem" tall />
-                <span className={GOLD_BUTTON}>
-                  Preparar mensagem <ArrowRight size={17} />
-                </span>
+              <div className="grid grid-cols-1 gap-4 @[560px]:grid-cols-2">
+                <FakeField label="Entrada" value="dd/mm/aaaa" />
+                <FakeField label="Saída" value="dd/mm/aaaa" />
+                <FakeField label="Hóspedes" value="1 hóspede" className="@[560px]:col-span-2" />
               </div>
-            ) : null}
+              <span className={`${GOLD_BUTTON} mt-5 opacity-60`}>
+                Reservar <ArrowRight size={18} />
+              </span>
+              <p className="mt-4 flex items-center gap-1.5 text-[0.72rem] text-[#58636b]">
+                <ShieldCheck size={15} className="shrink-0" />O pagamento é combinado com o atendimento. A confirmação
+                bloqueia o período.
+              </p>
+            </div>
           </aside>
         </div>
       </div>
