@@ -7,7 +7,7 @@ export const MODULES = {
   reservas: { title: "Reservas", singular: "reserva", permission: "reservas" },
 } as const;
 export function titleCase(value: unknown) {
-  const labels: Record<string, string> = { DISPONIVEL: "Disponível", TEMPORADA: "Temporada", EM_ANDAMENTO: "Em andamento", MANUTENCAO: "Manutenção", CONCLUIDA: "Concluída", CONFIRMADA: "Confirmada", CANCELADA: "Cancelada", PAGO: "Pago", PARCIAL: "Parcial", PENDENTE: "Pendente", ESTORNADO: "Estornado" };
+  const labels: Record<string, string> = { DISPONIVEL: "Disponível", TEMPORADA: "Temporada", EM_ANDAMENTO: "Em andamento", MANUTENCAO: "Manutenção", LIMPEZA: "Limpeza", CONCLUIDA: "Concluída", CONFIRMADA: "Confirmada", CANCELADA: "Cancelada", PAGO: "Pago", PARCIAL: "Parcial", PENDENTE: "Pendente", ESTORNADO: "Estornado" };
   const text = String(value ?? "");
   return labels[text] ?? text.replaceAll("_", " ").toLocaleLowerCase("pt-BR").replace(/^./, c => c.toUpperCase());
 }

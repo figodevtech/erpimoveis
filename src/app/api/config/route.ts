@@ -36,7 +36,10 @@ const CONFIG_SELECT_SEM_DESTAQUE_STATUS = `${CONFIG_SELECT_BASE}, ${CONFIG_SELEC
 const CONFIG_SELECT_SEM_FATURAMENTO = `${CONFIG_SELECT_SEM_DESTAQUE_STATUS}, destaque_os_por_status`;
 const CONFIG_SELECT_SEM_STATUS_EMISSAO = `${CONFIG_SELECT_SEM_FATURAMENTO}, habilitar_faturamento_os`;
 const CONFIG_SELECT_SEM_MIN_NOITES = `${CONFIG_SELECT_SEM_STATUS_EMISSAO}, emissao_nf_status_os`;
-const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_MIN_NOITES}, reserva_min_noites`;
+const CONFIG_SELECT_SEM_LIMPEZA = `${CONFIG_SELECT_SEM_MIN_NOITES}, reserva_min_noites`;
+const CONFIG_SELECT_COMPLETO = `${CONFIG_SELECT_SEM_LIMPEZA}, limpeza_sempre_solicitar, limpeza_responsavel_padrao_id`;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function colunaNaoExiste(error: any) {
   return error?.code === "42703";
@@ -98,6 +101,15 @@ function comPadroesConfig(config: any) {
     ...(config.reserva_min_noites !== undefined
       ? { reserva_min_noites: minNoitesValido(config.reserva_min_noites) ?? 1 }
       : {}),
+    // Limpeza no check-out (20261118120000): mesma regra, só com as colunas no banco.
+    ...(config.limpeza_sempre_solicitar !== undefined
+      ? {
+          limpeza_sempre_solicitar: config.limpeza_sempre_solicitar !== false,
+          limpeza_responsavel_padrao_id: UUID_RE.test(String(config.limpeza_responsavel_padrao_id ?? ""))
+            ? String(config.limpeza_responsavel_padrao_id)
+            : null,
+        }
+      : {}),
   };
 }
 
@@ -112,6 +124,11 @@ async function buscarConfigAtual() {
 
   if (!error) return comPadroesConfig(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semLimpeza = await supabase.from("config_geral")
+    .select(CONFIG_SELECT_SEM_LIMPEZA).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (!semLimpeza.error) return comPadroesConfig(semLimpeza.data);
+  if (!colunaNaoExiste(semLimpeza.error)) throw semLimpeza.error;
 
   const semMinNoites = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_MIN_NOITES).order("id", { ascending: false }).limit(1).maybeSingle();
@@ -221,6 +238,11 @@ async function criarConfigPadraoSeNaoExistir() {
 
   if (!error) return comPadroesConfig(data);
   if (!colunaNaoExiste(error)) throw error;
+
+  const semLimpeza = await supabase.from("config_geral")
+    .select(CONFIG_SELECT_SEM_LIMPEZA).order("id", { ascending: false }).limit(1).maybeSingle();
+  if (!semLimpeza.error) return comPadroesConfig(semLimpeza.data);
+  if (!colunaNaoExiste(semLimpeza.error)) throw semLimpeza.error;
 
   const semMinNoites = await supabase.from("config_geral")
     .select(CONFIG_SELECT_SEM_MIN_NOITES).order("id", { ascending: false }).limit(1).maybeSingle();
@@ -346,6 +368,7 @@ export async function PUT(request: Request) {
       "habilitar_edicao_transacoes",
       "permitir_produto_avulso_os",
       "habilitar_faturamento_os",
+      "limpeza_sempre_solicitar",
     ];
 
     const patch: any = {};
@@ -419,6 +442,30 @@ export async function PUT(request: Request) {
           return respostaJSON({ error: "O setor padr\u00e3o selecionado n\u00e3o existe ou est\u00e1 inativo." }, 400);
         }
         patch.setor_padrao_os_id = setorId;
+      }
+    }
+
+    if (body.limpeza_responsavel_padrao_id !== undefined) {
+      if (body.limpeza_responsavel_padrao_id === null || body.limpeza_responsavel_padrao_id === "") {
+        patch.limpeza_responsavel_padrao_id = null;
+      } else {
+        const usuarioId = String(body.limpeza_responsavel_padrao_id);
+        if (!UUID_RE.test(usuarioId)) {
+          return respostaJSON({ error: "Responsável padrão da limpeza inválido." }, 400);
+        }
+
+        const { data: usuario, error: usuarioError } = await supabase
+          .from("usuario")
+          .select("id")
+          .eq("id", usuarioId)
+          .eq("ativo", true)
+          .maybeSingle();
+
+        if (usuarioError) throw usuarioError;
+        if (!usuario) {
+          return respostaJSON({ error: "O responsável padrão da limpeza não existe ou está inativo." }, 400);
+        }
+        patch.limpeza_responsavel_padrao_id = usuarioId;
       }
     }
 

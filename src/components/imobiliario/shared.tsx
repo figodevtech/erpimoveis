@@ -104,7 +104,7 @@ export function StatusBadge({ status }: { status: unknown }) {
     );
   }
 
-  if (["PENDENTE", "EM_ANDAMENTO", "RESERVADO", "MANUTENCAO", "PARCIAL", "RASCUNHO"].includes(value)) {
+  if (["PENDENTE", "EM_ANDAMENTO", "RESERVADO", "MANUTENCAO", "LIMPEZA", "PARCIAL", "RASCUNHO"].includes(value)) {
     return (
       <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 font-medium text-[11px]">
         {titleCase(value)}

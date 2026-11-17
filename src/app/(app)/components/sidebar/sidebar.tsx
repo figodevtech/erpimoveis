@@ -36,6 +36,7 @@ import {
   FileText,
   Building2,
   RadioTower,
+  Sparkles,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -81,6 +82,8 @@ const data = {
     { title: "Imóveis", url: "/imoveis", icon: Building2, isActive: true, perm: PERMS.IMOVEIS },
     { title: "Proprietários", url: "/proprietarios", icon: Users, isActive: true, perm: PERMS.PROPRIETARIOS },
     { title: "Reservas", url: "/reservas", icon: FileClock, isActive: true, perm: PERMS.RESERVAS },
+    // Sem permissão: todo usuário pode ser responsável por limpeza e vê as suas aqui.
+    { title: "Execução", url: "/execucao", icon: Sparkles, isActive: true },
     {
       title: "Estoque",
       url: "#",

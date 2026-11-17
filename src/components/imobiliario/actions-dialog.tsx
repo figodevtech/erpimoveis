@@ -7,11 +7,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useOptionalConfig } from "@/app/(app)/(pages)/config-context";
 import {
   EntityShell,
   StatusBadge,
   requestJson,
 } from "./shared";
+import { ResponsavelLimpezaSelect } from "./responsavel-limpeza-select";
 import {
   type Entity,
   type ModuleKind,
@@ -36,6 +39,7 @@ import {
   Loader2,
   LogOut,
   Receipt,
+  Sparkles,
   User,
   Users,
   WalletCards,
@@ -81,9 +85,18 @@ export function OperationAction({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Limpeza do check-out: os padrões vêm de Configurações > Geral; o operador muda na hora.
+  // Sem a migration 20261118120000 a configuração não traz o campo e o banco não abriria a limpeza.
+  const config = useOptionalConfig();
+  const limpezaDisponivel = typeof config?.limpeza_sempre_solicitar === "boolean";
+  const [limpeza, setLimpeza] = useState(() => ({
+    solicitar: limpezaDisponivel && config?.limpeza_sempre_solicitar === true,
+    responsavel: config?.limpeza_responsavel_padrao_id ?? null,
+  }));
   const isReservaCancel = kind === "reservas" && action === "CANCELAR";
   const isReservaCheckin = kind === "reservas" && action === "CHECKIN";
   const isReservaCheckout = kind === "reservas" && action === "CHECKOUT";
+  const limpezaPendente = isReservaCheckin && item.imovel?.situacao_operacional === "LIMPEZA";
   const destructive = action === "CANCELAR";
   const nights = getNights(item.inicio, item.fim);
 
@@ -142,6 +155,12 @@ export function OperationAction({
           acao: action,
           ...data,
           ...(isReservaCheckin || isReservaCheckout ? { data_registro: momento.data, hora_registro: momento.hora } : {}),
+          ...(isReservaCheckout
+            ? {
+                solicitar_limpeza: limpeza.solicitar,
+                responsavel_limpeza_id: limpeza.solicitar ? limpeza.responsavel : null,
+              }
+            : {}),
           tratamento_financeiro: data.tratamento_recebidos || undefined,
         }),
       });
@@ -151,7 +170,9 @@ export function OperationAction({
           : isReservaCheckin
           ? "Check-in registrado com sucesso!"
           : isReservaCheckout
-          ? "Check-out registrado com sucesso!"
+          ? limpeza.solicitar
+            ? "Check-out registrado e limpeza solicitada!"
+            : "Check-out registrado com sucesso!"
           : "Ação registrada com sucesso!"
       );
       onSaved();
@@ -338,7 +359,22 @@ export function OperationAction({
             <div className="space-y-1">
               <p className="font-semibold">Confirmação de Check-out</p>
               <p className="text-xs leading-relaxed">
-                O término da hospedagem será registrado oficialmente, concluindo a reserva e liberando o imóvel no calendário para limpeza e novas estadias.
+                O término da hospedagem será registrado oficialmente e a reserva será concluída.
+                {limpeza.solicitar
+                  ? <> O imóvel fica em <strong>LIMPEZA</strong> até a limpeza ser concluída.</>
+                  : null}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {limpezaPendente ? (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 sm:p-4 text-xs sm:text-sm text-amber-800 dark:text-amber-300">
+            <Sparkles className="h-5 w-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+            <div className="space-y-1">
+              <p className="font-semibold">Limpeza pendente neste imóvel</p>
+              <p className="text-xs leading-relaxed">
+                A limpeza da última saída ainda não foi concluída. Você pode registrar o check-in mesmo assim.
               </p>
             </div>
           </div>
@@ -375,6 +411,41 @@ export function OperationAction({
                 Check-in registrado em{" "}
                 {new Date(item.checkin_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}.
               </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* ========================================================================= */}
+        {/* LIMPEZA DO IMÓVEL (CHECK-OUT)                                             */}
+        {/* ========================================================================= */}
+        {isReservaCheckout && limpezaDisponivel ? (
+          <div className="rounded-xl border border-border/70 bg-card p-3.5 sm:p-4 space-y-3 shadow-2xs">
+            <label htmlFor="solicitar-limpeza" className="flex items-start gap-3 hover:cursor-pointer">
+              <Checkbox
+                id="solicitar-limpeza"
+                checked={limpeza.solicitar}
+                onCheckedChange={(value) => setLimpeza((atual) => ({ ...atual, solicitar: value === true }))}
+                className="mt-0.5"
+              />
+              <span className="space-y-1">
+                <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                  Solicitar limpeza
+                </span>
+                <span className="block text-xs text-muted-foreground leading-relaxed">
+                  O imóvel fica em Limpeza e aparece na Execução do responsável até a limpeza ser concluída.
+                </span>
+              </span>
+            </label>
+            {limpeza.solicitar ? (
+              <div className="space-y-1.5 pl-7">
+                <p className="text-xs font-medium text-foreground">Responsável pela limpeza</p>
+                <ResponsavelLimpezaSelect
+                  value={limpeza.responsavel}
+                  onValueChange={(responsavel) => setLimpeza((atual) => ({ ...atual, responsavel }))}
+                  disabled={busy}
+                />
+              </div>
             ) : null}
           </div>
         ) : null}

@@ -63,6 +63,7 @@ const routeTitles: Record<string, string> = {
   "/meu-perfil": "Meu Perfil",
   "/preferencias": "Preferências",
   "/tarefas": "Tarefas & Anotações",
+  "/execucao": "Execução",
 };
 
 function humanize(path: string) {
@@ -71,7 +72,7 @@ function humanize(path: string) {
   if (!seg) return "Início";
 
   const dic: Record<string, string> = {
-    execucao: "Execução de Ordens",
+    execucao: "Execução",
     ordens: "Ordens de Serviço",
     tarefas: "Tarefas & Anotações",
     assistentepagamento: "Assistente de Pagamento",

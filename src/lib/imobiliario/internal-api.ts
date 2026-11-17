@@ -8,6 +8,7 @@ import { deleteFile, enrich, filesFor, fileScope, fileUrl, publicationValid, rem
 import { cotacaoPublica, hojeImobiliario } from "./types";
 import bairrosPorMunicipio from "@/data/bairros-por-municipio.json";
 import { financeAccess, financeReport, payCharge, scopeFromUrl, type FinanceScope } from "./finance";
+import { concluirLimpezaDoImovel } from "./limpezas";
 import { alterarEventoDaReserva, cancelarConsumoDaReserva, criarEventoDaReserva, editarLancamentoDaReserva, estornarLancamentoDaReserva, excluirEventoDaReserva, excluirLancamentoDaReserva, listarEventosDaReserva, registrarConsumoDaReserva } from "./reserva-eventos";
 
 const resources = {
@@ -527,6 +528,11 @@ export async function internalResource(request: Request, resource: Resource, pat
       if (result.error) throw result.error;
       return json({ item: result.data });
     }
+    // Concluir pelo cadastro do imóvel a limpeza pendente dele, sem precisar do id da limpeza.
+    if (segment === "limpeza" && path[2] === "concluir" && !path[3] && method === "POST") {
+      const editor = await internal(PERMS.IMOVEIS_EDITAR);
+      return json({ item: await concluirLimpezaDoImovel(id, editor.id) });
+    }
     if (segment === "visitas" && method === "GET") return visits(request, [], { imovel_id: id });
     if (segment === "reservas" && method === "GET") {
       await internal(PERMS.RESERVAS);
@@ -557,6 +563,13 @@ export async function internalResource(request: Request, resource: Resource, pat
     const body = await bodyOf(request); const action = String(body.acao ?? "").toUpperCase();
     await internal(`${config.perm}:${["CHECKIN", "CHECKOUT"].includes(action) ? "checkin_checkout" : action === "CANCELAR" ? "cancelar" : "confirmar"}`);
     body.tratamento_financeiro = body.tratamento_recebidos ?? body.tratamento_financeiro;
+    // Limpeza pedida no check-out: o banco abre na mesma transação (imob_acao_reserva).
+    body.solicitar_limpeza = action === "CHECKOUT" && body.solicitar_limpeza === true;
+    const responsavel = body.solicitar_limpeza ? body.responsavel_limpeza_id : null;
+    if (responsavel != null && responsavel !== "" && !z.string().uuid().safeParse(responsavel).success) {
+      throw new ImobError(400, "Responsável pela limpeza inválido.");
+    }
+    body.responsavel_limpeza_id = responsavel || null;
     return json({ item: await rpc("imob_acao_reserva", { p_id: id, p_acao: action, p_payload: body, p_actor: access.id }) });
   }
   if (id && !segment && method === "GET") {
@@ -659,6 +672,13 @@ async function visits(request: Request, path: string[], extra: Record<string, un
 export async function internalShared(request: Request, path: string[]) {
   const url = new URL(request.url), method = request.method;
   if (path[0] === "visitas") return visits(request, path.slice(1));
+  if (path[0] === "lookup" && method === "GET" && url.searchParams.get("tipo") === "usuarios") {
+    // Responsável pela limpeza: qualquer usuário ativo. Só nome e e-mail, sem o cadastro do usuário.
+    await internalAny([PERMS.RESERVAS_CHECKIN_CHECKOUT, PERMS.CONFIG_EDITAR, PERMS.LIMPEZAS_GERENCIAR, PERMS.IMOVEIS_EDITAR]);
+    const result = await db.from("usuario").select("id,nome,email").eq("ativo", true).order("nome");
+    if (result.error) throw result.error;
+    return json({ items: (result.data ?? []).map((u) => ({ id: String(u.id), nome: String(u.nome ?? ""), email: String(u.email ?? "") })) });
+  }
   if (path[0] === "lookup" && method === "GET") {
     const type = url.searchParams.get("tipo");
     await internalAny(type === "bancos" ? [PERMS.FINANCEIRO, PERMS.PROPRIETARIOS_FINANCEIRO, PERMS.IMOVEIS_FINANCEIRO, PERMS.RESERVAS_FINANCEIRO] : type === "proprietarios" ? [PERMS.PROPRIETARIOS, PERMS.IMOVEIS_CRIAR, PERMS.IMOVEIS_EDITAR] : type === "imoveis" ? [PERMS.IMOVEIS, PERMS.RESERVAS_CRIAR, PERMS.RESERVAS_EDITAR, PERMS.PROPRIETARIOS_FINANCEIRO] : [PERMS.CLIENTES, PERMS.RESERVAS_CRIAR]);

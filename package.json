@@ -49,6 +49,7 @@
     "db:test:edicao-eventos-reserva": "tsx scripts/db/test-edicao-eventos-reserva.ts",
     "db:test:exclusao-eventos-reserva": "tsx scripts/db/test-edicao-eventos-reserva.ts --exclusao",
     "db:test:valor-reserva": "tsx scripts/db/test-edicao-eventos-reserva.ts --valor-reserva",
+    "db:test:limpeza-imovel": "tsx scripts/db/test-limpeza-imovel.ts",
     "db:importar:imoveis-site": "tsx scripts/db/importar-imoveis-site.ts",
     "db:aplicar:avulsa": "tsx scripts/db/aplicar-migration-avulsa.ts",
     "db:semear:tipos": "tsx scripts/db/semear-tipos-padrao.ts",

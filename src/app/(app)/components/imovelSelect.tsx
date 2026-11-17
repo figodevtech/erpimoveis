@@ -329,6 +329,7 @@ export default function ImovelSelect({
                   <SelectItem value="DISPONIVEL">Disponível</SelectItem>
                   <SelectItem value="RESERVADO">Reservado</SelectItem>
                   <SelectItem value="OCUPADO">Ocupado</SelectItem>
+                  <SelectItem value="LIMPEZA">Limpeza</SelectItem>
                   <SelectItem value="MANUTENCAO">Manutenção</SelectItem>
                   <SelectItem value="INATIVO">Inativo</SelectItem>
                 </SelectContent>

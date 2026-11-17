@@ -88,6 +88,9 @@ export default function SearchFilter({
           <SelectItem value={SituacaoImovel.OCUPADO} className="hover:cursor-pointer">
             Ocupado (hóspede no imóvel)
           </SelectItem>
+          <SelectItem value={SituacaoImovel.LIMPEZA} className="hover:cursor-pointer">
+            Limpeza pendente
+          </SelectItem>
           <SelectItem value={SituacaoImovel.INATIVO} className="hover:cursor-pointer">
             Inativo
           </SelectItem>

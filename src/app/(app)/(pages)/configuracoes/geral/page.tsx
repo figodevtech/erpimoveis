@@ -25,7 +25,9 @@ import {
   MapPin,
   RefreshCcw,
   CalendarDays,
+  Sparkles,
 } from "lucide-react";
+import { ResponsavelLimpezaSelect } from "@/components/imobiliario/responsavel-limpeza-select";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -777,10 +779,19 @@ function MercadoLivreOperationSettingsCard({
 function ReservasTemporadaCard({
   minNoites,
   onChange,
+  limpezaSempreSolicitar,
+  limpezaResponsavelId,
+  onLimpezaSempreSolicitarChange,
+  onLimpezaResponsavelChange,
 }: {
   /** Ausente enquanto a coluna não existe no banco. */
   minNoites: number | undefined;
   onChange: (value: number) => void;
+  /** Ausente enquanto a migration da limpeza (20261118120000) não foi aplicada. */
+  limpezaSempreSolicitar: boolean | undefined;
+  limpezaResponsavelId: string | null | undefined;
+  onLimpezaSempreSolicitarChange: (value: boolean) => void;
+  onLimpezaResponsavelChange: (value: string | null) => void;
 }) {
   const stepClass =
     "grid h-full w-10 place-items-center text-lg text-muted-foreground transition-colors hover:cursor-pointer hover:bg-muted disabled:cursor-default disabled:opacity-40";
@@ -839,6 +850,47 @@ function ReservasTemporadaCard({
             </div>
           )}
         </div>
+
+        {limpezaSempreSolicitar === undefined ? null : (
+          <>
+            <Separator className="my-6" />
+            <div className="space-y-6">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <p className="text-sm font-semibold">Limpeza no check-out</p>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <Label htmlFor="limpeza-sempre-solicitar">Sempre solicitar limpeza</Label>
+                  <span className="block text-xs text-muted-foreground">
+                    No check-out, a opção &quot;Solicitar limpeza&quot; já vem marcada. Desligado, ela vem
+                    desmarcada. Em qualquer caso, quem registra o check-out pode mudar.
+                  </span>
+                </div>
+                <Switch
+                  id="limpeza-sempre-solicitar"
+                  checked={limpezaSempreSolicitar}
+                  onCheckedChange={onLimpezaSempreSolicitarChange}
+                />
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <Label>Responsável padrão pela limpeza</Label>
+                  <span className="block text-xs text-muted-foreground">
+                    Já vem selecionado no check-out; dá para escolher outro ou deixar sem responsável.
+                    Cada responsável vê as limpezas dele na Execução.
+                  </span>
+                </div>
+                <div className="w-full sm:w-72">
+                  <ResponsavelLimpezaSelect
+                    value={limpezaResponsavelId}
+                    onValueChange={onLimpezaResponsavelChange}
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -1689,6 +1741,14 @@ export default function ConfigGeralPage() {
             minNoites={watch("reserva_min_noites")}
             onChange={(value) =>
               setValue("reserva_min_noites", value, { shouldDirty: true })
+            }
+            limpezaSempreSolicitar={watch("limpeza_sempre_solicitar")}
+            limpezaResponsavelId={watch("limpeza_responsavel_padrao_id")}
+            onLimpezaSempreSolicitarChange={(value) =>
+              setValue("limpeza_sempre_solicitar", value, { shouldDirty: true })
+            }
+            onLimpezaResponsavelChange={(value) =>
+              setValue("limpeza_responsavel_padrao_id", value, { shouldDirty: true })
             }
           />
         </div>

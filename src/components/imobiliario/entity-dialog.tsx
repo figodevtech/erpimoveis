@@ -74,6 +74,7 @@ import {
   Image as ImageIcon,
   Paperclip,
   Calculator,
+  Sparkles,
 } from "lucide-react";
 
 export type EntityDialogProps = {
@@ -322,6 +323,21 @@ export default function EntityDialog({
     }
   };
 
+  // Imóvel em LIMPEZA: conclui a limpeza pendente dele, como faria o responsável na Execução.
+  const concluirLimpeza = async () => {
+    if (!currentId || !window.confirm("Concluir a limpeza deste imóvel? Ele deixa a situação Limpeza.")) return;
+    setBusy(true);
+    try {
+      await requestJson(`${endpoint("imoveis", currentId)}/limpeza/concluir`, { method: "POST", body: "{}" });
+      toast.success("Limpeza concluída");
+      saved();
+    } catch (error) {
+      toast.error("Não foi possível concluir a limpeza", { description: (error as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const remove = async () => {
     if (
       !window.confirm(
@@ -456,14 +472,24 @@ export default function EntityDialog({
           currentId ? (
             <div className="flex items-center gap-1.5 flex-wrap">
               {kind === "imoveis" ? (
-                value.ativo !== false && can("reservas:criar") ? (
-                  <QuickAction
-                    label="Nova reserva"
-                    icon={CalendarDays}
-                    tone="sky"
-                    onClick={() => setOperation("reservas")}
-                  />
-                ) : null
+                <>
+                  {value.situacao_operacional === "LIMPEZA" && can("imoveis:editar") ? (
+                    <QuickAction
+                      label="Concluir limpeza"
+                      icon={Sparkles}
+                      tone="amber"
+                      onClick={() => void concluirLimpeza()}
+                    />
+                  ) : null}
+                  {value.ativo !== false && can("reservas:criar") ? (
+                    <QuickAction
+                      label="Nova reserva"
+                      icon={CalendarDays}
+                      tone="sky"
+                      onClick={() => setOperation("reservas")}
+                    />
+                  ) : null}
+                </>
               ) : (
                 <OperationButtons kind={kind} item={value} onAction={setAction} />
               )}
@@ -939,6 +965,7 @@ function notifySaveFailure(
 
 const quickActionTones = {
   sky: "border-sky-500/30 bg-sky-500/10 text-sky-700 hover:bg-sky-500 hover:text-white hover:border-sky-500 dark:text-sky-400",
+  amber: "border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500 hover:text-white hover:border-amber-500 dark:text-amber-400",
 } as const;
 
 /** Atalho do topo do diálogo: só ícone, com o nome na dica e no leitor de tela. */

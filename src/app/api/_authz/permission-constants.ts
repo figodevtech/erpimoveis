@@ -30,6 +30,8 @@ export const PERMS = {
   RESERVAS_CANCELAR: "reservas:cancelar",
   RESERVAS_CHECKIN_CHECKOUT: "reservas:checkin_checkout",
   RESERVAS_FINANCEIRO: "reservas:financeiro",
+  // Sem ela, a Execução mostra só as limpezas sob a responsabilidade do próprio usuário.
+  LIMPEZAS_GERENCIAR: "limpezas:gerenciar",
 
   ESTOQUE: "estoque:visualizar",
   ESTOQUE_CRIAR: "estoque:criar",
