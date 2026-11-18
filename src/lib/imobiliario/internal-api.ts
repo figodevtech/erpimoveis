@@ -8,7 +8,7 @@ import { deleteFile, enrich, filesFor, fileScope, fileUrl, publicationValid, rem
 import { cotacaoPublica, hojeImobiliario } from "./types";
 import bairrosPorMunicipio from "@/data/bairros-por-municipio.json";
 import { financeAccess, financeReport, payCharge, scopeFromUrl, type FinanceScope } from "./finance";
-import { concluirLimpezaDoImovel } from "./limpezas";
+import { concluirLimpezaDoImovel, servicosDoImovel } from "./limpezas";
 import { estadiaDaReserva } from "./estadia";
 import { alterarEventoDaReserva, cancelarConsumoDaReserva, criarEventoDaReserva, editarLancamentoDaReserva, estornarLancamentoDaReserva, excluirEventoDaReserva, excluirLancamentoDaReserva, listarEventosDaReserva, registrarConsumoDaReserva } from "./reserva-eventos";
 
@@ -529,6 +529,8 @@ export async function internalResource(request: Request, resource: Resource, pat
       if (result.error) throw result.error;
       return json({ item: result.data });
     }
+    // Aba Serviços do imóvel: histórico das limpezas dele (quem vê o imóvel vê o histórico).
+    if (segment === "servicos" && !path[2] && method === "GET") return json(await servicosDoImovel(id, url));
     // Concluir pelo cadastro do imóvel a limpeza pendente dele, sem precisar do id da limpeza.
     if (segment === "limpeza" && path[2] === "concluir" && !path[3] && method === "POST") {
       const editor = await internal(PERMS.IMOVEIS_EDITAR);

@@ -35,6 +35,7 @@ import {
 import { FinancePanel } from "./finance-panel";
 import { ReservationEventsPanel } from "./reservation-events-panel";
 import { ReservationStayPanel } from "./reservation-stay-panel";
+import { ImovelServicosPanel } from "./imovel-servicos-panel";
 import { MidiaPanel } from "./midia/midia-panel";
 import { AnexosPanel } from "./midia/anexos-panel";
 import { useImovelMidia } from "./midia/use-imovel-midia";
@@ -126,6 +127,7 @@ const tabIcons: Record<string, any> = {
   publicacao: Globe,
   disponibilidade: CalendarCheck,
   "checkin-checkout": DoorOpen,
+  servicos: Sparkles,
 };
 
 const kindIcons: Record<ModuleKind, any> = {
@@ -363,7 +365,9 @@ export default function EntityDialog({
         { key: "anexos", label: "Anexos" },
         { key: "publicacao", label: "Publicação" },
         { key: "disponibilidade", label: "Disponibilidade" },
-        { key: "reservas", label: "Reservas" }
+        { key: "reservas", label: "Reservas" },
+        // Limpezas pedidas nos check-outs e o andamento de cada uma.
+        { key: "servicos", label: "Serviços" }
       );
       // Sem aba Pagamentos: o imóvel não é cobrado; os pagamentos ficam na reserva.
     } else {
@@ -730,6 +734,17 @@ export default function EntityDialog({
                       context={{ [financeKey]: currentId }}
                       permission={`${permission}:financeiro`}
                     />
+                  ) : null}
+                </div>
+              </TabsContent>
+
+              <TabsContent
+                value="servicos"
+                className="h-full min-h-0 overflow-hidden p-0 m-0 focus-visible:outline-none"
+              >
+                <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
+                  {tab === "servicos" && currentId && kind === "imoveis" ? (
+                    <ImovelServicosPanel imovelId={currentId} onChanged={saved} />
                   ) : null}
                 </div>
               </TabsContent>

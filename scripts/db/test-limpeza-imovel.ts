@@ -14,6 +14,8 @@ async function main() {
     "20261118140000_limpeza_descricao.sql",
     "20261118150000_reserva_registro_checkin_checkout.sql",
     "20261118160000_editar_checkin_checkout.sql",
+    "20261118170000_reabrir_limpeza.sql",
+    "20261118180000_editar_limpeza.sql",
   ]
     .map((arquivo) => semTransacao(fs.readFileSync(path.join(projectRoot, "supabase/migrations", arquivo), "utf8")))
     .join("\n");

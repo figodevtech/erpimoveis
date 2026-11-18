@@ -10,7 +10,7 @@ BEGIN FOR k IN 10..11 LOOP s:=0; FOR j IN 1..k-1 LOOP s:=s+substring(v,j,1)::int
 DO $test$
 DECLARE
   actor uuid; c integer; p bigint; i bigint; i2 bigint; r bigint; r2 bigint; r3 bigint; l bigint; j jsonb; recusou boolean;
-  situacao text; ontem date;
+  situacao text; ontem date; l2 bigint;
 BEGIN
   SELECT id INTO actor FROM public.usuario WHERE ativo ORDER BY id LIMIT 1;
   PERFORM pg_temp.exigir(actor IS NOT NULL,'usuário ativo disponível para testar');
@@ -107,6 +107,45 @@ BEGIN
   EXCEPTION WHEN others THEN recusou:=true;
   END;
   PERFORM pg_temp.exigir(recusou,'limpeza concluída não muda de responsável');
+
+  -- Voltar para pendente: a conclusão sai e o imóvel volta para LIMPEZA.
+  PERFORM public.imob_acao_limpeza(l,'REABRIR','{}',actor);
+  PERFORM pg_temp.exigir((SELECT status='PENDENTE' AND concluida_em IS NULL AND concluida_por IS NULL AND observacoes IS NULL FROM public.imovel_limpeza WHERE id=l)
+      AND (SELECT situacao_operacional='LIMPEZA' FROM public.imovel_resumo WHERE id=i),'voltar para pendente reabre a limpeza e o imóvel volta a LIMPEZA');
+  PERFORM public.imob_acao_limpeza(l,'CONCLUIR','{}',actor);
+  -- Com outra limpeza aberta no imóvel, reabrir é recusado.
+  l2:=(public.imob_solicitar_limpeza(i,NULL,NULL,actor)->>'id')::bigint;
+  BEGIN
+    PERFORM public.imob_acao_limpeza(l,'REABRIR','{}',actor);
+    recusou:=false;
+  EXCEPTION WHEN others THEN recusou:=true;
+  END;
+  PERFORM pg_temp.exigir(recusou AND (SELECT status='CONCLUIDA' FROM public.imovel_limpeza WHERE id=l),'não reabre com outra limpeza pendente no imóvel');
+  PERFORM public.imob_acao_limpeza(l2,'CONCLUIR','{}',actor);
+
+  -- Editar o serviço: descrição, responsável, observações e momento da conclusão.
+  -- O pedido vai para ontem de manhã, para a conclusão de ontem à tarde caber depois dele.
+  UPDATE public.imovel_limpeza SET solicitada_em=(ontem+time '08:00') AT TIME ZONE 'America/Fortaleza' WHERE id=l;
+  PERFORM public.imob_acao_limpeza(l,'EDITAR',jsonb_build_object('descricao','  Lavar cortinas  ','responsavel_id',NULL,
+    'observacoes','Faltou sabão','data_conclusao',ontem,'hora_conclusao','16:30'),actor);
+  PERFORM pg_temp.exigir((SELECT descricao='Lavar cortinas' AND responsavel_id IS NULL AND observacoes='Faltou sabão' AND status='CONCLUIDA'
+      AND concluida_em=(ontem+time '16:30') AT TIME ZONE 'America/Fortaleza'
+      FROM public.imovel_limpeza WHERE id=l),'editar muda descrição, responsável, observações e conclusão sem mudar a situação');
+  BEGIN
+    PERFORM public.imob_acao_limpeza(l,'EDITAR',jsonb_build_object('data_conclusao',ontem,'hora_conclusao','07:00'),actor);
+    recusou:=false;
+  EXCEPTION WHEN others THEN recusou:=true;
+  END;
+  PERFORM pg_temp.exigir(recusou,'conclusão antes do pedido é recusada');
+  PERFORM public.imob_acao_limpeza(l,'EDITAR','{"descricao":"Só a descrição"}',actor);
+  PERFORM pg_temp.exigir((SELECT descricao='Só a descrição' AND observacoes='Faltou sabão' FROM public.imovel_limpeza WHERE id=l),
+    'campo ausente no payload fica como está');
+  BEGIN
+    PERFORM public.imob_acao_limpeza(l,'EDITAR',jsonb_build_object('data_conclusao',(now() AT TIME ZONE 'America/Fortaleza')::date+1,'hora_conclusao','10:00'),actor);
+    recusou:=false;
+  EXCEPTION WHEN others THEN recusou:=true;
+  END;
+  PERFORM pg_temp.exigir(recusou,'conclusão no futuro é recusada');
 
   -- Check-out sem pedir limpeza não abre nada.
   j:=public.imob_salvar_reserva(jsonb_build_object('imovel_id',i,'cliente_id',c,'inicio',current_date+10,'fim',current_date+12,

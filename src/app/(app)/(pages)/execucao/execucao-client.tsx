@@ -1,98 +1,45 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import {
-  Bath,
-  Bed,
   Building2,
-  CalendarDays,
+  CalendarClock,
   CheckCircle2,
   ClipboardList,
   Clock,
   Info,
-  Loader2,
   LogOut,
   MapPin,
   RefreshCw,
   Sparkles,
   User,
-  UserCog,
-  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { requestJson } from "@/components/imobiliario/shared";
-import { dateLabel } from "@/components/imobiliario/model";
-import { ResponsavelLimpezaSelect } from "@/components/imobiliario/responsavel-limpeza-select";
+// Mesmo diálogo de detalhes e de ações da aba Serviços do imóvel.
+import {
+  AtribuirLimpezaDialog,
+  ConcluirLimpezaServicoDialog,
+  LimpezaDetalhesDialog,
+  ReabrirLimpezaDialog,
+  TONS_CHECKIN,
+  contagemCheckin,
+  enderecoDe,
+  espera,
+  momento,
+  nomeDe,
+  type Limpeza,
+} from "@/components/imobiliario/limpeza-detalhes";
 
-type Pessoa = { id: string; nome?: string | null; email?: string | null } | null;
-type Limpeza = {
-  id: number;
-  imovel_id: number;
-  reserva_id: number | null;
-  responsavel_id: string | null;
-  /** O que foi pedido no check-out (ex.: trocar enxoval completo). */
-  descricao: string | null;
-  status: "PENDENTE" | "CONCLUIDA" | "CANCELADA";
-  solicitada_em: string;
-  concluida_em: string | null;
-  observacoes: string | null;
-  imovel: {
-    id: number;
-    titulo?: string | null;
-    codigo?: string | null;
-    endereco?: Record<string, string> | null;
-    endereco_publico?: Record<string, string> | null;
-    /** Primeira foto da galeria do imóvel. */
-    foto_capa?: string | null;
-    quartos?: number | null;
-    banheiros?: number | null;
-    capacidade?: number | null;
-  } | null;
-  reserva: { id: number; inicio: string; fim: string; checkout_em: string | null; hospedes: number; cliente: { id: number; nomerazaosocial: string } | null } | null;
-  responsavel: Pessoa;
-  solicitante: Pessoa;
-  concluinte: Pessoa;
-};
 type Resposta = { items: Limpeza[]; total: number; page: number; pageSize: number; escopo: Escopo; podeGerenciar: boolean };
 type Situacao = "PENDENTE" | "CONCLUIDA";
 type Escopo = "minhas" | "todas" | "sem_responsavel";
 
 const PAGE_SIZE = 30;
-const momento = (valor: string | null | undefined) =>
-  valor ? new Date(valor).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Fortaleza" }) : "—";
-
-/** "há 3 h", "há 2 dias": quanto tempo a limpeza está esperando. */
-function espera(desde: string) {
-  const minutos = Math.max(0, Math.round((Date.now() - new Date(desde).getTime()) / 60_000));
-  if (minutos < 60) return `há ${minutos} min`;
-  const horas = Math.round(minutos / 60);
-  if (horas < 48) return `há ${horas} h`;
-  return `há ${Math.round(horas / 24)} dias`;
-}
-
-function enderecoDe(imovel: Limpeza["imovel"]) {
-  const e = imovel?.endereco ?? {};
-  const pub = imovel?.endereco_publico ?? {};
-  const rua = [e.logradouro, e.numero].filter(Boolean).join(", ");
-  const local = [e.bairro ?? pub.bairro, [e.cidade ?? pub.cidade, e.estado ?? pub.estado].filter(Boolean).join("/")].filter(Boolean).join(" · ");
-  return [rua && (e.complemento ? `${rua} — ${e.complemento}` : rua), local].filter(Boolean).join(" · ");
-}
-
-const nomeDe = (p: Pessoa) => p?.nome?.trim() || p?.email?.trim() || null;
 
 export function ExecucaoClient() {
   const [situacao, setSituacao] = useState<Situacao>("PENDENTE");
@@ -102,7 +49,14 @@ export function ExecucaoClient() {
   const [erro, setErro] = useState("");
   const [concluindo, setConcluindo] = useState<Limpeza | null>(null);
   const [atribuindo, setAtribuindo] = useState<Limpeza | null>(null);
+  const [reabrindo, setReabrindo] = useState<Limpeza | null>(null);
   const [detalhes, setDetalhes] = useState<Limpeza | null>(null);
+  // Relógio da contagem até o próximo check-in: atualiza a cada minuto sem buscar de novo.
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const relogio = window.setInterval(() => setAgora(Date.now()), 60_000);
+    return () => window.clearInterval(relogio);
+  }, []);
   const sequencia = useRef(0);
 
   const carregar = useCallback(async () => {
@@ -188,6 +142,7 @@ export function ExecucaoClient() {
             <LimpezaCard
               key={limpeza.id}
               limpeza={limpeza}
+              agora={agora}
               onConcluir={() => setConcluindo(limpeza)}
               onDetalhes={() => setDetalhes(limpeza)}
             />
@@ -209,8 +164,9 @@ export function ExecucaoClient() {
 
       {/* Um diálogo por vez: concluir ou trocar o responsável a partir dos detalhes fecha os detalhes. */}
       {detalhes ? (
-        <DetalhesDialog
+        <LimpezaDetalhesDialog
           limpeza={detalhes}
+          agora={agora}
           podeGerenciar={podeGerenciar}
           onClose={() => setDetalhes(null)}
           onConcluir={() => {
@@ -221,11 +177,20 @@ export function ExecucaoClient() {
             setDetalhes(null);
             setAtribuindo(detalhes);
           }}
+          // Reabrir uma concluída pela Execução fica com quem gerencia limpezas.
+          onReabrir={
+            podeGerenciar
+              ? () => {
+                  setDetalhes(null);
+                  setReabrindo(detalhes);
+                }
+              : undefined
+          }
         />
       ) : null}
 
       {concluindo ? (
-        <ConcluirDialog
+        <ConcluirLimpezaServicoDialog
           limpeza={concluindo}
           onClose={() => setConcluindo(null)}
           onDone={() => {
@@ -236,11 +201,22 @@ export function ExecucaoClient() {
       ) : null}
 
       {atribuindo ? (
-        <AtribuirDialog
+        <AtribuirLimpezaDialog
           limpeza={atribuindo}
           onClose={() => setAtribuindo(null)}
           onDone={() => {
             setAtribuindo(null);
+            void carregar();
+          }}
+        />
+      ) : null}
+
+      {reabrindo ? (
+        <ReabrirLimpezaDialog
+          limpeza={reabrindo}
+          onClose={() => setReabrindo(null)}
+          onDone={() => {
+            setReabrindo(null);
             void carregar();
           }}
         />
@@ -251,10 +227,12 @@ export function ExecucaoClient() {
 
 function LimpezaCard({
   limpeza,
+  agora,
   onConcluir,
   onDetalhes,
 }: {
   limpeza: Limpeza;
+  agora: number;
   onConcluir: () => void;
   onDetalhes: () => void;
 }) {
@@ -262,6 +240,8 @@ function LimpezaCard({
   const endereco = enderecoDe(limpeza.imovel);
   const responsavel = nomeDe(limpeza.responsavel);
   const pendente = limpeza.status === "PENDENTE";
+  // Só faz sentido na limpeza pendente: é o prazo para o imóvel ficar pronto.
+  const checkin = pendente && limpeza.proximo_checkin ? contagemCheckin(limpeza.proximo_checkin, agora) : null;
 
   const foto = limpeza.imovel?.foto_capa;
 
@@ -302,6 +282,25 @@ function LimpezaCard({
         ) : null}
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-2 p-2.5 text-xs sm:gap-2.5 sm:p-4 sm:text-sm">
+        {pendente ? (
+          checkin ? (
+            <div className={`flex items-start gap-1.5 rounded-lg border px-2 py-1.5 sm:gap-2 sm:px-2.5 sm:py-2 ${TONS_CHECKIN[checkin.tom]}`}>
+              <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+              <div className="min-w-0 leading-tight">
+                <p className="font-semibold">
+                  <span className="sm:hidden">{checkin.curto}</span>
+                  <span className="hidden sm:inline">{checkin.longo}</span>
+                </p>
+                <p className="mt-0.5 text-[11px] opacity-80 sm:text-xs">{checkin.quando}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="flex items-center gap-1.5 rounded-lg border border-dashed px-2 py-1.5 text-muted-foreground sm:gap-2 sm:px-2.5">
+              <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+              <span>Sem check-in agendado</span>
+            </p>
+          )
+        ) : null}
         {limpeza.descricao ? (
           <p className="flex items-start gap-1.5 rounded-lg border border-primary/20 bg-primary/5 p-2 font-medium text-foreground sm:gap-2 sm:p-2.5">
             <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary sm:h-4 sm:w-4" />
@@ -377,257 +376,5 @@ function LimpezaCard({
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-/** Uma informação dos detalhes: ícone, rótulo pequeno e o valor embaixo. */
-function Linha({ icon: Icon, rotulo, children }: { icon: typeof Info; rotulo: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{rotulo}</p>
-        <div className="text-sm text-foreground">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function DetalhesDialog({
-  limpeza,
-  podeGerenciar,
-  onClose,
-  onConcluir,
-  onAtribuir,
-}: {
-  limpeza: Limpeza;
-  podeGerenciar: boolean;
-  onClose: () => void;
-  onConcluir: () => void;
-  onAtribuir: () => void;
-}) {
-  const imovel = limpeza.imovel;
-  const titulo = imovel?.titulo || `Imóvel #${limpeza.imovel_id}`;
-  const endereco = enderecoDe(imovel);
-  const pendente = limpeza.status === "PENDENTE";
-  const reserva = limpeza.reserva;
-  const comodos = [
-    imovel?.quartos ? { icon: Bed, texto: `${imovel.quartos} ${Number(imovel.quartos) === 1 ? "quarto" : "quartos"}` } : null,
-    imovel?.banheiros ? { icon: Bath, texto: `${imovel.banheiros} ${Number(imovel.banheiros) === 1 ? "banheiro" : "banheiros"}` } : null,
-    imovel?.capacidade ? { icon: Users, texto: `até ${imovel.capacidade} ${Number(imovel.capacidade) === 1 ? "hóspede" : "hóspedes"}` } : null,
-  ].filter((c): c is { icon: typeof Bed; texto: string } => Boolean(c));
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex max-h-[90vh] w-[95vw] flex-col gap-0 overflow-hidden p-0 sm:max-w-xl">
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="relative aspect-[16/9] w-full bg-muted">
-            {imovel?.foto_capa ? (
-              // eslint-disable-next-line @next/next/no-img-element -- URL pública do Storage, como nos cards de imóveis.
-              <img src={imovel.foto_capa} alt={titulo} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-muted-foreground/60">
-                <Building2 className="h-12 w-12" />
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-5 p-4 sm:p-6">
-            <DialogHeader className="space-y-1.5 text-left">
-              <div className="flex flex-wrap items-center gap-2">
-                <DialogTitle className="text-lg">{titulo}</DialogTitle>
-                {imovel?.codigo ? (
-                  <span className="rounded border border-border/40 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                    #{imovel.codigo}
-                  </span>
-                ) : null}
-              </div>
-              <DialogDescription asChild>
-                <div>
-                  {pendente ? (
-                    <Badge className="border border-amber-500/30 bg-amber-500/15 text-[11px] text-amber-700 hover:bg-amber-500/20 dark:text-amber-400">
-                      Limpeza pendente · {espera(limpeza.solicitada_em)}
-                    </Badge>
-                  ) : (
-                    <Badge className="border border-emerald-500/30 bg-emerald-500/15 text-[11px] text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-400">
-                      Limpeza concluída
-                    </Badge>
-                  )}
-                </div>
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-3.5">
-              <p className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                <ClipboardList className="h-3.5 w-3.5" />
-                O que fazer
-              </p>
-              <p className="whitespace-pre-line break-words text-sm font-medium text-foreground">
-                {limpeza.descricao || <span className="font-normal text-muted-foreground">Nenhuma instrução além da limpeza padrão.</span>}
-              </p>
-            </div>
-
-            <div className="space-y-3.5">
-              {endereco ? (
-                <Linha icon={MapPin} rotulo="Endereço">
-                  {endereco}
-                </Linha>
-              ) : null}
-              {comodos.length ? (
-                <div className="flex flex-wrap gap-2 pl-6.5">
-                  {comodos.map(({ icon: Icon, texto }) => (
-                    <span key={texto} className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-xs text-foreground">
-                      <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-                      {texto}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              {reserva ? (
-                <Linha icon={LogOut} rotulo="Saída do hóspede">
-                  <span className="block">{reserva.cliente?.nomerazaosocial || "Hóspede não identificado"}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Reserva #{reserva.id} · {dateLabel(reserva.inicio)} a {dateLabel(reserva.fim)}
-                    {reserva.hospedes ? ` · ${reserva.hospedes} ${Number(reserva.hospedes) === 1 ? "hóspede" : "hóspedes"}` : ""}
-                  </span>
-                  {reserva.checkout_em ? (
-                    <span className="block text-xs text-muted-foreground">Check-out registrado em {momento(reserva.checkout_em)}</span>
-                  ) : null}
-                </Linha>
-              ) : null}
-              <Linha icon={CalendarDays} rotulo="Pedida em">
-                {momento(limpeza.solicitada_em)}
-                {nomeDe(limpeza.solicitante) ? <span className="text-muted-foreground"> por {nomeDe(limpeza.solicitante)}</span> : null}
-              </Linha>
-              <Linha icon={User} rotulo="Responsável">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className={nomeDe(limpeza.responsavel) ? "" : "text-muted-foreground"}>
-                    {nomeDe(limpeza.responsavel) ?? "Sem responsável"}
-                  </span>
-                  {pendente && podeGerenciar ? (
-                    <Button type="button" size="sm" variant="ghost" onClick={onAtribuir} className="h-7 gap-1.5 px-2 text-xs hover:cursor-pointer">
-                      <UserCog className="h-3.5 w-3.5" />
-                      Alterar
-                    </Button>
-                  ) : null}
-                </div>
-              </Linha>
-              {!pendente ? (
-                <Linha icon={CheckCircle2} rotulo="Concluída em">
-                  {momento(limpeza.concluida_em)}
-                  {nomeDe(limpeza.concluinte) ? <span className="text-muted-foreground"> por {nomeDe(limpeza.concluinte)}</span> : null}
-                </Linha>
-              ) : null}
-              {limpeza.observacoes ? (
-                <Linha icon={Info} rotulo="Observações da conclusão">
-                  <span className="whitespace-pre-line break-words">{limpeza.observacoes}</span>
-                </Linha>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter className="shrink-0 gap-2 border-t p-4 sm:px-6">
-          <Button variant="outline" onClick={onClose} className="hover:cursor-pointer">Fechar</Button>
-          {pendente ? (
-            <Button onClick={onConcluir} className="gap-1.5 hover:cursor-pointer">
-              <CheckCircle2 className="h-4 w-4" />
-              Limpeza concluída
-            </Button>
-          ) : null}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ConcluirDialog({ limpeza, onClose, onDone }: { limpeza: Limpeza; onClose: () => void; onDone: () => void }) {
-  const [observacoes, setObservacoes] = useState("");
-  const [busy, setBusy] = useState(false);
-  const titulo = limpeza.imovel?.titulo || `Imóvel #${limpeza.imovel_id}`;
-
-  const concluir = async () => {
-    setBusy(true);
-    try {
-      await requestJson(`/api/execucao/limpezas/${limpeza.id}/concluir`, {
-        method: "POST",
-        body: JSON.stringify({ observacoes }),
-      });
-      toast.success("Limpeza concluída", { description: `${titulo} saiu da situação Limpeza.` });
-      onDone();
-    } catch (error) {
-      toast.error("Não foi possível concluir a limpeza", { description: (error as Error).message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Concluir limpeza</DialogTitle>
-          <DialogDescription>
-            {titulo} deixa a situação Limpeza e volta a ficar pronto para o próximo hóspede.
-          </DialogDescription>
-        </DialogHeader>
-        <Textarea
-          value={observacoes}
-          onChange={(e) => setObservacoes(e.target.value)}
-          placeholder="Observações (opcional): itens repostos, algo a reparar..."
-          rows={3}
-          maxLength={2000}
-          className="text-base sm:text-sm"
-        />
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose} disabled={busy} className="hover:cursor-pointer">Voltar</Button>
-          <Button onClick={() => void concluir()} disabled={busy} className="gap-1.5 hover:cursor-pointer">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-            Confirmar conclusão
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function AtribuirDialog({ limpeza, onClose, onDone }: { limpeza: Limpeza; onClose: () => void; onDone: () => void }) {
-  const [responsavel, setResponsavel] = useState<string | null>(limpeza.responsavel_id);
-  const [busy, setBusy] = useState(false);
-  const titulo = limpeza.imovel?.titulo || `Imóvel #${limpeza.imovel_id}`;
-
-  const salvar = async () => {
-    setBusy(true);
-    try {
-      await requestJson(`/api/execucao/limpezas/${limpeza.id}/atribuir`, {
-        method: "POST",
-        body: JSON.stringify({ responsavel_id: responsavel }),
-      });
-      toast.success(responsavel ? "Responsável atribuído" : "Limpeza ficou sem responsável");
-      onDone();
-    } catch (error) {
-      toast.error("Não foi possível atribuir a limpeza", { description: (error as Error).message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Responsável pela limpeza</DialogTitle>
-          <DialogDescription>{titulo}</DialogDescription>
-        </DialogHeader>
-        <ResponsavelLimpezaSelect value={responsavel} onValueChange={setResponsavel} disabled={busy} />
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose} disabled={busy} className="hover:cursor-pointer">Voltar</Button>
-          <Button onClick={() => void salvar()} disabled={busy || responsavel === limpeza.responsavel_id} className="gap-1.5 hover:cursor-pointer">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Salvar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
