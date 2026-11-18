@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +15,7 @@ import {
   Building2,
   Calendar,
   CalendarDays,
+  CheckCircle2,
   ChevronsLeft,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -21,6 +23,7 @@ import {
   List,
   Loader,
   Loader2,
+  LogOut,
   Plus,
   RotateCw,
   User,
@@ -37,15 +40,20 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { AnimatePresence, motion } from "motion/react";
 import { Pagination, Reserva, ReservasTab, RESERVAS_TABS } from "../types";
-import { StatusBadge } from "@/components/imobiliario/shared";
-import { clientName, dateLabel, money, propertyName } from "@/components/imobiliario/model";
+import { StatusBadge, useModulePermission } from "@/components/imobiliario/shared";
+import { type Entity, clientName, dateLabel, money, propertyName } from "@/components/imobiliario/model";
 import dynamic from "next/dynamic";
-import { RowActions } from "@/components/imobiliario/row-actions";
+import { RowActions, type RowExtraAction } from "@/components/imobiliario/row-actions";
 import { cn } from "@/lib/utils";
 
 const ReservationsCalendar = dynamic(
   () => import("@/components/imobiliario/reservations-calendar").then(module => module.ReservationsCalendar),
   { loading: () => <p role="status" className="p-4 text-sm">Carregando calendário…</p> },
+);
+
+// Mesmo diálogo de check-in/check-out do cadastro da reserva; só carrega quando é aberto.
+const OperationAction = dynamic(
+  () => import("@/components/imobiliario/actions-dialog").then(module => module.OperationAction),
 );
 
 interface ReservasDataTableProps {
@@ -101,6 +109,22 @@ export default function ReservasDataTable({
   propertyId,
   calendarVersion,
 }: ReservasDataTableProps) {
+  const { can } = useModulePermission();
+  const podeCheckinCheckout = can("reservas:checkin_checkout");
+  const [acao, setAcao] = useState<{ reserva: Reserva; action: "CHECKIN" | "CHECKOUT" } | null>(null);
+
+  // Check-in na reserva confirmada; check-out na que está em andamento.
+  const acoesDaReserva = (reserva: Reserva): RowExtraAction[] => {
+    if (!podeCheckinCheckout) return [];
+    if (reserva.status === "CONFIRMADA") {
+      return [{ key: "checkin", label: "Check-in", icon: CheckCircle2, onSelect: () => setAcao({ reserva, action: "CHECKIN" }) }];
+    }
+    if (reserva.status === "EM_ANDAMENTO") {
+      return [{ key: "checkout", label: "Check-out", icon: LogOut, onSelect: () => setAcao({ reserva, action: "CHECKOUT" }) }];
+    }
+    return [];
+  };
+
   return (
     <Card className="shadow-xs border-border/80">
       <CardHeader className="border-b pb-4">
@@ -398,7 +422,11 @@ export default function ReservasDataTable({
 
                             {/* Ações */}
                             <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
-                              <RowActions canEdit={canEdit} onOpen={() => onSelectReserva(reserva.id)} />
+                              <RowActions
+                                canEdit={canEdit}
+                                onOpen={() => onSelectReserva(reserva.id)}
+                                extraActions={acoesDaReserva(reserva)}
+                              />
                             </TableCell>
                           </TableRow>
                         );
@@ -505,6 +533,19 @@ export default function ReservasDataTable({
           )}
         </AnimatePresence>
       </CardContent>
+
+      {acao ? (
+        <OperationAction
+          kind="reservas"
+          item={acao.reserva as Entity}
+          action={acao.action}
+          onClose={() => setAcao(null)}
+          onSaved={() => {
+            setAcao(null);
+            onRefresh();
+          }}
+        />
+      ) : null}
     </Card>
   );
 }

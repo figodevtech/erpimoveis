@@ -34,11 +34,13 @@ import {
 } from "./detail-panels";
 import { FinancePanel } from "./finance-panel";
 import { ReservationEventsPanel } from "./reservation-events-panel";
+import { ReservationStayPanel } from "./reservation-stay-panel";
 import { MidiaPanel } from "./midia/midia-panel";
 import { AnexosPanel } from "./midia/anexos-panel";
 import { useImovelMidia } from "./midia/use-imovel-midia";
 import { notifyRemoval } from "./row-actions";
 import { OperationAction } from "./actions-dialog";
+import { ConcluirLimpezaDialog } from "./concluir-limpeza-dialog";
 import { PropertyReservations } from "./property-reservations";
 import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
 import {
@@ -75,6 +77,7 @@ import {
   Paperclip,
   Calculator,
   Sparkles,
+  DoorOpen,
 } from "lucide-react";
 
 export type EntityDialogProps = {
@@ -89,7 +92,6 @@ export type EntityDialogProps = {
 };
 
 function defaults(kind: ModuleKind): Entity {
-  const today = new Date().toLocaleDateString("en-CA");
   if (kind === "proprietarios")
     return { tipopessoa: "FISICA", ativo: true, telefones: [], percentual_admin: 0 };
   if (kind === "imoveis")
@@ -107,7 +109,8 @@ function defaults(kind: ModuleKind): Entity {
       endereco_publico: {},
       caracteristicas: {},
     };
-  return { hospedes: 1, inicio: today, fim: "", observacoes: "" };
+  // Sem datas: entrada e saída são escolhidas no calendário de ocupação do imóvel.
+  return { hospedes: 1, inicio: "", fim: "", observacoes: "" };
 }
 
 const tabIcons: Record<string, any> = {
@@ -122,6 +125,7 @@ const tabIcons: Record<string, any> = {
   anexos: Paperclip,
   publicacao: Globe,
   disponibilidade: CalendarCheck,
+  "checkin-checkout": DoorOpen,
 };
 
 const kindIcons: Record<ModuleKind, any> = {
@@ -161,6 +165,8 @@ export default function EntityDialog({
   const [aberta, setAberta] = useState<{ kind: ModuleKind; id: number } | null>(null);
   // Cadastro do cliente aberto pelo nome do hóspede, na reserva.
   const [clienteAberto, setClienteAberto] = useState<number | null>(null);
+  // Confirmação de "Concluir limpeza" do imóvel em LIMPEZA.
+  const [concluindoLimpeza, setConcluindoLimpeza] = useState(false);
   // Salvar a operação aberta recarrega a aba (outro valor, outro status, outro período).
   const [disponibilidadeVersao, setDisponibilidadeVersao] = useState(0);
   // Fica no diálogo, e não na aba, para as fotos pendentes sobreviverem à troca de aba.
@@ -323,21 +329,6 @@ export default function EntityDialog({
     }
   };
 
-  // Imóvel em LIMPEZA: conclui a limpeza pendente dele, como faria o responsável na Execução.
-  const concluirLimpeza = async () => {
-    if (!currentId || !window.confirm("Concluir a limpeza deste imóvel? Ele deixa a situação Limpeza.")) return;
-    setBusy(true);
-    try {
-      await requestJson(`${endpoint("imoveis", currentId)}/limpeza/concluir`, { method: "POST", body: "{}" });
-      toast.success("Limpeza concluída");
-      saved();
-    } catch (error) {
-      toast.error("Não foi possível concluir a limpeza", { description: (error as Error).message });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const remove = async () => {
     if (
       !window.confirm(
@@ -376,6 +367,8 @@ export default function EntityDialog({
       );
       // Sem aba Pagamentos: o imóvel não é cobrado; os pagamentos ficam na reserva.
     } else {
+      // O que foi registrado na entrada e na saída, com a limpeza pedida no check-out.
+      if (kind === "reservas") tabs.push({ key: "checkin-checkout", label: "Check-in / Check-out" });
       tabs.push({ key: "arquivos", label: "Documentos" });
       if (financial) tabs.push({ key: "financeiro", label: "Pagamentos" });
       // Como na OS: o que a reserva rende e custa à imobiliária, e o que movimenta na conta do proprietário.
@@ -478,7 +471,7 @@ export default function EntityDialog({
                       label="Concluir limpeza"
                       icon={Sparkles}
                       tone="amber"
-                      onClick={() => void concluirLimpeza()}
+                      onClick={() => setConcluindoLimpeza(true)}
                     />
                   ) : null}
                   {value.ativo !== false && can("reservas:criar") ? (
@@ -742,6 +735,23 @@ export default function EntityDialog({
               </TabsContent>
 
               <TabsContent
+                value="checkin-checkout"
+                className="h-full min-h-0 overflow-hidden p-0 m-0 focus-visible:outline-none"
+              >
+                <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
+                  {tab === "checkin-checkout" && currentId && kind === "reservas" ? (
+                    // A key muda quando a reserva recarrega depois de um check-in/check-out: a aba busca de novo.
+                    <ReservationStayPanel
+                      key={`${value.status}-${value.updated_at}`}
+                      reservaId={currentId}
+                      reserva={value}
+                      onSaved={saved}
+                    />
+                  ) : null}
+                </div>
+              </TabsContent>
+
+              <TabsContent
                 value="eventos-financeiros"
                 className="h-full min-h-0 overflow-hidden p-0 m-0 focus-visible:outline-none"
               >
@@ -766,6 +776,15 @@ export default function EntityDialog({
           </Tabs>
         </RemoteState>
       </EntityShell>
+
+      <ConcluirLimpezaDialog
+        imovel={concluindoLimpeza && currentId ? { id: currentId, titulo: value.titulo } : null}
+        onClose={() => setConcluindoLimpeza(false)}
+        onDone={() => {
+          setConcluindoLimpeza(false);
+          saved();
+        }}
+      />
 
       {action && currentId ? (
         <OperationAction

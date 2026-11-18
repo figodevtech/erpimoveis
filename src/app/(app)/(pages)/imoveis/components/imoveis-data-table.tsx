@@ -27,6 +27,7 @@ import {
   MapPin,
   User,
   Building2,
+  Sparkles,
 } from "lucide-react";
 import {
   Select,
@@ -36,9 +37,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Imovel, Pagination } from "../types";
-import { StatusBadge } from "@/components/imobiliario/shared";
+import { StatusBadge, useModulePermission } from "@/components/imobiliario/shared";
 import { money, rowStatus } from "@/components/imobiliario/model";
-import { RowActions } from "@/components/imobiliario/row-actions";
+import { RowActions, type RowExtraAction } from "@/components/imobiliario/row-actions";
+import { ConcluirLimpezaDialog } from "@/components/imobiliario/concluir-limpeza-dialog";
 import { cn } from "@/lib/utils";
 
 interface ImoveisDataTableProps {
@@ -68,6 +70,14 @@ export default function ImoveisDataTable({
   canCreate,
   canEdit,
 }: ImoveisDataTableProps) {
+  const { can } = useModulePermission();
+  const [limpezaDe, setLimpezaDe] = useState<Imovel | null>(null);
+  // Imóvel em LIMPEZA: quem edita imóveis conclui a limpeza direto do menu da linha.
+  const acoesDoImovel = (imovel: Imovel): RowExtraAction[] =>
+    imovel.situacao_operacional === "LIMPEZA" && can("imoveis:editar")
+      ? [{ key: "concluir-limpeza", label: "Concluir limpeza", icon: Sparkles, onSelect: () => setLimpezaDe(imovel) }]
+      : [];
+
   const [viewMode, setViewMode] = useState<"table" | "cards">(() => {
     if (typeof window !== "undefined") {
       try {
@@ -279,6 +289,7 @@ export default function ImoveisDataTable({
                             onOpen={() => onSelectImovel(imovel.id)}
                             onDelete={onDeleteImovel ? () => onDeleteImovel(imovel.id) : undefined}
                             deleteDescription="Sem reservas ou lançamentos financeiros, o imóvel é excluído definitivamente, com fotos, anexos, tarifas e agenda. Com qualquer um desses vínculos, ele é apenas inativado e retirado do site."
+                            extraActions={acoesDoImovel(imovel)}
                           />
                         </TableCell>
                       </TableRow>
@@ -348,6 +359,7 @@ export default function ImoveisDataTable({
                                   onOpen={() => onSelectImovel(imovel.id)}
                                   onDelete={onDeleteImovel ? () => onDeleteImovel(imovel.id) : undefined}
                                   deleteDescription="Sem reservas ou lançamentos financeiros, o imóvel é excluído definitivamente, com fotos, anexos, tarifas e agenda. Com qualquer um desses vínculos, ele é apenas inativado e retirado do site."
+                                  extraActions={acoesDoImovel(imovel)}
                                 />
                               </div>
                             </div>
@@ -519,6 +531,15 @@ export default function ImoveisDataTable({
           </div>
         </div>
       </CardContent>
+
+      <ConcluirLimpezaDialog
+        imovel={limpezaDe}
+        onClose={() => setLimpezaDe(null)}
+        onDone={() => {
+          setLimpezaDe(null);
+          onRefresh();
+        }}
+      />
     </Card>
   );
 }

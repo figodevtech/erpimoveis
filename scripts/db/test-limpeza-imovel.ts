@@ -9,7 +9,14 @@ const semTransacao = (sql: string) =>
 async function main() {
   const config = loadDatabaseConfigs()[0];
   if (!config) throw new Error("Nenhum banco configurado.");
-  const migration = semTransacao(fs.readFileSync(path.join(projectRoot, "supabase/migrations/20261118120000_limpeza_imovel.sql"), "utf8"));
+  const migration = [
+    "20261118120000_limpeza_imovel.sql",
+    "20261118140000_limpeza_descricao.sql",
+    "20261118150000_reserva_registro_checkin_checkout.sql",
+    "20261118160000_editar_checkin_checkout.sql",
+  ]
+    .map((arquivo) => semTransacao(fs.readFileSync(path.join(projectRoot, "supabase/migrations", arquivo), "utf8")))
+    .join("\n");
   const tests = semTransacao(fs.readFileSync(path.join(projectRoot, "supabase/tests/limpeza_imovel.sql"), "utf8"));
   const { client } = await connectDatabase(config);
   client.on("notice", (notice) => { if (notice.message) console.log(notice.message); });

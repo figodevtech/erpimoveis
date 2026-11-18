@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getCurrentUserAccess } from "@/app/api/_authz/perms";
 import { PERMS, permissionSetHas, type Permission } from "@/app/api/_authz/permission-constants";
 import { bodyOf, db, identifier, ImobError, json, one, pagination, rpc } from "./server";
+import { enrich } from "./data";
 
 /**
  * Limpezas pedidas no check-out (imovel_limpeza, 20261118120000), na página Execução.
@@ -12,9 +13,9 @@ import { bodyOf, db, identifier, ImobError, json, one, pagination, rpc } from ".
  * imóveis também conclui, como no botão do cadastro do imóvel.
  */
 
+// O imóvel (título, endereço e foto de capa) vem de `enrich`, como nas listas de imóveis e reservas.
 const LIMPEZA_SELECT = [
-  "id,imovel_id,reserva_id,responsavel_id,status,solicitada_em,concluida_em,observacoes,updated_at",
-  "imovel:imovel_id(id,titulo,codigo,endereco,endereco_publico)",
+  "id,imovel_id,reserva_id,responsavel_id,descricao,status,solicitada_em,concluida_em,observacoes,updated_at",
   "reserva:reserva_id(id,inicio,fim,checkout_em,hospedes,cliente:cliente_id(id,nomerazaosocial))",
   "responsavel:responsavel_id(id,nome,email)",
   "solicitante:solicitada_por(id,nome)",
@@ -49,7 +50,8 @@ async function listar(url: URL, usuario: Sessao) {
     : query.order("concluida_em", { ascending: false });
   const { data, count, error } = await query.order("id").range(from, to);
   if (error) throw error;
-  return { items: data ?? [], total: count ?? 0, page, pageSize, escopo, podeGerenciar: usuario.gerencia };
+  const items = await enrich((data ?? []) as unknown as Record<string, any>[]);
+  return { items, total: count ?? 0, page, pageSize, escopo, podeGerenciar: usuario.gerencia };
 }
 
 async function concluir(id: number, body: Record<string, unknown>, usuario: Sessao) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { requestJson } from "./shared";
+import { requestJson, useRemote } from "./shared";
+import { DateChip, OccupancyCalendar, covers, monthStart, todayCivil } from "./availability-panel";
 import { type Entity, type ModuleKind, dateInput, money, titleCase } from "./model";
 import ProprietarioSelect from "@/app/(app)/components/proprietarioSelect";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
@@ -27,7 +28,7 @@ import ValueInput from "@/components/ui/value-input";
 import { ComodidadesField } from "./comodidades-field";
 import { AddressPlaceFields, placeKey } from "./address-fields";
 import { DecimalInput, IntegerInput } from "./numeric-inputs";
-import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { timeOptions } from "@/components/ui/date-time-picker";
 import {
   AlertCircle,
   Building2,
@@ -1137,12 +1138,34 @@ function defaultHint(own: unknown, property: unknown, fallback: string) {
   return `Alterado nesta reserva (padrão do imóvel: ${padrao})`;
 }
 
-/** "2026-11-02" → "2026-11-03"; vazio continua vazio. */
-function nextDay(day: string) {
-  if (!day) return undefined;
-  const [year, month, date] = day.split("-").map(Number);
-  const next = new Date(year, month - 1, date + 1);
-  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+/** Horário de entrada ou saída da reserva, de meia em meia hora (como o seletor de data e hora). */
+function HorarioSelect({
+  id,
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger id={id} aria-label={label} title={label} className="h-[3.25rem] w-24 shrink-0 rounded-xl tabular-nums">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="max-h-64">
+        {timeOptions(value).map((option) => (
+          <SelectItem key={option} value={option} className="tabular-nums">
+            {option}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 /** Nome que abre o cadastro vinculado; segue clicável mesmo com o formulário bloqueado, pois só navega. */
@@ -1185,6 +1208,59 @@ function ReservationGeneralFields({
   // Sem horário próprio, a reserva mostra (e o banco grava) o padrão do imóvel.
   const checkin = hhmm(value.horario_checkin) || hhmm(imovel?.horario_checkin) || "14:00";
   const checkout = hhmm(value.horario_checkout) || hhmm(imovel?.horario_checkout) || "12:00";
+
+  // Disponibilidade do imóvel: o calendário aparece sempre e marca as ocupações quando há imóvel.
+  const imovelId = value.imovel_id ? Number(value.imovel_id) : null;
+  const reservaId = value.id ? Number(value.id) : null;
+  const ocupacao = useRemote<{ items?: Entity[] }>(imovelId ? `/api/imoveis/${imovelId}/disponibilidade` : null);
+  const tarifas = useRemote<{ items?: Entity[] }>(imovelId ? `/api/imoveis/${imovelId}/tarifas` : null);
+  // A ocupação da própria reserva não conta; dados de outro imóvel (troca em andamento) também não.
+  const ocupadas = useMemo(
+    () =>
+      (ocupacao.data?.items ?? []).filter(
+        (row) => Number(row.imovel_id) === imovelId && !(reservaId && Number(row.reserva_id) === reservaId)
+      ),
+    [ocupacao.data, imovelId, reservaId]
+  );
+  const tarifasDoImovel = useMemo(
+    () => (tarifas.data?.items ?? []).filter((row) => Number(row.imovel_id) === imovelId),
+    [tarifas.data, imovelId]
+  );
+  const disponibilidadeCarregada = Boolean(imovelId && ocupacao.data && !ocupacao.loading);
+  const inicio = dateInput(value.inicio) || null;
+  const fim = dateInput(value.fim) || null;
+  const [mes, setMes] = useState(() => monthStart(inicio ?? todayCivil()));
+  // Reserva carregada depois de abrir o diálogo: o calendário vai para o mês da entrada.
+  const mesAjustado = useRef(Boolean(inicio));
+  useEffect(() => {
+    if (inicio && !mesAjustado.current) {
+      mesAjustado.current = true;
+      setMes(monthStart(inicio));
+    }
+  }, [inicio]);
+
+  const noiteOcupada = (dia: string) => ocupadas.some((row) => covers(row, dia));
+  // Escolhendo a saída: vai até a primeira noite ocupada depois da entrada (a saída pode ser o
+  // dia em que outra reserva entra).
+  const limiteSaida =
+    inicio && !fim
+      ? ocupadas.map((row) => String(row.inicio)).filter((dia) => dia > inicio).sort()[0] ?? null
+      : null;
+  const diaIndisponivel = (dia: string) =>
+    inicio && !fim && dia > inicio ? Boolean(limiteSaida && dia > limiteSaida) : noiteOcupada(dia);
+  // 1º clique: entrada. 2º clique: saída (no dia da entrada ou antes, recomeça). Período fechado: recomeça.
+  const escolherDia = (dia: string) =>
+    onChange(!inicio || fim || dia <= inicio ? { ...value, inicio: dia, fim: "" } : { ...value, fim: dia });
+
+  // Datas escolhidas antes do imóvel que caem em período ocupado saem sem aviso.
+  useEffect(() => {
+    if (disabled || !disponibilidadeCarregada || !inicio) return;
+    const conflito = fim
+      ? ocupadas.some((row) => String(row.inicio) < fim && (!row.fim || String(row.fim) > inicio))
+      : ocupadas.some((row) => covers(row, inicio));
+    if (conflito) onChange({ ...value, inicio: "", fim: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled, disponibilidadeCarregada, ocupadas, inicio, fim]);
 
   // Fallback seguro caso imovel_id exista mas os detalhes ainda não tenham sido injetados
   useEffect(() => {
@@ -1533,65 +1609,113 @@ function ReservationGeneralFields({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+          {/* Mesmo calendário da aba Disponibilidade do imóvel: 1º clique na entrada, 2º na saída. */}
           <div className="space-y-2">
-            <Label htmlFor="res-inicio" className="text-sm">
-              Data de Check-in *
-            </Label>
-            <DateTimePicker
-              id="res-inicio"
-              disabled={disabled}
-              date={dateInput(value.inicio)}
-              time={checkin}
-              onDateChange={(day) => set("inicio", day)}
-              onTimeChange={(hora) => set("horario_checkin", hora)}
-              placeholder="Selecione a entrada"
-              className="h-10 sm:h-11"
+            <OccupancyCalendar
+              month={mes}
+              onMonth={setMes}
+              rows={ocupadas}
+              tariffs={tarifasDoImovel}
+              selection={{ start: inicio, end: fim }}
+              onDayClick={disabled ? undefined : escolherDia}
+              isDayDisabled={diaIndisponivel}
+              allowPast
             />
-            <p className="text-[11px] text-muted-foreground">
-              {defaultHint(value.horario_checkin, imovel?.horario_checkin, "14:00")}
-            </p>
+            <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              {!imovelId ? (
+                <span className="flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 shrink-0" />
+                  Escolha o imóvel para ver os dias ocupados.
+                </span>
+              ) : ocupacao.error && !ocupacao.data ? (
+                <span className="flex items-center gap-1.5 text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  Não foi possível carregar a disponibilidade.
+                  <button type="button" onClick={ocupacao.reload} className="font-semibold underline underline-offset-2 hover:cursor-pointer">
+                    Tentar de novo
+                  </button>
+                </span>
+              ) : !disponibilidadeCarregada ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                  Carregando a disponibilidade do imóvel…
+                </span>
+              ) : disabled ? (
+                <span />
+              ) : !inicio ? (
+                <span>Clique no dia da entrada e depois no dia da saída.</span>
+              ) : !fim ? (
+                <span>Agora clique no dia da saída.</span>
+              ) : (
+                <span />
+              )}
+              {inicio && !disabled ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-full px-3 text-xs text-muted-foreground hover:cursor-pointer"
+                  onClick={() => onChange({ ...value, inicio: "", fim: "" })}
+                >
+                  Limpar datas
+                </Button>
+              ) : null}
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="res-fim" className="text-sm">
-              Data de Check-out *
-            </Label>
-            <DateTimePicker
-              id="res-fim"
-              disabled={disabled}
-              date={dateInput(value.fim)}
-              time={checkout}
-              onDateChange={(day) => set("fim", day)}
-              onTimeChange={(hora) => set("horario_checkout", hora)}
-              // A saída é no mínimo um dia depois da entrada.
-              min={nextDay(dateInput(value.inicio))}
-              placeholder="Selecione a saída"
-              className="h-10 sm:h-11"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              {defaultHint(value.horario_checkout, imovel?.horario_checkout, "12:00")}
-            </p>
-          </div>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <DateChip label="Check-in *" date={inicio} placeholder="Escolha no calendário" />
+                <HorarioSelect
+                  id="res-horario-checkin"
+                  label="Horário de entrada"
+                  value={checkin}
+                  disabled={disabled}
+                  onChange={(hora) => set("horario_checkin", hora)}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {defaultHint(value.horario_checkin, imovel?.horario_checkin, "14:00")}
+              </p>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="res-hospedes" className="text-sm">
-              Quantidade de Hóspedes *
-            </Label>
-            <IntegerInput
-              id="res-hospedes"
-              fallback={1}
-              maxDigits={3}
-              disabled={disabled}
-              value={value.hospedes}
-              onChange={(n) => set("hospedes", n)}
-              className="h-10 sm:h-11"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              {imovel?.capacidade
-                ? `Capacidade máx: ${imovel.capacidade} hóspedes`
-                : "Total de pessoas hospedadas"}
-            </p>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <DateChip label="Check-out *" date={fim} placeholder="Escolha no calendário" />
+                <HorarioSelect
+                  id="res-horario-checkout"
+                  label="Horário de saída"
+                  value={checkout}
+                  disabled={disabled}
+                  onChange={(hora) => set("horario_checkout", hora)}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {defaultHint(value.horario_checkout, imovel?.horario_checkout, "12:00")}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="res-hospedes" className="text-sm">
+                Quantidade de Hóspedes *
+              </Label>
+              <IntegerInput
+                id="res-hospedes"
+                fallback={1}
+                maxDigits={3}
+                disabled={disabled}
+                value={value.hospedes}
+                onChange={(n) => set("hospedes", n)}
+                className="h-10 sm:h-11"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {imovel?.capacidade
+                  ? `Capacidade máx: ${imovel.capacidade} hóspedes`
+                  : "Total de pessoas hospedadas"}
+              </p>
+            </div>
           </div>
         </div>
 

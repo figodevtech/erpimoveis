@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
@@ -56,6 +57,15 @@ function getNights(inicio?: string | null, fim?: string | null): number | null {
   return isNaN(diffDays) || diffDays <= 0 ? null : diffDays;
 }
 
+/** Momento gravado (timestamptz) como dia e hora no fuso do imobiliário, para o seletor. */
+function noFusoImobiliario(iso: string) {
+  const momento = new Date(iso);
+  return {
+    data: momento.toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" }),
+    hora: momento.toLocaleTimeString("pt-BR", { timeZone: "America/Fortaleza", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
+  };
+}
+
 export function OperationAction({
   kind,
   item,
@@ -69,14 +79,26 @@ export function OperationAction({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  // EDITAR_*: o mesmo diálogo, aberto pela aba Check-in / Check-out com o que já foi registrado.
+  const editando = action === "EDITAR_CHECKIN" || action === "EDITAR_CHECKOUT";
+  const isReservaCancel = kind === "reservas" && action === "CANCELAR";
+  const isReservaCheckin = kind === "reservas" && (action === "CHECKIN" || action === "EDITAR_CHECKIN");
+  const isReservaCheckout = kind === "reservas" && (action === "CHECKOUT" || action === "EDITAR_CHECKOUT");
+  const registrado: string | null = editando ? (isReservaCheckin ? item.checkin_em : item.checkout_em) ?? null : null;
+  // Limpeza que este check-out já pediu (vem da aba). Concluída, não muda mais por aqui.
+  const limpezaRegistrada: Entity | null = editando && isReservaCheckout ? item.limpeza ?? null : null;
+  const limpezaConcluida = limpezaRegistrada?.status === "CONCLUIDA";
+
   const [data, setData] = useState<Entity>({
-    motivo: "",
+    motivo: editando ? (isReservaCheckin ? item.checkin_observacoes : item.checkout_observacoes) ?? "" : "",
     tratamento_pendentes: "CANCELAR_PENDENTES",
     tratamento_recebidos: "ESTORNAR",
   });
   // Momento da entrada/saída: começa no agora e pode voltar no tempo, para registrar depois
-  // uma entrada que já aconteceu. O banco lê no fuso do imobiliário e recusa o futuro.
+  // uma entrada que já aconteceu. Na edição, começa no que foi registrado. O banco lê no fuso
+  // do imobiliário e recusa o futuro.
   const [momento, setMomento] = useState(() => {
+    if (registrado) return noFusoImobiliario(registrado);
     const agora = new Date();
     return {
       data: agora.toLocaleDateString("en-CA"),
@@ -86,17 +108,26 @@ export function OperationAction({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // Limpeza do check-out: os padrões vêm de Configurações > Geral; o operador muda na hora.
+  // Na edição, começa com a limpeza que a saída pediu (ou desmarcada, se não pediu).
   // Sem a migration 20261118120000 a configuração não traz o campo e o banco não abriria a limpeza.
   const config = useOptionalConfig();
   const limpezaDisponivel = typeof config?.limpeza_sempre_solicitar === "boolean";
-  const [limpeza, setLimpeza] = useState(() => ({
-    solicitar: limpezaDisponivel && config?.limpeza_sempre_solicitar === true,
-    responsavel: config?.limpeza_responsavel_padrao_id ?? null,
-  }));
-  const isReservaCancel = kind === "reservas" && action === "CANCELAR";
-  const isReservaCheckin = kind === "reservas" && action === "CHECKIN";
-  const isReservaCheckout = kind === "reservas" && action === "CHECKOUT";
-  const limpezaPendente = isReservaCheckin && item.imovel?.situacao_operacional === "LIMPEZA";
+  const [limpeza, setLimpeza] = useState(() =>
+    editando
+      ? {
+          solicitar: Boolean(limpezaRegistrada && limpezaRegistrada.status !== "CANCELADA"),
+          responsavel: limpezaRegistrada?.responsavel?.id ?? (limpezaRegistrada ? null : config?.limpeza_responsavel_padrao_id ?? null),
+          descricao: limpezaRegistrada?.descricao ?? "",
+        }
+      : {
+          solicitar: limpezaDisponivel && config?.limpeza_sempre_solicitar === true,
+          responsavel: config?.limpeza_responsavel_padrao_id ?? null,
+          descricao: "",
+        }
+  );
+  const limpezaPendente = isReservaCheckin && !editando && item.imovel?.situacao_operacional === "LIMPEZA";
+  // Limpeza pendente que será cancelada se o operador desmarcar na edição.
+  const cancelaLimpeza = editando && limpezaRegistrada?.status === "PENDENTE" && !limpeza.solicitar;
   const destructive = action === "CANCELAR";
   const nights = getNights(item.inicio, item.fim);
 
@@ -110,12 +141,12 @@ export function OperationAction({
   ) : isReservaCheckin ? (
     <div className="flex items-center gap-2 text-primary">
       <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-      <span>Registrar Check-in da Reserva</span>
+      <span>{editando ? "Editar Check-in da Reserva" : "Registrar Check-in da Reserva"}</span>
     </div>
   ) : isReservaCheckout ? (
     <div className="flex items-center gap-2 text-primary">
       <LogOut className="h-5 w-5 shrink-0 text-sky-600 dark:text-sky-400" />
-      <span>Registrar Check-out da Reserva</span>
+      <span>{editando ? "Editar Check-out da Reserva" : "Registrar Check-out da Reserva"}</span>
     </div>
   ) : destructive ? (
     <div className="flex items-center gap-2 text-destructive">
@@ -154,11 +185,15 @@ export function OperationAction({
         body: JSON.stringify({
           acao: action,
           ...data,
-          ...(isReservaCheckin || isReservaCheckout ? { data_registro: momento.data, hora_registro: momento.hora } : {}),
-          ...(isReservaCheckout
+          ...(isReservaCheckin || isReservaCheckout
+            ? { data_registro: momento.data, hora_registro: momento.hora, observacoes: data.motivo?.trim() || null }
+            : {}),
+          // Na edição, a limpeza só vai quando pode mudar (sem migration ou já concluída, fica como está).
+          ...(isReservaCheckout && (!editando || (limpezaDisponivel && !limpezaConcluida))
             ? {
                 solicitar_limpeza: limpeza.solicitar,
                 responsavel_limpeza_id: limpeza.solicitar ? limpeza.responsavel : null,
+                descricao_limpeza: limpeza.solicitar ? limpeza.descricao.trim() || null : null,
               }
             : {}),
           tratamento_financeiro: data.tratamento_recebidos || undefined,
@@ -167,6 +202,10 @@ export function OperationAction({
       toast.success(
         isReservaCancel
           ? "Reserva cancelada com sucesso!"
+          : editando
+          ? isReservaCheckin
+            ? "Check-in atualizado"
+            : "Check-out atualizado"
           : isReservaCheckin
           ? "Check-in registrado com sucesso!"
           : isReservaCheckout
@@ -192,7 +231,11 @@ export function OperationAction({
       title={titleNode}
       description={headerDescription}
       badge={headerBadges}
-      className="p-0 overflow-hidden flex flex-col w-[95vw] max-w-2xl max-h-[90vh] sm:rounded-2xl"
+      // O DialogContent traz sm:max-w-lg; o check-out (data, limpeza, responsável, descrição) usa mais largura no desktop.
+      className={cn(
+        "p-0 overflow-hidden flex flex-col w-[95vw] max-w-2xl max-h-[90vh] sm:rounded-2xl",
+        isReservaCheckout && "sm:max-w-3xl"
+      )}
       footer={
         <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 w-full">
           <Button
@@ -218,6 +261,8 @@ export function OperationAction({
                 <span>
                   {isReservaCancel
                     ? "Cancelando reserva…"
+                    : editando
+                    ? "Salvando alterações…"
                     : isReservaCheckin
                     ? "Registrando entrada…"
                     : isReservaCheckout
@@ -229,6 +274,11 @@ export function OperationAction({
               <>
                 <XCircle className="h-4 w-4 shrink-0" />
                 <span>Confirmar Cancelamento da Reserva</span>
+              </>
+            ) : editando ? (
+              <>
+                <Check className="h-4 w-4 shrink-0" />
+                <span>Salvar alterações</span>
               </>
             ) : isReservaCheckin ? (
               <>
@@ -343,6 +393,17 @@ export function OperationAction({
               </p>
             </div>
           </div>
+        ) : editando ? (
+          <div className="flex items-start gap-3 rounded-xl border border-primary/25 bg-primary/5 p-3.5 sm:p-4 text-xs sm:text-sm text-foreground">
+            <Clock className="h-5 w-5 shrink-0 mt-0.5 text-primary" />
+            <div className="space-y-1">
+              <p className="font-semibold">Correção do {isReservaCheckin ? "check-in" : "check-out"}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Os dados registrados serão corrigidos. A situação da reserva não muda e o registro continua em nome de quem
+                o fez; a alteração fica na auditoria.
+              </p>
+            </div>
+          </div>
         ) : isReservaCheckin ? (
           <div className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 sm:p-4 text-xs sm:text-sm text-emerald-800 dark:text-emerald-300">
             <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
@@ -392,7 +453,9 @@ export function OperationAction({
               </p>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Já vem com o momento atual. Ajuste para registrar uma {isReservaCheckin ? "entrada" : "saída"} que já aconteceu.
+              {editando
+                ? `Vem com o momento registrado. Ajuste para corrigir a ${isReservaCheckin ? "entrada" : "saída"}.`
+                : `Já vem com o momento atual. Ajuste para registrar uma ${isReservaCheckin ? "entrada" : "saída"} que já aconteceu.`}
             </p>
             <DateTimePicker
               id="momento-registro"
@@ -400,9 +463,14 @@ export function OperationAction({
               time={momento.hora}
               onDateChange={(dia) => setMomento((atual) => ({ ...atual, data: dia }))}
               onTimeChange={(hora) => setMomento((atual) => ({ ...atual, hora }))}
-              // Registra-se o que já aconteceu; a saída não vem antes da entrada.
-              max={new Date().toLocaleDateString("en-CA")}
-              min={isReservaCheckout && item.checkin_em ? new Date(item.checkin_em).toLocaleDateString("en-CA") : undefined}
+              // Registra-se o que já aconteceu; a saída não vem antes da entrada, nem a entrada
+              // corrigida depois da saída já registrada.
+              max={
+                editando && isReservaCheckin && item.checkout_em
+                  ? noFusoImobiliario(item.checkout_em).data
+                  : new Date().toLocaleDateString("en-CA")
+              }
+              min={isReservaCheckout && item.checkin_em ? noFusoImobiliario(item.checkin_em).data : undefined}
               placeholder="Selecione a data e a hora"
               className="h-11 sm:h-10 w-full"
             />
@@ -418,7 +486,21 @@ export function OperationAction({
         {/* ========================================================================= */}
         {/* LIMPEZA DO IMÓVEL (CHECK-OUT)                                             */}
         {/* ========================================================================= */}
-        {isReservaCheckout && limpezaDisponivel ? (
+        {isReservaCheckout && limpezaDisponivel && limpezaConcluida ? (
+          <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-card p-3.5 sm:p-4 shadow-2xs">
+            <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
+            <div className="space-y-1 text-xs text-muted-foreground leading-relaxed">
+              <p className="text-sm font-semibold text-foreground">Limpeza concluída</p>
+              <p>
+                A limpeza pedida nesta saída já foi concluída
+                {limpezaRegistrada?.concluida_em
+                  ? ` em ${new Date(limpezaRegistrada.concluida_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Fortaleza" })}`
+                  : ""}
+                {limpezaRegistrada?.concluinte?.nome ? ` por ${limpezaRegistrada.concluinte.nome}` : ""} e não muda por aqui.
+              </p>
+            </div>
+          </div>
+        ) : isReservaCheckout && limpezaDisponivel ? (
           <div className="rounded-xl border border-border/70 bg-card p-3.5 sm:p-4 space-y-3 shadow-2xs">
             <label htmlFor="solicitar-limpeza" className="flex items-start gap-3 hover:cursor-pointer">
               <Checkbox
@@ -437,14 +519,40 @@ export function OperationAction({
                 </span>
               </span>
             </label>
+            {cancelaLimpeza ? (
+              <p className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                Ao salvar, a limpeza pendente desta saída será cancelada e sai da Execução.
+              </p>
+            ) : null}
             {limpeza.solicitar ? (
-              <div className="space-y-1.5 pl-7">
-                <p className="text-xs font-medium text-foreground">Responsável pela limpeza</p>
-                <ResponsavelLimpezaSelect
-                  value={limpeza.responsavel}
-                  onValueChange={(responsavel) => setLimpeza((atual) => ({ ...atual, responsavel }))}
-                  disabled={busy}
-                />
+              <div className="space-y-3 pl-7">
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-foreground">Responsável pela limpeza</p>
+                  <ResponsavelLimpezaSelect
+                    value={limpeza.responsavel}
+                    onValueChange={(responsavel) => setLimpeza((atual) => ({ ...atual, responsavel }))}
+                    disabled={busy}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="descricao-limpeza" className="block text-xs font-medium text-foreground">
+                    Descrição da limpeza
+                  </label>
+                  <Input
+                    id="descricao-limpeza"
+                    value={limpeza.descricao}
+                    onChange={(event) => setLimpeza((atual) => ({ ...atual, descricao: event.target.value }))}
+                    // Enter aqui não confirma o check-out: só o botão confirma.
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.preventDefault();
+                    }}
+                    placeholder="Ex.: trocar enxoval completo"
+                    maxLength={500}
+                    disabled={busy}
+                    className="h-10 text-base sm:text-sm"
+                  />
+                </div>
               </div>
             ) : null}
           </div>
@@ -468,6 +576,8 @@ export function OperationAction({
           <p className="text-xs text-muted-foreground leading-relaxed">
             {isReservaCancel
               ? "Registre a razão do cancelamento para histórico, auditoria e conciliação financeira."
+              : isReservaCheckin || isReservaCheckout
+              ? "Fica registrada na aba Check-in / Check-out da reserva."
               : "Descreva o motivo ou anotações importantes para o histórico deste registro."}
           </p>
 
@@ -480,6 +590,7 @@ export function OperationAction({
             }
             value={data.motivo}
             onChange={(event) => set("motivo", event.target.value)}
+            maxLength={2000}
             className="text-base sm:text-sm min-h-[90px] leading-relaxed resize-y"
             rows={3}
           />

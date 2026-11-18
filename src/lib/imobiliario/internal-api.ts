@@ -9,6 +9,7 @@ import { cotacaoPublica, hojeImobiliario } from "./types";
 import bairrosPorMunicipio from "@/data/bairros-por-municipio.json";
 import { financeAccess, financeReport, payCharge, scopeFromUrl, type FinanceScope } from "./finance";
 import { concluirLimpezaDoImovel } from "./limpezas";
+import { estadiaDaReserva } from "./estadia";
 import { alterarEventoDaReserva, cancelarConsumoDaReserva, criarEventoDaReserva, editarLancamentoDaReserva, estornarLancamentoDaReserva, excluirEventoDaReserva, excluirLancamentoDaReserva, listarEventosDaReserva, registrarConsumoDaReserva } from "./reserva-eventos";
 
 const resources = {
@@ -546,6 +547,10 @@ export async function internalResource(request: Request, resource: Resource, pat
     if (path[2] && !path[3] && method === "PATCH") return json(await alterarEventoDaReserva(id, identifier(path[2]), "EDITAR", await bodyOf(request)));
     if (path[2] && !path[3] && method === "DELETE") return json(await excluirEventoDaReserva(id, identifier(path[2]), await bodyOf(request)));
   }
+  // Aba "Check-in / Check-out": o registrado na entrada e na saída e a limpeza pedida no check-out.
+  if (id && resource === "reservas" && segment === "estadia" && !path[2] && method === "GET") {
+    return json(await estadiaDaReserva(id));
+  }
   if (id && resource === "reservas" && segment === "consumo-estoque" && method === "POST") {
     if (!path[2]) return json(await registrarConsumoDaReserva(id, await bodyOf(request)), 201);
     if (path[3] === "cancelar" && !path[4]) return json(await cancelarConsumoDaReserva(id, identifier(path[2]), await bodyOf(request)));
@@ -561,15 +566,29 @@ export async function internalResource(request: Request, resource: Resource, pat
   }
   if (id && segment === "acoes" && method === "POST" && resource === "reservas") {
     const body = await bodyOf(request); const action = String(body.acao ?? "").toUpperCase();
-    await internal(`${config.perm}:${["CHECKIN", "CHECKOUT"].includes(action) ? "checkin_checkout" : action === "CANCELAR" ? "cancelar" : "confirmar"}`);
+    // Registrar ou editar (aba Check-in / Check-out) usam a mesma permissão.
+    const entradaSaida = ["CHECKIN", "CHECKOUT", "EDITAR_CHECKIN", "EDITAR_CHECKOUT"].includes(action);
+    await internal(`${config.perm}:${entradaSaida ? "checkin_checkout" : action === "CANCELAR" ? "cancelar" : "confirmar"}`);
     body.tratamento_financeiro = body.tratamento_recebidos ?? body.tratamento_financeiro;
-    // Limpeza pedida no check-out: o banco abre na mesma transação (imob_acao_reserva).
-    body.solicitar_limpeza = action === "CHECKOUT" && body.solicitar_limpeza === true;
+    // Limpeza pedida no check-out: o banco abre na mesma transação (imob_acao_reserva). Na edição do
+    // check-out, a limpeza só muda se o diálogo mandar solicitar_limpeza (true ou false).
+    const comLimpeza = action === "CHECKOUT" || (action === "EDITAR_CHECKOUT" && typeof body.solicitar_limpeza === "boolean");
+    if (comLimpeza) body.solicitar_limpeza = body.solicitar_limpeza === true;
+    else delete body.solicitar_limpeza;
     const responsavel = body.solicitar_limpeza ? body.responsavel_limpeza_id : null;
     if (responsavel != null && responsavel !== "" && !z.string().uuid().safeParse(responsavel).success) {
       throw new ImobError(400, "Responsável pela limpeza inválido.");
     }
     body.responsavel_limpeza_id = responsavel || null;
+    const descricao = body.solicitar_limpeza && typeof body.descricao_limpeza === "string" ? body.descricao_limpeza.trim() : "";
+    if (descricao.length > 500) throw new ImobError(400, "A descrição da limpeza deve ter até 500 caracteres.");
+    body.descricao_limpeza = descricao || null;
+    // Observações do check-in/check-out: gravadas na reserva (checkin_observacoes/checkout_observacoes).
+    if (entradaSaida) {
+      const observacoes = typeof body.observacoes === "string" ? body.observacoes.trim() : "";
+      if (observacoes.length > 2000) throw new ImobError(400, "As observações devem ter até 2000 caracteres.");
+      body.observacoes = observacoes || null;
+    }
     return json({ item: await rpc("imob_acao_reserva", { p_id: id, p_acao: action, p_payload: body, p_actor: access.id }) });
   }
   if (id && !segment && method === "GET") {

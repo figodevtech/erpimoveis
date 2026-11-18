@@ -10,7 +10,7 @@ BEGIN FOR k IN 10..11 LOOP s:=0; FOR j IN 1..k-1 LOOP s:=s+substring(v,j,1)::int
 DO $test$
 DECLARE
   actor uuid; c integer; p bigint; i bigint; i2 bigint; r bigint; r2 bigint; r3 bigint; l bigint; j jsonb; recusou boolean;
-  situacao text;
+  situacao text; ontem date;
 BEGIN
   SELECT id INTO actor FROM public.usuario WHERE ativo ORDER BY id LIMIT 1;
   PERFORM pg_temp.exigir(actor IS NOT NULL,'usuário ativo disponível para testar');
@@ -27,8 +27,10 @@ BEGIN
   j:=public.imob_salvar_reserva(jsonb_build_object('imovel_id',i,'cliente_id',c,'inicio',current_date,'fim',current_date+2,
       'hospedes',1,'origem','ERP','ignorar_regras',true,'idempotency_key',gen_random_uuid()),actor);
   r:=(j->>'id')::bigint;
-  PERFORM public.imob_acao_reserva(r,'CHECKIN','{}',actor);
+  PERFORM public.imob_acao_reserva(r,'CHECKIN','{"observacoes":"  Hóspede chegou com 1 pet  "}',actor);
   PERFORM pg_temp.exigir((SELECT situacao_operacional='OCUPADO' FROM public.imovel_resumo WHERE id=i),'check-in deixa o imóvel ocupado');
+  PERFORM pg_temp.exigir((SELECT checkin_por=actor AND checkin_observacoes='Hóspede chegou com 1 pet' FROM public.reserva_imovel WHERE id=r),
+    'check-in grava quem registrou e as observações');
 
   -- Responsável inexistente ou inativo é recusado e o check-out inteiro volta atrás.
   BEGIN
@@ -39,18 +41,52 @@ BEGIN
   PERFORM pg_temp.exigir(recusou AND (SELECT status='EM_ANDAMENTO' FROM public.reserva_imovel WHERE id=r),'responsável que não é usuário ativo é recusado');
 
   -- Check-out com limpeza: o imóvel vai para LIMPEZA, mesmo com a ocupação ativa até o fim previsto.
-  PERFORM public.imob_acao_reserva(r,'CHECKOUT',jsonb_build_object('solicitar_limpeza',true,'responsavel_limpeza_id',actor),actor);
+  PERFORM public.imob_acao_reserva(r,'CHECKOUT',jsonb_build_object('solicitar_limpeza',true,'responsavel_limpeza_id',actor,
+    'descricao_limpeza','  Trocar enxoval completo  ','observacoes','Chave entregue na portaria'),actor);
+  PERFORM pg_temp.exigir((SELECT checkout_por=actor AND checkout_observacoes='Chave entregue na portaria'
+      AND checkin_observacoes='Hóspede chegou com 1 pet' FROM public.reserva_imovel WHERE id=r),
+    'check-out grava quem registrou e as observações, sem apagar as do check-in');
   SELECT id INTO l FROM public.imovel_limpeza WHERE imovel_id=i AND status='PENDENTE';
   PERFORM pg_temp.exigir(l IS NOT NULL AND (SELECT reserva_id=r AND responsavel_id=actor AND solicitada_por=actor FROM public.imovel_limpeza WHERE id=l),
     'check-out abre a limpeza com reserva, responsável e solicitante');
+  PERFORM pg_temp.exigir((SELECT descricao='Trocar enxoval completo' FROM public.imovel_limpeza WHERE id=l),'descrição do check-out é gravada sem espaços nas pontas');
+
+  -- Edição do check-in: momento e observações mudam; quem registrou, não.
+  ontem:=(now() AT TIME ZONE 'America/Fortaleza')::date-1;
+  PERFORM public.imob_acao_reserva(r,'EDITAR_CHECKIN',jsonb_build_object('data_registro',ontem,'hora_registro','10:00','observacoes','Chegou com 2 pets'),actor);
+  PERFORM pg_temp.exigir((SELECT checkin_em=(ontem+time '10:00') AT TIME ZONE 'America/Fortaleza' AND checkin_observacoes='Chegou com 2 pets'
+      AND checkin_por=actor AND status='CONCLUIDA' FROM public.reserva_imovel WHERE id=r),'edição do check-in corrige momento e observações sem mudar a situação');
+  BEGIN
+    PERFORM public.imob_acao_reserva(r,'EDITAR_CHECKIN',jsonb_build_object('data_registro',(now() AT TIME ZONE 'America/Fortaleza')::date+1,'hora_registro','10:00'),actor);
+    recusou:=false;
+  EXCEPTION WHEN others THEN recusou:=true;
+  END;
+  PERFORM pg_temp.exigir(recusou,'check-in editado não pode ficar depois do check-out nem no futuro');
+
+  -- Edição do check-out: desmarcar cancela a limpeza pendente; marcar de novo a reabre.
+  PERFORM public.imob_acao_reserva(r,'EDITAR_CHECKOUT',jsonb_build_object('data_registro',ontem,'hora_registro','18:00',
+    'observacoes','Chave na portaria','solicitar_limpeza',false),actor);
+  PERFORM pg_temp.exigir((SELECT status='CANCELADA' FROM public.imovel_limpeza WHERE id=l)
+      AND (SELECT situacao_operacional<>'LIMPEZA' FROM public.imovel_resumo WHERE id=i)
+      AND (SELECT checkout_em=(ontem+time '18:00') AT TIME ZONE 'America/Fortaleza' AND checkout_observacoes='Chave na portaria' FROM public.reserva_imovel WHERE id=r),
+    'edição do check-out corrige a saída e, desmarcada, cancela a limpeza pendente');
+  PERFORM public.imob_acao_reserva(r,'EDITAR_CHECKOUT',jsonb_build_object('data_registro',ontem,'hora_registro','18:00',
+    'solicitar_limpeza',true,'responsavel_limpeza_id',actor,'descricao_limpeza','Trocar enxoval completo'),actor);
+  PERFORM pg_temp.exigir((SELECT status='PENDENTE' AND responsavel_id=actor AND descricao='Trocar enxoval completo' FROM public.imovel_limpeza WHERE id=l)
+      AND (SELECT count(*)=1 FROM public.imovel_limpeza WHERE reserva_id=r),'marcar de novo reabre a mesma limpeza');
+  PERFORM public.imob_acao_reserva(r,'EDITAR_CHECKOUT',jsonb_build_object('data_registro',ontem,'hora_registro','19:00'),actor);
+  PERFORM pg_temp.exigir((SELECT status='PENDENTE' AND descricao='Trocar enxoval completo' FROM public.imovel_limpeza WHERE id=l),
+    'edição sem os campos da limpeza não mexe nela');
   PERFORM pg_temp.exigir((SELECT situacao_operacional='LIMPEZA' FROM public.imovel_resumo WHERE id=i),'imóvel com limpeza pendente aparece em LIMPEZA');
   PERFORM pg_temp.exigir(EXISTS(SELECT 1 FROM public.auditoria_evento WHERE tabela='imovel_limpeza' AND registro_id=l::text AND usuario_id=actor),
     'abertura da limpeza é auditada com o operador');
 
   -- Novo pedido com limpeza aberta reaproveita a existente.
-  j:=public.imob_solicitar_limpeza(i,NULL,NULL,actor);
+  j:=public.imob_solicitar_limpeza(i,NULL,NULL,actor,'Repor amenities');
   PERFORM pg_temp.exigir((j->>'id')::bigint=l AND (SELECT count(*)=1 FROM public.imovel_limpeza WHERE imovel_id=i AND status='PENDENTE'),
     'segundo pedido reaproveita a limpeza aberta');
+  PERFORM pg_temp.exigir((SELECT descricao='Trocar enxoval completo · Repor amenities' FROM public.imovel_limpeza WHERE id=l),
+    'descrição do segundo pedido se soma à da limpeza aberta');
 
   -- Atribuir: tirar e devolver o responsável.
   PERFORM public.imob_acao_limpeza(l,'ATRIBUIR','{"responsavel_id":null}',actor);

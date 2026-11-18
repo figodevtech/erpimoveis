@@ -59,8 +59,8 @@ const addDays = (date: string, days: number) => {
 };
 const daysBetween = (from: string, to: string) =>
   Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
-const todayCivil = () => new Date().toLocaleDateString("en-CA");
-const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
+export const todayCivil = () => new Date().toLocaleDateString("en-CA");
+export const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 // soft: dia ocupado no calendário (tom claro, legível com a faixa de seleção por cima); dot: marcador e lista.
@@ -74,7 +74,7 @@ const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const kindOf = (row: Entity) => String(row.tipo ?? row.origem ?? "").toUpperCase();
 const isBlock = (row: Entity) => ["BLOQUEIO", "MANUTENCAO"].includes(kindOf(row)) || Boolean(row.bloqueio_id);
 /** Ocupa a noite `day`? (início incluso, fim exclusivo; sem fim segue aberta). */
-const covers = (row: Entity, day: string) => row.inicio <= day && (!row.fim || day < row.fim);
+export const covers = (row: Entity, day: string) => row.inicio <= day && (!row.fim || day < row.fim);
 
 function periodText(row: Entity) {
   if (isBlock(row)) {
@@ -91,13 +91,15 @@ function periodText(row: Entity) {
 const shortDay = (date: string) =>
   new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
 
-function OccupancyCalendar({
+export function OccupancyCalendar({
   month,
   onMonth,
   rows,
   tariffs,
   selection,
   onDayClick,
+  isDayDisabled,
+  allowPast = false,
 }: {
   month: string;
   onMonth: (month: string) => void;
@@ -107,6 +109,10 @@ function OccupancyCalendar({
   selection?: { start: string | null; end: string | null };
   /** Sem ele o calendário só mostra (perfil sem edição). */
   onDayClick?: (day: string) => void;
+  /** Dias que não podem ser escolhidos agora (na reserva: noites ocupadas, saída depois de uma ocupação). */
+  isDayDisabled?: (day: string) => boolean;
+  /** Na reserva dá para registrar uma estadia que já começou; no painel, o passado não se escolhe. */
+  allowPast?: boolean;
 }) {
   const today = todayCivil();
   // Enquanto falta o fim, o intervalo acompanha o mouse para mostrar o que será escolhido.
@@ -190,7 +196,7 @@ function OccupancyCalendar({
           const tariff = tariffs.find((t) => t.ativo !== false && covers(t, day));
           const kind = occupation ? KINDS[kindOf(occupation)] ?? KINDS.BLOQUEIO : null;
           const past = day < today;
-          const pickable = Boolean(onDayClick) && !past;
+          const pickable = Boolean(onDayClick) && (allowPast || !past) && !isDayDisabled?.(day);
           const inRange = Boolean(start && end && day >= start && day <= end);
           const isStart = day === start;
           const isEnd = Boolean(end && day === end);
@@ -235,7 +241,7 @@ function OccupancyCalendar({
                   "relative z-10 mx-auto flex h-10 w-10 flex-col items-center justify-center rounded-full text-[13px] tabular-nums outline-none transition-[background-color,color,box-shadow,transform] duration-200 ease-out",
                   "focus-visible:ring-2 focus-visible:ring-primary/50",
                   kind && !edge ? kind.soft : "text-foreground",
-                  past && "text-muted-foreground/40",
+                  past && !edge && (allowPast ? "text-muted-foreground" : "text-muted-foreground/40"),
                   past && kind && "opacity-50",
                   pickable ? "hover:cursor-pointer" : "cursor-default",
                   pickable && !edge && "hover:bg-primary/10 hover:text-foreground",
@@ -276,7 +282,7 @@ function OccupancyCalendar({
   );
 }
 
-function DateChip({ label, date, placeholder }: { label: string; date: string | null; placeholder?: string }) {
+export function DateChip({ label, date, placeholder }: { label: string; date: string | null; placeholder?: string }) {
   return (
     <div
       className={cn(
