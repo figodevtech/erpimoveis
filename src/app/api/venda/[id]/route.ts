@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { auth } from "@/lib/auth";
 import { PERMS, requirePerm, requireVendasAccess, requireVendasDelete, requireVendasEdit } from "@/app/api/_authz/perms";
-import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
+
 import { calculateFinancialTotal, sanitizeFinancialSurchargeType } from "@/lib/financial-surcharge";
 import { normalizarDadosParaFinanceiro } from "@/lib/financeiro/dados-para-financeiro";
 import type { PlannedPayment } from "@/lib/payment-methods";
@@ -275,8 +275,6 @@ export async function GET(_req: NextRequest, ctx: ParamsCtx) {
     }
 
     const vendaId = parsed.id as number;
-
-
 
     const { data, error } = await supabaseAdmin
       .from("venda")
@@ -1057,12 +1055,7 @@ export async function PATCH(req: NextRequest, ctx: ParamsCtx) {
 
     if (normalizedItems) {
       const productIds = normalizedItems.map((item) => item.produtoId);
-      await syncPendingMercadoLivreStock({
-        productIds,
-        limit: productIds.length || 1,
-      }).catch((syncError) => {
-        console.warn("Venda editada; sincronização imediata do estoque Mercado Livre ficou pendente.", syncError);
-      });
+
     }
 
     return NextResponse.json({
@@ -1113,7 +1106,6 @@ export async function DELETE(_req: NextRequest, ctx: ParamsCtx) {
     if (await isSiteSale(vendaId)) {
       return NextResponse.json({ error: "Vendas do site são protegidas. Use as ações do pedido em Marketplace; exclusão não permitida, mesmo após estorno." }, { status: 409 });
     }
-
 
     const { data: vendaBaseEstorno, error: vendaBaseEstornoError } = await supabaseAdmin
       .from("venda")
@@ -1314,14 +1306,6 @@ export async function DELETE(_req: NextRequest, ctx: ParamsCtx) {
       return NextResponse.json({ error: "Venda não encontrada." }, { status: 404 });
     }
 
-    const marketplaceStockSync = await syncPendingMercadoLivreStock({
-      productIds: produtoIds,
-      limit: produtoIds.length || 1,
-    }).catch((error: any) => {
-      console.warn("Venda excluída; sincronização imediata do estoque Mercado Livre ficou pendente.", error);
-      return [];
-    });
-
     return NextResponse.json({
       message: "Venda excluída com sucesso (transações removidas e estoque estornado).",
       id: vendaDel.id,
@@ -1329,7 +1313,6 @@ export async function DELETE(_req: NextRequest, ctx: ParamsCtx) {
         produtosAfetados: produtoIds.length,
         quantidadePorProduto: Object.fromEntries(qtyPorProduto.entries()),
       },
-      marketplaceStockSync,
     });
   } catch (e: any) {
     console.error("Erro inesperado no DELETE /venda/[id]:", e);

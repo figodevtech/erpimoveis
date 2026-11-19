@@ -12,28 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  FINANCEIRO_NOTIFICATION_EVENT_GROUPS,
-  FINANCEIRO_NOTIFICATION_EVENT_VALUES,
-  FINANCEIRO_ORIGEM_OPTIONS,
-  type FinanceiroNotificationEvent,
-  type FinanceiroOrigem,
-} from "@/lib/financeiro/telegram-financeiro-events";
-import {
-  STOCK_NOTIFICATION_EVENT_GROUPS,
-  STOCK_NOTIFICATION_EVENT_VALUES,
-  type StockNotificationEvent,
-} from "@/lib/estoque/telegram-stock-events";
-import {
-  MERCADOLIVRE_NOTIFICATION_EVENT_GROUPS,
-  MERCADOLIVRE_NOTIFICATION_EVENT_VALUES,
-  type MercadoLivreNotificationEvent,
-} from "@/lib/integrations/mercadolivre-notification-events";
-import {
-  FISCAL_NOTIFICATION_EVENT_GROUPS,
-  FISCAL_NOTIFICATION_EVENT_VALUES,
-  type FiscalNotificationEvent,
-} from "@/lib/fiscal/telegram-fiscal-events";
+import { FINANCEIRO_NOTIFICATION_EVENT_GROUPS, FINANCEIRO_NOTIFICATION_EVENT_VALUES, FINANCEIRO_ORIGEM_OPTIONS, type FinanceiroNotificationEvent, type FinanceiroOrigem } from "@/lib/financeiro/telegram-financeiro-events";
+import { STOCK_NOTIFICATION_EVENT_GROUPS, STOCK_NOTIFICATION_EVENT_VALUES, type StockNotificationEvent } from "@/lib/estoque/telegram-stock-events";
+import { MERCADOLIVRE_NOTIFICATION_EVENT_VALUES, type MercadoLivreNotificationEvent } from "@/lib/integrations/mercadolivre-notification-events";
+import { FISCAL_NOTIFICATION_EVENT_GROUPS, FISCAL_NOTIFICATION_EVENT_VALUES, type FiscalNotificationEvent } from "@/lib/fiscal/telegram-fiscal-events";
 
 export const EVENT_GROUPS = [
   { label: "Entrada", description: "Abertura e triagem inicial", events: [["CRIADA", "OS criada"], ["AGUARDANDO_CHECKLIST", "Aguardando checklist"]] },
@@ -878,71 +860,7 @@ export function TelegramRecipientDialog({ open, onOpenChange, recipient, users, 
                     </div>
                     <p className="text-xs text-muted-foreground">Receber avisos de novos pedidos pagos da loja, importados pelo ERP.</p>
                   </section>
-                  <section aria-labelledby="telegram-mercadolivre-heading" className="space-y-3 rounded-lg border bg-card p-4">
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between gap-3">
-                        <Label id="telegram-mercadolivre-heading" htmlFor="dialog-marketplace-notifications" className="text-sm font-semibold">Mercado Livre</Label>
-                        <Switch id="dialog-marketplace-notifications" checked={form.notifyMarketplace} disabled={!marketplaceAllowed} onCheckedChange={notifyMarketplace => setForm(current => ({...current, notifyMarketplace}))} />
-                      </div>
-                      <p className="text-xs text-muted-foreground">Escolha quais atualizações do Mercado Livre deseja receber. Estes filtros não afetam os pedidos do site.</p>
-                    </div>
-                  <div className="flex items-center justify-end gap-1">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={!marketplaceAllowed || !form.notifyMarketplace}
-                      onClick={() => setMarketplaceEvents(MERCADOLIVRE_NOTIFICATION_EVENT_VALUES)}
-                    >
-                      Selecionar todas
-                    </Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => setMarketplaceEvents([])}>Limpar</Button>
-                  </div>
-                  <Separator />
-                  <div className="space-y-2">
-                    {MERCADOLIVRE_NOTIFICATION_EVENT_GROUPS.map((group) => {
-                      const selectedCount = group.events.filter(([id]) => form.selectedMarketplaceEvents.includes(id)).length;
-                      const checked = selectedCount === group.events.length ? true : selectedCount > 0 ? "indeterminate" : false;
-                      const groupDisabled = !marketplaceAllowed || !form.notifyMarketplace;
-                      return (
-                        <div key={group.id} className="rounded-md border bg-card">
-                          <div className="flex items-center gap-3 border-b bg-muted/40 px-3 py-2">
-                            <Checkbox
-                              checked={checked}
-                              disabled={groupDisabled}
-                              onCheckedChange={() => toggleMarketplaceGroup(group.events)}
-                              aria-label={`Selecionar eventos de ${group.label}`}
-                            />
-                            <button
-                              type="button"
-                              className="flex flex-1 items-center justify-between gap-3 text-left disabled:cursor-not-allowed disabled:opacity-50"
-                              disabled={groupDisabled}
-                              onClick={() => toggleMarketplaceGroup(group.events)}
-                            >
-                              <span>
-                                <span className="block text-sm font-medium">{group.label}</span>
-                                <span className="block text-xs text-muted-foreground">{group.description}</span>
-                              </span>
-                              <span className="text-xs text-muted-foreground">{selectedCount}/{group.events.length}</span>
-                            </button>
-                          </div>
-                          <div className="grid gap-1 p-2 sm:grid-cols-2">
-                            {group.events.map(([id, label]) => (
-                              <label key={id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-muted/50">
-                                <Checkbox
-                                  checked={form.selectedMarketplaceEvents.includes(id)}
-                                  disabled={groupDisabled}
-                                  onCheckedChange={(value) => toggleMarketplaceEvent(id, value === true)}
-                                />
-                                {label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  </section>
+
                   <p className="text-xs text-muted-foreground">O usuário recebe somente eventos que também aparecem na Central de Notificações e para os quais possui acesso ao módulo de vendas. Alterações feitas dentro do ERP não geram aviso.</p>
                 </TabsContent>
               </Tabs>

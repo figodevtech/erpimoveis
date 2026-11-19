@@ -1,4 +1,5 @@
 import "server-only";
+import { occupancyCalendar } from "./ical";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { db, identifier, ImobError, json, bodyOf, pagination, rpc, verifiedIdentity, external, filterText } from "./server";
@@ -166,6 +167,31 @@ export async function publicApi(request: Request, path: string[]) {
     return json({ items });
   }
   if (["flats", "imoveis"].includes(path[0]) && method === "GET") {
+    if (path.length === 3 && path[1] && path[2] === "calendario.ics") {
+      publicRate(request, "ical", 60);
+      const property = await publishedProperty(/^\d+$/.test(path[1]) ? identifier(path[1]) : path[1]);
+      const destination = url.searchParams.has("canal") ? z.enum(["AIRBNB", "BOOKING"]).parse(url.searchParams.get("canal")) : null;
+      const source = destination ? await db.from("imovel_canal_calendario").select("id").eq("imovel_id", property.id).eq("canal", destination).maybeSingle() : null;
+      if (source?.error) throw source.error;
+      const today = hojeImobiliario(), until = civilPlus(today, 730);
+      const rows: { id: number; inicio: string; fim: string | null }[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        let query = db.from("imovel_ocupacao").select("id,inicio,fim")
+          .eq("imovel_id", property.id).eq("ativo", true).lt("inicio", until)
+          .or(`fim.is.null,fim.gt.${today}`).order("id").range(offset, offset + 999);
+        // Não devolve ao canal os eventos que vieram dele. O link sem destino exporta só eventos locais.
+        if (!destination) query = query.is("canal_calendario_id", null);
+        else if (source?.data) query = query.or(`canal_calendario_id.is.null,canal_calendario_id.neq.${source.data.id}`);
+        const result = await query;
+        if (result.error) throw result.error;
+        rows.push(...result.data);
+        if (result.data.length < 1000) break;
+      }
+      return new Response(occupancyCalendar(property.id, rows, until), {
+        headers: { "Content-Type": "text/calendar; charset=utf-8", "Cache-Control": "no-store",
+          "Content-Disposition": 'inline; filename="disponibilidade.ics"', "X-Content-Type-Options": "nosniff" },
+      });
+    }
     if (path[1] && path[2] === "quote") {
       publicRate(request, "quote", 60);
       const property = await publishedProperty(identifier(path[1]));

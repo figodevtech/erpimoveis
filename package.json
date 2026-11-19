@@ -46,6 +46,8 @@
     "db:status": "tsx scripts/db/status.ts",
     "db:admin:inicial": "tsx scripts/db/configurar-administrador-inicial.ts",
     "db:test:base-imoveis": "tsx scripts/db/test-base-imoveis.ts",
+    "db:test:calendarios-imoveis": "tsx scripts/db/test-calendarios-imoveis.ts",
+    "test:calendarios-imoveis": "tsx --test src/lib/imobiliario/ical.test.ts src/lib/imobiliario/ical-import.test.ts src/lib/imobiliario/calendar-sync.test.ts src/lib/imobiliario/channel-config.test.ts",
     "db:test:edicao-eventos-reserva": "tsx scripts/db/test-edicao-eventos-reserva.ts",
     "db:test:exclusao-eventos-reserva": "tsx scripts/db/test-edicao-eventos-reserva.ts --exclusao",
     "db:test:valor-reserva": "tsx scripts/db/test-edicao-eventos-reserva.ts --valor-reserva",
@@ -99,7 +101,6 @@
     "test:radios": "tsx --test src/lib/radio/*.test.ts",
     "test:chat": "tsx --test src/lib/chat/*.test.ts src/components/chat/*.test.ts src/components/chat/*.test.tsx",
     "test:central-operacional": "tsx --test src/lib/central-operacional/*.test.ts \"src/app/(app)/(full)/central-operacional/components/*.test.ts\"",
-    "test:mercadolivre": "tsx --test src/lib/integrations/mercadolivre-*.test.ts",
     "test:realtime": "tsx --test src/hooks/use-realtime-tabelas.test.ts"
   },
   "overrides": {

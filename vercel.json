@@ -1,6 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "crons": [
+    { "path": "/api/integracoes/imoveis/calendarios/processar", "schedule": "*/15 * * * *" }
+  ],
   "build": {
     "env": {
       "NODE_OPTIONS": "--max-old-space-size=4096"

@@ -5,7 +5,6 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireVendasEdit } from "@/app/api/_authz/perms";
-import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -83,9 +82,8 @@ export async function POST(req: Request, context: Context) {
 
     const { data: baixas } = await supabaseAdmin.from("vendaproduto_baixa").select("produtoid").eq("venda_id", vendaId);
     const productIds = Array.from(new Set((baixas ?? []).map((item) => Number(item.produtoid)).filter(Number.isFinite)));
-    const marketplaceStockSync = await syncPendingMercadoLivreStock({ productIds, limit: productIds.length || 1 }).catch(() => []);
 
-    return NextResponse.json({ message: "Venda cancelada com sucesso.", data, marketplaceStockSync });
+    return NextResponse.json({ message: "Venda cancelada com sucesso.", data,  });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Erro ao cancelar venda." }, { status: statusDoErro(error) });
   }

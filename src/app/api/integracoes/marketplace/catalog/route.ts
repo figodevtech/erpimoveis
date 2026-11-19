@@ -18,31 +18,26 @@ export async function GET(request: NextRequest) {
     const shopeeEnabled = process.env.NEXT_PUBLIC_SHOPEE_INTEGRATION_ENABLED === "true";
 
     const [
-      { data: mlLinks, error: mlError },
       { data: siteLinks, error: siteError },
       { data: shopeeLinks, error: shopeeError },
     ] = await Promise.all([
-      supabaseAdmin.from("mercadolivre_product_link").select("id, produto_id, ml_item_id, title, status, permalink, updated_at").eq("empresa_id", empresaId),
       supabaseAdmin.from("site_product_link").select("id, produto_id, status, sync_status, slug, updated_at").eq("empresa_id", empresaId),
       shopeeEnabled
         ? supabaseAdmin.from("shopee_product_link").select("id, produto_id, item_id, model_id, item_sku, title, status, updated_at").eq("empresa_id", empresaId)
         : Promise.resolve({ data: [], error: null }),
     ]);
-    if (mlError) throw mlError;
     if (siteError) throw siteError;
     if (shopeeError) throw shopeeError;
 
-    const mlByProduct = new Map((mlLinks ?? []).map((link: any) => [Number(link.produto_id), link]));
     const siteByProduct = new Map((siteLinks ?? []).map((link: any) => [Number(link.produto_id), link]));
     const shopeeByProduct = new Map((shopeeLinks ?? []).map((link: any) => [Number(link.produto_id), link]));
-    const mlIds = new Set(mlByProduct.keys());
     const siteIds = new Set(siteByProduct.keys());
     const shopeeIds = new Set(shopeeByProduct.keys());
-    const activeChannelIds = [siteIds, mlIds, ...(shopeeEnabled ? [shopeeIds] : [])];
-    const filterIds = marketplaceFilterIds(channelStatus, siteIds, mlIds, shopeeIds, activeChannelIds);
+    const activeChannelIds = [siteIds, ...(shopeeEnabled ? [shopeeIds] : [])];
+    const filterIds = marketplaceFilterIds(channelStatus, siteIds, shopeeIds, activeChannelIds);
 
     if (filterIds && !filterIds.length) {
-      return NextResponse.json({ data: [], pagination: { page: 1, limit, total: 0, totalPages: 1 }, summary: marketplaceSummary(siteIds, mlIds, shopeeIds, activeChannelIds) });
+      return NextResponse.json({ data: [], pagination: { page: 1, limit, total: 0, totalPages: 1 }, summary: marketplaceSummary(siteIds, shopeeIds, activeChannelIds) });
     }
 
     let query = supabaseAdmin
@@ -86,11 +81,10 @@ export async function GET(request: NextRequest) {
         ...product,
         imageUrl: product.imgUrl || firstImageByProduct.get(Number(product.id)) || null,
         site: siteByProduct.get(Number(product.id)) ?? null,
-        mercadolivre: mlByProduct.get(Number(product.id)) ?? null,
         shopee: shopeeEnabled ? shopeeByProduct.get(Number(product.id)) ?? null : null,
       })),
       pagination: { page, limit, total: count ?? 0, totalPages: Math.max(1, Math.ceil((count ?? 0) / limit)) },
-      summary: marketplaceSummary(siteIds, mlIds, shopeeIds, activeChannelIds),
+      summary: marketplaceSummary(siteIds, shopeeIds, activeChannelIds),
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || "Falha ao carregar catálogo multicanal." }, { status: errorStatus(error) });
@@ -100,12 +94,10 @@ export async function GET(request: NextRequest) {
 function marketplaceFilterIds(
   status: string,
   siteIds: Set<number>,
-  mlIds: Set<number>,
   shopeeIds: Set<number>,
   activeChannelIds: Set<number>[],
 ) {
   if (status === "site") return Array.from(siteIds);
-  if (status === "mercadolivre") return Array.from(mlIds);
   if (status === "shopee") return Array.from(shopeeIds);
   if (status === "both" || status === "all_channels") {
     const [first, ...remaining] = activeChannelIds;
@@ -124,12 +116,11 @@ function marketplaceFilterIds(
 
 function marketplaceSummary(
   siteIds: Set<number>,
-  mlIds: Set<number>,
   shopeeIds: Set<number>,
   activeChannelIds: Set<number>[],
 ) {
   const [first, ...remaining] = activeChannelIds;
   const allChannels = first ? Array.from(first).filter((id) => remaining.every((ids) => ids.has(id))).length : 0;
   const linked = new Set(activeChannelIds.flatMap((ids) => Array.from(ids))).size;
-  return { site: siteIds.size, mercadolivre: mlIds.size, shopee: shopeeIds.size, allChannels, both: allChannels, linked };
+  return { site: siteIds.size, shopee: shopeeIds.size, allChannels, both: allChannels, linked };
 }

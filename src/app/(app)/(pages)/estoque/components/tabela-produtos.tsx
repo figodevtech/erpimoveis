@@ -1,62 +1,12 @@
 "use client";
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  AlertTriangle,
-  Clock,
-  ChevronDown,
-  Trash2Icon,
-  ChevronsRight,
-  ChevronRightIcon,
-  ChevronLeftIcon,
-  ChevronsLeft,
-  Loader2,
-  Edit,
-  Loader,
-  CircleOff,
-  Store,
-  Plus,
-  FileText,
-  MoreHorizontal,
-  PackagePlus,
-  PackageMinus,
-  BadgeCheck,
-  ShieldCheck,
-  ShieldX,
-  MapPin,
-  Tag,
-  Handshake,
-  Camera,
-} from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AlertTriangle, Clock, ChevronDown, Trash2Icon, ChevronsRight, ChevronRightIcon, ChevronLeftIcon, ChevronsLeft, Loader2, Edit, Loader, CircleOff, Store, Plus, FileText, MoreHorizontal, PackagePlus, PackageMinus, BadgeCheck, ShieldCheck, ShieldX, MapPin, Tag, Camera } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 import { Estoque_status, Pagination, Produto, ProductListFilters } from "../types";
 import dynamic from "next/dynamic";
@@ -67,11 +17,7 @@ import { toast } from "@/lib/toast";
 import { useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { BotaoExportarProdutos } from "./botao-exportar-produtos";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 import { ProdutoFiltrosSheet } from "./produto-filtros-sheet";
@@ -513,18 +459,7 @@ export default function TabelaProdutos({
                               </TooltipContent>
                             </Tooltip>
                           )}
-                          {(p.temAnuncioMercadoLivre || p.mercadolivre) && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Handshake className="w-4 h-4 text-amber-500 shrink-0 hover:text-amber-600 transition-colors" />
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {p.mercadolivre?.ml_item_id
-                                  ? `Anunciado no Mercado Livre (${p.mercadolivre.ml_item_id})`
-                                  : "Anunciado no Mercado Livre"}
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
+
                         </div>
                         <div className="text-xs text-muted-foreground flex flex-row gap-1 max-w-[350px] truncate">
                           {p.etiqueta && (

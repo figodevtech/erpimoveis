@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { requireVendasEdit } from "@/app/api/_authz/perms";
-import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -46,15 +45,9 @@ export async function POST(_req: Request, context: Context) {
     });
     if (error) throw error;
 
-    const marketplaceStockSync = await syncPendingMercadoLivreStock({
-      productIds,
-      limit: productIds.length || 1,
-    }).catch(() => []);
-
     return NextResponse.json({
       message: "Venda mantida como orçamento.",
       data,
-      marketplaceStockSync,
     });
   } catch (error: any) {
     return NextResponse.json(

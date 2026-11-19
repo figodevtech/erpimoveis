@@ -962,7 +962,7 @@ export function AvailabilityPanel({
                       <p className="text-xs text-muted-foreground">{periodText(row)}</p>
                       {row.motivo ? <p className="text-xs text-muted-foreground line-clamp-2">{row.motivo}</p> : null}
                     </div>
-                    {editable && isBlock(row) ? (
+                    {editable && isBlock(row) && !row.canal_calendario_id ? (
                       <Button
                         size="sm"
                         variant="outline"

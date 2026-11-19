@@ -1,1663 +1,219 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
-import { useEffect, useState, useCallback } from "react";
-import { useForm } from "react-hook-form";
-import { prepararConfigParaSalvar } from "@/lib/config/faturamento-patch";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { ArrowUpRight, Building2, CalendarDays, FileText, Loader2, Palette, RefreshCw, Save, Settings, ShieldCheck, Tags, ShoppingCart, Package } from "lucide-react";
 import { toast } from "@/lib/toast";
-import {
-  Settings,
-  Receipt,
-  ShoppingCart,
-  Loader2,
-  Save,
-  FileText,
-  Package,
-    Palette,
-  Building2,
-  Store,
-  ShoppingBag,
-  KeyRound,
-  Unplug,
-  Trash2,
-  Plus,
-  ExternalLink,
-  MapPin,
-  RefreshCcw,
-} from "lucide-react";
-
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
-import {
-  MERCADOLIVRE_NOTIFICATION_EVENT_GROUPS,
-  type MercadoLivreNotificationEvent,
-} from "@/lib/integrations/mercadolivre-notification-events";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import type { Config } from "../../type";
-import { STATUS_OS_EMISSAO_PADRAO } from "@/lib/nfe/elegibilidadeEmissao";
-import { StorefrontShippingConnection } from "./components/storefront-shipping-connection";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
-const SHOPEE_INTEGRATION_ENABLED =
-  process.env.NEXT_PUBLIC_SHOPEE_INTEGRATION_ENABLED === "true";
-
-type EmpresaResumo = {
-  id: number;
-  nome: string;
-  cnpj: string;
+type GeneralSettings = {
+  impressao_cor_primaria: string;
+  impressao_cor_secundaria: string;
+  impressao_cor_texto: string;
+  habilitar_edicao_transacoes: boolean;
+  alerta_estoque_pdv: boolean;
 };
-
-type MercadoLivreAccount = {
-  id: number;
-  userId: number;
-  nickname: string | null;
-  siteId: string;
-  needsReconnect: boolean;
-  updatedAt: string | null;
-  defaultListingTypeId: "free" | "gold_special" | "gold_pro";
-  quantityPricingDefaultEnabled: boolean;
-  quantityPricingDefaultTiers: Array<{ quantity: number; percentage: number }>;
-  notificationEvents: MercadoLivreNotificationEvent[];
-  shipping?: {
-    modes: string[];
-    option: string | null;
-    mercadoEnviosEnabled: boolean;
-    error: string | null;
-  } | null;
-  shippingAddress?: {
-    id: string;
-    addressLine: string | null;
-    zipCode: string | null;
-    city: string | null;
-    cityId: string | null;
-    state: string | null;
-    stateId: string | null;
-    neighborhood: string | null;
-    municipality: string | null;
-    country: string | null;
-    types: string[];
-    normalized: boolean | null;
-    status: string | null;
-    source: "account_address" | "seller_profile" | "listing";
-    partial: boolean;
-  } | null;
-  shippingAddressError?: string | null;
-  shippingAddressNotice?: string | null;
-  sellerProfile?: {
-    userType: string | null;
-    accountStatus: string | null;
-    sellingAllowed: boolean | null;
-    reputationLevelId: string | null;
-    reputationLabel: string;
-    powerSellerStatus: string | null;
-    powerSellerLabel: string | null;
-    completedSales: number | null;
-    totalSales: number | null;
-    businessEnabled: boolean;
-    error: string | null;
-  } | null;
+type Company = { nome: string; cnpj: string };
+const DEFAULT_SETTINGS: GeneralSettings = {
+  impressao_cor_primaria: "#2563eb",
+  impressao_cor_secundaria: "#0891b2",
+  impressao_cor_texto: "#ffffff",
+  habilitar_edicao_transacoes: false,
+  alerta_estoque_pdv: false,
 };
+const COLOR_FIELDS = [
+  { key: "impressao_cor_primaria", label: "Cor primária" },
+  { key: "impressao_cor_secundaria", label: "Cor secundária" },
+  { key: "impressao_cor_texto", label: "Cor do texto" },
+] as const;
+const SHORTCUTS = [
+  { href: "/configuracoes/tipos", title: "Cadastros imobiliários", description: "Tipos de imóveis, comodidades e categorias da operação.", icon: Tags },
+  { href: "/configuracoes/documentos", title: "Modelos de documentos", description: "Prepare os documentos utilizados na gestão dos imóveis.", icon: FileText },
+  { href: "/imoveis", title: "Calendários e canais", description: "Abra um imóvel para configurar seus canais e a disponibilidade.", icon: CalendarDays },
+  { href: "/configuracoes/perfis", title: "Perfis e permissões", description: "Defina o acesso da equipe aos módulos do ERP.", icon: ShieldCheck },
+];
 
-type ShopeeAccount = {
-  id: number;
-  shopId: number;
-  shopName: string | null;
-  region: string;
-  needsReconnect: boolean;
-  updatedAt: string | null;
-};
-
-type ShopeeIntegration = {
-  configured: boolean;
-  missing: string[];
-  account: ShopeeAccount | null;
-};
-
-type ConfigGarantiaFiscal = {
-  incluirGarantiaVendaNFe: boolean;
-  incluirGarantiaVendaNFCe: boolean;
-  incluirGarantiaOsNFe: boolean;
-  incluirGarantiaOsNFCe: boolean;
-  incluirGarantiaOsNFSe: boolean;
-  nfceConfigurada: boolean;
-};
-
-const GARANTIA_FISCAL_DEFAULTS: ConfigGarantiaFiscal = {
-  incluirGarantiaVendaNFe: false,
-  incluirGarantiaVendaNFCe: false,
-  incluirGarantiaOsNFe: false,
-  incluirGarantiaOsNFCe: false,
-  incluirGarantiaOsNFSe: false,
-  nfceConfigurada: false,
-};
-
-function MarketplaceConnectionCard({
-  icon,
-  iconClass,
-  name,
-  connected,
-  title,
-  description,
-  details,
-  badges,
-  connectHref,
-  connectLabel,
-  connectDisabled,
-  onDisconnect,
-  disconnecting,
-  disconnectTitle,
-  disconnectDescription,
-  settingsHref,
-}: {
-  icon: React.ReactNode;
-  iconClass: string;
-  name: string;
-  connected: boolean;
-  title: string;
-  description: string;
-  details?: string | null;
-  badges?: string[];
-  connectHref: string;
-  connectLabel: string;
-  connectDisabled?: boolean;
-  onDisconnect?: () => void;
-  disconnecting?: boolean;
-  disconnectTitle: string;
-  disconnectDescription: string;
-  settingsHref?: string;
-}) {
-  return (
-    <section className="flex min-h-36 min-w-0 flex-col justify-between gap-3 border-b p-4 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
-      <div className="flex items-start gap-3">
-        <span
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconClass}`}
-        >
-          {icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {name}
-            </p>
-            <span
-              className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-medium ${connected ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-muted-foreground/50"}`}
-              />
-              {connected ? "Conectada" : "Desconectada"}
-            </span>
-          </div>
-          <p className="mt-1 truncate text-base font-semibold">{title}</p>
-          <p className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
-            {description}
-          </p>
-          {badges?.length ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {badges.map((badge) => (
-                <span
-                  key={badge}
-                  className="rounded-full border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-foreground/75"
-                >
-                  {badge}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          {details ? (
-            <p className="mt-2 flex min-w-0 items-start gap-1.5 break-words text-xs text-foreground/70">
-              <KeyRound className="h-3 w-3 shrink-0" />
-              {details}
-            </p>
-          ) : null}
-        </div>
-      </div>
-      <div className="flex min-w-0 flex-wrap gap-2">
-        {connectDisabled ? (
-          <Button size="sm" disabled>
-            {connectLabel}
-          </Button>
-        ) : (
-          <Button asChild size="sm" variant={connected ? "outline" : "default"}>
-            <a href={connectHref}>{connectLabel}</a>
-          </Button>
-        )}
-        {settingsHref && connected ? (
-          <Button asChild size="sm" variant="outline">
-            <a href={settingsHref}>Configurar operação</a>
-          </Button>
-        ) : null}
-        {onDisconnect ? (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-              >
-                <Unplug className="h-4 w-4" />
-                Desconectar
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{disconnectTitle}</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {disconnectDescription}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={onDisconnect}
-                  disabled={disconnecting}
-                >
-                  {disconnecting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  Desconectar
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        ) : null}
-      </div>
-    </section>
-  );
+function validColor(value: string) {
+  return /^#[0-9a-fA-F]{6}$/.test(value);
 }
 
-function MercadoLivreOperationSettingsCard({
-  account,
-  savingListingType,
-  refreshingAccount,
-  onListingTypeChange,
-  onQuantityDefaultsSave,
-  onNotificationEventsChange,
-  onRefreshAccount,
-}: {
-  account: MercadoLivreAccount | null;
-  savingListingType: boolean;
-  refreshingAccount: boolean;
-  onListingTypeChange: (value: "free" | "gold_special" | "gold_pro") => void;
-  onQuantityDefaultsSave: (
-    enabled: boolean,
-    tiers: Array<{ quantity: number; percentage: number }>,
-  ) => Promise<boolean>;
-  onNotificationEventsChange: (events: MercadoLivreNotificationEvent[]) => void;
-  onRefreshAccount: () => Promise<void>;
-}) {
-  const connected = Boolean(account && !account.needsReconnect);
-  const businessEnabled = Boolean(account?.sellerProfile?.businessEnabled);
-  const flexEnabled = Boolean(
-    account?.shipping?.modes.includes("self_service"),
-  );
-  const [quantityDefaultsDialogOpen, setQuantityDefaultsDialogOpen] =
-    useState(false);
-  const [quantityDefaultsEnabled, setQuantityDefaultsEnabled] = useState(
-    Boolean(account?.quantityPricingDefaultEnabled),
-  );
-  const [quantityDefaultTiers, setQuantityDefaultTiers] = useState<
-    Array<{ quantity: string; percentage: string }>
-  >(() =>
-    (account?.quantityPricingDefaultTiers?.length
-      ? account.quantityPricingDefaultTiers
-      : [
-          { quantity: 2, percentage: 5 },
-          { quantity: 5, percentage: 10 },
-          { quantity: 10, percentage: 15 },
-        ]
-    ).map((tier) => ({
-      quantity: String(tier.quantity),
-      percentage: String(tier.percentage).replace(".", ","),
-    })),
-  );
-
-  const quantityDefaultsSummary =
-    quantityDefaultsEnabled && quantityDefaultTiers.length
-      ? quantityDefaultTiers
-          .filter((tier) => tier.quantity && tier.percentage)
-          .map((tier) => `${tier.quantity} un. · ${tier.percentage}%`)
-          .join("  |  ")
-      : "Sem preenchimento automático";
-  const shippingAddress = account?.shippingAddress ?? null;
-  const shippingLocation = [shippingAddress?.city, shippingAddress?.state]
-    .filter(Boolean)
-    .join(" / ");
-  const shippingAddressType = shippingAddress?.partial
-    ? "Localização aproximada"
-    : shippingAddress?.types.includes("shipping")
-    ? "Endereço de envio"
-    : shippingAddress?.types.includes("default_selling_address")
-      ? "Endereço padrão de venda"
-      : "Endereço da conta";
-
-  return (
-    <>
-      <Card
-        id="marketplace-settings"
-        className="min-w-0 scroll-mt-4 overflow-hidden border-primary/10 p-0 shadow-sm"
-      >
-        <CardHeader className="bg-primary/5 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <Store className="h-5 w-5 text-primary" />
-                <CardTitle>Operação do Mercado Livre</CardTitle>
-              </div>
-              <CardDescription className="mt-1">
-                Preferências de publicação, preços por quantidade e logística da
-                conta.
-              </CardDescription>
-            </div>
-            <span
-              className={`max-w-full break-all rounded-full border px-2.5 py-1 text-xs font-medium ${connected ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}`}
-            >
-              {connected
-                ? account?.nickname || `Usuário ${account?.userId}`
-                : account?.needsReconnect
-                  ? "Reconexão necessária"
-                  : "Conta não conectada"}
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent className="py-5">
-          {!connected ? (
-            <div className="flex flex-col items-start justify-between gap-3 rounded-lg border border-dashed p-4 sm:flex-row sm:items-center">
-              <div>
-                <p className="text-sm font-medium">
-                  Conecte ou reconecte a conta vendedora
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  A seção permanece visível, mas as preferências só podem ser
-                  salvas após carregar a conta Mercado Livre.
-                </p>
-              </div>
-              <Button asChild size="sm">
-                <a href="/api/integracoes/mercadolivre/auth">
-                  {account ? "Reconectar" : "Conectar conta"}
-                </a>
-              </Button>
-            </div>
-          ) : (
-            <div className="grid min-w-0 gap-4 lg:grid-cols-3">
-              <section className="space-y-3 rounded-lg border bg-muted/20 p-4">
-                <div>
-                  <p className="text-sm font-medium">Publicação padrão</p>
-                  <p className="text-xs text-muted-foreground">
-                    Tipo sugerido ao criar um novo anúncio.
-                  </p>
-                </div>
-                <Select
-                  value={account?.defaultListingTypeId || "gold_special"}
-                  onValueChange={(value) =>
-                    onListingTypeChange(
-                      value as "free" | "gold_special" | "gold_pro",
-                    )
-                  }
-                  disabled={savingListingType}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="gold_special">Clássico</SelectItem>
-                    <SelectItem value="gold_pro">Premium</SelectItem>
-                    <SelectItem value="free">
-                      Grátis, quando disponível
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {savingListingType
-                    ? "Salvando preferência..."
-                    : "A disponibilidade e a comissão são confirmadas antes de publicar."}
-                </p>
-              </section>
-
-              <section className="flex flex-col justify-between gap-3 rounded-lg border bg-muted/20 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">Preço por quantidade</p>
-                    <p className="text-xs text-muted-foreground">
-                      Descontos progressivos B2B.
-                    </p>
-                  </div>
-                  <Badge
-                    variant={quantityDefaultsEnabled ? "secondary" : "outline"}
-                  >
-                    {quantityDefaultsEnabled
-                      ? "Modelo ativo"
-                      : businessEnabled
-                        ? "Manual"
-                        : "Indisponível"}
-                  </Badge>
-                </div>
-                <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                  {businessEnabled
-                    ? quantityDefaultsSummary
-                    : "A conta ainda não possui a elegibilidade business liberada pelo Mercado Livre."}
-                </p>
-                {businessEnabled ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-fit"
-                    onClick={() => setQuantityDefaultsDialogOpen(true)}
-                  >
-                    Editar modelo
-                  </Button>
-                ) : null}
-              </section>
-
-              <section className="min-w-0 space-y-3 rounded-lg border bg-muted/20 p-4 lg:col-span-3">
-                <div>
-                  <p className="text-sm font-medium">Avisos do Mercado Livre</p>
-                  <p className="text-xs text-muted-foreground">
-                    O que interrompe a equipe na Central de Notificações.
-                    Alterações feitas dentro do ERP nunca geram aviso.
-                  </p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {MERCADOLIVRE_NOTIFICATION_EVENT_GROUPS.map((group) => {
-                    const events = account?.notificationEvents ?? [];
-                    return (
-                      <div key={group.id} className="rounded-md border bg-background p-3">
-                        <p className="text-xs font-medium">{group.label}</p>
-                        <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
-                          {group.description}
-                        </p>
-                        <div className="space-y-1.5">
-                          {group.events.map(([id, label]) => (
-                            <label
-                              key={id}
-                              className="flex cursor-pointer items-start justify-between gap-2 text-xs"
-                            >
-                              <span className="leading-relaxed">{label}</span>
-                              <Switch
-                                checked={events.includes(id)}
-                                disabled={!connected || savingListingType}
-                                onCheckedChange={(checked) =>
-                                  onNotificationEventsChange(
-                                    checked
-                                      ? Array.from(new Set([...events, id]))
-                                      : events.filter((event) => event !== id),
-                                  )
-                                }
-                              />
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-
-              <section className="space-y-3 rounded-lg border bg-muted/20 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium">Envio no mesmo dia</p>
-                    <p className="text-xs text-muted-foreground">
-                      Mercado Envios Flex.
-                    </p>
-                  </div>
-                  <Badge variant={flexEnabled ? "secondary" : "outline"}>
-                    {flexEnabled ? "Flex habilitado" : "Flex indisponível"}
-                  </Badge>
-                </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {flexEnabled
-                    ? "A entrega depende das zonas, dias, capacidade e horário limite da conta."
-                    : "Primeiro o vendedor precisa aderir e ser habilitado para o Envios Flex."}
-                </p>
-                {!flexEnabled ? (
-                  <Button asChild variant="outline" size="sm">
-                    <a
-                      href="https://www.mercadolivre.com.br/envios-flex"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Ver ativação do Flex
-                    </a>
-                  </Button>
-                ) : null}
-              </section>
-
-              <section className="min-w-0 rounded-lg border bg-muted/20 p-4 lg:col-span-3">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10">
-                      <MapPin className="h-4 w-4 text-primary" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium">Origem dos envios</p>
-                        {shippingAddress ? <Badge variant="outline">{shippingAddressType}</Badge> : null}
-                        {shippingAddress?.normalized === false ? <Badge variant="destructive">Endereço não normalizado</Badge> : null}
-                      </div>
-                      {shippingAddress ? (
-                        <div className="mt-2 space-y-1 text-sm">
-                          {shippingAddress.addressLine ? <p className="break-words">{shippingAddress.addressLine}</p> : null}
-                          <p className="break-words text-muted-foreground">
-                            {[shippingAddress.neighborhood, shippingLocation].filter(Boolean).join(" · ") || "Localização não informada"}
-                            {shippingAddress.zipCode ? ` · CEP ${shippingAddress.zipCode}` : ""}
-                          </p>
-                          <p className="pt-1 text-xs leading-relaxed text-muted-foreground">
-                            {account?.shippingAddressNotice || "Este é o endereço retornado pela conta vendedora e usado como referência nas simulações do ERP. Em Full, Flex, coleta ou estoque multi-origem, o Mercado Livre pode definir outro depósito ou nó logístico para o envio real."}
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="mt-2 text-sm text-muted-foreground">
-                          <p>{account?.shippingAddressError || "O Mercado Livre não retornou um endereço de envio ativo para esta conta."}</p>
-                          <p className="mt-1 text-xs">Você pode conferir ou alterar a origem diretamente nas preferências de envio da conta vendedora.</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-                    <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshAccount()} disabled={refreshingAccount}>
-                      <RefreshCcw className={`h-4 w-4 ${refreshingAccount ? "animate-spin" : ""}`} />
-                      Atualizar dados
-                    </Button>
-                    <Button asChild type="button" variant="outline" size="sm">
-                      <a href="https://www.mercadolivre.com.br/" target="_blank" rel="noreferrer">
-                        <ExternalLink className="h-4 w-4" />
-                        Editar no Mercado Livre
-                      </a>
-                    </Button>
-                  </div>
-                </div>
-              </section>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      <Dialog
-        open={quantityDefaultsDialogOpen}
-        onOpenChange={setQuantityDefaultsDialogOpen}
-      >
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Modelo de preço por quantidade</DialogTitle>
-            <DialogDescription>
-              Estas faixas apenas preenchem novos anúncios. O desconto só será
-              enviado ao Mercado Livre após a confirmação no anúncio.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-3">
-              <div>
-                <Label htmlFor="quantity-default-enabled">
-                  Usar modelo padrão
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Preencher automaticamente as faixas ao configurar um anúncio.
-                </p>
-              </div>
-              <Switch
-                id="quantity-default-enabled"
-                checked={quantityDefaultsEnabled}
-                onCheckedChange={setQuantityDefaultsEnabled}
-                disabled={savingListingType}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="hidden grid-cols-[1fr_1fr_auto] gap-2 text-xs font-medium text-muted-foreground sm:grid">
-                <span>Quantidade mínima</span>
-                <span>Desconto</span>
-                <span className="w-9" />
-              </div>
-              {quantityDefaultTiers.map((tier, index) => (
-                <div
-                  key={index}
-                  className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
-                >
-                  <Input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={tier.quantity}
-                    onChange={(event) =>
-                      setQuantityDefaultTiers((current) =>
-                        current.map((entry, entryIndex) =>
-                          entryIndex === index
-                            ? { ...entry, quantity: event.target.value }
-                            : entry,
-                        ),
-                      )
-                    }
-                    disabled={savingListingType || !quantityDefaultsEnabled}
-                    placeholder="Quantidade"
-                  />
-                  <div className="relative">
-                    <Input
-                      inputMode="decimal"
-                      value={tier.percentage}
-                      onChange={(event) =>
-                        setQuantityDefaultTiers((current) =>
-                          current.map((entry, entryIndex) =>
-                            entryIndex === index
-                              ? {
-                                  ...entry,
-                                  percentage: event.target.value.replace(
-                                    /[^\d,.]/g,
-                                    "",
-                                  ),
-                                }
-                              : entry,
-                          ),
-                        )
-                      }
-                      disabled={savingListingType || !quantityDefaultsEnabled}
-                      className="pr-8"
-                      placeholder="Desconto"
-                    />
-                    <span className="pointer-events-none absolute right-3 top-2.5 text-sm text-muted-foreground">
-                      %
-                    </span>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={savingListingType || !quantityDefaultsEnabled}
-                    onClick={() =>
-                      setQuantityDefaultTiers((current) =>
-                        current.filter((_, entryIndex) => entryIndex !== index),
-                      )
-                    }
-                    aria-label="Remover faixa padrão"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={
-                savingListingType ||
-                !quantityDefaultsEnabled ||
-                quantityDefaultTiers.length >= 5
-              }
-              onClick={() =>
-                setQuantityDefaultTiers((current) => [
-                  ...current,
-                  { quantity: "", percentage: "" },
-                ])
-              }
-            >
-              <Plus className="h-4 w-4" />
-              Adicionar faixa
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setQuantityDefaultsDialogOpen(false)}
-              disabled={savingListingType}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              disabled={
-                savingListingType ||
-                (quantityDefaultsEnabled && quantityDefaultTiers.length === 0)
-              }
-              onClick={async () => {
-                const saved = await onQuantityDefaultsSave(
-                  quantityDefaultsEnabled,
-                  quantityDefaultTiers.map((tier) => ({
-                    quantity: Number(tier.quantity),
-                    percentage: Number(tier.percentage.replace(",", ".")),
-                  })),
-                );
-                if (saved) setQuantityDefaultsDialogOpen(false);
-              }}
-            >
-              {savingListingType ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              Salvar modelo
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
-function colorPickerValue(value: string | undefined, fallback: string) {
-  return /^#[0-9a-fA-F]{6}$/.test(value ?? "") ? value! : fallback;
+// O formulário envia apenas as preferências deste segmento.
+function readSettings(config: Partial<GeneralSettings>): GeneralSettings {
+  return {
+    impressao_cor_primaria: config.impressao_cor_primaria ?? DEFAULT_SETTINGS.impressao_cor_primaria,
+    impressao_cor_secundaria: config.impressao_cor_secundaria ?? DEFAULT_SETTINGS.impressao_cor_secundaria,
+    impressao_cor_texto: config.impressao_cor_texto ?? DEFAULT_SETTINGS.impressao_cor_texto,
+    habilitar_edicao_transacoes: config.habilitar_edicao_transacoes === true,
+    alerta_estoque_pdv: config.alerta_estoque_pdv === true,
+  };
 }
 
 export default function ConfigGeralPage() {
-  const [salvando, setSalvando] = useState(false);
-  const [carregando, setCarregando] = useState(true);
-  const [desconectandoMercadoLivre, setDesconectandoMercadoLivre] =
-    useState(false);
-  const [salvandoPublicacaoPadrao, setSalvandoPublicacaoPadrao] =
-    useState(false);
-  const [atualizandoMercadoLivre, setAtualizandoMercadoLivre] = useState(false);
-  const [desconectandoShopee, setDesconectandoShopee] = useState(false);
-  const [empresaResumo, setEmpresaResumo] = useState<EmpresaResumo | null>(
-    null,
-  );
-  const [mercadoLivreAccount, setMercadoLivreAccount] =
-    useState<MercadoLivreAccount | null>(null);
-  const [shopeeIntegration, setShopeeIntegration] = useState<ShopeeIntegration>(
-    { configured: false, missing: [], account: null },
-  );
-  const [garantiaFiscal, setGarantiaFiscal] = useState<ConfigGarantiaFiscal>(
-    GARANTIA_FISCAL_DEFAULTS,
-  );
-  const [garantiaFiscalDisponivel, setGarantiaFiscalDisponivel] =
-    useState(false);
-
-  const { handleSubmit, setValue, watch, reset, formState: { dirtyFields, defaultValues } } = useForm<Partial<Config>>({
-    defaultValues: {
-      checklist_obrigatorio: false,
-      alerta_estoque_pdv: false,
-      habilitar_emissao_nfe: false,
-      emissao_nf_no_modulo_ordens: false,
-      emissao_nf_no_modulo_vendas: false,
-      emissao_nf_ordens_nao_pagas: false,
-      emissao_nf_vendas_nao_pagas: false,
-      emissao_nf_status_os: [...STATUS_OS_EMISSAO_PADRAO],
-      impressao_cor_primaria: "#2563eb",
-      impressao_cor_secundaria: "#0891b2",
-      impressao_cor_texto: "#ffffff",
-      modo_baixa_estoque_os: "ORCAMENTO",
-      produto_preco_medio_compra_obrigatorio: false,
-      produto_ncm_obrigatorio: false,
-      habilitar_edicao_transacoes: false,
-      permitir_produto_avulso_os: false,
-      habilitar_faturamento_os: false,
-      setor_padrao_os_id: null,
-      destaque_os_por_status: {},
-    },
-  });
-
-  const carregarConfig = useCallback(async () => {
-    setCarregando(true);
-    setGarantiaFiscalDisponivel(false);
-    try {
-      const [
-        response,
-        empresaResponse,
-        mercadoLivreResponse,
-        shopeeResponse,
-        nfeResponse,
-        nfseResponse,
-      ] = await Promise.all([
-        fetch("/api/config", { cache: "no-store" }),
-        fetch("/api/config/empresa", { cache: "no-store" }),
-        fetch("/api/config/integracoes/mercadolivre", { cache: "no-store" }),
-        SHOPEE_INTEGRATION_ENABLED
-          ? fetch("/api/config/integracoes/shopee", { cache: "no-store" })
-          : Promise.resolve(null),
-        fetch("/api/config/nfe", { cache: "no-store" }),
-        fetch("/api/config/nfse", { cache: "no-store" }),
-      ]);
-      const data = await response.json();
-      const empresaData = await empresaResponse.json().catch(() => ({}));
-      const mercadoLivreData = await mercadoLivreResponse
-        .json()
-        .catch(() => ({}));
-      const shopeeData = shopeeResponse
-        ? await shopeeResponse.json().catch(() => ({}))
-        : {};
-      const nfeData = await nfeResponse.json().catch(() => ({}));
-      const nfseData = await nfseResponse.json().catch(() => ({}));
-      if (response.ok && data.config) {
-        reset(data.config);
-        window.dispatchEvent(
-          new CustomEvent("erpimoveis:config-updated", { detail: data.config }),
-        );
-      } else {
-        toast.error("Erro ao carregar configurações");
-      }
-      if (empresaResponse.ok && empresaData?.empresa) {
-        const empresa = empresaData.empresa;
-        setEmpresaResumo({
-          id: Number(empresa.empresaId),
-          nome: empresa.nomefantasia || empresa.razaosocial || "Empresa",
-          cnpj: empresa.cnpj || "",
-        });
-      } else {
-        setEmpresaResumo(null);
-      }
-      setMercadoLivreAccount(
-        mercadoLivreResponse.ok ? (mercadoLivreData?.account ?? null) : null,
-      );
-      setShopeeIntegration(
-        shopeeResponse?.ok
-          ? {
-              configured: Boolean(shopeeData?.configured),
-              missing: shopeeData?.missing ?? [],
-              account: shopeeData?.account ?? null,
-            }
-          : { configured: false, missing: [], account: null },
-      );
-      const garantiaDisponivel = Boolean(
-        nfeResponse.ok && nfeData?.nfe && nfseResponse.ok && nfseData?.nfse,
-      );
-      setGarantiaFiscalDisponivel(garantiaDisponivel);
-      if (garantiaDisponivel) {
-        setGarantiaFiscal({
-          incluirGarantiaVendaNFe: Boolean(nfeData.nfe.incluirGarantiaVendaNFe),
-          incluirGarantiaVendaNFCe: Boolean(
-            nfeData.nfe.incluirGarantiaVendaNFCe,
-          ),
-          incluirGarantiaOsNFe: Boolean(nfeData.nfe.incluirGarantiaOsNFe),
-          incluirGarantiaOsNFCe: Boolean(nfeData.nfe.incluirGarantiaOsNFCe),
-          incluirGarantiaOsNFSe: Boolean(nfseData.nfse.incluirGarantiaOs),
-          nfceConfigurada: Boolean(nfeData.nfe.nfceConfigurada),
-        });
-      }
-    } catch (error) {
-      console.error(error);
-      toast.error("Falha na comunicação com o servidor");
-    } finally {
-      setCarregando(false);
-    }
-  }, [reset]);
+  const [settings, setSettings] = useState<GeneralSettings>(DEFAULT_SETTINGS);
+  const [company, setCompany] = useState<Company | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
-    carregarConfig();
-  }, [carregarConfig]);
-
-  const atualizarDadosMercadoLivre = async () => {
-    setAtualizandoMercadoLivre(true);
-    try {
-      const response = await fetch("/api/config/integracoes/mercadolivre", { cache: "no-store" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.error || "Falha ao atualizar os dados do Mercado Livre.");
-      setMercadoLivreAccount(data?.account ?? null);
-      toast.success("Dados da conta Mercado Livre atualizados.");
-    } catch (error: any) {
-      toast.error(error?.message || "Falha ao atualizar os dados do Mercado Livre.");
-    } finally {
-      setAtualizandoMercadoLivre(false);
+    const controller = new AbortController();
+    async function load() {
+      setLoading(true);
+      setLoadError("");
+      try {
+        const [response, companyResponse] = await Promise.all([
+          fetch("/api/config", { cache: "no-store", signal: controller.signal }),
+          fetch("/api/config/empresa", { cache: "no-store", signal: controller.signal }).catch(() => null),
+        ]);
+        const data = await response.json();
+        if (!response.ok || !data.config) throw new Error(data.error || "Não foi possível carregar as configurações.");
+        const companyData = companyResponse?.ok ? await companyResponse.json() : null;
+        if (controller.signal.aborted) return;
+        setSettings(readSettings(data.config));
+        const empresa = companyData?.empresa;
+        setCompany(empresa ? { nome: empresa.nomefantasia || empresa.razaosocial || "Empresa", cnpj: empresa.cnpj || "" } : null);
+      } catch (error) {
+        if (!controller.signal.aborted) setLoadError(error instanceof Error ? error.message : "Não foi possível carregar as configurações.");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
     }
-  };
+    void load();
+    return () => controller.abort();
+  }, [reload]);
 
-  const onSalvar = async (values: Partial<Config>) => {
-    setSalvando(true);
+  const save = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saving || loading || loadError) return;
+    if (COLOR_FIELDS.some(({ key }) => !validColor(settings[key]))) {
+      toast.error("Informe cores válidas no formato #000000.");
+      return;
+    }
+    setSaving(true);
     try {
       const response = await fetch("/api/config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(prepararConfigParaSalvar(values,
-          dirtyFields.habilitar_faturamento_os === true,
-          defaultValues?.habilitar_faturamento_os === true)),
+        body: JSON.stringify(readSettings(settings)),
       });
-
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Erro ao salvar");
-
-      // A configuração geral já foi salva, mesmo que uma integração fiscal
-      // falhe depois. Atualiza imediatamente o formulário e o restante do app.
-      reset(data.config);
+      if (!response.ok || !data.config) throw new Error(data.error || "Não foi possível salvar as configurações.");
+      setSettings(readSettings(data.config));
       window.dispatchEvent(new CustomEvent("erpimoveis:config-updated", { detail: data.config }));
-
-      if (garantiaFiscalDisponivel) {
-        const [nfeResponse, nfseResponse] = await Promise.all([
-          fetch("/api/config/nfe", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nfe: {
-                incluirGarantiaVendaNFe: garantiaFiscal.incluirGarantiaVendaNFe,
-                incluirGarantiaVendaNFCe:
-                  garantiaFiscal.incluirGarantiaVendaNFCe,
-                incluirGarantiaOsNFe: garantiaFiscal.incluirGarantiaOsNFe,
-                incluirGarantiaOsNFCe: garantiaFiscal.incluirGarantiaOsNFCe,
-              },
-            }),
-          }),
-          fetch("/api/config/nfse", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              nfse: { incluirGarantiaOs: garantiaFiscal.incluirGarantiaOsNFSe },
-            }),
-          }),
-        ]);
-        const [nfeData, nfseData] = await Promise.all([
-          nfeResponse.json().catch(() => ({})),
-          nfseResponse.json().catch(() => ({})),
-        ]);
-        if (!nfeResponse.ok) {
-          throw new Error(
-            [nfeData?.error, nfeData?.detalhe].filter(Boolean).join(" ") ||
-              "Erro ao salvar as opções de garantia da NF-e/NFC-e.",
-          );
-        }
-        if (!nfseResponse.ok) {
-          throw new Error(
-            nfseData?.error || "Erro ao salvar a opção de garantia da NFS-e.",
-          );
-        }
-
-        setGarantiaFiscal((atual) => ({
-          incluirGarantiaVendaNFe: Boolean(
-            nfeData?.nfe?.incluirGarantiaVendaNFe,
-          ),
-          incluirGarantiaVendaNFCe: Boolean(
-            nfeData?.nfe?.incluirGarantiaVendaNFCe,
-          ),
-          incluirGarantiaOsNFe: Boolean(nfeData?.nfe?.incluirGarantiaOsNFe),
-          incluirGarantiaOsNFCe: Boolean(nfeData?.nfe?.incluirGarantiaOsNFCe),
-          incluirGarantiaOsNFSe: Boolean(nfseData?.nfse?.incluirGarantiaOs),
-          nfceConfigurada: Boolean(
-            nfeData?.nfe?.nfceConfigurada ?? atual.nfceConfigurada,
-          ),
-        }));
-      }
-
       toast.success("Configurações atualizadas com sucesso!");
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao salvar configurações");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível salvar as configurações.");
     } finally {
-      setSalvando(false);
+      setSaving(false);
     }
-  };
+  }, [settings, saving, loading, loadError]);
 
-  const desconectarMercadoLivre = async () => {
-    setDesconectandoMercadoLivre(true);
-    try {
-      const response = await fetch("/api/config/integracoes/mercadolivre", {
-        method: "DELETE",
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok)
-        throw new Error(data?.error || "Falha ao desconectar a conta.");
-      setMercadoLivreAccount(null);
-      toast.success("Conta Mercado Livre desconectada.");
-    } catch (error: any) {
-      toast.error(
-        error?.message || "Falha ao desconectar a conta Mercado Livre.",
-      );
-    } finally {
-      setDesconectandoMercadoLivre(false);
-    }
-  };
-
-  const salvarPublicacaoPadraoMercadoLivre = async (
-    defaultListingTypeId: "free" | "gold_special" | "gold_pro",
-  ) => {
-    if (!mercadoLivreAccount) return;
-    setSalvandoPublicacaoPadrao(true);
-    try {
-      const response = await fetch("/api/config/integracoes/mercadolivre", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ defaultListingTypeId }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok)
-        throw new Error(
-          data?.error || "Falha ao salvar o tipo de publicação padrão.",
-        );
-      setMercadoLivreAccount((current) =>
-        current ? { ...current, defaultListingTypeId } : current,
-      );
-      toast.success("Tipo de publicação padrão atualizado.");
-    } catch (error: any) {
-      toast.error(
-        error?.message || "Falha ao salvar o tipo de publicação padrão.",
-      );
-    } finally {
-      setSalvandoPublicacaoPadrao(false);
-    }
-  };
-
-  const salvarAvisosMercadoLivre = async (
-    notificationEvents: MercadoLivreNotificationEvent[],
-  ) => {
-    if (!mercadoLivreAccount) return;
-    // Otimista: o switch responde na hora e volta atrás se o servidor recusar.
-    const anterior = mercadoLivreAccount.notificationEvents;
-    setMercadoLivreAccount((current) =>
-      current ? { ...current, notificationEvents } : current,
-    );
-    try {
-      const response = await fetch("/api/config/integracoes/mercadolivre", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationEvents }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.error || "Falha ao salvar os avisos do Mercado Livre.");
-    } catch (error: any) {
-      setMercadoLivreAccount((current) =>
-        current ? { ...current, notificationEvents: anterior } : current,
-      );
-      toast.error(error?.message || "Falha ao salvar os avisos do Mercado Livre.");
-    }
-  };
-
-  const salvarPrecoQuantidadePadrao = async (
-    enabled: boolean,
-    tiers: Array<{ quantity: number; percentage: number }>,
-  ) => {
-    if (!mercadoLivreAccount) return false;
-    setSalvandoPublicacaoPadrao(true);
-    try {
-      const response = await fetch("/api/config/integracoes/mercadolivre", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          quantityPricingDefaultEnabled: enabled,
-          quantityPricingDefaultTiers: tiers,
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok)
-        throw new Error(
-          data?.error || "Falha ao salvar o modelo de preço por quantidade.",
-        );
-      setMercadoLivreAccount((current) =>
-        current
-          ? {
-              ...current,
-              quantityPricingDefaultEnabled: Boolean(
-                data.quantityPricingDefaultEnabled,
-              ),
-              quantityPricingDefaultTiers: Array.isArray(
-                data.quantityPricingDefaultTiers,
-              )
-                ? data.quantityPricingDefaultTiers
-                : [],
-            }
-          : current,
-      );
-      toast.success(
-        enabled
-          ? "Modelo de preço por quantidade atualizado."
-          : "Preenchimento padrão desativado.",
-      );
-      return true;
-    } catch (error: any) {
-      toast.error(
-        error?.message || "Falha ao salvar o modelo de preço por quantidade.",
-      );
-      return false;
-    } finally {
-      setSalvandoPublicacaoPadrao(false);
-    }
-  };
-
-  const desconectarShopee = async () => {
-    setDesconectandoShopee(true);
-    try {
-      const response = await fetch("/api/config/integracoes/shopee", {
-        method: "DELETE",
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok)
-        throw new Error(data?.error || "Falha ao desconectar a loja.");
-      setShopeeIntegration((current) => ({ ...current, account: null }));
-      toast.success("Loja Shopee desconectada.");
-    } catch (error: any) {
-      toast.error(error?.message || "Falha ao desconectar a loja Shopee.");
-    } finally {
-      setDesconectandoShopee(false);
-    }
-  };
-
-  if (carregando) {
-    return (
-      <div className="flex h-[80vh] w-full items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />
-          <p className="text-primary">Carregando configurações...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const impressaoCorPrimaria = watch("impressao_cor_primaria") ?? "#2563eb";
-  const impressaoCorSecundaria = watch("impressao_cor_secundaria") ?? "#0891b2";
-  const impressaoCorTexto = watch("impressao_cor_texto") ?? "#ffffff";
-
+  const disabled = loading || saving || Boolean(loadError);
   return (
     <div className="container mx-auto min-w-0 max-w-7xl space-y-5 px-3 py-1 animate-in fade-in duration-500 sm:space-y-6 sm:px-6 lg:px-8">
-      <div className="flex min-w-0 flex-col gap-4 rounded-lg border bg-card px-4 py-4 shadow-sm sm:px-5 md:flex-row md:items-center md:justify-between">
+      <header className="flex min-w-0 flex-col gap-4 rounded-lg border bg-card px-4 py-4 shadow-sm sm:px-5 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">
-            <Settings className="size-6 shrink-0 text-primary sm:size-8" />
-            Configurações Gerais
+            <Settings className="size-6 shrink-0 text-primary sm:size-8" aria-hidden="true" />Configurações Gerais
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground sm:text-base">
-            Gerencie o comportamento global do sistema, módulos fiscais e
-            alertas do PDV.
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">Preferências da gestão imobiliária, documentos e alertas do PDV.</p>
         </div>
-        <Button
-          onClick={handleSubmit(onSalvar)}
-          disabled={salvando}
-          className="w-full shrink-0 shadow-md transition-all hover:shadow-lg sm:w-auto"
-        >
-          {salvando ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Save className="mr-2 h-4 w-4" />
-          )}
-          Salvar Alterações
+        <Button type="submit" form="general-settings" disabled={disabled} className="w-full shrink-0 shadow-md transition-all hover:shadow-lg sm:w-auto">
+          {saving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Save className="size-4" aria-hidden="true" />}
+          {saving ? "Salvando…" : "Salvar Alterações"}
         </Button>
-      </div>
+      </header>
+
+      {loadError ? (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
+          <p>{loadError}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setReload(value => value + 1)}><RefreshCw className="size-4" />Tentar novamente</Button>
+        </div>
+      ) : null}
+      {loading ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Carregando configurações…</p> : null}
 
       <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm">
         <CardHeader className="bg-primary/5 py-4">
-          <div className="flex items-center gap-2">
-            <Store className="h-5 w-5 text-primary" />
-            <CardTitle>Empresa e integrações de marketplace</CardTitle>
-          </div>
-          <CardDescription>
-            Conecte as contas vendedoras que serão operadas pelo ERP.
-          </CardDescription>
+          <CardTitle className="flex items-center gap-2"><Building2 className="size-5 text-primary" aria-hidden="true" />Empresa</CardTitle>
+          <CardDescription>Identificação da empresa responsável pela administração dos imóveis.</CardDescription>
         </CardHeader>
-        <CardContent
-          className={`grid min-w-0 gap-0 p-0 ${SHOPEE_INTEGRATION_ENABLED ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}
-        >
-          <section className="flex min-h-36 min-w-0 flex-col justify-between gap-3 border-b p-4 lg:border-b-0 lg:border-r">
-            <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Building2 className="h-5 w-5" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Empresa do ERP
-                </p>
-                <p className="mt-1 truncate text-base font-semibold">
-                  {empresaResumo?.nome || "Não configurada"}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {empresaResumo?.cnpj || "CNPJ não informado"}
-                </p>
-              </div>
-            </div>
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="h-auto w-full min-w-0 whitespace-normal bg-transparent py-2 text-center sm:w-fit"
-            >
-              <Link href="/configuracoes/empresa">
-                Alterar dados da empresa
-              </Link>
-            </Button>
-          </section>
-
-          <MarketplaceConnectionCard
-            icon={<Store className="h-5 w-5" />}
-            iconClass="bg-amber-500/15 text-amber-700 dark:text-amber-400"
-            name="Mercado Livre"
-            connected={Boolean(
-              mercadoLivreAccount && !mercadoLivreAccount.needsReconnect,
-            )}
-            title={
-              mercadoLivreAccount?.nickname ||
-              (mercadoLivreAccount
-                ? `Usuário ${mercadoLivreAccount.userId}`
-                : "Nenhuma conta conectada")
-            }
-            description={
-              mercadoLivreAccount
-                ? mercadoLivreAccount.needsReconnect
-                  ? "Reconexão necessária"
-                  : `User ID ${mercadoLivreAccount.userId}`
-                : "Autorize uma conta vendedora para publicar e receber pedidos."
-            }
-            badges={
-              mercadoLivreAccount?.sellerProfile &&
-              !mercadoLivreAccount.sellerProfile.error
-                ? [
-                    mercadoLivreAccount.sellerProfile.sellingAllowed === false
-                      ? "Vendas bloqueadas"
-                      : null,
-                  ].filter((value): value is string => Boolean(value))
-                : []
-            }
-            details={
-              mercadoLivreAccount?.shipping &&
-              !mercadoLivreAccount.needsReconnect
-                ? mercadoLivreAccount.shipping.mercadoEnviosEnabled
-                  ? "Mercado Envios habilitado"
-                  : "Mercado Envios não habilitado"
-                : null
-            }
-            connectHref="/api/integracoes/mercadolivre/auth"
-            connectLabel={
-              mercadoLivreAccount
-                ? mercadoLivreAccount.needsReconnect
-                  ? "Reconectar"
-                  : "Trocar conta"
-                : "Conectar conta"
-            }
-            onDisconnect={
-              mercadoLivreAccount ? desconectarMercadoLivre : undefined
-            }
-            disconnecting={desconectandoMercadoLivre}
-            disconnectTitle="Desconectar conta Mercado Livre?"
-            disconnectDescription="Os pedidos históricos serão preservados. Os vínculos dos anúncios serão removidos e precisarão ser refeitos ao conectar outra conta."
-            settingsHref="#marketplace-settings"
-          />
-
-          {SHOPEE_INTEGRATION_ENABLED ? (
-            <MarketplaceConnectionCard
-              icon={<ShoppingBag className="h-5 w-5" />}
-              iconClass="bg-orange-500/15 text-orange-700 dark:text-orange-400"
-              name="Shopee"
-              connected={Boolean(
-                shopeeIntegration.account &&
-                !shopeeIntegration.account.needsReconnect,
-              )}
-              title={
-                shopeeIntegration.account?.shopName ||
-                (shopeeIntegration.account
-                  ? `Loja ${shopeeIntegration.account.shopId}`
-                  : "Nenhuma loja conectada")
-              }
-              description={
-                shopeeIntegration.account
-                  ? shopeeIntegration.account.needsReconnect
-                    ? "Reconexão necessária"
-                    : `Shop ID ${shopeeIntegration.account.shopId} · ${shopeeIntegration.account.region}`
-                  : shopeeIntegration.configured
-                    ? "Autorize a loja para importar pedidos e sincronizar o catálogo."
-                    : "Credenciais do aplicativo ainda não configuradas."
-              }
-              details={
-                !shopeeIntegration.configured
-                  ? `${shopeeIntegration.missing.length || 3} variável(is) de ambiente pendente(s)`
-                  : "Aplicativo Shopee configurado"
-              }
-              connectHref="/api/integracoes/shopee/auth"
-              connectLabel={
-                shopeeIntegration.account
-                  ? shopeeIntegration.account.needsReconnect
-                    ? "Reconectar"
-                    : "Trocar loja"
-                  : "Conectar loja"
-              }
-              connectDisabled={!shopeeIntegration.configured}
-              onDisconnect={
-                shopeeIntegration.account ? desconectarShopee : undefined
-              }
-              disconnecting={desconectandoShopee}
-              disconnectTitle="Desconectar loja Shopee?"
-              disconnectDescription="Os pedidos históricos serão preservados. Os vínculos de produtos Shopee serão removidos."
-            />
-          ) : null}
+        <CardContent className="flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="break-words font-semibold">{loading ? "Carregando…" : company?.nome || "Consulte os dados da empresa"}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{company?.cnpj ? `CNPJ ${company.cnpj}` : "Mantenha os dados cadastrais e de contato atualizados."}</p>
+          </div>
+          <Button asChild variant="outline" className="w-full shrink-0 sm:w-auto"><Link href="/configuracoes/empresa">Dados da empresa<ArrowUpRight className="size-4" /></Link></Button>
         </CardContent>
       </Card>
 
-      <StorefrontShippingConnection />
-
-      <MercadoLivreOperationSettingsCard
-        account={mercadoLivreAccount}
-        savingListingType={salvandoPublicacaoPadrao}
-        refreshingAccount={atualizandoMercadoLivre}
-        onListingTypeChange={(value) =>
-          void salvarPublicacaoPadraoMercadoLivre(value)
-        }
-        onQuantityDefaultsSave={salvarPrecoQuantidadePadrao}
-        onNotificationEventsChange={salvarAvisosMercadoLivre}
-        onRefreshAccount={atualizarDadosMercadoLivre}
-      />
-
-      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-12 lg:gap-6">
-
-        <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
-          <CardHeader className="bg-primary/5 py-4">
-            <div className="flex items-center gap-2">
-              <Palette className="h-5 w-5 text-primary" />
-              <CardTitle>Impressao</CardTitle>
-            </div>
-            <CardDescription>
-              Cores usadas nos modelos de impressão.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 py-6 md:grid-cols-3">
-            <div className="min-w-0 space-y-2">
-              <Label>Cor primaria</Label>
-              <div className="flex min-w-0 gap-3">
-                <Input
-                  type="color"
-                  className="h-10 w-14 shrink-0 p-1"
-                  value={colorPickerValue(impressaoCorPrimaria, "#2563eb")}
-                  onChange={(event) =>
-                    setValue("impressao_cor_primaria", event.target.value, {
-                      shouldDirty: true,
-                    })
-                  }
-                />
-                <Input
-                  value={impressaoCorPrimaria}
-                  onChange={(event) =>
-                    setValue("impressao_cor_primaria", event.target.value, {
-                      shouldDirty: true,
-                    })
-                  }
-                  placeholder="#2563eb"
-                  className="font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="min-w-0 space-y-2">
-              <Label>Cor secundaria</Label>
-              <div className="flex min-w-0 gap-3">
-                <Input
-                  type="color"
-                  className="h-10 w-14 shrink-0 p-1"
-                  value={colorPickerValue(impressaoCorSecundaria, "#0891b2")}
-                  onChange={(event) =>
-                    setValue("impressao_cor_secundaria", event.target.value, {
-                      shouldDirty: true,
-                    })
-                  }
-                />
-                <Input
-                  value={impressaoCorSecundaria}
-                  onChange={(event) =>
-                    setValue("impressao_cor_secundaria", event.target.value, {
-                      shouldDirty: true,
-                    })
-                  }
-                  placeholder="#0891b2"
-                  className="font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="min-w-0 space-y-2">
-              <Label>Cor do texto</Label>
-              <div className="flex min-w-0 gap-3">
-                <Input
-                  type="color"
-                  className="h-10 w-14 shrink-0 p-1"
-                  value={colorPickerValue(impressaoCorTexto, "#ffffff")}
-                  onChange={(event) =>
-                    setValue("impressao_cor_texto", event.target.value, {
-                      shouldDirty: true,
-                    })
-                  }
-                />
-                <Input
-                  value={impressaoCorTexto}
-                  onChange={(event) =>
-                    setValue("impressao_cor_texto", event.target.value, {
-                      shouldDirty: true,
-                    })
-                  }
-                  placeholder="#ffffff"
-                  className="font-mono"
-                />
-              </div>
-            </div>
-
-            {/* A cor do texto so faz sentido vista sobre a barra: sem a previa,
-                so da para descobrir que ficou ilegivel imprimindo. */}
-            <div className="md:col-span-3 space-y-2">
-              <Label>Previa do cabecalho</Label>
-              <div
-                className="flex items-center justify-between gap-4 rounded-lg px-4 py-3"
-                style={{
-                  background: `linear-gradient(135deg, ${colorPickerValue(impressaoCorPrimaria, "#2563eb")}, ${colorPickerValue(impressaoCorSecundaria, "#0891b2")})`,
-                  color: colorPickerValue(impressaoCorTexto, "#ffffff"),
-                }}
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-base font-bold">
-                    {empresaResumo?.nome || "Sua empresa"}
-                  </div>
-                  <div className="truncate text-[10px] opacity-95">
-                    CNPJ {empresaResumo?.cnpj || "00.000.000/0001-00"}
-                  </div>
-                </div>
-                <div
-                  className="shrink-0 rounded-lg px-3 py-2 text-right"
-                  style={{
-                    background: `color-mix(in srgb, ${colorPickerValue(impressaoCorTexto, "#ffffff")} 15%, transparent)`,
-                    border: `1px solid color-mix(in srgb, ${colorPickerValue(impressaoCorTexto, "#ffffff")} 30%, transparent)`,
-                  }}
-                >
-                  <div className="text-[8px] font-extrabold uppercase tracking-[.2em] opacity-90">
-                    Documento
-                  </div>
-                  <div className="text-2xl font-black leading-none">#123</div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* MÓDULO FISCAL */}
-        <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm lg:col-span-12">
-          <CardHeader className="bg-primary/5 py-4">
-            <div className="flex items-center gap-2">
-              <Receipt className="h-5 w-5 text-primary" />
-              <CardTitle>Módulo Fiscal (NF-e / NFC-e / NFS-e)</CardTitle>
-            </div>
-            <CardDescription>
-              Configure a visibilidade, as travas de emissão e o carregamento da
-              garantia nas notas fiscais.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-6 py-6">
-            <div className="flex items-center justify-between space-x-2">
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label className="text-base">Habilitar Emissão de NF</Label>
-                <span className="text-sm text-muted-foreground">
-                  Habilita globalmente os botões e recursos de emissão de NF-e e
-                  NFC-e.
-                </span>
-              </div>
-              <Switch
-                checked={watch("habilitar_emissao_nfe")}
-                onCheckedChange={(v) => setValue("habilitar_emissao_nfe", v)}
-              />
-            </div>
-
-            <Separator />
-
-            <div className="grid gap-6">
-              {!garantiaFiscalDisponivel ? (
-                <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300 lg:col-span-2">
-                  Não foi possível carregar as opções de garantia fiscal.
-                  Confira se a migration fiscal mais recente foi aplicada.
-                </div>
-              ) : null}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 font-medium text-sm text-primary">
-                  <FileText className="h-4 w-4" /> Módulo de Vendas
-                </div>
-                <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label>Exibir no Módulo</Label>
-                    <span className="text-xs text-muted-foreground">
-                      Botão de emissão de NF é exibido no módulo de Vendas.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={watch("emissao_nf_no_modulo_vendas")}
-                    onCheckedChange={(v) =>
-                      setValue("emissao_nf_no_modulo_vendas", v)
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between p-4 rounded-lg bg-muted/30 border">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label>Emitir sem Pagamento</Label>
-                    <span className="text-xs text-muted-foreground">
-                      Permite emissão de NF de Vendas antes do financeiro
-                      baixar.
-                    </span>
-                  </div>
-                  <Switch
-                    checked={watch("emissao_nf_vendas_nao_pagas")}
-                    onCheckedChange={(v) =>
-                      setValue("emissao_nf_vendas_nao_pagas", v)
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label htmlFor="garantia-venda-nfe">
-                      Incluir informações de garantia na emissão de NF-e
-                    </Label>
-                    <span className="text-xs text-muted-foreground">
-                      Carrega a garantia da Venda nas observações da NF-e.
-                    </span>
-                  </div>
-                  <Switch
-                    id="garantia-venda-nfe"
-                    checked={garantiaFiscal.incluirGarantiaVendaNFe}
-                    disabled={!garantiaFiscalDisponivel}
-                    onCheckedChange={(value) =>
-                      setGarantiaFiscal((atual) => ({
-                        ...atual,
-                        incluirGarantiaVendaNFe: value,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-4">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <Label
-                      htmlFor="garantia-venda-nfce"
-                      className={
-                        !garantiaFiscalDisponivel ||
-                        !garantiaFiscal.nfceConfigurada
-                          ? "opacity-60"
-                          : undefined
-                      }
-                    >
-                      Incluir informações de garantia na emissão de NFC-e
-                    </Label>
-                    <span className="text-xs text-muted-foreground">
-                      {garantiaFiscal.nfceConfigurada
-                        ? "Carrega a garantia da Venda nas observações da NFC-e."
-                        : "Disponível após configurar o modelo 65."}
-                    </span>
-                  </div>
-                  <Switch
-                    id="garantia-venda-nfce"
-                    checked={garantiaFiscal.incluirGarantiaVendaNFCe}
-                    disabled={
-                      !garantiaFiscalDisponivel ||
-                      !garantiaFiscal.nfceConfigurada
-                    }
-                    onCheckedChange={(value) =>
-                      setGarantiaFiscal((atual) => ({
-                        ...atual,
-                        incluirGarantiaVendaNFCe: value,
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* SISTEMA E INTERFACE */}
-        <div className="space-y-6 lg:col-span-12">
-          <Card className="min-w-0 border-primary/10 shadow-sm">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <ShoppingCart className="h-5 w-5 text-primary" />
-                <CardTitle>Operações de Venda & PDV</CardTitle>
-              </div>
-              <CardDescription>
-                Alertas e comportamentos do fluxo de caixa e ponto de venda.
-              </CardDescription>
+      <form id="general-settings" onSubmit={save}>
+        <fieldset disabled={disabled} className="min-w-0 space-y-5 sm:space-y-6">
+          <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm">
+            <CardHeader className="bg-primary/5 py-4">
+              <CardTitle className="flex items-center gap-2"><Palette className="size-5 text-primary" aria-hidden="true" />Impressão</CardTitle>
+              <CardDescription>Personalize as cores dos cabeçalhos nos modelos de impressão.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <Label>Alerta de Estoque PDV</Label>
-                    <Package className="h-3 w-3 text-muted-foreground" />
+            <CardContent className="grid min-w-0 gap-4 py-6 md:grid-cols-3">
+              <div className="contents">
+                {COLOR_FIELDS.map(({ key, label }) => (
+                  <div key={key} className="space-y-2">
+                    <Label htmlFor={key}>{label}</Label>
+                    <div className="flex gap-2">
+                      <Input type="color" aria-label={`Selecionar ${label.toLowerCase()}`} className="h-10 w-14 shrink-0 p-1" value={validColor(settings[key]) ? settings[key] : DEFAULT_SETTINGS[key]} onChange={event => setSettings(current => ({ ...current, [key]: event.target.value }))} />
+                      <Input id={key} value={settings[key]} maxLength={7} pattern="#[0-9a-fA-F]{6}" required title="Informe uma cor no formato #000000" className="min-w-0 font-mono" onChange={event => setSettings(current => ({ ...current, [key]: event.target.value }))} />
+                    </div>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    Exibe alerta em produtos sem etoque no módulo PDV.
-                  </span>
-                </div>
-                <Switch
-                  checked={watch("alerta_estoque_pdv")}
-                  onCheckedChange={(v) => setValue("alerta_estoque_pdv", v)}
-                />
+                ))}
               </div>
-              <Separator />
-              <div className="flex items-center justify-between gap-4">
-                <div className="min-w-0 flex-1 space-y-1">
-                  <Label>Habilitar edição de transações</Label>
-                  <span className="text-xs text-muted-foreground">
-                    Permite alterar transações já cadastradas no fluxo de caixa.
-                  </span>
+              <div className="min-w-0 space-y-2 md:col-span-3">
+                <p className="text-sm font-medium">Prévia do cabeçalho</p>
+                <div className="overflow-hidden rounded-xl border bg-background">
+                  <div className="flex min-w-0 flex-wrap items-start justify-between gap-4 p-5" style={{ background: `linear-gradient(135deg, ${validColor(settings.impressao_cor_primaria) ? settings.impressao_cor_primaria : DEFAULT_SETTINGS.impressao_cor_primaria}, ${validColor(settings.impressao_cor_secundaria) ? settings.impressao_cor_secundaria : DEFAULT_SETTINGS.impressao_cor_secundaria})`, color: validColor(settings.impressao_cor_texto) ? settings.impressao_cor_texto : DEFAULT_SETTINGS.impressao_cor_texto }}>
+                    <div className="min-w-0 flex-1"><p className="break-words font-semibold">{company?.nome || "Sua imobiliária"}</p><p className="mt-1 text-xs">Gestão de imóveis</p></div>
+                    <FileText className="size-6 shrink-0" aria-hidden="true" />
+                  </div>
                 </div>
-                <Switch
-                  checked={watch("habilitar_edicao_transacoes")}
-                  onCheckedChange={(value) =>
-                    setValue("habilitar_edicao_transacoes", value, {
-                      shouldDirty: true,
-                    })
-                  }
-                />
               </div>
             </CardContent>
           </Card>
-        </div>
 
-      </div>
+          <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm">
+            <CardHeader className="bg-primary/5 py-4">
+              <CardTitle className="flex items-center gap-2"><ShoppingCart className="size-5 text-primary" aria-hidden="true" />Operações de Venda &amp; PDV</CardTitle>
+              <CardDescription>Alertas e comportamentos do fluxo de caixa e ponto de venda.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 py-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-center gap-2"><Label htmlFor="pdv-stock-alert">Alerta de Estoque PDV</Label><Package className="size-3 text-muted-foreground" aria-hidden="true" /></div>
+                  <p id="pdv-stock-description" className="text-xs text-muted-foreground">Exibe alerta em produtos sem estoque no módulo PDV.</p>
+                </div>
+                <Switch id="pdv-stock-alert" aria-describedby="pdv-stock-description" className="shrink-0" checked={settings.alerta_estoque_pdv} onCheckedChange={value => setSettings(current => ({ ...current, alerta_estoque_pdv: value }))} />
+              </div>
+              <div className="flex items-center justify-between gap-4 border-t pt-6">
+                <div className="min-w-0 space-y-1"><Label htmlFor="edit-transactions">Habilitar edição de transações</Label><p id="edit-transactions-description" className="text-xs text-muted-foreground">Permite alterar transações já cadastradas, respeitando as permissões da equipe.</p></div>
+                <Switch id="edit-transactions" aria-describedby="edit-transactions-description" className="shrink-0" checked={settings.habilitar_edicao_transacoes} onCheckedChange={value => setSettings(current => ({ ...current, habilitar_edicao_transacoes: value }))} />
+              </div>
+            </CardContent>
+          </Card>
+        </fieldset>
+      </form>
+
+      <section aria-labelledby="related-settings" className="space-y-3">
+        <div><h2 id="related-settings" className="text-base font-semibold">Configurações da operação</h2><p className="mt-1 text-sm text-muted-foreground">Acesse os cadastros e controles utilizados na administração dos imóveis.</p></div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {SHORTCUTS.map(({ href, title, description, icon: Icon }) => (
+            <Link key={href} href={href} className="group flex min-w-0 items-start gap-3 rounded-xl border bg-card p-4 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Icon className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" /><div className="min-w-0 flex-1"><h3 className="text-sm font-semibold">{title}</h3><p className="mt-1 text-sm text-muted-foreground">{description}</p></div><ArrowUpRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            </Link>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

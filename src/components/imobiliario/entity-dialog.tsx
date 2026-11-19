@@ -33,6 +33,7 @@ import {
   RelationshipPanel,
 } from "./detail-panels";
 import { FinancePanel } from "./finance-panel";
+import { PropertyChannels } from "./property-channels";
 import { ReservationEventsPanel } from "./reservation-events-panel";
 import { MidiaPanel } from "./midia/midia-panel";
 import { AnexosPanel } from "./midia/anexos-panel";
@@ -368,6 +369,7 @@ export default function EntityDialog({
         { key: "anexos", label: "Anexos" },
         { key: "publicacao", label: "Publicação" },
         { key: "disponibilidade", label: "Disponibilidade" },
+        { key: "canais", label: "Booking e Airbnb" },
         { key: "reservas", label: "Reservas" },
         { key: "locacoes-imobiliarias", label: "Locações" },
         { key: "vendas-imobiliarias", label: "Vendas" }
@@ -715,6 +717,14 @@ export default function EntityDialog({
                   ) : null}
                 </div>
               </TabsContent>
+
+              {kind === "imoveis" ? (
+                <TabsContent value="canais" className="h-full min-h-0 overflow-hidden p-0 m-0 focus-visible:outline-none">
+                  <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 sm:px-6">
+                    {tab === "canais" && currentId ? <PropertyChannels item={value} /> : null}
+                  </div>
+                </TabsContent>
+              ) : null}
 
               {(["imoveis", "reservas", "locacoes-imobiliarias", "vendas-imobiliarias"] as const).map(
                 (relation) => (

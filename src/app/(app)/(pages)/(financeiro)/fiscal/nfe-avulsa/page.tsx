@@ -2642,7 +2642,7 @@ export default function NFeAvulsaPage() {
                     <Field label="CNPJ do intermediador (marketplace)">
                       <Input
                         value={draft.operacao.intermediador?.cnpj ?? ""}
-                        placeholder="Em branco: site ou canal próprio. Mercado Livre: 03.007.331/0001-41"
+                        placeholder="Em branco: site ou canal próprio."
                         onChange={(event) =>
                           updateDraft((current) => ({
                             ...current,
@@ -2660,7 +2660,7 @@ export default function NFeAvulsaPage() {
                     <Field label="Identificador do vendedor no intermediador">
                       <Input
                         value={draft.operacao.intermediador?.idCadIntTran ?? ""}
-                        placeholder="Ex.: apelido da conta no Mercado Livre"
+                        placeholder="Identificador da conta no intermediador"
                         onChange={(event) =>
                           updateDraft((current) => ({
                             ...current,

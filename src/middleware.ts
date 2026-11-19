@@ -48,8 +48,6 @@ const PUBLIC_API_PREFIXES = [
 
   "/api/venda/aprovacao",
   // Chamadas servidor-servidor. Cada rota aplica sua propria validacao.
-  "/api/integracoes/mercadolivre/cron",
-  "/api/integracoes/mercadolivre/webhook",
   "/api/integracoes/shopee/cron",
   "/api/integracoes/site/cron",
   "/api/integracoes/telegram/webhook",
@@ -83,6 +81,7 @@ function isPublicApi(pathname: string, method: string) {
   if (pathname === "/api/webhooks/focus") return true;
   // Server-to-server endpoint: the handler validates its own Bearer secret.
   if (pathname === "/api/integracoes/site/webhook") return true;
+  if (pathname === "/api/integracoes/imoveis/calendarios/processar") return true; // Bearer CRON_SECRET validado no handler.
   if (pathname === "/api/integracoes/site/checkout") return true;
   // Apenas a leitura aceita o token da loja; a rota valida o Bearer.
   // A escrita continua exigindo sessao e permissoes do ERP.

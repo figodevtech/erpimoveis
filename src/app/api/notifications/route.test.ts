@@ -51,7 +51,7 @@ function loadRoute(reconcile: () => Promise<number>) {
   return { GET: exports.GET!, requests };
 }
 
-test("reconciliacao do Mercado Livre roda uma vez por intervalo, nao a cada leitura", async () => {
+test("central consulta notificações sem executar integração removida", async () => {
   let execucoes = 0;
   const { GET } = loadRoute(async () => { execucoes += 1; return 0; });
 
@@ -61,11 +61,11 @@ test("reconciliacao do Mercado Livre roda uma vez por intervalo, nao a cada leit
   ]);
   const terceira = await GET(new Request("https://app.test/api/notifications?limit=50"));
 
-  assert.equal(execucoes, 1);
+  assert.equal(execucoes, 0);
   assert.equal(terceira.status, 200);
 });
 
-test("falha na reconciliacao nao bloqueia a central e a proxima leitura tenta de novo", async () => {
+test("central permanece disponível sem reconciliador de marketplace", async () => {
   let execucoes = 0;
   const { GET } = loadRoute(async () => {
     execucoes += 1;
@@ -83,5 +83,5 @@ test("falha na reconciliacao nao bloqueia a central e a proxima leitura tenta de
     console.error = erroOriginal;
   }
 
-  assert.equal(execucoes, 2);
+  assert.equal(execucoes, 0);
 });

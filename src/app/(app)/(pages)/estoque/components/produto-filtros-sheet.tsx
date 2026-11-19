@@ -37,7 +37,6 @@ const SHOPEE_ATIVA = process.env.NEXT_PUBLIC_SHOPEE_INTEGRATION_ENABLED === "tru
 // aparece com a integração ligada, como no Marketplace.
 const CANAIS_ANUNCIO: { value: CanalAnuncio; label: string }[] = [
   { value: "SITE", label: "Site" },
-  { value: "MERCADO_LIVRE", label: "Mercado Livre" },
   ...(SHOPEE_ATIVA ? [{ value: "SHOPEE" as const, label: "Shopee" }] : []),
 ];
 

@@ -523,7 +523,7 @@ export async function internalResource(request: Request, resource: Resource, pat
         return json({ item: result.data }, 201);
       }
       if (method === "DELETE") {
-        const result = await db.from("imovel_ocupacao").update({ ativo: false, updated_at: new Date().toISOString() }).eq("id", identifier(path[2] ?? url.searchParams.get("id"))).eq("imovel_id", id).in("tipo", ["BLOQUEIO", "MANUTENCAO"]).select().maybeSingle();
+        const result = await db.from("imovel_ocupacao").update({ ativo: false, updated_at: new Date().toISOString() }).eq("id", identifier(path[2] ?? url.searchParams.get("id"))).eq("imovel_id", id).is("canal_calendario_id", null).in("tipo", ["BLOQUEIO", "MANUTENCAO"]).select().maybeSingle();
         if (result.error) throw result.error;
         if (!result.data) throw new ImobError(404, "Bloqueio não encontrado.");
         return json({ item: result.data });

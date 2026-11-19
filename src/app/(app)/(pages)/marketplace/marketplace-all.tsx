@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Boxes, Globe2, Layers3, Loader2, PackageCheck, ShoppingBag, Store } from "lucide-react";
+import { AlertTriangle, Boxes, Globe2, Layers3, Loader2, PackageCheck, ShoppingBag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,17 +21,16 @@ type CatalogProduct = {
   status_estoque?: string | null;
   imageUrl?: string | null;
   site?: { status?: string | null; sync_status?: string | null; slug?: string | null } | null;
-  mercadolivre?: { ml_item_id: string; status?: string | null; permalink?: string | null } | null;
   shopee?: { item_id: number; model_id?: number | null; status?: string | null } | null;
 };
 type CatalogResponse = {
   data: CatalogProduct[];
   pagination: { page: number; limit: number; total: number; totalPages: number };
-  summary: { site: number; mercadolivre: number; shopee: number; allChannels: number; both: number; linked: number };
+  summary: { site: number; shopee: number; allChannels: number; both: number; linked: number };
 };
 
 const SECTIONS: readonly UnifiedSection[] = ["overview", "catalog"];
-const EMPTY_DATA: CatalogResponse = { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 1 }, summary: { site: 0, mercadolivre: 0, shopee: 0, allChannels: 0, both: 0, linked: 0 } };
+const EMPTY_DATA: CatalogResponse = { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 1 }, summary: { site: 0, shopee: 0, allChannels: 0, both: 0, linked: 0 } };
 
 export default function MarketplaceAll({ shopeeEnabled }: { shopeeEnabled: boolean }) {
   const [activeSection, setActiveSection] = useMarketplaceSection(SECTIONS, "overview");
@@ -89,7 +88,6 @@ export default function MarketplaceAll({ shopeeEnabled }: { shopeeEnabled: boole
     { value: "all_channels", label: "Em todos os canais" },
     { value: "incomplete", label: "Fora de algum canal" },
     { value: "site", label: "Com Site" },
-    { value: "mercadolivre", label: "Com Mercado Livre" },
     ...(shopeeEnabled ? [{ value: "shopee", label: "Com Shopee" }] : []),
     { value: "unlinked", label: "Sem publicação" },
   ];
@@ -113,9 +111,9 @@ export default function MarketplaceAll({ shopeeEnabled }: { shopeeEnabled: boole
         ]} />
 
         {activeSection === "overview" ? <CardContent className="space-y-4 p-4 lg:p-6">
-          <div className={`grid grid-cols-2 overflow-hidden rounded-lg border ${shopeeEnabled ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
+          <div className={`grid grid-cols-2 overflow-hidden rounded-lg border ${shopeeEnabled ? "xl:grid-cols-4" : "xl:grid-cols-3"}`}>
             <Summary title="Site" value={data.summary.site} description="Produtos configurados" icon={<Globe2 className="h-4 w-4 text-sky-600" />} />
-            <Summary title="Mercado Livre" value={data.summary.mercadolivre} description="Produtos com anúncio" icon={<Store className="h-4 w-4 text-amber-600" />} />
+
             {shopeeEnabled ? <Summary title="Shopee" value={data.summary.shopee} description="Produtos com anúncio" icon={<ShoppingBag className="h-4 w-4 text-orange-600" />} /> : null}
             <Summary title="Todos os canais" value={data.summary.allChannels} description="Cobertura completa" icon={<Layers3 className="h-4 w-4 text-violet-600" />} />
             <Summary title="Produtos vinculados" value={data.summary.linked} description="Ao menos um canal" icon={<PackageCheck className="h-4 w-4 text-emerald-600" />} />
@@ -125,15 +123,15 @@ export default function MarketplaceAll({ shopeeEnabled }: { shopeeEnabled: boole
 
         {activeSection === "catalog" ? <CardContent className="p-0">
           <div className="p-4 lg:p-6"><div className="overflow-hidden rounded-md border"><Table>
-            <TableHeader className="bg-muted/30"><TableRow><TableHead className="pl-4">Produto ERP</TableHead><TableHead>Preço / estoque</TableHead><TableHead>Site</TableHead><TableHead>Mercado Livre</TableHead>{shopeeEnabled ? <TableHead>Shopee</TableHead> : null}<TableHead className="pr-4 text-right">Ação</TableHead></TableRow></TableHeader>
+            <TableHeader className="bg-muted/30"><TableRow><TableHead className="pl-4">Produto ERP</TableHead><TableHead>Preço / estoque</TableHead><TableHead>Site</TableHead>{shopeeEnabled ? <TableHead>Shopee</TableHead> : null}<TableHead className="pr-4 text-right">Ação</TableHead></TableRow></TableHeader>
             <TableBody>{data.data.map((product) => <TableRow key={product.id}>
               <TableCell className="pl-4"><div className="flex items-center gap-3"><ProductThumbnail product={product} /><div className="min-w-0"><p className="max-w-[360px] truncate font-medium">{product.titulo}</p><p className="text-xs text-muted-foreground">#{product.id} · {product.referencia || "Sem referência"}</p></div></div></TableCell>
               <TableCell><p>{formatMoney(product.precovenda)}</p><p className="text-xs text-muted-foreground">{Math.max(0, Math.trunc(Number(product.estoque || 0)))} unidade(s)</p></TableCell>
               <TableCell>{product.site ? <div><Badge variant="outline">{product.site.status || "Configurado"}</Badge><p className="mt-1 text-xs text-muted-foreground">{product.site.sync_status || "Não sincronizado"}</p></div> : <Badge variant="secondary">Não publicado</Badge>}</TableCell>
-              <TableCell>{product.mercadolivre ? <div><Badge variant="outline">{product.mercadolivre.status || "Vinculado"}</Badge><p className="mt-1 text-xs text-muted-foreground">{product.mercadolivre.ml_item_id}</p></div> : <Badge variant="secondary">Não publicado</Badge>}</TableCell>
+
               {shopeeEnabled ? <TableCell>{product.shopee ? <div><Badge variant="outline">{product.shopee.status || "Vinculado"}</Badge><p className="mt-1 text-xs text-muted-foreground">Item {product.shopee.item_id}</p></div> : <Badge variant="secondary">Não publicado</Badge>}</TableCell> : null}
-              <TableCell className="pr-4 text-right"><div className="flex justify-end gap-1">{!product.site ? <Button size="sm" variant="outline" asChild><Link href="/marketplace?canal=loja">Site</Link></Button> : null}{!product.mercadolivre ? <Button size="sm" variant="outline" asChild><Link href="/marketplace?canal=mercadolivre&secao=products">Mercado Livre</Link></Button> : null}{shopeeEnabled && !product.shopee ? <Button size="sm" variant="outline" asChild><Link href="/marketplace?canal=shopee&secao=products">Shopee</Link></Button> : null}{product.site && product.mercadolivre && (!shopeeEnabled || product.shopee) ? <Badge className="bg-emerald-600">Todos os canais</Badge> : null}</div></TableCell>
-            </TableRow>)}{!loading && !data.data.length ? <TableRow><TableCell colSpan={shopeeEnabled ? 6 : 5}><div className="flex min-h-48 flex-col items-center justify-center text-center"><AlertTriangle className="mb-3 h-6 w-6 text-muted-foreground" /><p className="text-sm font-medium">Nenhum produto encontrado</p><p className="text-xs text-muted-foreground">Altere a busca ou o filtro de canais.</p></div></TableCell></TableRow> : null}</TableBody>
+              <TableCell className="pr-4 text-right"><div className="flex justify-end gap-1">{!product.site ? <Button size="sm" variant="outline" asChild><Link href="/marketplace?canal=loja">Site</Link></Button> : null}{shopeeEnabled && !product.shopee ? <Button size="sm" variant="outline" asChild><Link href="/marketplace?canal=shopee&secao=products">Shopee</Link></Button> : null}{product.site && (!shopeeEnabled || product.shopee) ? <Badge className="bg-emerald-600">Todos os canais</Badge> : null}</div></TableCell>
+            </TableRow>)}{!loading && !data.data.length ? <TableRow><TableCell colSpan={shopeeEnabled ? 5 : 4}><div className="flex min-h-48 flex-col items-center justify-center text-center"><AlertTriangle className="mb-3 h-6 w-6 text-muted-foreground" /><p className="text-sm font-medium">Nenhum produto encontrado</p><p className="text-xs text-muted-foreground">Altere a busca ou o filtro de canais.</p></div></TableCell></TableRow> : null}</TableBody>
           </Table></div></div>
           <MarketplacePagination page={data.pagination.page} totalPages={data.pagination.totalPages} pageSize={data.pagination.limit} total={data.pagination.total} visible={data.data.length} onPageChange={setPage} onPageSizeChange={setPageSize} />
         </CardContent> : null}

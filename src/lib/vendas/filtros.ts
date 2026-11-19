@@ -11,7 +11,7 @@ export const STATUS_VENDAS = [
 
 export const CANAIS_VENDAS = [
   ["PDV", "PDV (balcão)"], ["ONLINE", "Site próprio"],
-  ["MERCADO_LIVRE", "Mercado Livre"], ["SHOPEE", "Shopee"],
+  ["SHOPEE", "Shopee"],
 ] as const;
 
 export const ENTREGAS_VENDAS = [

@@ -1,9 +1,8 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import MercadoLivreMarketplace from "./marketplace-client";
 import ShopeeMarketplace from "./shopee-marketplace";
-import MarketplaceAll from "./marketplace-all";
+
 import StorefrontMarketplace from "./storefront-marketplace";
 import { MarketplaceChannelProvider, type MarketplaceChannel } from "./marketplace-channel";
 
@@ -14,11 +13,10 @@ export default function MarketplaceHub({ shopeeEnabled }: { shopeeEnabled: boole
   const requested = searchParams.get("canal");
   const channel: MarketplaceChannel =
     requested === "loja" ||
-    requested === "mercadolivre" ||
     requested === "all" ||
     (shopeeEnabled && requested === "shopee")
       ? requested
-      : "all";
+      : "loja";
 
   function setChannel(nextChannel: MarketplaceChannel) {
     const params = new URLSearchParams(searchParams.toString());
@@ -34,10 +32,6 @@ export default function MarketplaceHub({ shopeeEnabled }: { shopeeEnabled: boole
     <MarketplaceChannelProvider channel={channel} setChannel={setChannel} shopeeEnabled={shopeeEnabled}>
       {channel === "loja" ? (
         <StorefrontMarketplace />
-      ) : channel === "mercadolivre" ? (
-        <MercadoLivreMarketplace />
-      ) : channel === "all" ? (
-        <MarketplaceAll shopeeEnabled={shopeeEnabled} />
       ) : (
         <ShopeeMarketplace />
       )}

@@ -147,6 +147,10 @@ const withPWA = nextPWA.default({
 });
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: __dirname,
+  },
+  outputFileTracingRoot: __dirname,
   distDir: process.env.NEXT_DIST_DIR || ".next",
   typescript: {
     tsconfigPath: process.env.NEXT_TSCONFIG_PATH || "tsconfig.json",

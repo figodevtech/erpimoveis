@@ -3,25 +3,9 @@
 import * as React from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Pagination } from "../../fluxodecaixa/types";
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ChevronsLeft,
-  ChevronsRight,
-  DollarSign,
-  Eye,
-  FileText,
-  Loader2,
-  MoreHorizontal,
-  Printer,
-} from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, ChevronsLeft, ChevronsRight, DollarSign, Eye, FileText, Loader2, MoreHorizontal, Printer } from "lucide-react";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import formatarEmReal from "@/utils/formatarEmReal";
@@ -34,10 +18,7 @@ import { VendaDetailsDialog } from "../../../(vendas)/historicovendas/components
 import { useConfig } from "../../../config-context";
 import { Badge } from "@/components/ui/badge";
 import { calculateFinancialTotal } from "@/lib/financial-surcharge";
-import {
-  PaymentListFilters,
-  PaymentsFilterSheet,
-} from "../../components/payments-filter-sheet";
+import { PaymentListFilters, PaymentsFilterSheet } from "../../components/payments-filter-sheet";
 import { resumirBaixas } from "../../components/payment-settler";
 import { resumirPagamentos } from "../../components/payment-totals";
 import { TotalPago } from "../../components/total-pago";
@@ -47,18 +28,10 @@ import TransactionDialog from "../../fluxodecaixa/components/transactionDialog/t
 import { SelecaoMultiplaFooter } from "../../components/selecao-multipla-footer";
 import { useSelecaoMultipla, type AcaoEmLote } from "../../components/useSelecaoMultipla";
 import { SelecaoMultiplaMenu } from "../../components/selecao-multipla-menu";
-import {
-  motivoForaDaEmissaoEmLote,
-  podeEntrarNaEmissaoEmLote,
-  vendaPodeEmitirNota,
-} from "@/lib/nfe/elegibilidadeEmissao";
+import { motivoForaDaEmissaoEmLote, podeEntrarNaEmissaoEmLote, vendaPodeEmitirNota } from "@/lib/nfe/elegibilidadeEmissao";
 import { useSession } from "next-auth/react";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
-import {
-  clienteUnicoDoPagamento,
-  somarSaldos,
-  type DocumentoSelecionavel,
-} from "../../components/pagamento-multiplo";
+import { clienteUnicoDoPagamento, somarSaldos, type DocumentoSelecionavel } from "../../components/pagamento-multiplo";
 import { calcularResumoFinanceiroOs } from "@/lib/ordens/financeiro";
 import { Label } from "@/components/ui/label";
 
@@ -320,7 +293,7 @@ export default function VendasTable({ vendas, pagination, handleGetVendas, isLoa
                     <SelectItem value="TODOS">Todos os canais</SelectItem>
                     <SelectItem value="PDV">PDV (balcão)</SelectItem>
                     <SelectItem value="ONLINE">Site próprio</SelectItem>
-                    <SelectItem value="MERCADO_LIVRE">Mercado Livre</SelectItem>
+
                     <SelectItem value="SHOPEE">Shopee</SelectItem>
                   </SelectContent>
                 </Select>

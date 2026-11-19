@@ -78,3 +78,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# Capturas e bundles dos testes de configurações imobiliárias
+/artifacts/configuracoes-imobiliarias/

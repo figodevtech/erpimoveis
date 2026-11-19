@@ -2,17 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireConfigAccess, requireConfigEdit } from "@/app/api/_authz/perms";
 import { isStockNotificationEvent, STOCK_NOTIFICATION_EVENT_VALUES } from "@/lib/estoque/telegram-stock-events";
-import {
-  isMercadoLivreNotificationEvent,
-  MERCADOLIVRE_NOTIFICATION_EVENT_VALUES,
-} from "@/lib/integrations/mercadolivre-notification-events";
+import { isMercadoLivreNotificationEvent, MERCADOLIVRE_NOTIFICATION_EVENT_VALUES } from "@/lib/integrations/mercadolivre-notification-events";
 import { FISCAL_NOTIFICATION_EVENT_VALUES, isFiscalNotificationEvent } from "@/lib/fiscal/telegram-fiscal-events";
-import {
-  FINANCEIRO_NOTIFICATION_EVENT_VALUES,
-  FINANCEIRO_ORIGEM_VALUES,
-  isFinanceiroNotificationEvent,
-  isFinanceiroOrigem,
-} from "@/lib/financeiro/telegram-financeiro-events";
+import { FINANCEIRO_NOTIFICATION_EVENT_VALUES, FINANCEIRO_ORIGEM_VALUES, isFinanceiroNotificationEvent, isFinanceiroOrigem } from "@/lib/financeiro/telegram-financeiro-events";
 import { normalizeTelegramUsername } from "@/lib/integrations/telegram";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -190,7 +182,7 @@ export async function GET() {
       receivableSendWhenEmpty: row.receber_enviar_sem_contas === true,
       selectedStockEvents: Array.isArray(row.estoque_eventos_selecionados) ? row.estoque_eventos_selecionados : [],
       selectedFiscalEvents: Array.isArray(row.fiscal_eventos_selecionados) ? row.fiscal_eventos_selecionados : [],
-      notifyMarketplace: row.notificar_marketplace === true,
+      notifyMarketplace: false,
       notifySite: row.notificar_site === true,
       // Nulo é "nunca escolheu": mostra tudo marcado, que era o comportamento
       // antes de existir escolha por evento.
@@ -275,7 +267,7 @@ export async function PUT(request: Request) {
       receber_enviar_sem_contas: parsed.data.receberEnviarSemContas,
       estoque_eventos_selecionados: Array.from(new Set(parsed.data.estoqueEventosSelecionados)),
       fiscal_eventos_selecionados: Array.from(new Set(parsed.data.fiscalEventosSelecionados)),
-      notificar_marketplace: parsed.data.notificarMarketplace,
+      notificar_marketplace: false,
       notificar_site: parsed.data.notificarSite,
       marketplace_topicos_selecionados: parsed.data.marketplaceTopicosSelecionados
         ? Array.from(new Set(parsed.data.marketplaceTopicosSelecionados))

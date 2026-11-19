@@ -9,7 +9,7 @@ import { planoBuscaVendas } from "@/lib/vendas/busca";
 import { auth } from "@/lib/auth";
 import { requireVendasAccess, requireVendasCreate } from "@/app/api/_authz/perms";
 import { carregarAutores } from "@/lib/movement-authors";
-import { syncPendingMercadoLivreStock } from "@/lib/integrations/mercadolivre-stock-sync";
+
 import { buscarModoBaixaEstoqueOS } from "@/lib/ordens/estoque-os";
 import { normalizarDadosParaFinanceiro } from "@/lib/financeiro/dados-para-financeiro";
 import type { PlannedPayment } from "@/lib/payment-methods";
@@ -30,7 +30,7 @@ type Status =
   | "CANCELADA"
   | "CANCELADO";
 /** Canais reais de venda: PDV (balcão), Online (site próprio) e marketplaces. */
-const CANAIS = new Set(["PDV", "ONLINE", "MERCADO_LIVRE", "SHOPEE"]);
+const CANAIS = new Set(["PDV", "ONLINE", "SHOPEE"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const STATUS_SET = new Set<Status>([
@@ -878,17 +878,12 @@ export async function POST(req: Request) {
     const productIds = body.itens
       .map((item: any) => Number(item?.produtoId))
       .filter((id: number) => Number.isInteger(id) && id > 0);
-    const marketplaceStockSync = await syncPendingMercadoLivreStock({ productIds, limit: productIds.length || 1 }).catch((error: any) => {
-      console.warn("Venda criada; sincronização imediata do estoque Mercado Livre ficou pendente.", error);
-      return [];
-    });
 
     return NextResponse.json(
       {
         message: "Venda criada com sucesso.",
         data: vendaCompleta,
         id: vendaCompleta.id,
-        marketplaceStockSync,
       },
       { status: 201 }
     );
@@ -906,5 +901,5 @@ export async function POST(req: Request) {
 
 function isMarketplaceCanal(canal: unknown) {
   const value = String(canal ?? "").toUpperCase();
-  return value === "ONLINE" || value === "MERCADO_LIVRE" || value === "SHOPEE";
+  return value === "ONLINE" || value === "SHOPEE";
 }

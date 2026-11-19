@@ -12,7 +12,7 @@ const source = ts.transpileModule(fs.readFileSync('next.config.ts', 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const exports = {};
-vm.runInNewContext(source, { exports, process: { env: { NODE_ENV: 'production' } }, require(name) {
+vm.runInNewContext(source, { exports, __dirname: process.cwd(), process: { env: { NODE_ENV: 'production' } }, require(name) {
   assert.equal(name, '@ducanh2912/next-pwa');
   return { runtimeCaching: require(name).runtimeCaching, default(value) { options = value; return (config) => config; } };
 } });

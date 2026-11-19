@@ -59,37 +59,6 @@ function applyProductFilters(query: any, filters: ProductQueryFilters) {
   return query;
 }
 
-async function attachMercadoLivreLinks(items: any[]) {
-  if (!Array.isArray(items) || !items.length) return items;
-  const productIds = items
-    .map((p) => Number(p?.id))
-    .filter((id) => Number.isInteger(id) && id > 0);
-  if (!productIds.length) return items;
-
-  try {
-    const { data: links } = await supabaseAdmin
-      .from("mercadolivre_product_link")
-      .select("produto_id, ml_item_id, status, permalink")
-      .in("produto_id", productIds)
-      .not("ml_item_id", "is", null);
-
-    const linkByProdutoId = new Map(
-      (links ?? []).map((link) => [Number(link.produto_id), link])
-    );
-
-    return items.map((item) => {
-      const link = linkByProdutoId.get(Number(item.id));
-      return {
-        ...item,
-        temAnuncioMercadoLivre: Boolean(link),
-        mercadolivre: link ?? null,
-      };
-    });
-  } catch {
-    return items;
-  }
-}
-
 // Conta as fotos da galeria (produto_imagem) de cada item da página. Uma linha
 // por produto com o count agregado, em vez de trazer as imagens: com 200 itens
 // por página a lista de imagens passaria do limite de linhas do PostgREST.
@@ -124,7 +93,7 @@ async function attachTotalFotos(items: any[]) {
 }
 
 async function attachListExtras(items: any[]) {
-  return attachTotalFotos(await attachMercadoLivreLinks(items));
+  return attachTotalFotos(items);
 }
 
 /** Campos graváveis em produto */
@@ -682,8 +651,6 @@ export async function POST(req: Request) {
         );
       }
     }
-
-
 
     // Se veio fornecedorId + codigoFornecedor, cria vínculo em fornecedorprodutos
     if (fornecedorId && codigoFornecedor) {

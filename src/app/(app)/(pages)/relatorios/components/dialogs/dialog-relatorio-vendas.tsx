@@ -53,7 +53,6 @@ const STATUS_PRESETS: Array<[string, string[]]> = [
 const CANAL_OPTIONS = [
   ["PDV", "Balcão (PDV)"],
   ["ONLINE", "Loja online"],
-  ["MERCADO_LIVRE", "Mercado Livre"],
   ["SHOPEE", "Shopee"],
 ] as const;
 

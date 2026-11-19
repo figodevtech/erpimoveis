@@ -1,10 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import {
-  escapeTelegramHtml,
-  getTelegramEnvironment,
-  sendTelegramMessage,
-  TelegramApiError,
-} from "@/lib/integrations/telegram";
+import { escapeTelegramHtml, getTelegramEnvironment, sendTelegramMessage, TelegramApiError } from "@/lib/integrations/telegram";
 
 const RETRY_MINUTES = [1, 5, 15, 60, 180];
 
@@ -36,12 +31,13 @@ export async function processTelegramMarketplaceNotifications(params: {
   let sent = 0;
   let failed = 0;
   for (const notification of (data ?? []) as MarketplaceNotification[]) {
+    if (!notification.source_event_id.startsWith("SITE_ORDER:")) continue;
     const attempts = Number(notification.attempts ?? 1);
     try {
       const result = await sendTelegramMessage({
         chatId: Number(notification.chat_id),
         text: [
-          notification.source_event_id.startsWith("SITE_ORDER:") ? "🛒 <b>Site</b>" : "🛒 <b>Mercado Livre</b>",
+          "🛒 <b>Site</b>",
           `<b>${escapeTelegramHtml(notification.title)}</b>`,
           escapeTelegramHtml(notification.message),
         ].join("\n"),

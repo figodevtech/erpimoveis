@@ -3,56 +3,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import {
-  Clock,
-  Trash2Icon,
-  ChevronsRight,
-  ChevronRightIcon,
-  ChevronLeftIcon,
-  ChevronsLeft,
-  Loader2,
-  Loader,
-  Check,
-  CreditCard,
-  AlertCircle,
-  Package,
-  MoreHorizontal,
-  FileText,
-  Pencil,
-  UserRound,
-  Search,
-  Ban,
-  Undo2,
-  Send,
-  Wallet,
-} from "lucide-react";
+import { Clock, Trash2Icon, ChevronsRight, ChevronRightIcon, ChevronLeftIcon, ChevronsLeft, Loader2, Loader, Check, CreditCard, AlertCircle, Package, MoreHorizontal, FileText, Pencil, UserRound, Search, Ban, Undo2, Send, Wallet } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useState } from "react";
 import { useSession } from "next-auth/react";
 import { Pagination, VendaCanal, VendaResumo, vendaStatus } from "../types";
@@ -78,14 +35,7 @@ import { quantidadeFiltros, type VendasListFilters } from "@/lib/vendas/filtros"
 import { FASES_VENDA, type FaseVenda } from "@/lib/vendas/fase";
 import { VendasFiltros } from "./vendas-filtros";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
-import {
-  dadosParaFinanceiroDaVenda,
-  dadosParaFinanceiroVazios,
-  montarFormaPagamento,
-  montarPagamentosPrevistos,
-  validarDadosParaFinanceiro,
-  type DadosParaFinanceiro,
-} from "@/components/financeiro/dados-para-financeiro";
+import { dadosParaFinanceiroDaVenda, dadosParaFinanceiroVazios, montarFormaPagamento, montarPagamentosPrevistos, validarDadosParaFinanceiro, type DadosParaFinanceiro } from "@/components/financeiro/dados-para-financeiro";
 import { VendaConfirmacaoFields } from "@/components/vendas/venda-confirmacao-fields";
 
 interface VendasDataTableProps {
@@ -331,7 +281,7 @@ export default function VendasDataTable({
   const [orcamentoDialogOpen, setOrcamentoDialogOpen] = useState(false);
   const [orcamentoVendaId, setOrcamentoVendaId] = useState<number | null>(null);
   const [revertendoOrcamento, setRevertendoOrcamento] = useState(false);
-  const [syncingMercadoLivre, setSyncingMercadoLivre] = useState(false);
+
   const [pagamentoAberto, setPagamentoAberto] = useState(false);
   const [pagamentoVendaId, setPagamentoVendaId] = useState<number | null>(null);
   const config = useConfig();
@@ -551,32 +501,6 @@ export default function VendasDataTable({
     }
   };
 
-  const handleSyncMercadoLivre = async () => {
-    if (!canEdit) return;
-
-    setSyncingMercadoLivre(true);
-    try {
-      const response = await axios.post("/api/integracoes/mercadolivre/sync-orders", {
-        days: 15,
-        limit: 50,
-      });
-
-      const created = Number(response.data?.created ?? 0);
-      toast.success(created > 0 ? `${created} venda(s) importada(s) do Mercado Livre.` : "Nenhuma venda nova no Mercado Livre.");
-      handleGetVendas(1, pagination.limit, search, fase, filters);
-      fetchStatusCounts();
-    } catch (error) {
-      if (isAxiosError(error)) {
-        toast.error("Erro ao sincronizar Mercado Livre", {
-          description: error.response?.data?.error || "Tente novamente.",
-        });
-      } else {
-        toast.error("Erro ao sincronizar Mercado Livre");
-      }
-    } finally {
-      setSyncingMercadoLivre(false);
-    }
-  };
   return (
     <Card>
       <CardHeader className="border-b-2 pb-4">
@@ -633,22 +557,7 @@ export default function VendasDataTable({
               />
               {search && <Button type="button" size="sm" variant="ghost" className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-2 text-xs" onClick={() => setSearch("")} aria-label="Limpar busca">Limpar</Button>}
             </div>
-            {canEdit && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="bg-transparent hover:cursor-pointer"
-                onClick={handleSyncMercadoLivre}
-                disabled={syncingMercadoLivre}
-              >
-                {syncingMercadoLivre ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Package className="h-4 w-4" />
-                )}
-                Mercado Livre
-              </Button>
-            )}
+
             <Button
               variant={filters.apenasMinhas ? "default" : "outline"}
               size="sm"
