@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
+import { useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
 import Cards from "./components/cards";
 import SearchFilter from "./components/searchfilter";
@@ -15,8 +16,13 @@ const EntityDialog = dynamic(() => import("@/components/imobiliario/entity-dialo
   loading: () => <p role="status" className="p-3 text-sm">Carregando cadastro…</p>,
 });
 
+/** Abas do imóvel que um link pode abrir (qualquer outro valor cai na aba Geral). */
+const ABAS_POR_LINK = ["geral", "midia", "anexos", "publicacao", "disponibilidade", "reservas"];
+
 export default function ImoveisPage() {
   const { can, ready } = useModulePermission();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [imoveis, setImoveis] = useState<Imovel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -40,6 +46,25 @@ export default function ImoveisPage() {
 
   const [selectedId, setSelectedId] = useState<number | undefined>(undefined);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  // Aba inicial e remontagem do diálogo quando ele é aberto por link (notificação).
+  const [initialTab, setInitialTab] = useState<string | undefined>(undefined);
+  const [linkOpenCount, setLinkOpenCount] = useState(0);
+
+  // /imoveis?abrir=ID&aba=disponibilidade (link da central de notificações): abre o imóvel e
+  // limpa a URL, para fechar o diálogo ou recarregar a página não reabrir o mesmo cadastro.
+  const linkId = searchParams.get("abrir");
+  const linkTab = searchParams.get("aba");
+  useEffect(() => {
+    if (!linkId) return;
+    const id = Number(linkId);
+    if (Number.isSafeInteger(id) && id > 0) {
+      setInitialTab(linkTab && ABAS_POR_LINK.includes(linkTab) ? linkTab : undefined);
+      setSelectedId(id);
+      setIsDialogOpen(true);
+      setLinkOpenCount((count) => count + 1);
+    }
+    router.replace("/imoveis", { scroll: false });
+  }, [linkId, linkTab, router]);
 
   const requestSequence = useRef(0);
   const requestController = useRef<AbortController | null>(null);
@@ -125,6 +150,7 @@ export default function ImoveisPage() {
   };
 
   const handleOpenDialog = (id?: number) => {
+    setInitialTab(undefined);
     setSelectedId(id);
     setIsDialogOpen(true);
   };
@@ -196,9 +222,10 @@ export default function ImoveisPage() {
       {/* Diálogo de Cadastro / Edição */}
       {isDialogOpen ? (
         <EntityDialog
-          key={selectedId ?? "new"}
+          key={`${selectedId ?? "new"}-${linkOpenCount}`}
           kind="imoveis"
           id={selectedId}
+          initialTab={initialTab}
           open={isDialogOpen}
           onOpenChange={(open) => {
             setIsDialogOpen(open);

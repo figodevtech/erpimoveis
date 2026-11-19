@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -18,7 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Lookup, requestJson } from "./shared";
+import { requestJson, useRemote } from "./shared";
+import { DateChip, OccupancyCalendar, covers, monthStart, todayCivil } from "./availability-panel";
 import { type Entity, type ModuleKind, dateInput, money, titleCase } from "./model";
 import ProprietarioSelect from "@/app/(app)/components/proprietarioSelect";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
@@ -28,7 +28,7 @@ import ValueInput from "@/components/ui/value-input";
 import { ComodidadesField } from "./comodidades-field";
 import { AddressPlaceFields, placeKey } from "./address-fields";
 import { DecimalInput, IntegerInput } from "./numeric-inputs";
-import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { timeOptions } from "@/components/ui/date-time-picker";
 import {
   AlertCircle,
   Building2,
@@ -52,6 +52,15 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  documentoCanonico,
+  exibirDocumento,
+  exibirTelefone,
+  mascaraDocumento,
+  mascaraTelefone,
+  telefoneDigitos,
+  type TipoPessoa,
+} from "@/lib/format-contato";
 
 const statusOptionClass: Record<string, string> = {
   ATIVO:
@@ -240,6 +249,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
   };
 
   if (kind === "proprietarios") {
+    const tipoPessoa: TipoPessoa = value.tipopessoa === "JURIDICA" ? "JURIDICA" : "FISICA";
     return (
       <div className="space-y-6">
         {/* Card Topo com Avatar e Status (padrão customerDialogRegister) */}
@@ -309,7 +319,11 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
                 </Label>
                 <Select
                   value={value.tipopessoa ?? "FISICA"}
-                  onValueChange={(val) => set("tipopessoa", val)}
+                  // Como no cadastro de cliente: CPF não serve de CNPJ (nem o contrário), então
+                  // trocar o tipo limpa o documento para ser digitado com a máscara certa.
+                  onValueChange={(val) =>
+                    onChange({ ...value, tipopessoa: val, ...(val !== tipoPessoa ? { cpfcnpj: "" } : {}) })
+                  }
                   disabled={disabled}
                 >
                   <SelectTrigger className="h-10 sm:h-11">
@@ -342,12 +356,16 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
               <Label htmlFor="cpfcnpj" className="text-sm">
                 {value.tipopessoa === "JURIDICA" ? "CNPJ" : "CPF"} *
               </Label>
+              {/* Mostra com máscara e grava o canônico (só dígitos; CNPJ alfanumérico em maiúsculas). */}
               <Input
                 id="cpfcnpj"
                 disabled={disabled}
-                value={value.cpfcnpj || ""}
-                onChange={(e) => set("cpfcnpj", e.target.value)}
-                placeholder={value.tipopessoa === "JURIDICA" ? "00.000.000/0000-00" : "000.000.000-00"}
+                inputMode={tipoPessoa === "JURIDICA" ? "text" : "numeric"}
+                autoComplete="off"
+                maxLength={18}
+                value={mascaraDocumento(value.cpfcnpj, tipoPessoa)}
+                onChange={(e) => set("cpfcnpj", documentoCanonico(e.target.value, tipoPessoa))}
+                placeholder={tipoPessoa === "JURIDICA" ? "00.000.000/0000-00" : "000.000.000-00"}
               />
             </div>
 
@@ -389,9 +407,11 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
               <Input
                 id="telefone"
                 type="tel"
+                inputMode="tel"
                 disabled={disabled}
-                value={value.telefone || ""}
-                onChange={(e) => set("telefone", e.target.value)}
+                maxLength={15}
+                value={mascaraTelefone(value.telefone)}
+                onChange={(e) => set("telefone", telefoneDigitos(e.target.value))}
                 placeholder="(00) 00000-0000"
               />
             </div>
@@ -735,10 +755,10 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                       {value.proprietario?.cpfcnpj ? (
-                        <span>Documento: {value.proprietario.cpfcnpj}</span>
+                        <span>Documento: {exibirDocumento(value.proprietario.cpfcnpj)}</span>
                       ) : null}
                       {value.proprietario?.telefone ? (
-                        <span>Tel: {value.proprietario.telefone}</span>
+                        <span>Tel: {exibirTelefone(value.proprietario.telefone)}</span>
                       ) : null}
                       {value.proprietario?.email ? (
                         <span>{value.proprietario.email}</span>
@@ -811,33 +831,6 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
                 });
               }}
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm">Modalidades de Negociação</Label>
-            <div className="flex flex-wrap gap-4 pt-1">
-              {[
-                ["TEMPORADA", "Temporada"],
-                ["LOCACAO", "Locação mensal"],
-                ["VENDA", "Venda"],
-              ].map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2 text-sm hover:cursor-pointer touch-manipulation">
-                  <Checkbox
-                    disabled={disabled}
-                    checked={(value.modalidades ?? []).includes(key)}
-                    onCheckedChange={(checked) =>
-                      set(
-                        "modalidades",
-                        checked === true
-                          ? [...(value.modalidades ?? []), key]
-                          : (value.modalidades ?? []).filter((item: string) => item !== key)
-                      )
-                    }
-                  />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
           </div>
 
           <div className="space-y-2">
@@ -1043,13 +1036,13 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
         <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
           <div className="space-y-1">
             <p className="text-sm font-semibold">Tabela de Preços e Taxas</p>
-            <p className="text-xs text-muted-foreground">Configuração de valores padrões para cotações e contratos.</p>
+            <p className="text-xs text-muted-foreground">Valores padrões para as cotações das reservas.</p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
             <div className="space-y-2">
               <Label htmlFor="diaria" className="text-sm">
-                Diária Padrão <span className="text-xs text-muted-foreground">(Reservas de Temporada)</span>
+                Diária Padrão
               </Label>
               <ValueInput
                 id="diaria"
@@ -1062,41 +1055,11 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
                 className="h-10 sm:h-11"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="valor_locacao" className="text-sm">
-                Aluguel Mensal <span className="text-xs text-muted-foreground">(Locação de Longo Prazo)</span>
-              </Label>
-              <ValueInput
-                id="valor_locacao"
-                disabled={disabled}
-                allowEmpty
-                value={value.valor_locacao != null && value.valor_locacao !== "" ? Number(value.valor_locacao) : null}
-                onValueChange={(val) => set("valor_locacao", val)}
-                onEmpty={() => set("valor_locacao", null)}
-                placeholder="R$ 0,00"
-                className="h-10 sm:h-11"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="valor_venda" className="text-sm">
-                Valor de Venda 
-              </Label>
-              <ValueInput
-                id="valor_venda"
-                disabled={disabled}
-                allowEmpty
-                value={value.valor_venda != null && value.valor_venda !== "" ? Number(value.valor_venda) : null}
-                onValueChange={(val) => set("valor_venda", val)}
-                onEmpty={() => set("valor_venda", null)}
-                placeholder="R$ 0,00"
-                className="h-10 sm:h-11"
-              />
-            </div>
             {/* Sem taxa de limpeza fixa nem caução no imóvel: a limpeza é lançada na reserva,
                 como evento financeiro (custo da imobiliária ou despesa do proprietário). */}
             <div className="space-y-2">
               <Label htmlFor="percentual_admin" className="text-sm">
-                Taxa de Administração (%) <span className="text-xs text-muted-foreground">(Reservas )</span>
+                Taxa de Administração (%)
               </Label>
               <Input
                 id="percentual_admin"
@@ -1129,197 +1092,7 @@ export function GeneralFields({ kind, value, onChange, editing, disabled, onOpen
     );
   }
 
-  // Operações (Locações, Vendas)
-  return (
-    <div className="space-y-6">
-      <div className="rounded-lg border bg-card p-4 gap-3 flex flex-col">
-        <div className="space-y-1">
-          <p className="text-sm font-semibold">Dados da Operação</p>
-          <p className="text-xs text-muted-foreground">Defina os vínculos de imóvel e cliente.</p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-          <div className="space-y-2">
-            <Label className="text-sm">Imóvel Vinculado *</Label>
-            <Lookup
-              tipo="imoveis"
-              label=""
-              value={value.imovel_id}
-              initial={value.imovel}
-              disabled={Boolean(disabled || editing)}
-              onChange={(id, item) => onChange({ ...value, imovel_id: id, imovel: item })}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm">
-              {kind === "vendas-imobiliarias" ? "Comprador *" : "Cliente / Locatário *"}
-            </Label>
-            <Lookup
-              tipo="clientes"
-              label=""
-              value={kind === "vendas-imobiliarias" ? value.comprador_id : value.cliente_id}
-              initial={value.cliente ?? value.comprador}
-              disabled={Boolean(disabled || editing)}
-              onChange={(id) => set(kind === "vendas-imobiliarias" ? "comprador_id" : "cliente_id", id)}
-            />
-          </div>
-
-          {kind === "vendas-imobiliarias" ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="data_venda" className="text-sm">Data da Venda *</Label>
-                <Input
-                  id="data_venda"
-                  type="date"
-                  disabled={disabled}
-                  value={dateInput(value.data_venda)}
-                  onChange={(e) => set("data_venda", e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="valor_total" className="text-sm">Valor Negociado *</Label>
-                <ValueInput
-                  id="valor_total"
-                  disabled={disabled}
-                  allowEmpty
-                  value={value.valor_total != null && value.valor_total !== "" ? Number(value.valor_total) : null}
-                  onValueChange={(val) => set("valor_total", val)}
-                  onEmpty={() => set("valor_total", null)}
-                  placeholder="R$ 0,00"
-                  className="h-10 sm:h-11"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="comissao_percentual" className="text-sm">Comissão (%)</Label>
-                <Input
-                  id="comissao_percentual"
-                  type="number"
-                  step="0.01"
-                  disabled={disabled}
-                  value={value.comissao_percentual ?? ""}
-                  onChange={(e) => set("comissao_percentual", e.target.value === "" ? null : Number(e.target.value))}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm">Novo Proprietário</Label>
-                <Lookup
-                  tipo="proprietarios"
-                  label=""
-                  required={false}
-                  value={value.novo_proprietario_id}
-                  disabled={disabled}
-                  onChange={(id) => set("novo_proprietario_id", id)}
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="inicio" className="text-sm">
-                  Início do Contrato *
-                </Label>
-                <Input
-                  id="inicio"
-                  type="date"
-                  disabled={disabled}
-                  value={dateInput(value.inicio)}
-                  onChange={(e) => set("inicio", e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="fim" className="text-sm">
-                  Término do Contrato
-                </Label>
-                <Input
-                  id="fim"
-                  type="date"
-                  disabled={disabled}
-                  value={dateInput(value.fim)}
-                  onChange={(e) => set("fim", e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="valor_mensal" className="text-sm">Aluguel Mensal *</Label>
-                <ValueInput
-                  id="valor_mensal"
-                  disabled={disabled}
-                  allowEmpty
-                  value={value.valor_mensal != null && value.valor_mensal !== "" ? Number(value.valor_mensal) : null}
-                  onValueChange={(val) => set("valor_mensal", val)}
-                  onEmpty={() => set("valor_mensal", null)}
-                  placeholder="R$ 0,00"
-                  className="h-10 sm:h-11"
-                />
-              </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="dia_vencimento" className="text-sm">Dia do Vencimento *</Label>
-                    <Input
-                      id="dia_vencimento"
-                      type="number"
-                      min="1"
-                      max="28"
-                      disabled={disabled}
-                      value={value.dia_vencimento ?? 5}
-                      onChange={(e) => set("dia_vencimento", Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="indice_reajuste" className="text-sm">Índice de Reajuste</Label>
-                    <Input
-                      id="indice_reajuste"
-                      disabled={disabled}
-                      value={value.indice_reajuste ?? ""}
-                      onChange={(e) => set("indice_reajuste", e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="percentual_admin" className="text-sm">Administração (%)</Label>
-                    <Input
-                      id="percentual_admin"
-                      type="number"
-                      step="0.01"
-                      disabled={disabled}
-                      value={value.percentual_admin ?? ""}
-                      onChange={(e) => set("percentual_admin", e.target.value === "" ? null : Number(e.target.value))}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="caucao" className="text-sm">Caução</Label>
-                    <ValueInput
-                      id="caucao"
-                      disabled={disabled}
-                      allowEmpty
-                      value={value.caucao != null && value.caucao !== "" ? Number(value.caucao) : null}
-                      onValueChange={(val) => set("caucao", val)}
-                      onEmpty={() => set("caucao", null)}
-                      placeholder="R$ 0,00"
-                      className="h-10 sm:h-11"
-                    />
-                  </div>
-                </>
-              )}
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="observacoes" className="text-sm">Observações</Label>
-          <Textarea
-            id="observacoes"
-            disabled={disabled}
-            rows={3}
-            value={value.observacoes ?? ""}
-            onChange={(e) => set("observacoes", e.target.value)}
-            placeholder="Informações adicionais da operação..."
-          />
-        </div>
-      </div>
-    </div>
-  );
+  return null;
 }
 
 function formatDocument(val?: string | null): string {
@@ -1365,12 +1138,34 @@ function defaultHint(own: unknown, property: unknown, fallback: string) {
   return `Alterado nesta reserva (padrão do imóvel: ${padrao})`;
 }
 
-/** "2026-11-02" → "2026-11-03"; vazio continua vazio. */
-function nextDay(day: string) {
-  if (!day) return undefined;
-  const [year, month, date] = day.split("-").map(Number);
-  const next = new Date(year, month - 1, date + 1);
-  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+/** Horário de entrada ou saída da reserva, de meia em meia hora (como o seletor de data e hora). */
+function HorarioSelect({
+  id,
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger id={id} aria-label={label} title={label} className="h-[3.25rem] w-24 shrink-0 rounded-xl tabular-nums">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="max-h-64">
+        {timeOptions(value).map((option) => (
+          <SelectItem key={option} value={option} className="tabular-nums">
+            {option}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 /** Nome que abre o cadastro vinculado; segue clicável mesmo com o formulário bloqueado, pois só navega. */
@@ -1413,6 +1208,59 @@ function ReservationGeneralFields({
   // Sem horário próprio, a reserva mostra (e o banco grava) o padrão do imóvel.
   const checkin = hhmm(value.horario_checkin) || hhmm(imovel?.horario_checkin) || "14:00";
   const checkout = hhmm(value.horario_checkout) || hhmm(imovel?.horario_checkout) || "12:00";
+
+  // Disponibilidade do imóvel: o calendário aparece sempre e marca as ocupações quando há imóvel.
+  const imovelId = value.imovel_id ? Number(value.imovel_id) : null;
+  const reservaId = value.id ? Number(value.id) : null;
+  const ocupacao = useRemote<{ items?: Entity[] }>(imovelId ? `/api/imoveis/${imovelId}/disponibilidade` : null);
+  const tarifas = useRemote<{ items?: Entity[] }>(imovelId ? `/api/imoveis/${imovelId}/tarifas` : null);
+  // A ocupação da própria reserva não conta; dados de outro imóvel (troca em andamento) também não.
+  const ocupadas = useMemo(
+    () =>
+      (ocupacao.data?.items ?? []).filter(
+        (row) => Number(row.imovel_id) === imovelId && !(reservaId && Number(row.reserva_id) === reservaId)
+      ),
+    [ocupacao.data, imovelId, reservaId]
+  );
+  const tarifasDoImovel = useMemo(
+    () => (tarifas.data?.items ?? []).filter((row) => Number(row.imovel_id) === imovelId),
+    [tarifas.data, imovelId]
+  );
+  const disponibilidadeCarregada = Boolean(imovelId && ocupacao.data && !ocupacao.loading);
+  const inicio = dateInput(value.inicio) || null;
+  const fim = dateInput(value.fim) || null;
+  const [mes, setMes] = useState(() => monthStart(inicio ?? todayCivil()));
+  // Reserva carregada depois de abrir o diálogo: o calendário vai para o mês da entrada.
+  const mesAjustado = useRef(Boolean(inicio));
+  useEffect(() => {
+    if (inicio && !mesAjustado.current) {
+      mesAjustado.current = true;
+      setMes(monthStart(inicio));
+    }
+  }, [inicio]);
+
+  const noiteOcupada = (dia: string) => ocupadas.some((row) => covers(row, dia));
+  // Escolhendo a saída: vai até a primeira noite ocupada depois da entrada (a saída pode ser o
+  // dia em que outra reserva entra).
+  const limiteSaida =
+    inicio && !fim
+      ? ocupadas.map((row) => String(row.inicio)).filter((dia) => dia > inicio).sort()[0] ?? null
+      : null;
+  const diaIndisponivel = (dia: string) =>
+    inicio && !fim && dia > inicio ? Boolean(limiteSaida && dia > limiteSaida) : noiteOcupada(dia);
+  // 1º clique: entrada. 2º clique: saída (no dia da entrada ou antes, recomeça). Período fechado: recomeça.
+  const escolherDia = (dia: string) =>
+    onChange(!inicio || fim || dia <= inicio ? { ...value, inicio: dia, fim: "" } : { ...value, fim: dia });
+
+  // Datas escolhidas antes do imóvel que caem em período ocupado saem sem aviso.
+  useEffect(() => {
+    if (disabled || !disponibilidadeCarregada || !inicio) return;
+    const conflito = fim
+      ? ocupadas.some((row) => String(row.inicio) < fim && (!row.fim || String(row.fim) > inicio))
+      : ocupadas.some((row) => covers(row, inicio));
+    if (conflito) onChange({ ...value, inicio: "", fim: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled, disponibilidadeCarregada, ocupadas, inicio, fim]);
 
   // Fallback seguro caso imovel_id exista mas os detalhes ainda não tenham sido injetados
   useEffect(() => {
@@ -1466,7 +1314,7 @@ function ReservationGeneralFields({
               </h3>
             </div>
             <p className="text-xs text-muted-foreground">
-              Propriedade vinculada à estadia e parâmetros de locação.
+              Propriedade vinculada à estadia e parâmetros da hospedagem.
             </p>
           </div>
 
@@ -1624,7 +1472,7 @@ function ReservationGeneralFields({
               </h3>
             </div>
             <p className="text-xs text-muted-foreground">
-              Pessoa responsável pelo contrato de locação e titular da reserva.
+              Pessoa responsável pela hospedagem e titular da reserva.
             </p>
           </div>
 
@@ -1761,65 +1609,113 @@ function ReservationGeneralFields({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+          {/* Mesmo calendário da aba Disponibilidade do imóvel: 1º clique na entrada, 2º na saída. */}
           <div className="space-y-2">
-            <Label htmlFor="res-inicio" className="text-sm">
-              Data de Check-in *
-            </Label>
-            <DateTimePicker
-              id="res-inicio"
-              disabled={disabled}
-              date={dateInput(value.inicio)}
-              time={checkin}
-              onDateChange={(day) => set("inicio", day)}
-              onTimeChange={(hora) => set("horario_checkin", hora)}
-              placeholder="Selecione a entrada"
-              className="h-10 sm:h-11"
+            <OccupancyCalendar
+              month={mes}
+              onMonth={setMes}
+              rows={ocupadas}
+              tariffs={tarifasDoImovel}
+              selection={{ start: inicio, end: fim }}
+              onDayClick={disabled ? undefined : escolherDia}
+              isDayDisabled={diaIndisponivel}
+              allowPast
             />
-            <p className="text-[11px] text-muted-foreground">
-              {defaultHint(value.horario_checkin, imovel?.horario_checkin, "14:00")}
-            </p>
+            <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              {!imovelId ? (
+                <span className="flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 shrink-0" />
+                  Escolha o imóvel para ver os dias ocupados.
+                </span>
+              ) : ocupacao.error && !ocupacao.data ? (
+                <span className="flex items-center gap-1.5 text-destructive">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  Não foi possível carregar a disponibilidade.
+                  <button type="button" onClick={ocupacao.reload} className="font-semibold underline underline-offset-2 hover:cursor-pointer">
+                    Tentar de novo
+                  </button>
+                </span>
+              ) : !disponibilidadeCarregada ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                  Carregando a disponibilidade do imóvel…
+                </span>
+              ) : disabled ? (
+                <span />
+              ) : !inicio ? (
+                <span>Clique no dia da entrada e depois no dia da saída.</span>
+              ) : !fim ? (
+                <span>Agora clique no dia da saída.</span>
+              ) : (
+                <span />
+              )}
+              {inicio && !disabled ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-full px-3 text-xs text-muted-foreground hover:cursor-pointer"
+                  onClick={() => onChange({ ...value, inicio: "", fim: "" })}
+                >
+                  Limpar datas
+                </Button>
+              ) : null}
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="res-fim" className="text-sm">
-              Data de Check-out *
-            </Label>
-            <DateTimePicker
-              id="res-fim"
-              disabled={disabled}
-              date={dateInput(value.fim)}
-              time={checkout}
-              onDateChange={(day) => set("fim", day)}
-              onTimeChange={(hora) => set("horario_checkout", hora)}
-              // A saída é no mínimo um dia depois da entrada.
-              min={nextDay(dateInput(value.inicio))}
-              placeholder="Selecione a saída"
-              className="h-10 sm:h-11"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              {defaultHint(value.horario_checkout, imovel?.horario_checkout, "12:00")}
-            </p>
-          </div>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <DateChip label="Check-in *" date={inicio} placeholder="Escolha no calendário" />
+                <HorarioSelect
+                  id="res-horario-checkin"
+                  label="Horário de entrada"
+                  value={checkin}
+                  disabled={disabled}
+                  onChange={(hora) => set("horario_checkin", hora)}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {defaultHint(value.horario_checkin, imovel?.horario_checkin, "14:00")}
+              </p>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="res-hospedes" className="text-sm">
-              Quantidade de Hóspedes *
-            </Label>
-            <IntegerInput
-              id="res-hospedes"
-              fallback={1}
-              maxDigits={3}
-              disabled={disabled}
-              value={value.hospedes}
-              onChange={(n) => set("hospedes", n)}
-              className="h-10 sm:h-11"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              {imovel?.capacidade
-                ? `Capacidade máx: ${imovel.capacidade} hóspedes`
-                : "Total de pessoas hospedadas"}
-            </p>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <DateChip label="Check-out *" date={fim} placeholder="Escolha no calendário" />
+                <HorarioSelect
+                  id="res-horario-checkout"
+                  label="Horário de saída"
+                  value={checkout}
+                  disabled={disabled}
+                  onChange={(hora) => set("horario_checkout", hora)}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {defaultHint(value.horario_checkout, imovel?.horario_checkout, "12:00")}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="res-hospedes" className="text-sm">
+                Quantidade de Hóspedes *
+              </Label>
+              <IntegerInput
+                id="res-hospedes"
+                fallback={1}
+                maxDigits={3}
+                disabled={disabled}
+                value={value.hospedes}
+                onChange={(n) => set("hospedes", n)}
+                className="h-10 sm:h-11"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {imovel?.capacidade
+                  ? `Capacidade máx: ${imovel.capacidade} hóspedes`
+                  : "Total de pessoas hospedadas"}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -1885,7 +1781,6 @@ function ReservationGeneralFields({
       <ImovelSelect
         open={imovelSelectOpen}
         setOpen={setImovelSelectOpen}
-        modalidadePadrao="TEMPORADA"
         OnSelect={(selectedImovel) => {
           onChange({
             ...value,
@@ -1949,12 +1844,15 @@ function Phones({
             <Label className="text-sm">Telefone</Label>
             <Input
               disabled={disabled}
+              type="tel"
+              inputMode="tel"
+              maxLength={15}
               placeholder="(00) 00000-0000"
-              value={phone.telefone ?? ""}
+              value={mascaraTelefone(phone.telefone)}
               onChange={(event) =>
                 onChange(
                   value.map((item, position) =>
-                    position === index ? { ...item, telefone: event.target.value } : item
+                    position === index ? { ...item, telefone: telefoneDigitos(event.target.value) } : item
                   )
                 )
               }

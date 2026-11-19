@@ -85,11 +85,11 @@ export default function SearchFilter({
           <SelectItem value={SituacaoImovel.RESERVADO} className="hover:cursor-pointer">
             Reservado
           </SelectItem>
-          <SelectItem value={SituacaoImovel.ALUGADO} className="hover:cursor-pointer">
-            Alugado
+          <SelectItem value={SituacaoImovel.OCUPADO} className="hover:cursor-pointer">
+            Ocupado (hóspede no imóvel)
           </SelectItem>
-          <SelectItem value={SituacaoImovel.VENDIDO} className="hover:cursor-pointer">
-            Vendido
+          <SelectItem value={SituacaoImovel.LIMPEZA} className="hover:cursor-pointer">
+            Limpeza pendente
           </SelectItem>
           <SelectItem value={SituacaoImovel.INATIVO} className="hover:cursor-pointer">
             Inativo

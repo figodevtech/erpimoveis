@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { useConfig } from "@/app/(app)/(pages)/config-context";
 import {
   AlertTriangle,
   ArrowRight,
@@ -58,14 +59,13 @@ const addDays = (date: string, days: number) => {
 };
 const daysBetween = (from: string, to: string) =>
   Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
-const todayCivil = () => new Date().toLocaleDateString("en-CA");
-const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
+export const todayCivil = () => new Date().toLocaleDateString("en-CA");
+export const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 // soft: dia ocupado no calendário (tom claro, legível com a faixa de seleção por cima); dot: marcador e lista.
 const KINDS: Record<string, { label: string; soft: string; dot: string }> = {
   RESERVA: { label: "Reserva", soft: "bg-sky-500/15 text-sky-800 dark:text-sky-300", dot: "bg-sky-500" },
-  LOCACAO: { label: "Locação", soft: "bg-amber-500/20 text-amber-900 dark:text-amber-300", dot: "bg-amber-500" },
   BLOQUEIO: { label: "Bloqueio", soft: "bg-slate-500/20 text-slate-700 dark:text-slate-300", dot: "bg-slate-500" },
   MANUTENCAO: { label: "Manutenção", soft: "bg-orange-500/20 text-orange-800 dark:text-orange-300", dot: "bg-orange-600" },
 };
@@ -73,8 +73,8 @@ const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 const kindOf = (row: Entity) => String(row.tipo ?? row.origem ?? "").toUpperCase();
 const isBlock = (row: Entity) => ["BLOQUEIO", "MANUTENCAO"].includes(kindOf(row)) || Boolean(row.bloqueio_id);
-/** Ocupa a noite `day`? (início incluso, fim exclusivo; locação sem fim segue aberta). */
-const covers = (row: Entity, day: string) => row.inicio <= day && (!row.fim || day < row.fim);
+/** Ocupa a noite `day`? (início incluso, fim exclusivo; sem fim segue aberta). */
+export const covers = (row: Entity, day: string) => row.inicio <= day && (!row.fim || day < row.fim);
 
 function periodText(row: Entity) {
   if (isBlock(row)) {
@@ -91,13 +91,15 @@ function periodText(row: Entity) {
 const shortDay = (date: string) =>
   new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
 
-function OccupancyCalendar({
+export function OccupancyCalendar({
   month,
   onMonth,
   rows,
   tariffs,
   selection,
   onDayClick,
+  isDayDisabled,
+  allowPast = false,
 }: {
   month: string;
   onMonth: (month: string) => void;
@@ -107,6 +109,10 @@ function OccupancyCalendar({
   selection?: { start: string | null; end: string | null };
   /** Sem ele o calendário só mostra (perfil sem edição). */
   onDayClick?: (day: string) => void;
+  /** Dias que não podem ser escolhidos agora (na reserva: noites ocupadas, saída depois de uma ocupação). */
+  isDayDisabled?: (day: string) => boolean;
+  /** Na reserva dá para registrar uma estadia que já começou; no painel, o passado não se escolhe. */
+  allowPast?: boolean;
 }) {
   const today = todayCivil();
   // Enquanto falta o fim, o intervalo acompanha o mouse para mostrar o que será escolhido.
@@ -190,7 +196,7 @@ function OccupancyCalendar({
           const tariff = tariffs.find((t) => t.ativo !== false && covers(t, day));
           const kind = occupation ? KINDS[kindOf(occupation)] ?? KINDS.BLOQUEIO : null;
           const past = day < today;
-          const pickable = Boolean(onDayClick) && !past;
+          const pickable = Boolean(onDayClick) && (allowPast || !past) && !isDayDisabled?.(day);
           const inRange = Boolean(start && end && day >= start && day <= end);
           const isStart = day === start;
           const isEnd = Boolean(end && day === end);
@@ -235,7 +241,7 @@ function OccupancyCalendar({
                   "relative z-10 mx-auto flex h-10 w-10 flex-col items-center justify-center rounded-full text-[13px] tabular-nums outline-none transition-[background-color,color,box-shadow,transform] duration-200 ease-out",
                   "focus-visible:ring-2 focus-visible:ring-primary/50",
                   kind && !edge ? kind.soft : "text-foreground",
-                  past && "text-muted-foreground/40",
+                  past && !edge && (allowPast ? "text-muted-foreground" : "text-muted-foreground/40"),
                   past && kind && "opacity-50",
                   pickable ? "hover:cursor-pointer" : "cursor-default",
                   pickable && !edge && "hover:bg-primary/10 hover:text-foreground",
@@ -276,7 +282,7 @@ function OccupancyCalendar({
   );
 }
 
-function DateChip({ label, date, placeholder }: { label: string; date: string | null; placeholder?: string }) {
+export function DateChip({ label, date, placeholder }: { label: string; date: string | null; placeholder?: string }) {
   return (
     <div
       className={cn(
@@ -472,7 +478,7 @@ function RangeActions({
                 {conflicts
                   .map((row) => {
                     const kind = (KINDS[kindOf(row)] ?? KINDS.BLOQUEIO).label.toLowerCase();
-                    const id = row.reserva_id ? ` #${row.reserva_id}` : row.locacao_id ? ` #${row.locacao_id}` : "";
+                    const id = row.reserva_id ? ` #${row.reserva_id}` : "";
                     return `${kind}${id}`;
                   })
                   .join(", ")}
@@ -526,7 +532,7 @@ function ConfirmRemoval({
           <AlertDialogTitle>{isBlock ? "Liberar este período?" : "Excluir esta tarifa?"}</AlertDialogTitle>
           <AlertDialogDescription>
             {isBlock
-              ? "Os dias voltam a ficar disponíveis para novas reservas e locações, no site e no ERP."
+              ? "Os dias voltam a ficar disponíveis para novas reservas, no site e no ERP."
               : "As próximas cotações voltam a usar a diária padrão do imóvel nessas noites. Reservas já feitas não mudam."}
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -588,15 +594,12 @@ type TariffForm = {
   reserva_exclusiva: boolean;
 };
 
-/** Situação da reserva ou locação: cor e ícone por estado, legível de relance. */
+/** Situação da reserva: cor e ícone por estado, legível de relance. */
 const OPERATION_STATUS: Record<string, { label: string; icon: React.ElementType; className: string; pulse?: boolean }> = {
   CONFIRMADA: { label: "Confirmada", icon: CalendarCheck, className: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300" },
   EM_ANDAMENTO: { label: "Hospedado", icon: DoorOpen, className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", pulse: true },
   CONCLUIDA: { label: "Concluída", icon: CheckCircle2, className: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300" },
   CANCELADA: { label: "Cancelada", icon: XCircle, className: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300" },
-  RASCUNHO: { label: "Rascunho", icon: Pencil, className: "border-border bg-muted text-muted-foreground" },
-  ATIVA: { label: "Ativa", icon: CheckCircle2, className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300", pulse: true },
-  ENCERRADA: { label: "Encerrada", icon: CheckCircle2, className: "border-slate-500/30 bg-slate-500/10 text-slate-700 dark:text-slate-300" },
 };
 
 /** Situação do pagamento da reserva. */
@@ -644,8 +647,8 @@ const initials = (name: string) =>
     .join("") || "?";
 
 /**
- * Reserva ou locação do mês: quem está, quanto vale, em que situação, e o atalho para abrir.
- * Hóspede e valor só chegam para quem pode ver aquele módulo; sem eles, fica o período.
+ * Reserva do mês: quem está, quanto vale, em que situação, e o atalho para abrir.
+ * Hóspede e valor só chegam para quem pode ver reservas; sem eles, fica o período.
  */
 function OperationCard({
   row,
@@ -654,20 +657,17 @@ function OperationCard({
 }: {
   row: Entity;
   kind: { label: string; dot: string };
-  onOpen?: (kind: "reservas" | "locacoes-imobiliarias", id: number) => void;
+  onOpen?: (kind: "reservas", id: number) => void;
 }) {
-  const reserva = Boolean(row.reserva_id);
-  const operacao: Entity | null = (reserva ? row.reserva : row.locacao) ?? null;
-  const id = Number(row.reserva_id ?? row.locacao_id);
+  const operacao: Entity | null = row.reserva ?? null;
+  const id = Number(row.reserva_id);
   const pessoa: string | undefined = operacao?.cliente?.nomerazaosocial;
-  const valor = reserva ? operacao?.valor_total : operacao?.valor_mensal;
+  const valor = operacao?.valor_total;
   const status = String(operacao?.status ?? "");
   const pagamento = String(operacao?.financeiro_status ?? "");
-  const abrir = onOpen && operacao ? () => onOpen(reserva ? "reservas" : "locacoes-imobiliarias", id) : undefined;
-  const accent = reserva ? "before:bg-sky-500" : "before:bg-amber-500";
-  const avatar = reserva
-    ? "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300"
-    : "bg-amber-500/10 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300";
+  const abrir = onOpen && operacao ? () => onOpen("reservas", id) : undefined;
+  const accent = "before:bg-sky-500";
+  const avatar = "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300";
 
   return (
     <div
@@ -692,7 +692,7 @@ function OperationCard({
                 <span className="font-mono">
                   {kind.label} #{id}
                 </span>
-                {reserva && operacao?.hospedes ? (
+                {operacao?.hospedes ? (
                   <span className="inline-flex items-center gap-1">
                     · <Users className="h-3 w-3" /> {plural(Number(operacao.hospedes), "hóspede", "hóspedes")}
                   </span>
@@ -702,7 +702,7 @@ function OperationCard({
             {valor != null ? (
               <div className="shrink-0 text-right">
                 <p className="text-base font-bold leading-tight tabular-nums text-foreground">{money(valor)}</p>
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{reserva ? "Total" : "Por mês"}</p>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</p>
               </div>
             ) : null}
           </div>
@@ -724,7 +724,7 @@ function OperationCard({
               onClick={abrir}
               className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-full bg-primary/10 px-3.5 text-xs font-semibold text-primary transition-all duration-200 hover:cursor-pointer hover:bg-primary hover:text-primary-foreground hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.97]"
             >
-              Abrir {reserva ? "reserva" : "locação"}
+              Abrir reserva
               <ArrowUpRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </button>
           ) : null}
@@ -742,8 +742,8 @@ export function AvailabilityPanel({
 }: {
   item: Entity;
   editable: boolean;
-  /** Abre o diálogo da reserva ou locação a partir da lista do mês. */
-  onOpenOperation?: (kind: "reservas" | "locacoes-imobiliarias", id: number) => void;
+  /** Abre o diálogo da reserva a partir da lista do mês. */
+  onOpenOperation?: (kind: "reservas", id: number) => void;
   /** Muda quando uma operação aberta daqui é salva: recarrega sem perder o mês exibido. */
   versao?: number;
 }) {
@@ -941,7 +941,7 @@ export function AvailabilityPanel({
               </p>
               {monthRows.map((row, index) => {
                 const kind = KINDS[kindOf(row)] ?? KINDS.BLOQUEIO;
-                if (!isBlock(row) && (row.reserva_id || row.locacao_id)) {
+                if (!isBlock(row) && row.reserva_id) {
                   return (
                     <OperationCard
                       key={row.id ?? index}
@@ -957,7 +957,7 @@ export function AvailabilityPanel({
                       <p className="flex items-center gap-2 text-sm font-medium text-foreground">
                         <span className={cn("h-2.5 w-2.5 shrink-0 rounded-sm", kind.dot)} />
                         {kind.label}
-                        {row.reserva_id ? ` · Reserva #${row.reserva_id}` : row.locacao_id ? ` · Locação #${row.locacao_id}` : ""}
+                        {row.reserva_id ? ` · Reserva #${row.reserva_id}` : ""}
                       </p>
                       <p className="text-xs text-muted-foreground">{periodText(row)}</p>
                       {row.motivo ? <p className="text-xs text-muted-foreground line-clamp-2">{row.motivo}</p> : null}
@@ -1260,7 +1260,7 @@ function BlockDialog({
       open
       onOpenChange={(open) => !open && onClose()}
       title="Bloquear período"
-      description="Os dias escolhidos ficam indisponíveis para novas reservas e locações."
+      description="Os dias escolhidos ficam indisponíveis para novas reservas."
       className={DIALOG_CLASS}
       footer={
         <ShellFooter
@@ -1580,7 +1580,9 @@ function groupNights(nights: { date: string; amount: number }[], tariffs: Entity
 /** Mesma cotação da reserva: diárias noite a noite (com tarifas), taxa de limpeza e total. */
 function QuoteSimulator({ item, tariffs, request }: { item: Entity; tariffs: Entity[]; request: SimulationRequest | null }) {
   const today = todayCivil();
-  const minNights = Math.max(1, Number(item.min_noites) || 1);
+  // O maior entre o mínimo geral (Configurações > Geral) e o do imóvel; tarifas aparecem na simulação.
+  const minimoGeral = Number(useConfig()?.reserva_min_noites) || 1;
+  const minNights = Math.max(1, Number(item.min_noites) || 1, minimoGeral);
   const capacity = Math.max(1, Number(item.capacidade) || 1);
   const [form, setForm] = useState({ inicio: today, fim: addDays(today, minNights), hospedes: 1 });
   const [loading, setLoading] = useState(false);
@@ -1688,7 +1690,7 @@ function QuoteSimulator({ item, tariffs, request }: { item: Entity; tariffs: Ent
             {nightsCount ? (
               <span className="mr-2 rounded-full bg-primary/10 px-2.5 py-1 font-semibold text-primary">{plural(nightsCount, "noite", "noites")}</span>
             ) : null}
-            Mínimo do imóvel: {plural(minNights, "noite", "noites")} · até {plural(capacity, "hóspede", "hóspedes")}
+            Mínimo: {plural(minNights, "noite", "noites")} · até {plural(capacity, "hóspede", "hóspedes")}
           </p>
           <Button type="button" onClick={() => simulate()} disabled={loading || !nightsCount} className="h-10 gap-2 rounded-xl px-5 hover:cursor-pointer">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
@@ -1712,7 +1714,7 @@ function QuoteSimulator({ item, tariffs, request }: { item: Entity; tariffs: Ent
               <CalendarX className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <p className="font-semibold">Período indisponível</p>
-                <p className="text-xs">Já existe reserva, locação ou bloqueio nessas datas. Veja no calendário acima.</p>
+                <p className="text-xs">Já existe reserva ou bloqueio nessas datas. Veja no calendário acima.</p>
               </div>
             </div>
           ) : (

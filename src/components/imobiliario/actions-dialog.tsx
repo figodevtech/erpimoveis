@@ -3,26 +3,23 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useOptionalConfig } from "@/app/(app)/(pages)/config-context";
 import {
   EntityShell,
-  Field,
-  Lookup,
-  RemoteState,
-  SelectField,
   StatusBadge,
   requestJson,
-  useRemote,
 } from "./shared";
+import { ResponsavelLimpezaSelect } from "./responsavel-limpeza-select";
 import {
   type Entity,
   type ModuleKind,
   clientName,
-  dateInput,
   dateLabel,
   endpoint,
   money,
@@ -43,6 +40,7 @@ import {
   Loader2,
   LogOut,
   Receipt,
+  Sparkles,
   User,
   Users,
   WalletCards,
@@ -59,6 +57,15 @@ function getNights(inicio?: string | null, fim?: string | null): number | null {
   return isNaN(diffDays) || diffDays <= 0 ? null : diffDays;
 }
 
+/** Momento gravado (timestamptz) como dia e hora no fuso do imobiliário, para o seletor. */
+function noFusoImobiliario(iso: string) {
+  const momento = new Date(iso);
+  return {
+    data: momento.toLocaleDateString("en-CA", { timeZone: "America/Fortaleza" }),
+    hora: momento.toLocaleTimeString("pt-BR", { timeZone: "America/Fortaleza", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
+  };
+}
+
 export function OperationAction({
   kind,
   item,
@@ -72,19 +79,26 @@ export function OperationAction({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  // EDITAR_*: o mesmo diálogo, aberto pela aba Check-in / Check-out com o que já foi registrado.
+  const editando = action === "EDITAR_CHECKIN" || action === "EDITAR_CHECKOUT";
+  const isReservaCancel = kind === "reservas" && action === "CANCELAR";
+  const isReservaCheckin = kind === "reservas" && (action === "CHECKIN" || action === "EDITAR_CHECKIN");
+  const isReservaCheckout = kind === "reservas" && (action === "CHECKOUT" || action === "EDITAR_CHECKOUT");
+  const registrado: string | null = editando ? (isReservaCheckin ? item.checkin_em : item.checkout_em) ?? null : null;
+  // Limpeza que este check-out já pediu (vem da aba). Concluída, não muda mais por aqui.
+  const limpezaRegistrada: Entity | null = editando && isReservaCheckout ? item.limpeza ?? null : null;
+  const limpezaConcluida = limpezaRegistrada?.status === "CONCLUIDA";
+
   const [data, setData] = useState<Entity>({
-    motivo: "",
+    motivo: editando ? (isReservaCheckin ? item.checkin_observacoes : item.checkout_observacoes) ?? "" : "",
     tratamento_pendentes: "CANCELAR_PENDENTES",
     tratamento_recebidos: "ESTORNAR",
-    percentual: "",
-    inicio: dateInput(item.proximo_reajuste),
-    fim: new Date().toLocaleDateString("en-CA"),
-    competencia_inicio: "",
-    competencia_fim: "",
   });
   // Momento da entrada/saída: começa no agora e pode voltar no tempo, para registrar depois
-  // uma entrada que já aconteceu. O banco lê no fuso do imobiliário e recusa o futuro.
+  // uma entrada que já aconteceu. Na edição, começa no que foi registrado. O banco lê no fuso
+  // do imobiliário e recusa o futuro.
   const [momento, setMomento] = useState(() => {
+    if (registrado) return noFusoImobiliario(registrado);
     const agora = new Date();
     return {
       data: agora.toLocaleDateString("en-CA"),
@@ -93,38 +107,28 @@ export function OperationAction({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [decisions, setDecisions] = useState<Record<string, Entity>>({});
-  const [reviewed, setReviewed] = useState(false);
-  const concluding = kind === "vendas-imobiliarias" && action === "CONCLUIR";
-  const operations = useRemote(
-    concluding ? `/api/imoveis/${item.imovel_id}/disponibilidade?inicio=${dateInput(item.data_venda)}` : null
+  // Limpeza do check-out: os padrões vêm de Configurações > Geral; o operador muda na hora.
+  // Na edição, começa com a limpeza que a saída pediu (ou desmarcada, se não pediu).
+  // Sem a migration 20261118120000 a configuração não traz o campo e o banco não abriria a limpeza.
+  const config = useOptionalConfig();
+  const limpezaDisponivel = typeof config?.limpeza_sempre_solicitar === "boolean";
+  const [limpeza, setLimpeza] = useState(() =>
+    editando
+      ? {
+          solicitar: Boolean(limpezaRegistrada && limpezaRegistrada.status !== "CANCELADA"),
+          responsavel: limpezaRegistrada?.responsavel?.id ?? (limpezaRegistrada ? null : config?.limpeza_responsavel_padrao_id ?? null),
+          descricao: limpezaRegistrada?.descricao ?? "",
+        }
+      : {
+          solicitar: limpezaDisponivel && config?.limpeza_sempre_solicitar === true,
+          responsavel: config?.limpeza_responsavel_padrao_id ?? null,
+          descricao: "",
+        }
   );
-
-  const entries: Entity[] = (operations.data?.items ?? [])
-    .filter((row: Entity) => {
-      const type = String(row.tipo ?? row.origem ?? row.tipo_origem ?? "").toUpperCase();
-      return (
-        (row.reserva_id || row.locacao_id || type.includes("RESERVA") || type.includes("LOCACAO")) &&
-        !["CANCELADA", "ENCERRADA", "CONCLUIDA"].includes(row.status) &&
-        (!row.fim || dateInput(row.fim) > dateInput(item.data_venda))
-      );
-    })
-    .map((row: Entity) => ({
-      ...row,
-      tipo: row.reserva_id
-        ? "RESERVA"
-        : row.locacao_id
-        ? "LOCACAO"
-        : String(row.tipo ?? row.origem ?? row.tipo_origem).toUpperCase().includes("RESERVA")
-        ? "RESERVA"
-        : "LOCACAO",
-      id: row.reserva_id ?? row.locacao_id ?? row.origem_id ?? row.id,
-    }));
-
-  const isReservaCancel = kind === "reservas" && action === "CANCELAR";
-  const isReservaCheckin = kind === "reservas" && action === "CHECKIN";
-  const isReservaCheckout = kind === "reservas" && action === "CHECKOUT";
-  const destructive = action === "CANCELAR" || action === "ENCERRAR";
+  const limpezaPendente = isReservaCheckin && !editando && item.imovel?.situacao_operacional === "LIMPEZA";
+  // Limpeza pendente que será cancelada se o operador desmarcar na edição.
+  const cancelaLimpeza = editando && limpezaRegistrada?.status === "PENDENTE" && !limpeza.solicitar;
+  const destructive = action === "CANCELAR";
   const nights = getNights(item.inicio, item.fim);
 
   const set = (key: string, value: unknown) => setData((current) => ({ ...current, [key]: value }));
@@ -137,29 +141,20 @@ export function OperationAction({
   ) : isReservaCheckin ? (
     <div className="flex items-center gap-2 text-primary">
       <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-      <span>Registrar Check-in da Reserva</span>
+      <span>{editando ? "Editar Check-in da Reserva" : "Registrar Check-in da Reserva"}</span>
     </div>
   ) : isReservaCheckout ? (
     <div className="flex items-center gap-2 text-primary">
       <LogOut className="h-5 w-5 shrink-0 text-sky-600 dark:text-sky-400" />
-      <span>Registrar Check-out da Reserva</span>
+      <span>{editando ? "Editar Check-out da Reserva" : "Registrar Check-out da Reserva"}</span>
     </div>
   ) : destructive ? (
     <div className="flex items-center gap-2 text-destructive">
       <XCircle className="h-5 w-5 shrink-0" />
-      <span>
-        {action === "ENCERRAR" ? "Encerrar Contrato de Locação" : "Cancelar Operação"}
-      </span>
+      <span>Cancelar Operação</span>
     </div>
   ) : (
-    <span>
-      {({
-        GERAR_COBRANCAS: "Gerar cobranças mensais",
-        REAJUSTAR: "Reajustar valor do contrato",
-        ATIVAR: "Ativar contrato de locação",
-        CONCLUIR: "Concluir venda imobiliária",
-      } as Record<string, string>)[action] ?? titleCase(action)}
-    </span>
+    <span>{titleCase(action)}</span>
   );
 
   const headerDescription = isReservaCancel
@@ -177,18 +172,6 @@ export function OperationAction({
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (concluding && (operations.loading || operations.error)) {
-      setError("Carregue todas as operações antes de concluir.");
-      return;
-    }
-    if (concluding && entries.some((row) => !decisions[`${row.tipo}-${row.id}`]?.decisao)) {
-      setError("Defina o destino de cada reserva e locação ativa do imóvel.");
-      return;
-    }
-    if (concluding && !reviewed) {
-      setError("Revise o resumo das decisões e confirme a conclusão da venda.");
-      return;
-    }
     if ((isReservaCheckin || isReservaCheckout) && (!momento.data || !momento.hora)) {
       setError(`Informe a data e a hora do ${isReservaCheckin ? "check-in" : "check-out"}.`);
       return;
@@ -197,34 +180,43 @@ export function OperationAction({
     setBusy(true);
     setError("");
     try {
-      const operacoes = entries.map((row) => ({
-        tipo: row.tipo,
-        id: row.id,
-        ...decisions[`${row.tipo}-${row.id}`],
-      }));
       await requestJson(`${endpoint(kind, item.id)}/acoes`, {
         method: "POST",
         body: JSON.stringify({
           acao: action,
           ...data,
-          ...(concluding ? { operacoes, decisoes: operacoes } : {}),
-          ...(isReservaCheckin || isReservaCheckout ? { data_registro: momento.data, hora_registro: momento.hora } : {}),
+          ...(isReservaCheckin || isReservaCheckout
+            ? { data_registro: momento.data, hora_registro: momento.hora, observacoes: data.motivo?.trim() || null }
+            : {}),
+          // Na edição, a limpeza só vai quando pode mudar (sem migration ou já concluída, fica como está).
+          ...(isReservaCheckout && (!editando || (limpezaDisponivel && !limpezaConcluida))
+            ? {
+                solicitar_limpeza: limpeza.solicitar,
+                responsavel_limpeza_id: limpeza.solicitar ? limpeza.responsavel : null,
+                descricao_limpeza: limpeza.solicitar ? limpeza.descricao.trim() || null : null,
+              }
+            : {}),
           tratamento_financeiro: data.tratamento_recebidos || undefined,
         }),
       });
       toast.success(
         isReservaCancel
           ? "Reserva cancelada com sucesso!"
+          : editando
+          ? isReservaCheckin
+            ? "Check-in atualizado"
+            : "Check-out atualizado"
           : isReservaCheckin
           ? "Check-in registrado com sucesso!"
           : isReservaCheckout
-          ? "Check-out registrado com sucesso!"
+          ? limpeza.solicitar
+            ? "Check-out registrado e limpeza solicitada!"
+            : "Check-out registrado com sucesso!"
           : "Ação registrada com sucesso!"
       );
       onSaved();
     } catch (error) {
       setError((error as Error).message);
-      operations.reload();
     } finally {
       setBusy(false);
     }
@@ -239,7 +231,11 @@ export function OperationAction({
       title={titleNode}
       description={headerDescription}
       badge={headerBadges}
-      className="p-0 overflow-hidden flex flex-col w-[95vw] max-w-2xl max-h-[90vh] sm:rounded-2xl"
+      // O DialogContent traz sm:max-w-lg; o check-out (data, limpeza, responsável, descrição) usa mais largura no desktop.
+      className={cn(
+        "p-0 overflow-hidden flex flex-col w-[95vw] max-w-2xl max-h-[90vh] sm:rounded-2xl",
+        isReservaCheckout && "sm:max-w-3xl"
+      )}
       footer={
         <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 w-full">
           <Button
@@ -256,11 +252,7 @@ export function OperationAction({
             type="submit"
             form="operation-action"
             variant={destructive ? "destructive" : "default"}
-            disabled={
-              busy ||
-              (concluding && (operations.loading || Boolean(operations.error))) ||
-              (destructive && !data.motivo?.trim())
-            }
+            disabled={busy || (destructive && !data.motivo?.trim())}
             className="h-11 sm:h-9 text-xs sm:text-sm gap-2 font-semibold hover:cursor-pointer shadow-xs w-full sm:w-auto"
           >
             {busy ? (
@@ -269,6 +261,8 @@ export function OperationAction({
                 <span>
                   {isReservaCancel
                     ? "Cancelando reserva…"
+                    : editando
+                    ? "Salvando alterações…"
                     : isReservaCheckin
                     ? "Registrando entrada…"
                     : isReservaCheckout
@@ -280,6 +274,11 @@ export function OperationAction({
               <>
                 <XCircle className="h-4 w-4 shrink-0" />
                 <span>Confirmar Cancelamento da Reserva</span>
+              </>
+            ) : editando ? (
+              <>
+                <Check className="h-4 w-4 shrink-0" />
+                <span>Salvar alterações</span>
               </>
             ) : isReservaCheckin ? (
               <>
@@ -294,12 +293,8 @@ export function OperationAction({
             ) : destructive ? (
               <>
                 <XCircle className="h-4 w-4 shrink-0" />
-                <span>
-                  {action === "ENCERRAR" ? "Confirmar Encerramento" : "Confirmar Cancelamento"}
-                </span>
+                <span>Confirmar Cancelamento</span>
               </>
-            ) : concluding && !reviewed ? (
-              <span>Revisar conclusão</span>
             ) : (
               <span>Confirmar ação</span>
             )}
@@ -310,14 +305,7 @@ export function OperationAction({
       <form
         id="operation-action"
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-4 sm:space-y-5"
-        onSubmit={(event) => {
-          if (concluding && !reviewed) {
-            event.preventDefault();
-            if (event.currentTarget.reportValidity()) setReviewed(true);
-          } else {
-            void submit(event);
-          }
-        }}
+        onSubmit={(event) => void submit(event)}
       >
         {/* ========================================================================= */}
         {/* CARD DE RESUMO DA RESERVA / OPERAÇÃO                                      */}
@@ -405,6 +393,17 @@ export function OperationAction({
               </p>
             </div>
           </div>
+        ) : editando ? (
+          <div className="flex items-start gap-3 rounded-xl border border-primary/25 bg-primary/5 p-3.5 sm:p-4 text-xs sm:text-sm text-foreground">
+            <Clock className="h-5 w-5 shrink-0 mt-0.5 text-primary" />
+            <div className="space-y-1">
+              <p className="font-semibold">Correção do {isReservaCheckin ? "check-in" : "check-out"}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Os dados registrados serão corrigidos. A situação da reserva não muda e o registro continua em nome de quem
+                o fez; a alteração fica na auditoria.
+              </p>
+            </div>
+          </div>
         ) : isReservaCheckin ? (
           <div className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 sm:p-4 text-xs sm:text-sm text-emerald-800 dark:text-emerald-300">
             <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
@@ -421,7 +420,22 @@ export function OperationAction({
             <div className="space-y-1">
               <p className="font-semibold">Confirmação de Check-out</p>
               <p className="text-xs leading-relaxed">
-                O término da hospedagem será registrado oficialmente, concluindo a reserva e liberando o imóvel no calendário para limpeza e novas estadias.
+                O término da hospedagem será registrado oficialmente e a reserva será concluída.
+                {limpeza.solicitar
+                  ? <> O imóvel fica em <strong>LIMPEZA</strong> até a limpeza ser concluída.</>
+                  : null}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        {limpezaPendente ? (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 sm:p-4 text-xs sm:text-sm text-amber-800 dark:text-amber-300">
+            <Sparkles className="h-5 w-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+            <div className="space-y-1">
+              <p className="font-semibold">Limpeza pendente neste imóvel</p>
+              <p className="text-xs leading-relaxed">
+                A limpeza da última saída ainda não foi concluída. Você pode registrar o check-in mesmo assim.
               </p>
             </div>
           </div>
@@ -439,7 +453,9 @@ export function OperationAction({
               </p>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Já vem com o momento atual. Ajuste para registrar uma {isReservaCheckin ? "entrada" : "saída"} que já aconteceu.
+              {editando
+                ? `Vem com o momento registrado. Ajuste para corrigir a ${isReservaCheckin ? "entrada" : "saída"}.`
+                : `Já vem com o momento atual. Ajuste para registrar uma ${isReservaCheckin ? "entrada" : "saída"} que já aconteceu.`}
             </p>
             <DateTimePicker
               id="momento-registro"
@@ -447,9 +463,14 @@ export function OperationAction({
               time={momento.hora}
               onDateChange={(dia) => setMomento((atual) => ({ ...atual, data: dia }))}
               onTimeChange={(hora) => setMomento((atual) => ({ ...atual, hora }))}
-              // Registra-se o que já aconteceu; a saída não vem antes da entrada.
-              max={new Date().toLocaleDateString("en-CA")}
-              min={isReservaCheckout && item.checkin_em ? new Date(item.checkin_em).toLocaleDateString("en-CA") : undefined}
+              // Registra-se o que já aconteceu; a saída não vem antes da entrada, nem a entrada
+              // corrigida depois da saída já registrada.
+              max={
+                editando && isReservaCheckin && item.checkout_em
+                  ? noFusoImobiliario(item.checkout_em).data
+                  : new Date().toLocaleDateString("en-CA")
+              }
+              min={isReservaCheckout && item.checkin_em ? noFusoImobiliario(item.checkin_em).data : undefined}
               placeholder="Selecione a data e a hora"
               className="h-11 sm:h-10 w-full"
             />
@@ -462,245 +483,85 @@ export function OperationAction({
           </div>
         ) : null}
 
-        {destructive && !isReservaCancel ? (
-          <div className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 sm:p-4 text-xs sm:text-sm text-destructive">
-            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5 text-destructive" />
-            <div className="space-y-1">
-              <p className="font-semibold text-foreground">Atenção ao Encerramento</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Defina como tratar cobranças pendentes e valores já recebidos. O estorno registra a obrigação de reembolso para conciliação contábil no ERP.
+        {/* ========================================================================= */}
+        {/* LIMPEZA DO IMÓVEL (CHECK-OUT)                                             */}
+        {/* ========================================================================= */}
+        {isReservaCheckout && limpezaDisponivel && limpezaConcluida ? (
+          <div className="flex items-start gap-3 rounded-xl border border-border/70 bg-card p-3.5 sm:p-4 shadow-2xs">
+            <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
+            <div className="space-y-1 text-xs text-muted-foreground leading-relaxed">
+              <p className="text-sm font-semibold text-foreground">Limpeza concluída</p>
+              <p>
+                A limpeza pedida nesta saída já foi concluída
+                {limpezaRegistrada?.concluida_em
+                  ? ` em ${new Date(limpezaRegistrada.concluida_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Fortaleza" })}`
+                  : ""}
+                {limpezaRegistrada?.concluinte?.nome ? ` por ${limpezaRegistrada.concluinte.nome}` : ""} e não muda por aqui.
               </p>
             </div>
+          </div>
+        ) : isReservaCheckout && limpezaDisponivel ? (
+          <div className="rounded-xl border border-border/70 bg-card p-3.5 sm:p-4 space-y-3 shadow-2xs">
+            <label htmlFor="solicitar-limpeza" className="flex items-start gap-3 hover:cursor-pointer">
+              <Checkbox
+                id="solicitar-limpeza"
+                checked={limpeza.solicitar}
+                onCheckedChange={(value) => setLimpeza((atual) => ({ ...atual, solicitar: value === true }))}
+                className="mt-0.5"
+              />
+              <span className="space-y-1">
+                <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Sparkles className="h-4 w-4 text-primary shrink-0" />
+                  Solicitar limpeza
+                </span>
+                <span className="block text-xs text-muted-foreground leading-relaxed">
+                  O imóvel fica em Limpeza e aparece na Execução do responsável até a limpeza ser concluída.
+                </span>
+              </span>
+            </label>
+            {cancelaLimpeza ? (
+              <p className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                Ao salvar, a limpeza pendente desta saída será cancelada e sai da Execução.
+              </p>
+            ) : null}
+            {limpeza.solicitar ? (
+              <div className="space-y-3 pl-7">
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-foreground">Responsável pela limpeza</p>
+                  <ResponsavelLimpezaSelect
+                    value={limpeza.responsavel}
+                    onValueChange={(responsavel) => setLimpeza((atual) => ({ ...atual, responsavel }))}
+                    disabled={busy}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="descricao-limpeza" className="block text-xs font-medium text-foreground">
+                    Descrição da limpeza
+                  </label>
+                  <Input
+                    id="descricao-limpeza"
+                    value={limpeza.descricao}
+                    onChange={(event) => setLimpeza((atual) => ({ ...atual, descricao: event.target.value }))}
+                    // Enter aqui não confirma o check-out: só o botão confirma.
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.preventDefault();
+                    }}
+                    placeholder="Ex.: trocar enxoval completo"
+                    maxLength={500}
+                    disabled={busy}
+                    className="h-10 text-base sm:text-sm"
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
         {/* ========================================================================= */}
         {/* TRATAMENTO FINANCEIRO                                                     */}
         {/* ========================================================================= */}
-        {destructive ? (
-          <div className="space-y-4">
-            <FinancialTreatment value={data} onChange={setData} />
-
-            {kind === "locacoes-imobiliarias" ? (
-              <Field label="Data efetiva do encerramento do contrato">
-                <Input
-                  type="date"
-                  required
-                  min={dateInput(item.inicio)}
-                  value={data.fim}
-                  onChange={(event) => set("fim", event.target.value)}
-                  className="h-11 sm:h-10 text-base sm:text-sm"
-                />
-              </Field>
-            ) : null}
-          </div>
-        ) : null}
-
-        {/* ========================================================================= */}
-        {/* CONCLUIR VENDA (MANTÉM OPERAÇÕES VIGENTES)                                */}
-        {/* ========================================================================= */}
-        {concluding ? (
-          <>
-            <div className="rounded-xl border border-border/60 bg-muted/20 p-4 sm:p-5">
-              <p className="font-semibold text-sm sm:text-base text-foreground">
-                {reviewed ? "Revisão da conclusão da venda" : "Destino das operações vigentes do imóvel"}
-              </p>
-              <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
-                A conclusão da venda preserva o histórico de lançamentos. Cada reserva e contrato vigente ou futuro
-                precisa de uma decisão definida antes de prosseguir.
-              </p>
-              <div className="mt-3 flex items-center gap-4 text-xs sm:text-sm">
-                <span>
-                  Valor negociado: <strong>{money(item.valor_total)}</strong>
-                </span>
-                <span>·</span>
-                <span>
-                  Data da venda: <strong>{dateLabel(item.data_venda)}</strong>
-                </span>
-              </div>
-            </div>
-
-            <RemoteState loading={operations.loading} error={operations.error} retry={operations.reload}>
-              {entries.length ? (
-                <div className="space-y-4">
-                  {entries.map((row) => {
-                    const key = `${row.tipo}-${row.id}`;
-                    const decision = decisions[key] ?? {};
-                    const update = (field: string, val: unknown) => {
-                      setReviewed(false);
-                      setDecisions((current) => ({
-                        ...current,
-                        [key]: { ...current[key], [field]: val },
-                      }));
-                    };
-
-                    return (
-                      <section
-                        key={key}
-                        className="space-y-4 rounded-xl border border-border/60 bg-card p-4 shadow-xs"
-                      >
-                        <div>
-                          <h4 className="font-semibold text-sm text-foreground">
-                            {titleCase(row.tipo)} #{row.id}
-                          </h4>
-                          <p className="text-xs text-muted-foreground">
-                            {dateLabel(row.inicio)} a {dateLabel(row.fim)} · {titleCase(row.status)}
-                          </p>
-                        </div>
-
-                        <SelectField
-                          label="Destino desta operação"
-                          value={decision.decisao ?? ""}
-                          options={[
-                            { value: "MANTER", label: "Manter operação" },
-                            { value: "ENCERRAR", label: "Encerrar / cancelar operação" },
-                          ]}
-                          required
-                          onChange={(value) => update("decisao", value)}
-                        />
-
-                        {decision.decisao === "MANTER" ? (
-                          <div className="space-y-4 border-t border-border/40 pt-3">
-                            <Lookup
-                              tipo="proprietarios"
-                              label="Novo proprietário beneficiário do repasse"
-                              value={decision.beneficiario_proprietario_id}
-                              onChange={(value) => update("beneficiario_proprietario_id", value)}
-                            />
-                            <div className="grid gap-4 sm:grid-cols-2">
-                              <Field label="Benefício válido a partir de">
-                                <Input
-                                  type="date"
-                                  required
-                                  value={decision.vigencia_inicio ?? ""}
-                                  onChange={(event) => update("vigencia_inicio", event.target.value)}
-                                  className="h-11 sm:h-10 text-base sm:text-sm"
-                                />
-                              </Field>
-                              <Field label="Até (opcional)">
-                                <Input
-                                  type="date"
-                                  value={decision.vigencia_fim ?? ""}
-                                  min={decision.vigencia_inicio || undefined}
-                                  onChange={(event) => update("vigencia_fim", event.target.value)}
-                                  className="h-11 sm:h-10 text-base sm:text-sm"
-                                />
-                              </Field>
-                            </div>
-                          </div>
-                        ) : decision.decisao === "ENCERRAR" ? (
-                          <div className="border-t border-border/40 pt-3">
-                            <FinancialTreatment
-                              value={decision}
-                              onChange={(next) => {
-                                setReviewed(false);
-                                setDecisions((current) => ({ ...current, [key]: next }));
-                              }}
-                            />
-                          </div>
-                        ) : null}
-                      </section>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-xl border border-dashed border-border/60 p-6 text-center text-sm text-muted-foreground">
-                  Não há reservas ou locações vigentes ou futuras ativas para este imóvel.
-                </div>
-              )}
-            </RemoteState>
-
-            {reviewed ? (
-              <div
-                role="status"
-                className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs sm:text-sm text-emerald-800 dark:text-emerald-300"
-              >
-                <div className="flex items-start gap-2.5">
-                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
-                  <div>
-                    <p className="font-semibold">Revisão completa das decisões</p>
-                    <p className="mt-1">
-                      A propriedade será registrada como vendida em {dateLabel(item.data_venda)}. As {entries.length}{" "}
-                      operação(ões) vigentes seguirão as definições informadas acima.
-                    </p>
-                    <Button
-                      type="button"
-                      className="mt-3 h-8 text-xs"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setReviewed(false)}
-                    >
-                      Voltar e revisar decisões
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-
-        {/* ========================================================================= */}
-        {/* OUTRAS AÇÕES ESPECÍFICAS                                                  */}
-        {/* ========================================================================= */}
-        {action === "GERAR_COBRANCAS" ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Competência inicial (mês/ano)">
-              <Input
-                type="month"
-                required
-                value={data.competencia_inicio}
-                onChange={(event) => set("competencia_inicio", event.target.value)}
-                className="h-11 sm:h-10 text-base sm:text-sm"
-              />
-            </Field>
-            <Field label="Competência final (mês/ano)">
-              <Input
-                type="month"
-                required
-                min={data.competencia_inicio || undefined}
-                value={data.competencia_fim}
-                onChange={(event) => set("competencia_fim", event.target.value)}
-                className="h-11 sm:h-10 text-base sm:text-sm"
-              />
-            </Field>
-          </div>
-        ) : null}
-
-        {action === "REAJUSTAR" ? (
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Percentual de reajuste (%)">
-                <Input
-                  type="number"
-                  min="-100"
-                  step="0.01"
-                  required
-                  placeholder="Ex: 5.5"
-                  value={data.percentual}
-                  onChange={(event) => set("percentual", Number(event.target.value))}
-                  className="h-11 sm:h-10 text-base sm:text-sm font-semibold"
-                />
-              </Field>
-              <Field label="Vigência do novo valor">
-                <Input
-                  type="date"
-                  required
-                  value={data.inicio}
-                  onChange={(event) => set("inicio", event.target.value)}
-                  className="h-11 sm:h-10 text-base sm:text-sm"
-                />
-              </Field>
-              <Field label="Data prevista do próximo reajuste">
-                <Input
-                  type="date"
-                  value={data.proximo_reajuste ?? ""}
-                  onChange={(event) => set("proximo_reajuste", event.target.value)}
-                  className="h-11 sm:h-10 text-base sm:text-sm"
-                />
-              </Field>
-            </div>
-          </div>
-        ) : null}
+        {destructive ? <FinancialTreatment value={data} onChange={setData} /> : null}
 
         {/* ========================================================================= */}
         {/* JUSTIFICATIVA / OBSERVAÇÕES                                               */}
@@ -709,21 +570,19 @@ export function OperationAction({
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-primary shrink-0" />
             <p className="text-sm font-semibold text-foreground">
-              {destructive
-                ? "Motivo e Justificativa Obrigatória *"
-                : concluding || action === "REAJUSTAR"
-                ? "Justificativa Obrigatória *"
-                : "Observações da Operação"}
+              {destructive ? "Motivo e Justificativa Obrigatória *" : "Observações da Operação"}
             </p>
           </div>
           <p className="text-xs text-muted-foreground leading-relaxed">
             {isReservaCancel
               ? "Registre a razão do cancelamento para histórico, auditoria e conciliação financeira."
+              : isReservaCheckin || isReservaCheckout
+              ? "Fica registrada na aba Check-in / Check-out da reserva."
               : "Descreva o motivo ou anotações importantes para o histórico deste registro."}
           </p>
 
           <Textarea
-            required={destructive || concluding || action === "REAJUSTAR"}
+            required={destructive}
             placeholder={
               isReservaCancel
                 ? "Ex: Desistência pelo hóspede devido a imprevisto pessoal; cancelamento conforme prazo da política de cancelamento..."
@@ -731,6 +590,7 @@ export function OperationAction({
             }
             value={data.motivo}
             onChange={(event) => set("motivo", event.target.value)}
+            maxLength={2000}
             className="text-base sm:text-sm min-h-[90px] leading-relaxed resize-y"
             rows={3}
           />

@@ -8,7 +8,7 @@ import { hojeImobiliario } from "./types";
 
 const scopes = {
   proprietario_id: ["proprietarios:financeiro", "proprietario_id"], imovel_id: ["imoveis:financeiro", "imovel_id"],
-  reserva_id: ["reservas:financeiro", "reserva_imovel_id"], locacao_id: ["locacoes_imobiliarias:financeiro", "locacao_imovel_id"], venda_id: ["vendas_imobiliarias:financeiro", "venda_imovel_id"],
+  reserva_id: ["reservas:financeiro", "reserva_imovel_id"],
 } as const;
 export type FinanceScope = Partial<Record<keyof typeof scopes, number>>;
 
@@ -19,7 +19,7 @@ export function scopeFromUrl(url: URL): FinanceScope {
     if (v) scope[key] = identifier(v);
   }
   if (url.searchParams.has("contexto_id")) {
-    const key = ({ IMOVEL: "imovel_id", PROPRIETARIO: "proprietario_id", RESERVA: "reserva_id", LOCACAO: "locacao_id", VENDA: "venda_id" } as Record<string, keyof typeof scopes>)[String(url.searchParams.get("contexto_tipo")).toUpperCase()];
+    const key = ({ IMOVEL: "imovel_id", PROPRIETARIO: "proprietario_id", RESERVA: "reserva_id" } as Record<string, keyof typeof scopes>)[String(url.searchParams.get("contexto_tipo")).toUpperCase()];
     if (!key) throw new ImobError(400, "Informe o tipo do contexto financeiro.");
     scope[key] = identifier(url.searchParams.get("contexto_id"));
   }
@@ -111,9 +111,9 @@ export async function financeReport(scope: FinanceScope, url: URL, opcoes: { con
   const filtered = (opcoes.consolidar ? consolidarMovimentos(comPendentes) : items).filter((r) => (!inicio || Date.parse(r.data_movimento) >= Date.parse(`${inicio}T00:00:00-03:00`)) && (!fim || Date.parse(r.data_movimento) < Date.parse(`${fim}T00:00:00-03:00`) + 86400000));
   const sum = (tipo: string) => Math.round(filtered.filter((r) => r.tipo === tipo && !r.repasse_pendente).reduce((s, r) => s + Number(r.valor), 0) * 100) / 100;
   const recebido = sum("BRUTO_RECEBIDO"), receita_administradora = sum("TAXA_ADMIN"), despesas = sum("DESPESA_PROPRIETARIO"), repassado = sum("REPASSE");
-  const tx = await scoped(db.from("transacao").select("id,descricao,valor,valorLiquido,valor_baixado,pendente,data,vencimento_em,pago_em,tipo,created_at,imovel_id,proprietario_id,reserva_imovel_id,locacao_imovel_id,venda_imovel_id,imovel_natureza,imovel_competencia,banco_id,metodopagamento,banco:bancoconta!transacao_banco_id_fkey(id,titulo)").eq("is_deleted", false).not("imovel_id", "is", null).is("baixa_de_transacao_id", null).order("data", { ascending: false }).limit(1000), scope, true);
+  const tx = await scoped(db.from("transacao").select("id,descricao,valor,valorLiquido,valor_baixado,pendente,data,vencimento_em,pago_em,tipo,created_at,imovel_id,proprietario_id,reserva_imovel_id,imovel_natureza,imovel_competencia,banco_id,metodopagamento,banco:bancoconta!transacao_banco_id_fkey(id,titulo)").eq("is_deleted", false).not("imovel_id", "is", null).is("baixa_de_transacao_id", null).order("data", { ascending: false }).limit(1000), scope, true);
   if (tx.error) throw tx.error;
-  // Lançamentos contábeis são do imóvel e do proprietário; reserva, locação e venda não os têm.
+  // Lançamentos contábeis são do imóvel e do proprietário; a reserva não os tem.
   let lancamentos: Record<string, any>[] = [];
   if (Object.keys(scope).every((k) => k === "imovel_id" || k === "proprietario_id")) {
     let query = scoped(db.from("imovel_lancamento").select("*,imovel:imovel_id(id,titulo),proprietario:proprietario_id(id,nomerazaosocial,cpfcnpj),transacao:transacao_id(id,tipo,pendente,is_deleted,valor,valorLiquido,valor_baixado,data,pago_em,metodopagamento,banco:bancoconta!transacao_banco_id_fkey(id,titulo))")

@@ -65,7 +65,7 @@ async function cleanup() {
       await client.query('alter table public.imovel_movimento enable trigger imob_movimento_proteger');
       await client.query("delete from public.eventos_financeiros where source_type='IMOVEL_TAXA' and source_id in(select id from public.transacao where imovel_id=any($1::bigint[]))", [ids]);
       await client.query('delete from public.transacao where imovel_id=any($1::bigint[])', [ids]);
-      for (const table of ['imovel_ocupacao', 'imovel_arquivo', 'imovel_tarifa', 'imovel_cotacao', 'imovel_visita', 'imovel_lead', 'reserva_imovel', 'locacao_imovel', 'venda_imovel']) await client.query(`delete from public.${table} where imovel_id=any($1::bigint[])`, [ids]);
+      for (const table of ['imovel_ocupacao', 'imovel_arquivo', 'imovel_tarifa', 'imovel_cotacao', 'imovel_visita', 'imovel_lead', 'reserva_imovel']) await client.query(`delete from public.${table} where imovel_id=any($1::bigint[])`, [ids]);
       await client.query('delete from public.imovel where id=any($1::bigint[]) and codigo like $2', [ids, `${tag}%`]);
     }
     // O cadastro do site cria o cliente antes do vínculo; inclui os ainda pendentes (user_id nulo).
@@ -92,14 +92,14 @@ try {
   fixtures.owners.push(owner.id); persist();
   const owner2 = ok(await api('proprietarios', { method: 'POST', data: { nomerazaosocial: `${tag} Beneficiário`, tipopessoa: 'FISICA', cpfcnpj: cpf() } }), 201).item;
   fixtures.owners.push(owner2.id); persist();
-  const property = ok(await api('imoveis', { method: 'POST', data: { proprietario_id: owner.id, titulo: `${tag} Imóvel`, codigo: tag, tipo: 'FLAT', descricao: 'Imóvel temporário de teste automatizado.', modalidades: ['TEMPORADA', 'LOCACAO', 'VENDA'], endereco: { logradouro: 'ENDEREÇO PRIVADO', numero: '123' }, endereco_publico: { cidade: 'Fortaleza', bairro: 'Meireles', estado: 'CE' }, capacidade: 4, diaria: 100, taxa_limpeza: 20, valor_locacao: 1000, valor_venda: 100000, percentual_admin: 10 } }), 201).item;
+  const property = ok(await api('imoveis', { method: 'POST', data: { proprietario_id: owner.id, titulo: `${tag} Imóvel`, codigo: tag, tipo: 'FLAT', descricao: 'Imóvel temporário de teste automatizado.', endereco: { logradouro: 'ENDEREÇO PRIVADO', numero: '123' }, endereco_publico: { cidade: 'Fortaleza', bairro: 'Meireles', estado: 'CE' }, capacidade: 4, diaria: 100, taxa_limpeza: 20, percentual_admin: 10 } }), 201).item;
   fixtures.properties.push(property.id); persist();
   const form = new FormData(); form.set('tipo', 'FOTO'); form.set('file', new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXWQAAAAASUVORK5CYII=', 'base64')], { type: 'image/png' }), 'fixture.png');
   ok(await api(`imoveis/${property.id}/arquivos`, { method: 'POST', form }), 201);
   ok(await api(`imoveis/${property.id}`, { method: 'PATCH', data: { publicado: true } }));
   const published = ok(await api(`public/imoveis/${property.slug}`, { auth: false }));
-  assert.equal(published.modalities.length, 3); assert.equal(published.prices.nightly, 100); assert.equal(JSON.stringify(published).includes('ENDEREÇO PRIVADO'), false);
-  pass('cadastro, foto, publicação e catálogo com três modalidades sem campos privados');
+  assert.deepEqual(published.modalities, ['TEMPORADA']); assert.equal(published.prices.nightly, 100); assert.equal(published.prices.monthly, null); assert.equal(published.prices.sale, null); assert.equal(JSON.stringify(published).includes('ENDEREÇO PRIVADO'), false);
+  pass('cadastro, foto, publicação e catálogo só de temporada, sem campos privados');
   const guest = await authUser('guest', { nome: `${tag} Cliente`, cpf: cpf(), telefone: '85999990000', perfilid: operator.perfilid, tipo: 'PROPRIETARIO' }, false);
   assert.equal((await client.query('select count(*)::int n from public.usuario where id=$1', [guest.id])).rows[0].n, 0);
   const pending = (await client.query('select c.status, c.origem_cadastro, c.user_id from public.site_usuario s join public.cliente c on c.id=s.cliente_id where s.user_id=$1', [guest.id])).rows[0];
@@ -150,12 +150,7 @@ try {
   pass('baixa manual, taxa administrativa, despesa e repasse refletem no extrato do proprietário');
   ok(await api(`reservas/${created.id}/acoes`, { method: 'POST', data: { acao: 'CHECKIN' } }));
   ok(await api(`reservas/${created.id}/acoes`, { method: 'POST', data: { acao: 'CHECKOUT' } }));
-  const contract = ok(await api('locacoes-imobiliarias', { method: 'POST', data: { imovel_id: property.id, cliente_id: customer, inicio: day(150), fim: day(210), valor_mensal: 1000, dia_vencimento: 5, percentual_admin: 10, idempotency_key: randomUUID() } }), 201).item;
-  ok(await api(`locacoes-imobiliarias/${contract.id}/acoes`, { method: 'POST', data: { acao: 'GERAR_COBRANCAS' } }));
-  const billCount = (await client.query('select count(*)::int n from public.transacao where locacao_imovel_id=$1 and baixa_de_transacao_id is null', [contract.id])).rows[0].n;
-  ok(await api(`locacoes-imobiliarias/${contract.id}/acoes`, { method: 'POST', data: { acao: 'GERAR_COBRANCAS' } }));
-  assert.equal((await client.query('select count(*)::int n from public.transacao where locacao_imovel_id=$1 and baixa_de_transacao_id is null', [contract.id])).rows[0].n, billCount);
-  pass('check-in/check-out e geração de cobrança de locação idempotente');
+  pass('check-in e check-out da reserva');
   const cancellable = ok(await api('site/reservas', { method: 'POST', token, auth: false, data: { flatId: property.id, checkin: end, checkout: day(95), guests: 1, acceptedTerms: true, quoteId: nextQuote.quoteId, expectedTotal: nextQuote.total, idempotencyKey: randomUUID() } }), 201);
   ok(await api(`reservas/${cancellable.id}/acoes`, { method: 'POST', data: { acao: 'CANCELAR', motivo: 'Cancelamento manual de teste', tratamento_pendentes: 'CANCELAR_PENDENTES', tratamento_recebidos: 'MANTER' } }));
   assert.equal(ok(await api(`public/imoveis/${property.id}/quote?checkin=${end}&checkout=${day(95)}&guests=1`, { auth: false })).available, true);
@@ -168,15 +163,6 @@ try {
     assert.ok(fs.existsSync(path.join(cache, 'browser.done')), 'Browser não concluiu antes do limite.');
     fs.rmSync(path.join(cache, 'browser.json'), { force: true }); fs.rmSync(path.join(cache, 'browser.done'), { force: true });
   }
-  const sale = ok(await api('vendas-imobiliarias', { method: 'POST', data: { imovel_id: property.id, comprador_id: customer, data_venda: day(100), valor_total: 100000, comissao_percentual: 5, idempotency_key: randomUUID(), parcelas: [{ valor: 50000, vencimento: day(100) }, { valor: 50000, vencimento: day(130) }] } }), 201).item;
-  assert.equal((await api(`vendas-imobiliarias/${sale.id}/acoes`, { method: 'POST', data: { acao: 'CONCLUIR', operacoes: [] } })).status, 409);
-  const active = ok(await api(`vendas-imobiliarias/${sale.id}`)).relacionamentos.operacoes;
-  ok(await api(`vendas-imobiliarias/${sale.id}/acoes`, { method: 'POST', data: { acao: 'CONCLUIR', novo_proprietario_id: owner2.id, operacoes: active.map((op) => ({ tipo: op.tipo, id: op.id, decisao: 'MANTER', beneficiario_proprietario_id: owner2.id, vigencia_inicio: day(100) })) } }));
-  const sold = ok(await api(`imoveis/${property.id}`)).item; assert.equal(sold.situacao_comercial, 'VENDIDO');
-  assert.equal(sold.modalidades.includes('VENDA'), false);
-  assert.equal((await client.query("select count(*)::int n from public.transacao where venda_imovel_id=$1 and imovel_natureza='RECEBIMENTO'", [sale.id])).rows[0].n, 2);
-  assert.equal(ok(await api('site/proprietario/extratos', { token: ownerToken, auth: false })).totais.recebido, 320);
-  pass('venda exige decisões, parcela recebíveis e preserva os repasses anteriores');
 } finally {
   try { await cleanup(); pass('fixtures removidas, usuário e cadastros existentes preservados'); }
   finally { await client.end(); }

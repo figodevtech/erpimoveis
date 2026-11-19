@@ -37,6 +37,11 @@ export function ConfigProvider({
   );
 }
 
+/** Para componentes que também aparecem fora do provider: sem ele, `null`. */
+export function useOptionalConfig() {
+  return React.useContext(ConfigContext)?.config ?? null;
+}
+
 export function useConfig() {
   const ctx = React.useContext(ConfigContext);
   if (!ctx) {

@@ -1,6 +1,6 @@
 import type { ZodError } from "zod";
 
-/** Nome do campo como aparece nos formulários do ERP (imóvel, proprietário e operações). */
+/** Nome do campo como aparece nos formulários do ERP (imóvel, proprietário e reserva). */
 const FIELD_LABELS: Record<string, string> = {
   proprietario_id: "Proprietário",
   titulo: "Título do anúncio",
@@ -20,8 +20,6 @@ const FIELD_LABELS: Record<string, string> = {
   vagas: "Vagas",
   area: "Área (m²)",
   diaria: "Diária",
-  valor_locacao: "Valor da locação",
-  valor_venda: "Valor de venda",
   taxa_limpeza: "Taxa de limpeza",
   percentual_admin: "Percentual de administração",
   min_noites: "Mínimo de noites",
@@ -41,22 +39,15 @@ const FIELD_LABELS: Record<string, string> = {
   telefones: "Telefones",
   imovel_id: "Imóvel",
   cliente_id: "Cliente",
-  comprador_id: "Comprador",
-  novo_proprietario_id: "Novo proprietário",
   inicio: "Data de início",
   fim: "Data de fim",
   hospedes: "Hóspedes",
   observacoes: "Observações",
-  valor_mensal: "Valor mensal",
-  dia_vencimento: "Dia de vencimento",
   valor_total: "Valor total",
-  comissao_percentual: "Comissão (%)",
-  data_venda: "Data da venda",
-  parcelas: "Parcelas",
 };
 
 /** Campos que guardam o ID de outro cadastro: vazio chega como 0 ou NaN e significa "não selecionado". */
-const REFERENCE_FIELDS = new Set(["proprietario_id", "imovel_id", "cliente_id", "comprador_id", "novo_proprietario_id"]);
+const REFERENCE_FIELDS = new Set(["proprietario_id", "imovel_id", "cliente_id"]);
 
 function fieldLabel(path: PropertyKey[]) {
   const [head, ...rest] = path.map(String);

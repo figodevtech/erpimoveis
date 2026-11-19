@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Pagination, Proprietario } from "../types";
+import { exibirDocumento, exibirTelefone } from "@/lib/format-contato";
 import { StatusBadge } from "@/components/imobiliario/shared";
 import { RowActions } from "@/components/imobiliario/row-actions";
 
@@ -135,9 +136,9 @@ export default function ProprietariosDataTable({
                   </TableCell>
                   <TableCell>
                     <div>{prop.email || "—"}</div>
-                    <span className="text-[11px] text-muted-foreground">{prop.telefone || "—"}</span>
+                    <span className="text-[11px] text-muted-foreground">{exibirTelefone(prop.telefone) || "—"}</span>
                   </TableCell>
-                  <TableCell className="font-mono">{prop.cpfcnpj || "—"}</TableCell>
+                  <TableCell className="font-mono">{exibirDocumento(prop.cpfcnpj) || "—"}</TableCell>
                   <TableCell>
                     {[prop.cidade, prop.estado].filter(Boolean).join(" / ") || "—"}
                   </TableCell>

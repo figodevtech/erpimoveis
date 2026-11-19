@@ -25,5 +25,17 @@ export interface Config {
     setor_padrao_os_id: number | null;
     /** Cor (e texto opcional) aplicados a toda OS num dado status na listagem. */
     destaque_os_por_status: RegrasDestaqueStatus;
+    /**
+     * Mínimo de noites de toda reserva de temporada (site e ERP). Imóvel e tarifa podem exigir
+     * mais. Ausente enquanto a migration 20261115120000 não foi aplicada.
+     */
+    reserva_min_noites?: number;
+    /**
+     * Caixa "Solicitar limpeza" do check-out abre marcada. Ausente enquanto a migration
+     * 20261118120000 não foi aplicada (vale como ligada).
+     */
+    limpeza_sempre_solicitar?: boolean;
+    /** Usuário já selecionado como responsável pela limpeza no check-out. */
+    limpeza_responsavel_padrao_id?: string | null;
     created_at: string;
 }

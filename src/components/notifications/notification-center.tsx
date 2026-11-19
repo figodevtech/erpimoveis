@@ -3,7 +3,7 @@
 import * as React from "react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { AlertTriangle, Bell, CheckCheck, CircleDollarSign, MessageCircle, PackageCheck, ShoppingBag, Trash2 } from "lucide-react";
+import { AlertTriangle, Bell, Building2, CheckCheck, CircleDollarSign, MessageCircle, PackageCheck, ShoppingBag, Trash2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useRouter } from "next/navigation";
 
@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 
 type SystemNotification = {
   id: string;
-  category: "MARKETPLACE" | "SALES" | "STOCK" | "FINANCIAL" | "SYSTEM";
+  category: "MARKETPLACE" | "SALES" | "STOCK" | "FINANCIAL" | "SYSTEM" | "IMOBILIARIO";
   priority: "INFO" | "SUCCESS" | "WARNING" | "CRITICAL";
   title: string;
   message: string;
@@ -406,6 +406,7 @@ function NotificationIcon({ notification }: { notification: SystemNotification }
   if (notification.category === "STOCK") return <PackageCheck className={className} aria-hidden="true" />;
   if (notification.category === "FINANCIAL") return <CircleDollarSign className={className} aria-hidden="true" />;
   if (notification.category === "SALES") return <MessageCircle className={className} aria-hidden="true" />;
+  if (notification.category === "IMOBILIARIO") return <Building2 className={className} aria-hidden="true" />;
   return <Bell className={className} aria-hidden="true" />;
 }
 

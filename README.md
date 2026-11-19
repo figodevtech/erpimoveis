@@ -8,7 +8,9 @@ flats de terceiros em João Pessoa/PB.
 > desmanche, orçamentos de oficina, aluguel de bens e agendamentos já foram
 > retiradas. As tabelas específicas desses módulos foram excluídas após o
 > desacoplamento das rotinas compartilhadas. Estoque, vendas/PDV, marketplace e
-> fiscal ainda permanecem.
+> fiscal ainda permanecem. No domínio imobiliário, o ERP trabalha só com
+> reservas por diária (temporada): os módulos de locações e vendas imobiliárias
+> foram retirados.
 >
 > A situação do banco, o administrador inicial, o contrato do site e a sequência
 > proposta dos novos módulos estão em [docs/transicao-erp-imoveis.md](docs/transicao-erp-imoveis.md).

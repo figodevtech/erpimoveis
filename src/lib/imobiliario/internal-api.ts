@@ -3,19 +3,19 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 import { db, identifier, ImobError, internal, internalAny, json, bodyOf, one, pagination, rpc, filterText } from "./server";
-import { civilDate, imovelSchema, locacaoSchema, proprietarioSchema, reservaSchema, tarifaSchema, vendaImovelSchema, visitaSchema } from "./schemas";
-import { activeOperations, deleteFile, enrich, filesFor, fileScope, fileUrl, publicationValid, removeStoredFiles, reorderGallery, uploadFile } from "./data";
+import { civilDate, imovelSchema, proprietarioSchema, reservaSchema, tarifaSchema, visitaSchema } from "./schemas";
+import { deleteFile, enrich, filesFor, fileScope, fileUrl, publicationValid, removeStoredFiles, reorderGallery, uploadFile } from "./data";
 import { cotacaoPublica, hojeImobiliario } from "./types";
 import bairrosPorMunicipio from "@/data/bairros-por-municipio.json";
 import { financeAccess, financeReport, payCharge, scopeFromUrl, type FinanceScope } from "./finance";
+import { concluirLimpezaDoImovel, servicosDoImovel } from "./limpezas";
+import { estadiaDaReserva } from "./estadia";
 import { alterarEventoDaReserva, cancelarConsumoDaReserva, criarEventoDaReserva, editarLancamentoDaReserva, estornarLancamentoDaReserva, excluirEventoDaReserva, excluirLancamentoDaReserva, listarEventosDaReserva, registrarConsumoDaReserva } from "./reserva-eventos";
 
 const resources = {
   proprietarios: { table: "proprietario", perm: "proprietarios", schema: proprietarioSchema },
   imoveis: { table: "imovel", perm: "imoveis", schema: imovelSchema },
   reservas: { table: "reserva_imovel", perm: "reservas", schema: reservaSchema },
-  "locacoes-imobiliarias": { table: "locacao_imovel", perm: "locacoes_imobiliarias", schema: locacaoSchema },
-  "vendas-imobiliarias": { table: "venda_imovel", perm: "vendas_imobiliarias", schema: vendaImovelSchema },
 } as const;
 type Resource = keyof typeof resources;
 
@@ -42,7 +42,7 @@ async function list(resource: Resource, url: URL, extra: Record<string, unknown>
     else {
       const clients = await db.from("cliente").select("id").ilike("nomerazaosocial", `%${search}%`).limit(200);
       if (clients.error) throw clients.error;
-      query = query.in(resource === "vendas-imobiliarias" ? "comprador_id" : "cliente_id", clients.data.map((r) => r.id));
+      query = query.in("cliente_id", clients.data.map((r) => r.id));
     }
   }
   for (const key of ["proprietario_id", "imovel_id", "cliente_id"]) if (url.searchParams.get(key)) query = query.eq(key, identifier(url.searchParams.get(key)));
@@ -66,12 +66,11 @@ async function list(resource: Resource, url: URL, extra: Record<string, unknown>
     if (tipo && tipo !== "TODOS") query = query.eq("tipopessoa", tipo);
   }
   if (resource === "imoveis") {
-    const modalidade = url.searchParams.get("modalidade"), situacao = url.searchParams.get("situacao");
-    if (modalidade && modalidade !== "TODAS") query = query.contains("modalidades", [modalidade]);
+    const situacao = url.searchParams.get("situacao");
     if (situacao && situacao !== "TODOS") query = query.eq("situacao_operacional", situacao);
     if (url.searchParams.get("cidade")) query = query.ilike("endereco_publico->>cidade", `%${filterText(url.searchParams.get("cidade"))}%`);
   }
-  if (["reservas", "locacoes-imobiliarias"].includes(resource)) {
+  if (resource === "reservas") {
     const inicio = url.searchParams.get("inicio"), fim = url.searchParams.get("fim");
     if (inicio) { civilDate.parse(inicio); query = query.or(`fim.is.null,fim.gt.${inicio}`); }
     if (fim) { civilDate.parse(fim); query = query.lt("inicio", fim); }
@@ -82,29 +81,18 @@ async function list(resource: Resource, url: URL, extra: Record<string, unknown>
 }
 
 /**
- * Hóspede/locatário, valor e situação de cada reserva e locação do calendário do imóvel.
- * Só para quem pode ver aquele módulo: a ocupação em si (o período) segue visível a todos
- * que veem o imóvel.
+ * Hóspede, valor e situação de cada reserva do calendário do imóvel. Só para quem pode ver
+ * reservas: a ocupação em si (o período) segue visível a todos que veem o imóvel.
  */
-async function detalhesDasOcupacoes(rows: Record<string, any>[], permissoes: unknown) {
-  const pode = (permissao: string) => permissionSetHas(permissoes as string[] | undefined, permissao as any);
-  const ids = (key: string) => [...new Set(rows.map((r) => r[key]).filter((v) => v != null).map(Number))];
-  const reservaIds = pode(PERMS.RESERVAS) ? ids("reserva_id") : [];
-  const locacaoIds = pode(PERMS.LOCACOES_IMOBILIARIAS) ? ids("locacao_id") : [];
-  const [reservas, locacoes] = await Promise.all([
-    reservaIds.length
-      ? db.from("reserva_imovel").select("id,status,financeiro_status,valor_total,hospedes,inicio,fim,cliente:cliente_id(id,nomerazaosocial)").in("id", reservaIds)
-      : Promise.resolve({ data: [], error: null }),
-    locacaoIds.length
-      ? db.from("locacao_imovel").select("id,status,valor_mensal,inicio,fim,cliente:cliente_id(id,nomerazaosocial)").in("id", locacaoIds)
-      : Promise.resolve({ data: [], error: null }),
-  ]);
-  if (reservas.error) throw reservas.error;
-  if (locacoes.error) throw locacoes.error;
-  return {
-    reservas: new Map((reservas.data ?? []).map((r: any) => [Number(r.id), r])),
-    locacoes: new Map((locacoes.data ?? []).map((l: any) => [Number(l.id), l])),
-  };
+async function reservasDasOcupacoes(rows: Record<string, any>[], permissoes: unknown) {
+  const reservas = new Map<number, unknown>();
+  if (!permissionSetHas(permissoes as string[] | undefined, PERMS.RESERVAS)) return reservas;
+  const ids = [...new Set(rows.map((r) => r.reserva_id).filter((v) => v != null).map(Number))];
+  if (!ids.length) return reservas;
+  const result = await db.from("reserva_imovel").select("id,status,financeiro_status,valor_total,hospedes,inicio,fim,cliente:cliente_id(id,nomerazaosocial)").in("id", ids);
+  if (result.error) throw result.error;
+  for (const r of result.data ?? []) reservas.set(Number(r.id), r);
+  return reservas;
 }
 
 function stripPrivateFinance(items: Record<string, any>[], allowed: boolean) {
@@ -356,12 +344,11 @@ async function statusCounter(resource: Resource) {
   }
 
   if (resource === "imoveis") {
-    const [total, disponiveis, reservados, alugados, outros] = await Promise.all([
+    const [total, disponiveis, reservados, outros] = await Promise.all([
       db.from("imovel").select("*", { count: "exact", head: true }),
       db.from("imovel_resumo").select("*", { count: "exact", head: true }).eq("situacao_operacional", "DISPONIVEL"),
       db.from("imovel_resumo").select("*", { count: "exact", head: true }).eq("situacao_operacional", "RESERVADO"),
-      db.from("imovel_resumo").select("*", { count: "exact", head: true }).eq("situacao_operacional", "ALUGADO"),
-      db.from("imovel_resumo").select("*", { count: "exact", head: true }).not("situacao_operacional", "in", '("DISPONIVEL","RESERVADO","ALUGADO")'),
+      db.from("imovel_resumo").select("*", { count: "exact", head: true }).not("situacao_operacional", "in", '("DISPONIVEL","RESERVADO")'),
     ]);
     const ocupados = (total.count ?? 0) - (disponiveis.count ?? 0);
     return {
@@ -371,7 +358,6 @@ async function statusCounter(resource: Resource) {
       countsByStatus: {
         DISPONIVEL: disponiveis.count ?? 0,
         RESERVADO: reservados.count ?? 0,
-        ALUGADO: alugados.count ?? 0,
         OUTROS: outros.count ?? 0,
       },
     };
@@ -480,13 +466,12 @@ export async function internalResource(request: Request, resource: Resource, pat
       if (url.searchParams.get("fim")) query = query.lt("inicio", civilDate.parse(url.searchParams.get("fim")));
       const result = await query;
       if (result.error) throw result.error;
-      const operacoes = await detalhesDasOcupacoes(result.data, access.permissoes);
+      const reservas = await reservasDasOcupacoes(result.data, access.permissoes);
       return json({
         items: result.data.map((r) => ({
           ...r,
-          operacao_id: r.reserva_id ?? r.locacao_id ?? r.id,
-          ...(r.reserva_id ? { reserva: operacoes.reservas.get(Number(r.reserva_id)) ?? null } : {}),
-          ...(r.locacao_id ? { locacao: operacoes.locacoes.get(Number(r.locacao_id)) ?? null } : {}),
+          operacao_id: r.reserva_id ?? r.id,
+          ...(r.reserva_id ? { reserva: reservas.get(Number(r.reserva_id)) ?? null } : {}),
         })),
       });
     }
@@ -514,6 +499,13 @@ export async function internalResource(request: Request, resource: Resource, pat
       }
       if (method === "DELETE") { const r = await db.from("imovel_tarifa").delete().eq("imovel_id", id).eq("id", identifier(path[2] ?? url.searchParams.get("id"))); if (r.error) throw r.error; return json({ ok: true }); }
     }
+    // Troca (ou correção) de proprietário com tudo o que acompanha o imóvel. Com o mesmo dono atual
+    // e modo CORRECAO, recolhe para ele o que ficou ligado a outro proprietário.
+    if (segment === "proprietario" && method === "POST") {
+      await internal(PERMS.IMOVEIS_EDITAR);
+      const body = z.object({ proprietario_id: z.coerce.number().int().positive(), modo: z.enum(["TRANSFERENCIA", "CORRECAO"]) }).parse(await bodyOf(request));
+      return json({ resultado: await rpc("imob_trocar_proprietario", { p_imovel_id: id, p_novo_id: body.proprietario_id, p_modo: body.modo, p_actor: access.id }) });
+    }
     if (segment === "bloqueios") {
       await internal(PERMS.IMOVEIS_EDITAR);
       if (method === "POST") {
@@ -537,11 +529,17 @@ export async function internalResource(request: Request, resource: Resource, pat
       if (result.error) throw result.error;
       return json({ item: result.data });
     }
-    if (["reservas", "locacoes", "vendas", "visitas"].includes(segment ?? "") && method === "GET") {
-      if (segment === "visitas") return visits(request, [], { imovel_id: id });
-      const linked = ({ reservas: "reservas", locacoes: "locacoes-imobiliarias", vendas: "vendas-imobiliarias" } as const)[segment as "reservas" | "locacoes" | "vendas"];
-      await internal(`${resources[linked].perm}:visualizar`);
-      return json(await list(linked, url, { imovel_id: id }));
+    // Aba Serviços do imóvel: histórico das limpezas dele (quem vê o imóvel vê o histórico).
+    if (segment === "servicos" && !path[2] && method === "GET") return json(await servicosDoImovel(id, url));
+    // Concluir pelo cadastro do imóvel a limpeza pendente dele, sem precisar do id da limpeza.
+    if (segment === "limpeza" && path[2] === "concluir" && !path[3] && method === "POST") {
+      const editor = await internal(PERMS.IMOVEIS_EDITAR);
+      return json({ item: await concluirLimpezaDoImovel(id, editor.id) });
+    }
+    if (segment === "visitas" && method === "GET") return visits(request, [], { imovel_id: id });
+    if (segment === "reservas" && method === "GET") {
+      await internal(PERMS.RESERVAS);
+      return json(await list("reservas", url, { imovel_id: id }));
     }
   }
   // Aba "Eventos financeiros" da reserva: custos da imobiliária (DRE) e conta do proprietário.
@@ -550,6 +548,10 @@ export async function internalResource(request: Request, resource: Resource, pat
     if (!path[2] && method === "POST") return json(await criarEventoDaReserva(id, await bodyOf(request)), 201);
     if (path[2] && !path[3] && method === "PATCH") return json(await alterarEventoDaReserva(id, identifier(path[2]), "EDITAR", await bodyOf(request)));
     if (path[2] && !path[3] && method === "DELETE") return json(await excluirEventoDaReserva(id, identifier(path[2]), await bodyOf(request)));
+  }
+  // Aba "Check-in / Check-out": o registrado na entrada e na saída e a limpeza pedida no check-out.
+  if (id && resource === "reservas" && segment === "estadia" && !path[2] && method === "GET") {
+    return json(await estadiaDaReserva(id));
   }
   if (id && resource === "reservas" && segment === "consumo-estoque" && method === "POST") {
     if (!path[2]) return json(await registrarConsumoDaReserva(id, await bodyOf(request)), 201);
@@ -564,25 +566,37 @@ export async function internalResource(request: Request, resource: Resource, pat
   if (id && resource === "reservas" && segment === "lancamentos" && path[2] && !path[3] && method === "DELETE") {
     return json(await excluirLancamentoDaReserva(id, identifier(path[2]), await bodyOf(request)));
   }
-  if (id && segment === "acoes" && method === "POST" && !["imoveis", "proprietarios"].includes(resource)) {
+  if (id && segment === "acoes" && method === "POST" && resource === "reservas") {
     const body = await bodyOf(request); const action = String(body.acao ?? "").toUpperCase();
-    const actionPerm = resource === "reservas" ? (["CHECKIN", "CHECKOUT"].includes(action) ? "checkin_checkout" : action === "CANCELAR" ? "cancelar" : "confirmar") : resource === "vendas-imobiliarias" ? (action === "CONCLUIR" ? "concluir" : "cancelar") : action === "CANCELAR" || action === "ENCERRAR" ? "cancelar" : "editar";
-    await internal(`${config.perm}:${actionPerm}`);
-    if (resource === "locacoes-imobiliarias" && action === "GERAR_COBRANCAS") await internal(PERMS.LOCACOES_IMOBILIARIAS_FINANCEIRO);
-    if (resource === "locacoes-imobiliarias" && action === "REAJUSTAR" && body.valor_mensal == null) {
-      const contract = await one(config.table, id);
-      const percentage = z.coerce.number().finite().min(-99).max(1000).parse(body.percentual);
-      body.valor_mensal = Math.round(Number(contract.valor_mensal) * (1 + percentage / 100) * 100) / 100;
-    }
+    // Registrar ou editar (aba Check-in / Check-out) usam a mesma permissão.
+    const entradaSaida = ["CHECKIN", "CHECKOUT", "EDITAR_CHECKIN", "EDITAR_CHECKOUT"].includes(action);
+    await internal(`${config.perm}:${entradaSaida ? "checkin_checkout" : action === "CANCELAR" ? "cancelar" : "confirmar"}`);
     body.tratamento_financeiro = body.tratamento_recebidos ?? body.tratamento_financeiro;
-    const name = resource === "reservas" ? "imob_acao_reserva" : resource === "locacoes-imobiliarias" ? "imob_acao_locacao" : "imob_acao_venda";
-    return json({ item: await rpc(name, { p_id: id, p_acao: action, p_payload: body, p_actor: access.id }) });
+    // Limpeza pedida no check-out: o banco abre na mesma transação (imob_acao_reserva). Na edição do
+    // check-out, a limpeza só muda se o diálogo mandar solicitar_limpeza (true ou false).
+    const comLimpeza = action === "CHECKOUT" || (action === "EDITAR_CHECKOUT" && typeof body.solicitar_limpeza === "boolean");
+    if (comLimpeza) body.solicitar_limpeza = body.solicitar_limpeza === true;
+    else delete body.solicitar_limpeza;
+    const responsavel = body.solicitar_limpeza ? body.responsavel_limpeza_id : null;
+    if (responsavel != null && responsavel !== "" && !z.string().uuid().safeParse(responsavel).success) {
+      throw new ImobError(400, "Responsável pela limpeza inválido.");
+    }
+    body.responsavel_limpeza_id = responsavel || null;
+    const descricao = body.solicitar_limpeza && typeof body.descricao_limpeza === "string" ? body.descricao_limpeza.trim() : "";
+    if (descricao.length > 500) throw new ImobError(400, "A descrição da limpeza deve ter até 500 caracteres.");
+    body.descricao_limpeza = descricao || null;
+    // Observações do check-in/check-out: gravadas na reserva (checkin_observacoes/checkout_observacoes).
+    if (entradaSaida) {
+      const observacoes = typeof body.observacoes === "string" ? body.observacoes.trim() : "";
+      if (observacoes.length > 2000) throw new ImobError(400, "As observações devem ter até 2000 caracteres.");
+      body.observacoes = observacoes || null;
+    }
+    return json({ item: await rpc("imob_acao_reserva", { p_id: id, p_acao: action, p_payload: body, p_actor: access.id }) });
   }
   if (id && !segment && method === "GET") {
     const item = await one(resource === "imoveis" ? "imovel_resumo" : config.table, id);
     const [enriched] = await enrich([item]);
     const relacionamentos: Record<string, unknown> = {};
-    if (resource === "vendas-imobiliarias") relacionamentos.operacoes = await activeOperations(item.imovel_id, item.data_venda);
     if (resource === "proprietarios" && permissionSetHas(access.permissoes, PERMS.PROPRIETARIOS_ACESSO_PORTAL)) {
       const account = await db.from("site_usuario").select("user_id,email,status,motivo_pendencia,created_at,updated_at").eq("proprietario_id", id).maybeSingle();
       if (account.error) throw account.error;
@@ -596,29 +610,35 @@ export async function internalResource(request: Request, resource: Resource, pat
     await internal(publicationOnly ? PERMS.IMOVEIS_PUBLICAR : `${config.perm}:${id ? "editar" : "criar"}`);
     const previous = id ? await one(config.table, id) : {};
     if (resource === "imoveis" && (id ? body.publicado !== undefined && body.publicado !== previous.publicado : body.publicado === true)) await internal(PERMS.IMOVEIS_PUBLICAR);
-    for (const k of ["email", "estado", "fim", "proximo_reajuste", "indice_reajuste", "responsavel_id"]) if (body[k] === "") body[k] = null;
+    for (const k of ["email", "estado", "fim", "responsavel_id"]) if (body[k] === "") body[k] = null;
     if (resource === "imoveis" && !id && !body.slug) body.slug = `${body.titulo ?? "imovel"}-${body.codigo ?? randomUUID().slice(0, 8)}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 180);
-    const data = config.schema.parse({ ...previous, ...body, ...(resource === "reservas" ? { idempotency_key: body.idempotency_key ?? previous.idempotency_key ?? randomUUID(), origem: "ERP" } : {}) }) as Record<string, any>;
+    // O imóvel é sempre de temporada: o que vier do cadastro antigo ou do cliente não muda isso.
+    const data = config.schema.parse({ ...previous, ...body, ...(resource === "imoveis" ? { modalidades: ["TEMPORADA"] } : {}), ...(resource === "reservas" ? { idempotency_key: body.idempotency_key ?? previous.idempotency_key ?? randomUUID(), origem: "ERP" } : {}) }) as Record<string, any>;
     if (resource === "proprietarios") data.cpfcnpj = data.cpfcnpj.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
     if (resource === "imoveis") await publicationValid(data, id ?? undefined);
+    // Troca de proprietário nunca é um update solto: reservas, cobranças e extrato acompanham o
+    // imóvel conforme o motivo (imob_trocar_proprietario). Sem motivo, o ERP pergunta antes.
+    if (resource === "imoveis" && id && Number(data.proprietario_id) !== Number(previous.proprietario_id)) {
+      const modo = String(body.troca_proprietario ?? "").toUpperCase();
+      if (!["TRANSFERENCIA", "CORRECAO"].includes(modo))
+        throw new ImobError(409, "Informe se a troca de proprietário é uma transferência do imóvel ou uma correção de cadastro.", { code: "TROCA_PROPRIETARIO" });
+      await rpc("imob_trocar_proprietario", { p_imovel_id: id, p_novo_id: identifier(data.proprietario_id), p_modo: modo, p_actor: access.id });
+    }
     if (["proprietarios", "imoveis"].includes(resource)) {
       const query = id ? db.from(config.table).update({ ...data, updated_by: access.id }).eq("id", id) : db.from(config.table).insert({ ...data, created_by: access.id });
       const result = await query.select().single();
       if (result.error) throw result.error;
       return json({ item: result.data }, id ? 200 : 201);
     }
-    const name = resource === "reservas" ? "imob_salvar_reserva" : resource === "locacoes-imobiliarias" ? "imob_salvar_locacao" : "imob_salvar_venda";
     data.idempotency_key = body.idempotency_key ?? previous.idempotency_key ?? randomUUID();
-    const saved = await rpc(name, { p_payload: data, p_actor: access.id, p_id: id });
-    if (resource === "reservas") {
-      const horarios = reservationTimes(body);
-      if (horarios && saved?.id) {
-        // Fora do payload da RPC de propósito: ele entra no hash de idempotência da reserva.
-        const result = await db.from("reserva_imovel").update(horarios).eq("id", saved.id).select().single();
-        // Sem a migration dos horários aplicada, a reserva vale com o horário do imóvel.
-        if (result.error && !["42703", "PGRST204"].includes(String(result.error.code))) throw result.error;
-        if (result.data) return json({ item: result.data }, id ? 200 : 201);
-      }
+    const saved = await rpc("imob_salvar_reserva", { p_payload: data, p_actor: access.id, p_id: id });
+    const horarios = reservationTimes(body);
+    if (horarios && saved?.id) {
+      // Fora do payload da RPC de propósito: ele entra no hash de idempotência da reserva.
+      const result = await db.from("reserva_imovel").update(horarios).eq("id", saved.id).select().single();
+      // Sem a migration dos horários aplicada, a reserva vale com o horário do imóvel.
+      if (result.error && !["42703", "PGRST204"].includes(String(result.error.code))) throw result.error;
+      if (result.data) return json({ item: result.data }, id ? 200 : 201);
     }
     return json({ item: saved }, id ? 200 : 201);
   }
@@ -628,7 +648,7 @@ export async function internalResource(request: Request, resource: Resource, pat
     if (!["imoveis", "proprietarios"].includes(resource)) throw new ImobError(409, "Operações com histórico devem ser canceladas pela ação correspondente.");
     if (resource === "proprietarios" && row.user_id) throw new ImobError(409, "Bloqueie ou revogue o acesso e inative este proprietário.");
     if (resource === "imoveis") {
-      // O banco decide no ato: sem reserva, locação, venda nem financeiro, exclui de vez.
+      // O banco decide no ato: sem reserva nem financeiro, exclui de vez.
       const outcome = await rpc("imob_excluir_imovel", { p_id: id, p_actor: access.id });
       if (outcome.excluido) await removeStoredFiles(outcome.arquivos ?? []);
       return json(outcome);
@@ -673,12 +693,19 @@ async function visits(request: Request, path: string[], extra: Record<string, un
 export async function internalShared(request: Request, path: string[]) {
   const url = new URL(request.url), method = request.method;
   if (path[0] === "visitas") return visits(request, path.slice(1));
+  if (path[0] === "lookup" && method === "GET" && url.searchParams.get("tipo") === "usuarios") {
+    // Responsável pela limpeza: qualquer usuário ativo. Só nome e e-mail, sem o cadastro do usuário.
+    await internalAny([PERMS.RESERVAS_CHECKIN_CHECKOUT, PERMS.CONFIG_EDITAR, PERMS.LIMPEZAS_GERENCIAR, PERMS.IMOVEIS_EDITAR]);
+    const result = await db.from("usuario").select("id,nome,email").eq("ativo", true).order("nome");
+    if (result.error) throw result.error;
+    return json({ items: (result.data ?? []).map((u) => ({ id: String(u.id), nome: String(u.nome ?? ""), email: String(u.email ?? "") })) });
+  }
   if (path[0] === "lookup" && method === "GET") {
     const type = url.searchParams.get("tipo");
-    await internalAny(type === "bancos" ? [PERMS.FINANCEIRO, PERMS.PROPRIETARIOS_FINANCEIRO, PERMS.IMOVEIS_FINANCEIRO, PERMS.RESERVAS_FINANCEIRO, PERMS.LOCACOES_IMOBILIARIAS_FINANCEIRO, PERMS.VENDAS_IMOBILIARIAS_FINANCEIRO] : type === "proprietarios" ? [PERMS.PROPRIETARIOS, PERMS.IMOVEIS_CRIAR, PERMS.IMOVEIS_EDITAR, PERMS.VENDAS_IMOBILIARIAS_CONCLUIR] : type === "imoveis" ? [PERMS.IMOVEIS, PERMS.RESERVAS_CRIAR, PERMS.RESERVAS_EDITAR, PERMS.LOCACOES_IMOBILIARIAS_CRIAR, PERMS.VENDAS_IMOBILIARIAS_CRIAR, PERMS.PROPRIETARIOS_FINANCEIRO] : [PERMS.CLIENTES, PERMS.RESERVAS_CRIAR, PERMS.LOCACOES_IMOBILIARIAS_CRIAR, PERMS.VENDAS_IMOBILIARIAS_CRIAR]);
+    await internalAny(type === "bancos" ? [PERMS.FINANCEIRO, PERMS.PROPRIETARIOS_FINANCEIRO, PERMS.IMOVEIS_FINANCEIRO, PERMS.RESERVAS_FINANCEIRO] : type === "proprietarios" ? [PERMS.PROPRIETARIOS, PERMS.IMOVEIS_CRIAR, PERMS.IMOVEIS_EDITAR] : type === "imoveis" ? [PERMS.IMOVEIS, PERMS.RESERVAS_CRIAR, PERMS.RESERVAS_EDITAR, PERMS.PROPRIETARIOS_FINANCEIRO] : [PERMS.CLIENTES, PERMS.RESERVAS_CRIAR]);
     const table = ({ clientes: "cliente", proprietarios: "proprietario", imoveis: "imovel", bancos: "bancoconta" } as Record<string, string>)[String(type)];
     if (!table) throw new ImobError(400, "Consulta inválida.");
-    const fields = table === "cliente" ? "id,nomerazaosocial,cpfcnpj" : table === "proprietario" ? "id,nomerazaosocial,cpfcnpj,percentual_admin" : table === "imovel" ? "id,titulo,codigo,modalidades,capacidade,diaria,valor_locacao,valor_venda,percentual_admin,proprietario_id" : "id,titulo";
+    const fields = table === "cliente" ? "id,nomerazaosocial,cpfcnpj" : table === "proprietario" ? "id,nomerazaosocial,cpfcnpj,percentual_admin" : table === "imovel" ? "id,titulo,codigo,modalidades,capacidade,diaria,percentual_admin,proprietario_id" : "id,titulo";
     let query = db.from(table).select(fields);
     if (table === "cliente") query = query.eq("is_deleted", false);
     if (["imovel", "proprietario"].includes(table)) query = query.eq("ativo", true);
@@ -702,11 +729,11 @@ export async function internalShared(request: Request, path: string[]) {
     if (method === "POST") {
       const body = await bodyOf(request);
       const actual: FinanceScope = {};
-      for (const k of ["imovel_id", "proprietario_id", "reserva_id", "locacao_id", "venda_id"] as const) if (body[k]) actual[k] = identifier(body[k]);
+      for (const k of ["imovel_id", "proprietario_id", "reserva_id"] as const) if (body[k]) actual[k] = identifier(body[k]);
       const access = await financeAccess(actual, true);
       if (!["DESPESA", "REPASSE"].includes(body.tipo)) throw new ImobError(400, "Tipo de movimento inválido.");
-      if (actual.reserva_id || actual.locacao_id || actual.venda_id) {
-        const source = await one(actual.reserva_id ? "reserva_imovel" : actual.locacao_id ? "locacao_imovel" : "venda_imovel", actual.reserva_id ?? actual.locacao_id ?? actual.venda_id!);
+      if (actual.reserva_id) {
+        const source = await one("reserva_imovel", actual.reserva_id);
         actual.imovel_id = source.imovel_id; actual.proprietario_id = source.proprietario_id;
       }
       if (!actual.imovel_id) throw new ImobError(400, "Selecione o imóvel para vincular o movimento.");
@@ -723,7 +750,7 @@ export async function internalShared(request: Request, path: string[]) {
   }
   if (path[0] === "cobrancas" && path[2] === "baixar" && method === "POST") {
     const id = identifier(path[1]), row = await one("transacao", id);
-    const scope: FinanceScope = row.reserva_imovel_id ? { reserva_id: row.reserva_imovel_id } : row.locacao_imovel_id ? { locacao_id: row.locacao_imovel_id } : row.venda_imovel_id ? { venda_id: row.venda_imovel_id } : { imovel_id: row.imovel_id };
+    const scope: FinanceScope = row.reserva_imovel_id ? { reserva_id: row.reserva_imovel_id } : { imovel_id: row.imovel_id };
     const access = await financeAccess(scope, "pay");
     return json({ item: await payCharge(id, await bodyOf(request), access.id) });
   }

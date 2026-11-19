@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { ArrowUpRight, Building2, CalendarDays, FileText, Loader2, Palette, RefreshCw, Save, Settings, ShieldCheck, Tags, ShoppingCart, Package } from "lucide-react";
+import { ArrowUpRight, Building2, CalendarDays, FileText, Loader2, Palette, RefreshCw, Save, Settings, ShieldCheck, Tags, ShoppingCart, Package, Sparkles } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import { ResponsavelLimpezaSelect } from "@/components/imobiliario/responsavel-limpeza-select";
 
 type GeneralSettings = {
   impressao_cor_primaria: string;
@@ -16,6 +18,9 @@ type GeneralSettings = {
   impressao_cor_texto: string;
   habilitar_edicao_transacoes: boolean;
   alerta_estoque_pdv: boolean;
+  reserva_min_noites?: number;
+  limpeza_sempre_solicitar?: boolean;
+  limpeza_responsavel_padrao_id?: string | null;
 };
 type Company = { nome: string; cnpj: string };
 const DEFAULT_SETTINGS: GeneralSettings = {
@@ -49,7 +54,130 @@ function readSettings(config: Partial<GeneralSettings>): GeneralSettings {
     impressao_cor_texto: config.impressao_cor_texto ?? DEFAULT_SETTINGS.impressao_cor_texto,
     habilitar_edicao_transacoes: config.habilitar_edicao_transacoes === true,
     alerta_estoque_pdv: config.alerta_estoque_pdv === true,
+    ...(config.reserva_min_noites !== undefined ? { reserva_min_noites: config.reserva_min_noites } : {}),
+    ...(config.limpeza_sempre_solicitar !== undefined ? { limpeza_sempre_solicitar: config.limpeza_sempre_solicitar } : {}),
+    ...(config.limpeza_responsavel_padrao_id !== undefined ? { limpeza_responsavel_padrao_id: config.limpeza_responsavel_padrao_id } : {}),
   };
+}
+
+function ReservasTemporadaCard({
+  minNoites,
+  onChange,
+  limpezaSempreSolicitar,
+  limpezaResponsavelId,
+  onLimpezaSempreSolicitarChange,
+  onLimpezaResponsavelChange,
+}: {
+  /** Ausente enquanto a coluna não existe no banco. */
+  minNoites: number | undefined;
+  onChange: (value: number) => void;
+  /** Ausente enquanto a migration da limpeza (20261118120000) não foi aplicada. */
+  limpezaSempreSolicitar: boolean | undefined;
+  limpezaResponsavelId: string | null | undefined;
+  onLimpezaSempreSolicitarChange: (value: boolean) => void;
+  onLimpezaResponsavelChange: (value: string | null) => void;
+}) {
+  const stepClass =
+    "grid h-full w-10 place-items-center text-lg text-muted-foreground transition-colors hover:cursor-pointer hover:bg-muted disabled:cursor-default disabled:opacity-40";
+  return (
+    <Card className="min-w-0 border-primary/10 shadow-sm">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-5 w-5 text-primary" />
+          <CardTitle>Reservas de temporada</CardTitle>
+        </div>
+        <CardDescription>
+          Regras que valem para todas as reservas de diárias, no site e no ERP.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1 space-y-1">
+            <Label id="reserva-min-noites-label">Mínimo de noites por reserva</Label>
+            <span className="block text-xs text-muted-foreground">
+              O site não aceita estadias mais curtas. No ERP, uma reserva abaixo do
+              mínimo pede confirmação ao salvar. Imóveis e tarifas podem exigir mais
+              noites: vale sempre o maior mínimo.
+            </span>
+          </div>
+          {minNoites === undefined ? (
+            <span className="text-xs text-muted-foreground sm:max-w-56 sm:text-right">
+              Disponível depois de aplicar a migration do mínimo de noites no banco.
+            </span>
+          ) : (
+            <div
+              role="group"
+              aria-labelledby="reserva-min-noites-label"
+              className="flex h-10 shrink-0 items-center self-start overflow-hidden rounded-xl border border-input bg-background sm:self-auto"
+            >
+              <button
+                type="button"
+                aria-label="Menos uma noite"
+                disabled={minNoites <= 1}
+                onClick={() => onChange(Math.max(1, minNoites - 1))}
+                className={stepClass}
+              >
+                −
+              </button>
+              <span className="min-w-20 px-2 text-center text-sm font-semibold tabular-nums" aria-live="polite">
+                {minNoites} {minNoites === 1 ? "noite" : "noites"}
+              </span>
+              <button
+                type="button"
+                aria-label="Mais uma noite"
+                disabled={minNoites >= 365}
+                onClick={() => onChange(Math.min(365, minNoites + 1))}
+                className={stepClass}
+              >
+                +
+              </button>
+            </div>
+          )}
+        </div>
+
+        {limpezaSempreSolicitar === undefined ? null : (
+          <>
+            <Separator className="my-6" />
+            <div className="space-y-6">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <p className="text-sm font-semibold">Limpeza no check-out</p>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <Label htmlFor="limpeza-sempre-solicitar">Sempre solicitar limpeza</Label>
+                  <span className="block text-xs text-muted-foreground">
+                    No check-out, a opção &quot;Solicitar limpeza&quot; já vem marcada. Desligado, ela vem
+                    desmarcada. Em qualquer caso, quem registra o check-out pode mudar.
+                  </span>
+                </div>
+                <Switch
+                  id="limpeza-sempre-solicitar"
+                  checked={limpezaSempreSolicitar}
+                  onCheckedChange={onLimpezaSempreSolicitarChange}
+                />
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <Label>Responsável padrão pela limpeza</Label>
+                  <span className="block text-xs text-muted-foreground">
+                    Já vem selecionado no check-out; dá para escolher outro ou deixar sem responsável.
+                    Cada responsável vê as limpezas dele na Execução.
+                  </span>
+                </div>
+                <div className="w-full sm:w-72">
+                  <ResponsavelLimpezaSelect
+                    value={limpezaResponsavelId}
+                    onValueChange={onLimpezaResponsavelChange}
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function ConfigGeralPage() {
@@ -181,6 +309,15 @@ export default function ConfigGeralPage() {
               </div>
             </CardContent>
           </Card>
+
+          <ReservasTemporadaCard
+            minNoites={settings.reserva_min_noites}
+            onChange={value => setSettings(current => ({ ...current, reserva_min_noites: value }))}
+            limpezaSempreSolicitar={settings.limpeza_sempre_solicitar}
+            limpezaResponsavelId={settings.limpeza_responsavel_padrao_id}
+            onLimpezaSempreSolicitarChange={value => setSettings(current => ({ ...current, limpeza_sempre_solicitar: value }))}
+            onLimpezaResponsavelChange={value => setSettings(current => ({ ...current, limpeza_responsavel_padrao_id: value }))}
+          />
 
           <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm">
             <CardHeader className="bg-primary/5 py-4">

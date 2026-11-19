@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
-export const DEFAULT_ROUTES = ['/dashboard', '/imoveis', '/proprietarios', '/reservas', '/locacoes-imobiliarias', '/vendas-imobiliarias', '/clientes', '/fluxodecaixa', '/bancos', '/fiscal', '/relatorios'];
+export const DEFAULT_ROUTES = ['/dashboard', '/imoveis', '/proprietarios', '/reservas', '/clientes', '/fluxodecaixa', '/bancos', '/fiscal', '/relatorios'];
 const AUTH_FILE = path.resolve('playwright/.auth/performance-user.json');
 const PAGE_CONTENT_SELECTOR = 'main:not([data-slot="sidebar-inset"])';
 const BACKGROUND = /^\/api\/(?:auth(?:\/|$)|chat(?:\/|$)|notifications(?:\/|$)|radios?(?:\/|$)|plano\/status)/;

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ComponentType } from "react";
 import { Edit, Eye, MoreHorizontal, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -52,16 +53,26 @@ export function notifyRemoval(result: { inativado?: boolean; vinculos?: string[]
   });
 }
 
+/** Ação própria do módulo no menu da linha (ex.: check-in e check-out da reserva). */
+export type RowExtraAction = {
+  key: string;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  onSelect: () => void;
+};
+
 interface RowActionsProps {
   /** Sem permissão de editar, o item abre o cadastro só para consulta. */
   canEdit: boolean;
   onOpen: () => void;
   onDelete?: () => Promise<unknown>;
   deleteDescription?: string;
+  /** Aparecem logo abaixo de Editar/Visualizar, separadas por uma linha. */
+  extraActions?: RowExtraAction[];
 }
 
 /** Menu de ações da linha, no mesmo padrão da listagem de clientes. */
-export function RowActions({ canEdit, onOpen, onDelete, deleteDescription }: RowActionsProps) {
+export function RowActions({ canEdit, onOpen, onDelete, deleteDescription, extraActions = [] }: RowActionsProps) {
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -85,6 +96,20 @@ export function RowActions({ canEdit, onOpen, onDelete, deleteDescription }: Row
             {canEdit ? <Edit className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             <span>{canEdit ? "Editar" : "Visualizar"}</span>
           </DropdownMenuItem>
+
+          {extraActions.length ? <DropdownMenuSeparator /> : null}
+          {extraActions.map(({ key, label, icon: Icon, onSelect }) => (
+            <DropdownMenuItem
+              key={key}
+              onSelect={(e) => {
+                e.preventDefault();
+                onSelect();
+              }}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{label}</span>
+            </DropdownMenuItem>
+          ))}
 
           {onDelete ? (
             <DropdownMenuItem

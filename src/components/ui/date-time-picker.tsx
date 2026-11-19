@@ -24,7 +24,7 @@ function toDate(value?: string) {
 const hhmm = (value?: string | null) => (value ? String(value).slice(0, 5) : "");
 
 /** De meia em meia hora; um horário fora da grade (14:15) entra na lista para continuar visível. */
-function timeOptions(current: string) {
+export function timeOptions(current: string) {
   const options: string[] = [];
   for (let minutes = 0; minutes < 24 * 60; minutes += 30) {
     options.push(`${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`);

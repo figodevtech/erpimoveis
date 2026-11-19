@@ -181,3 +181,42 @@ o teste existente de eventos manuais de vendas, com cadastros temporários.
 - O banco foi atualizado; não houve publicação do aplicativo nem alteração no
   projeto independente do site. O login por senha e a navegação no navegador
   não fizeram parte desta verificação.
+
+## Retirada de locações e vendas imobiliárias — 17/11/2026
+
+O ERP passa a trabalhar só com reservas por diária (temporada). Saíram do código
+as telas `/locacoes-imobiliarias` e `/vendas-imobiliarias`, as APIs de mesmo
+nome, os itens do menu, as 14 permissões `locacoes_imobiliarias:*` e
+`vendas_imobiliarias:*`, as ações de contrato (ativar, gerar cobranças,
+reajustar, encerrar) e de venda (concluir, cancelar), e as abas Locações e
+Vendas do imóvel.
+
+No cadastro do imóvel saíram as modalidades de negociação e os campos de
+aluguel mensal e valor de venda: todo imóvel é gravado com `modalidades =
+['TEMPORADA']`, e a publicação pede a diária em vez de valores por modalidade. As situações "Alugado" e
+"Vendido" deixaram os filtros; "Ocupado" (hóspede no imóvel) entrou no filtro da
+tela de imóveis.
+
+A API pública do site mantém o contrato: `modalities` volta `['TEMPORADA']`,
+`prices.monthly` e `prices.sale` voltam `null`, e o parâmetro `modality` segue
+aceito — `LOCACAO` e `VENDA` devolvem lista vazia em vez de erro.
+
+Antes da retirada, uma consulta só de leitura ao banco confirmou
+`locacao_imovel` e `venda_imovel` vazias, nenhuma transação, movimento, arquivo
+ou ocupação ligados a elas, e os dois imóveis cadastrados só com temporada.
+
+A migration `20261117120000_desacoplar_locacoes_vendas_imobiliarias.sql`:
+
+- Recusa rodar se houver qualquer registro em `locacao_imovel` ou `venda_imovel`.
+- Retira as 14 permissões e seus vínculos com perfis; o catálogo fica com
+  **137 permissões**, igual ao código.
+- Desagenda o cron diário `imob-cobrancas-locacao`.
+- Deixa todo imóvel só com a modalidade `TEMPORADA`.
+
+Tabelas, colunas (`valor_locacao`, `valor_venda`, `vendido_em`,
+`locacao_imovel_id`, `venda_imovel_id`, `locacao_id`, `venda_id`) e as funções
+de locação e venda continuam no banco, porque rotinas compartilhadas ainda as
+citam (`imob_criar_titulo`, `imob_tratar_cancelamento`, gatilhos de
+`transacao`, `imovel_resumo`, `imob_excluir_imovel`, `imob_trocar_proprietario`).
+O código não usa mais esses campos. A exclusão física fica para uma
+migration própria, como foi feito com o legado da oficina.

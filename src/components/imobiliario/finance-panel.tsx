@@ -208,7 +208,7 @@ function Acoes({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /**
- * Aba Pagamentos: o que o cliente deve pagar (reserva, aluguel, parcelas da venda) e o que
+ * Aba Pagamentos: o que o cliente deve pagar pela reserva e o que
  * já pagou. As cobranças já são transações a receber no financeiro; aqui se acompanha e dá
  * baixa nelas, com os mesmos diálogos do fluxo de caixa.
  *
@@ -239,7 +239,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
   const podeVer = can("financeiro:visualizar");
   const podeBaixar = podeVer && can("financeiro:editar");
   const podeEditar = podeBaixar && config?.habilitar_edicao_transacoes === true;
-  // Lançar e excluir pagamento só na reserva: locação e venda geram as próprias cobranças.
+  // Lançar e excluir pagamento só na reserva; no proprietário a aba só acompanha.
   const naReserva = Boolean(context.reserva_id);
   const podeCriar = naReserva && podeVer && can("financeiro:criar");
   const podeExcluir = naReserva && podeVer && can("financeiro:excluir");
@@ -420,7 +420,7 @@ export function FinancePanel({ context, permission }: { context: Entity; permiss
             <p className="mt-1 max-w-sm text-xs text-muted-foreground">
               {naReserva
                 ? "Lance os pagamentos do cliente, à vista ou a prazo, em quantas transações forem até o total da reserva."
-                : "As cobranças do cliente aparecem aqui quando a reserva, a locação ou a venda é registrada."}
+                : "As cobranças do cliente aparecem aqui quando a reserva é registrada."}
             </p>
             {podeLancar ? (
               <Button variant="outline" size="sm" className="mt-4 gap-1.5" onClick={() => setNovo(true)}>

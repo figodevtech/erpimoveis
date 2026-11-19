@@ -2,8 +2,8 @@ export enum SituacaoImovel {
   TODOS = "TODOS",
   DISPONIVEL = "DISPONIVEL",
   RESERVADO = "RESERVADO",
-  ALUGADO = "ALUGADO",
-  VENDIDO = "VENDIDO",
+  OCUPADO = "OCUPADO",
+  LIMPEZA = "LIMPEZA",
   INATIVO = "INATIVO",
   MANUTENCAO = "MANUTENCAO",
 }
@@ -18,10 +18,9 @@ export interface Imovel {
   status?: string;
   publicado?: boolean;
   ativo?: boolean;
+  foto_capa?: string | null;
+  fotos?: string[] | null;
   diaria?: number;
-  valor_locacao?: number;
-  valor_venda?: number;
-  modalidades?: string[];
   proprietario_id?: number;
   proprietario?: {
     id?: number;

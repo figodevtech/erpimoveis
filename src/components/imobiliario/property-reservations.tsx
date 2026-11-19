@@ -122,13 +122,13 @@ export function PropertyReservations({ item }: { item: Entity }) {
         onPageSizeChange={(limit) => void load(1, limit, tab)}
         onRefresh={refresh}
         onSelectReserva={(id) => setDialog({ id })}
-        // Imóvel vendido ou inativo não recebe reserva nova.
+        // Imóvel inativo não recebe reserva nova.
         onNewReserva={
-          can("reservas:criar") && item.ativo !== false && !item.vendido_em
+          can("reservas:criar") && item.ativo !== false
             ? (seed?: Entity) => setDialog({ seed: seedFor(seed) })
             : undefined
         }
-        canCreate={can("reservas:criar") && item.ativo !== false && !item.vendido_em}
+        canCreate={can("reservas:criar") && item.ativo !== false}
         canEdit={can("reservas:editar")}
         propertyId={imovelId}
         calendarVersion={calendarVersion}

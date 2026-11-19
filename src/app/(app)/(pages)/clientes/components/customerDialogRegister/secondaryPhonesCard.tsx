@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Phone, Plus, Trash2 } from "lucide-react";
-import { formatTelefone } from "./utils";
+import { mascaraTelefone, telefoneDigitos } from "@/lib/format-contato";
 import type { TelefoneSecundario } from "./types";
 
 interface SecondaryPhonesCardProps {
@@ -76,10 +76,8 @@ export default function SecondaryPhonesCard({
                   id={`telefone-secundario-${index}`}
                   inputMode="tel"
                   disabled={disabled}
-                  value={formatTelefone(item.telefone) || ""}
-                  onChange={(e) =>
-                    alterar(index, "telefone", e.target.value.replace(/\D/g, "").slice(0, 11))
-                  }
+                  value={mascaraTelefone(item.telefone)}
+                  onChange={(e) => alterar(index, "telefone", telefoneDigitos(e.target.value))}
                   placeholder="(11) 99999-9999"
                   maxLength={15}
                 />

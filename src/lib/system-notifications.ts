@@ -2,7 +2,7 @@ import { normalizePermission, PERMS } from "@/app/api/_authz/permission-constant
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export type SystemNotificationInput = {
-  category: "MARKETPLACE" | "SALES" | "STOCK" | "FINANCIAL" | "SYSTEM";
+  category: "MARKETPLACE" | "SALES" | "STOCK" | "FINANCIAL" | "SYSTEM" | "IMOBILIARIO";
   priority?: "INFO" | "SUCCESS" | "WARNING" | "CRITICAL";
   title: string;
   message: string;

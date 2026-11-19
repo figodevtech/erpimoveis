@@ -1,4 +1,3 @@
-export type ModalidadeImovel = "TEMPORADA" | "LOCACAO" | "VENDA";
 export type TipoContaSite = "CLIENTE" | "PROPRIETARIO";
 export type ImobList<T = Record<string, unknown>> = { items: T[]; total: number; page: number; pageSize: number };
 export type CotacaoPublica = {
