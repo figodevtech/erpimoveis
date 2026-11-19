@@ -1,5 +1,7 @@
 ﻿"use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ArrowUpRight, Building2, CalendarDays, FileText, Loader2, Palette, RefreshCw, Save, Settings, ShieldCheck, Tags, ShoppingCart, Package, Sparkles } from "lucide-react";
@@ -242,8 +244,10 @@ export default function ConfigGeralPage() {
   }, [settings, saving, loading, loadError]);
 
   const disabled = loading || saving || Boolean(loadError);
+  if (loading) return <PageLoading />;
+
   return (
-    <div className="container mx-auto min-w-0 max-w-7xl space-y-5 px-3 py-1 animate-in fade-in duration-500 sm:space-y-6 sm:px-6 lg:px-8">
+    <div className="container mx-auto min-w-0 max-w-7xl space-y-5 px-3 py-1 sm:space-y-6 sm:px-6 lg:px-8">
       <header className="flex min-w-0 flex-col gap-4 rounded-lg border bg-card px-4 py-4 shadow-sm sm:px-5 md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight sm:text-3xl">
@@ -263,7 +267,6 @@ export default function ConfigGeralPage() {
           <Button type="button" variant="outline" size="sm" onClick={() => setReload(value => value + 1)}><RefreshCw className="size-4" />Tentar novamente</Button>
         </div>
       ) : null}
-      {loading ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Carregando configurações…</p> : null}
 
       <Card className="min-w-0 overflow-hidden border-primary/10 p-0 shadow-sm">
         <CardHeader className="bg-primary/5 py-4">
@@ -272,7 +275,7 @@ export default function ConfigGeralPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="break-words font-semibold">{loading ? "Carregando…" : company?.nome || "Consulte os dados da empresa"}</p>
+            <p className="break-words font-semibold">{company?.nome || "Consulte os dados da empresa"}</p>
             <p className="mt-1 text-sm text-muted-foreground">{company?.cnpj ? `CNPJ ${company.cnpj}` : "Mantenha os dados cadastrais e de contato atualizados."}</p>
           </div>
           <Button asChild variant="outline" className="w-full shrink-0 sm:w-auto"><Link href="/configuracoes/empresa">Dados da empresa<ArrowUpRight className="size-4" /></Link></Button>

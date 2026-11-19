@@ -1,4 +1,6 @@
 "use client";
+
+import { PageLoading } from "@/components/page-loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import axios from "axios";
@@ -17,7 +19,7 @@ import FinancialTable from "./components/financialTable";
 
 export default function FinanceiroPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   /*
    * Sobe a cada operação da lista, e é o que manda os cartões buscarem de novo.
    *
@@ -242,6 +244,8 @@ export default function FinanceiroPage() {
     }
   }, [tipo, viewMode]);
 
+
+  if (isLoading) return <PageLoading />;
 
   return (
     <div className="p-y-4 space-y-4">

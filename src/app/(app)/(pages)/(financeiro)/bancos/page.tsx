@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import * as React from "react";
 import axios from "axios";
 import { useSession } from "next-auth/react";
@@ -276,6 +278,8 @@ export default function BancosFinanceiroPage() {
   const transacoesPaginadas = transacoesSelecionadas;
   const isPrimeiroCarregamentoTransacoes =
     isLoadingTransacoes && transacoesPageData.bancoId == null && transacoesSelecionadas.length === 0;
+
+  if (isLoading) return <PageLoading />;
 
   return (
     <div className="space-y-4">

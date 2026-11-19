@@ -1,4 +1,6 @@
 "use client"
+
+import { PageLoading } from "@/components/page-loading";
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { VendaComItens, vendaStatus } from "../../(vendas)/historicovendas/types";
@@ -13,7 +15,7 @@ export default function AssistentePagamentoVendas (){
     limit: 20,
     totalPages: 0,
   });
-    const [isLoading, setIsLoading] = useState(false)
+    const [isLoading, setIsLoading] = useState(true)
     const[search, ] = useState("")
     
 
@@ -63,7 +65,9 @@ export default function AssistentePagamentoVendas (){
     handleGetVendas(vendaStatus.PAGAMENTO);
   },[])
 
-    return (
+    if (isLoading) return <PageLoading />;
+
+  return (
 
     <div className="p-y-4 space-y-4">
         <VendasTable

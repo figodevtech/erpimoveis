@@ -1,6 +1,8 @@
 // src/app/(app)/(pages)/meu-perfil/meu-perfil-client.tsx
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -167,6 +169,8 @@ export function MeuPerfilClient() {
     },
     [chavePerfil, usuarioId],
   );
+
+  if (carregandoPerfil || carregandoResumo) return <PageLoading />;
 
   return (
     // `reducedMotion="user"` respeita a preferencia do sistema em toda a arvore:

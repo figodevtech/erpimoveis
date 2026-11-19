@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import * as React from "react";
 import { useSession } from "next-auth/react";
 import { toast } from "@/lib/toast";
@@ -12,7 +14,7 @@ import { DialogPerfil } from "./components/dialog-perfis";
 
 export default function PerfisClient() {
   const { update } = useSession();
-  const [carregando, setCarregando] = React.useState(false);
+  const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState<string | null>(null);
 
   const [perfis, setPerfis] = React.useState<Perfil[]>([]);
@@ -99,6 +101,8 @@ export default function PerfisClient() {
   // ou quando permissões ainda não carregaram (primeiro load e usuário abre rápido).
   const carregandoPermissoesDialog = permissoes.length === 0 && carregando;
   const carregandoConteudoDialog = carregandoDialog || carregandoPermissoesDialog;
+
+  if (carregando) return <PageLoading />;
 
   return (
     <>

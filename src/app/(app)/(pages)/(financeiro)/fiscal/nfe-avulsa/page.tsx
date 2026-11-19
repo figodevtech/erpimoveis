@@ -1,5 +1,7 @@
 ﻿"use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { baseRtcParaEdicao, valorRtcParaEdicao } from "@/lib/nfe/baseIbsCbs";
 import * as React from "react";
 import Link from "next/link";
@@ -2341,14 +2343,7 @@ export default function NFeAvulsaPage() {
 
   const currentStep = Math.min(Math.max(draft.currentStep, 0), steps.length - 1);
 
-  if (loading) {
-    return (
-      <div className="flex h-[420px] items-center justify-center text-muted-foreground">
-        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        Carregando emissão avulsa...
-      </div>
-    );
-  }
+  if (loading) return <PageLoading />;
 
   if (isAutorizada) {
     return (

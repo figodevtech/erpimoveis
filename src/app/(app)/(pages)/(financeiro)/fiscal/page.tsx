@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import axios from "axios";
@@ -41,8 +43,8 @@ export default function FiscalPage() {
   const [notas, setNotas] = useState<NotaFiscal[]>([]);
   const [kpis, setKpis] = useState<FiscalKpis | undefined>(undefined);
   const [pagination, setPagination] = useState<Pagination>(initialPagination);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingKpis, setIsLoadingKpis] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingKpis, setIsLoadingKpis] = useState(true);
   const [filters, setFilters] = useState<FiscalFilters>(() => ({
     ...EMPTY_FISCAL_FILTERS,
     search: paramSearch,
@@ -200,6 +202,8 @@ export default function FiscalPage() {
     const timer = window.setTimeout(() => void handleGetKpis(), 0);
     return () => window.clearTimeout(timer);
   }, [handleGetKpis]);
+
+  if (isLoading || isLoadingKpis) return <PageLoading />;
 
   return (
     <div className="space-y-4">

@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import axios from "axios";
@@ -187,6 +189,8 @@ export default function ReservasPage() {
       </p>
     );
   }
+
+  if (!ready || isLoading || loadingStatusCounter) return <PageLoading />;
 
   return (
     <div className="space-y-6">

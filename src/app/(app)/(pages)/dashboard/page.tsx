@@ -1,13 +1,13 @@
 "use client";
+import { PageLoading } from "@/components/page-loading";
+
 
 import dynamic from "next/dynamic";
 import { Tabs, TabsContent, TabsList } from "@/components/ui/tabs";
 
 import OpcoesAbas from "./components/tabs";
 
-function DashboardLoading() {
-  return <p role="status" className="p-6 text-sm text-muted-foreground">Carregando indicadores...</p>;
-}
+function DashboardLoading() { return <PageLoading />; }
 
 // TabsContent monta somente a aba ativa, que carrega seu proprio modulo.
 const ConteudoUsuarios = dynamic(() => import("./components/dashboard-clientes/components/dashboard-clientes"), { loading: DashboardLoading });

@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -24,7 +26,7 @@ export default function ImoveisPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [imoveis, setImoveis] = useState<Imovel[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [situacao, setSituacao] = useState<SituacaoImovel>(SituacaoImovel.TODOS);
@@ -162,6 +164,8 @@ export default function ImoveisPage() {
       </p>
     );
   }
+
+  if (!ready || isLoading || loadingStatusCounter) return <PageLoading />;
 
   return (
     <div className="space-y-6">

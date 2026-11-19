@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import * as React from "react";
 import Link from "next/link";
 import {
@@ -166,6 +168,8 @@ export default function DashboardEstoque() {
 
   const ticketMedio =
     totaisVendidos.quantidade > 0 ? totaisVendidos.faturamento / totaisVendidos.quantidade : 0;
+
+  if (carregando || carregandoVendidos) return <PageLoading />;
 
   return (
     <Card className="dashboard-root w-full py-2">

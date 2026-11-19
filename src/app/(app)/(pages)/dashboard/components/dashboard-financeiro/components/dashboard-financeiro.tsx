@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import * as React from "react";
 import clsx from "clsx";
 
@@ -175,6 +177,8 @@ export default function DashboardFinanceiro({
     aplicarPeriodo(obterPeriodoInicial());
     setMetodoSelecionado(null);
   }
+
+  if (carregando) return <PageLoading />;
 
   return (
     <Card className={clsx("dashboard-root w-full py-2", className)}>

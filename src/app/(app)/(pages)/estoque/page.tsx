@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useEffect, useRef, useState } from "react";
 import { Produto, Pagination, Estoque_status, ProductListFilters } from "./types";
 import axios from "axios";
@@ -14,7 +16,7 @@ export default function EstoquePage() {
   const [status, setStatus] = useState<Estoque_status>(Estoque_status.TODOS);
   const [products, setProducts] = useState<Produto[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | undefined>(undefined);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   const {
     statusCounts,
@@ -100,6 +102,8 @@ export default function EstoquePage() {
       setIsOpen(true);
     }
   }, [selectedProductId]);
+
+  if (isLoading || loadingStatusCounter) return <PageLoading />;
 
   return (
     <div className="mx-auto space-y-6">

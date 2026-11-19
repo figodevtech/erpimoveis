@@ -1,4 +1,6 @@
 "use client";
+
+import { PageLoading } from "@/components/page-loading";
 import axios from "axios";
 import { useEffect, useRef, useState } from "react";
 import { Customer, Pagination, Status } from "./types";
@@ -21,7 +23,7 @@ export default function ClientesPage() {
   } = useStatusCounter();
   const [isOpen, setIsOpen] = useState(false);
 
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [pagination, setPagination] = useState<Pagination>({
     total: 0,
     page: 1,
@@ -114,6 +116,8 @@ export default function ClientesPage() {
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, search, devedores]);
+
+  if (isLoading || loadingStatusCounter) return <PageLoading />;
 
   return (
     <div className="space-y-6">

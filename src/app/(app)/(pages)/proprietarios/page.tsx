@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import axios from "axios";
@@ -18,7 +20,7 @@ const EntityDialog = dynamic(() => import("@/components/imobiliario/entity-dialo
 export default function ProprietariosPage() {
   const { can, ready } = useModulePermission();
   const [proprietarios, setProprietarios] = useState<Proprietario[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [status, setStatus] = useState<StatusProprietario>(StatusProprietario.TODOS);
@@ -129,6 +131,8 @@ export default function ProprietariosPage() {
       </p>
     );
   }
+
+  if (!ready || isLoading || loadingStatusCounter) return <PageLoading />;
 
   return (
     <div className="space-y-6">

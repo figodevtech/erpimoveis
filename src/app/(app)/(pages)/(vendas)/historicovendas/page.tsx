@@ -1,4 +1,6 @@
 "use client";
+
+import { PageLoading } from "@/components/page-loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Cards from "./components/cards";
 import axios from "axios";
@@ -18,7 +20,7 @@ function formatMonthFromDate(date: Date): string {
   return `${year}-${month}`;
 }
 export default function HistoricoVendas() {
-  const [loadingStatusCounter, setLoadingStatusCounter] = useState(false);
+  const [loadingStatusCounter, setLoadingStatusCounter] = useState(true);
   const [fase, setFase] = useState<FaseVenda>("ABERTAS");
 
   const totalVendas = 0;
@@ -26,7 +28,7 @@ export default function HistoricoVendas() {
   const [vendas, setVendas] = useState<VendaResumo[]>([]);
   const date = new Date(); // hoje
   const month = formatMonthFromDate(date);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [selectedVendaId, setSelectedVendaId] = useState<number | undefined>(
     undefined
@@ -128,6 +130,8 @@ export default function HistoricoVendas() {
     const timer = window.setTimeout(() => void fetchMetrics(), 0);
     return () => window.clearTimeout(timer);
   }, [fetchMetrics]);
+
+  if (isLoading || loadingStatusCounter) return <PageLoading />;
 
   return (
     <div className="mx-auto space-y-6">

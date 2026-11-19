@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useCallback, useEffect, useState } from "react";
 import { Activity, Bot, CheckCircle2, Loader2, RefreshCw, RotateCcw, Send } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -48,16 +50,7 @@ export default function TelegramConfigurationPage() {
     finally { setAction(null); }
   }
 
-  if (loading && !status) {
-    return (
-      <div className="flex h-[80vh] w-full items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <div className="size-8 animate-spin rounded-t-full border-t-2 border-primary" />
-          <p className="text-primary">Carregando configurações...</p>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageLoading />;
   const environmentOk = status?.environment.configured && status.environment.hasWebhookSecret && status.environment.hasCronSecret && status.environment.hasAppUrl;
   const webhookOk = Boolean(status?.webhook?.url) && (
     !status?.webhook?.last_error_message

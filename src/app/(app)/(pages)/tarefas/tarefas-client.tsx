@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useMemo, useState } from "react";
 import {
   QueryClient,
@@ -339,6 +341,8 @@ function TarefasContent() {
     { id: "todas", label: "Todas as Anotações", icon: FileText },
     { id: "favoritas", label: "Fixadas", icon: Pin },
   ];
+
+  if (isLoading) return <PageLoading />;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 pb-12">

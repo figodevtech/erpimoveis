@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -130,6 +132,8 @@ export function DocumentosLista({ moduloInicial }: { moduloInicial: ModuloDocume
   }
 
   const linkNovo = `/configuracoes/documentos/novo?modulo=${aba}`;
+
+  if (carregando) return <PageLoading />;
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">

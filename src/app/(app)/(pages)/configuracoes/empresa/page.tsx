@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Building2, Loader2, Save } from "lucide-react";
@@ -86,6 +88,8 @@ export default function ConfigEmpresaPage() {
       setSalvando(false);
     }
   }
+
+  if (carregando) return <PageLoading />;
 
   return (
     <div className="container mx-auto max-w-7xl space-y-6 px-4 py-1 animate-in fade-in duration-500 sm:px-6 lg:px-8">

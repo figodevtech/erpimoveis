@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import axios from "axios";
 import { AlertCircle, ArrowDownLeft, ArrowUpRight, ClipboardList, Wallet } from "lucide-react";
 import { useSession } from "next-auth/react";
@@ -246,6 +248,8 @@ export default function EventosFinanceirosPage() {
 
   const rotuloDoPeriodo =
     `em ${totais.ordens} OS e ${totais.vendas ?? 0} vendas`;
+
+  if (isLoading || carregandoUsuarios) return <PageLoading />;
 
   return (
     <div className="space-y-6 py-5">

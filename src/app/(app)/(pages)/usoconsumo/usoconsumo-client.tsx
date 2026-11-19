@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import axios, { isAxiosError } from "axios";
 import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -273,6 +275,8 @@ export default function UsoConsumoClient({ escopo = "USOCONSUMO" }: UsoConsumoCl
     if (groupId !== "all") params.set("grupoId", groupId);
     window.location.href = `/api/usoconsumo/itens/export?${params}`;
   }
+
+  if (loading || loadingCounts) return <PageLoading />;
 
   return (
     <div className="mx-auto space-y-6">

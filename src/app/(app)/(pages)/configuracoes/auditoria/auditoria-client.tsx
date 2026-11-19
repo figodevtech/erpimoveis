@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import * as React from "react";
 import {
   ArrowRight,
@@ -653,6 +655,8 @@ export function AuditoriaClient() {
     Boolean(filtros.inicio),
     Boolean(filtros.fim),
   ].filter(Boolean).length;
+
+  if (carregando) return <PageLoading />;
 
   return (
     <div>

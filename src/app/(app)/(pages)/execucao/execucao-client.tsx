@@ -1,5 +1,7 @@
 "use client";
 
+import { PageLoading } from "@/components/page-loading";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Building2,
@@ -83,6 +85,8 @@ export function ExecucaoClient() {
   const podeGerenciar = dados?.podeGerenciar ?? false;
   const itens = dados?.items ?? [];
   const totalPaginas = dados ? Math.max(1, Math.ceil(dados.total / PAGE_SIZE)) : 1;
+
+  if (carregando) return <PageLoading />;
 
   return (
     <div className="space-y-6">
