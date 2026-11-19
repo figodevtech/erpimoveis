@@ -19,7 +19,7 @@ export async function GET(_request: Request, context: Context) {
   try {
     await internal("imoveis:visualizar");
     const id = await propertyId(context);
-    const result = await db.from("imovel_canal_calendario").select("id,imovel_id,canal,anuncio,responsavel,calendario_url,exportacao_confirmada,ultima_tentativa,ultima_sincronizacao,ultimo_erro,eventos_ativos,conflitos").eq("imovel_id", id).order("id");
+    const result = await db.from("imovel_canal_calendario").select("id,imovel_id,canal,anuncio,responsavel,calendario_url,exportacao_confirmada,ultima_tentativa,ultima_sincronizacao,ultimo_erro,eventos_ativos,conflitos").eq("imovel_id", id).neq("canal", "STAYS").order("id");
     if (result.error?.code === "42P01" || result.error?.code === "PGRST205") {
       return json({ items: [], migrationPending: true, accountConnectionAvailable: false });
     }
@@ -47,7 +47,7 @@ export async function DELETE(request: Request, context: Context) {
     await internal("imoveis:editar");
     const imovelId = await propertyId(context);
     const id = identifier((await bodyOf(request)).id);
-    const result = await db.from("imovel_canal_calendario").delete().eq("id", id).eq("imovel_id", imovelId);
+    const result = await db.from("imovel_canal_calendario").delete().eq("id", id).eq("imovel_id", imovelId).in("canal", ["AIRBNB", "BOOKING"]);
     if (result.error) throw result.error;
     return json({ ok: true });
   } catch (error) { return imobFailure(error); }

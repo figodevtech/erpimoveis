@@ -5,9 +5,7 @@ import { Dialog, DialogTrigger } from "@/components/ui/dialog";
 import dynamic from "next/dynamic";
 import { MountOnDemand } from "@/components/mount-on-demand";
 
-function FormLoading() {
-  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulario...</p>;
-}
+function FormLoading() { return null; }
 const EditContent = dynamic(() => import("./editContent"), { loading: FormLoading });
 const RegisterContent = dynamic(() => import("./registerContent"), { loading: FormLoading });
 import { Customer } from "../../types";

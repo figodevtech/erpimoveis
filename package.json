@@ -47,6 +47,8 @@
     "db:admin:inicial": "tsx scripts/db/configurar-administrador-inicial.ts",
     "db:test:base-imoveis": "tsx scripts/db/test-base-imoveis.ts",
     "db:test:calendarios-imoveis": "tsx scripts/db/test-calendarios-imoveis.ts",
+    "db:test:stays": "tsx scripts/db/test-stays-inicial.ts",
+    "test:stays": "tsx --test src/lib/imobiliario/stays.test.ts",
     "test:calendarios-imoveis": "tsx --test src/lib/imobiliario/ical.test.ts src/lib/imobiliario/ical-import.test.ts src/lib/imobiliario/calendar-sync.test.ts src/lib/imobiliario/channel-config.test.ts",
     "db:test:edicao-eventos-reserva": "tsx scripts/db/test-edicao-eventos-reserva.ts",
     "db:test:exclusao-eventos-reserva": "tsx scripts/db/test-edicao-eventos-reserva.ts --exclusao",

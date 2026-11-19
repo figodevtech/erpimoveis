@@ -92,7 +92,7 @@ import { MountOnDemand } from "@/components/mount-on-demand";
 
 const EntradaFiscalDialog = dynamic(
   () => import("@/components/entrada-fiscal/entrada-fiscal-dialog").then((module) => module.EntradaFiscalDialog),
-  { loading: () => <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulario...</p> },
+  { loading: () => null },
 );
 
 import {

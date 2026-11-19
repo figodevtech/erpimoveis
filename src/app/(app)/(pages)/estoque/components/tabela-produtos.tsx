@@ -22,9 +22,7 @@ import { PERMS, permissionSetHas } from "@/app/api/_authz/permission-constants";
 
 import { ProdutoFiltrosSheet } from "./produto-filtros-sheet";
 
-function DialogLoading() {
-  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulário...</p>;
-}
+function DialogLoading() { return null; }
 
 const DialogProduto = dynamic(() => import("./dialog-produto/dialog-produto").then((module) => module.DialogProduto), { loading: DialogLoading });
 const EntradaDialog = dynamic(() => import("./dialog-entrada/dialog-entrada-unica"), { loading: DialogLoading });

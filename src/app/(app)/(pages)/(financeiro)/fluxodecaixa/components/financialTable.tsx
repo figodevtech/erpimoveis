@@ -102,9 +102,7 @@ import {
 } from "@/lib/financeiro/transacao";
 import { getCategoryIcon, getTypeColor } from "../utils";
 import { ExportTransactionsButton } from "./ExportTransactionsButton";
-function DialogLoading() {
-  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulário...</p>;
-}
+function DialogLoading() { return null; }
 
 const TransactionDialog = dynamic(() => import("./transactionDialog/transactionDialog"), { loading: DialogLoading });
 const TransferenciaDialog = dynamic(() => import("./transferencia-dialog").then((module) => module.TransferenciaDialog), { loading: DialogLoading });

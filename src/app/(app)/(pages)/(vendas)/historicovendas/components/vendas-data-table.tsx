@@ -19,9 +19,7 @@ import DeleteAlert from "./deleteAlert";
 import dynamic from "next/dynamic";
 import { MountOnDemand } from "@/components/mount-on-demand";
 
-function DialogLoading() {
-  return <p role="status" className="fixed bottom-4 right-4 z-50 rounded-md border bg-background p-3 text-sm shadow">Carregando formulário...</p>;
-}
+function DialogLoading() { return null; }
 
 const EmissaoNotaDialog = dynamic(() => import("@/components/fiscal/emissao-nota-dialog/emissao-nota-dialog").then((module) => module.EmissaoNotaDialog), { loading: DialogLoading });
 const VendaDetailsDialog = dynamic(() => import("./venda-detail-dialog").then((module) => module.VendaDetailsDialog), { loading: DialogLoading });

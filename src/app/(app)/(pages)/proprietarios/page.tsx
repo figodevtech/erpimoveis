@@ -14,7 +14,7 @@ import { useModulePermission } from "@/components/imobiliario/shared";
 import { removeEntity } from "@/components/imobiliario/row-actions";
 
 const EntityDialog = dynamic(() => import("@/components/imobiliario/entity-dialog"), {
-  loading: () => <p role="status" className="p-3 text-sm">Carregando cadastro…</p>,
+  loading: () => null,
 });
 
 export default function ProprietariosPage() {

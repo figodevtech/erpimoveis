@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, RemoteState, requestJson, useRemote, useModulePermission } from "./shared";
 import type { Entity } from "./model";
+import { StaysPanel } from "./stays-panel";
 
 type Channel = "AIRBNB" | "BOOKING";
 type CalendarLink = { id: number; canal: Channel; anuncio: string; responsavel: string; calendario_url: string; exportacao_confirmada: boolean; ultima_sincronizacao: string | null; ultimo_erro: string | null; eventos_ativos: number; conflitos: number };
@@ -111,6 +112,10 @@ export function PropertyChannels({ item }: { item: Entity }) {
     finally { setSyncing(false); }
   };
   return <div className="w-full min-w-0 space-y-6">
+    <StaysPanel key={item.id} imovelId={Number(item.id)} />
+    <details className="rounded-2xl border border-border/60 bg-card p-4">
+      <summary className="cursor-pointer text-sm font-semibold">Calendários iCal · conexão alternativa</summary>
+      <div className="mt-5 space-y-6">
     <div className="flex items-center gap-3 px-1"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">1</span><div><h4 className="text-sm font-semibold">Calendários das plataformas</h4><p className="mt-0.5 text-xs text-muted-foreground">Links dos anúncios vinculados a este imóvel.</p></div><ArrowDownLeft className="ml-auto size-4 text-muted-foreground" /></div>
     {remote.error ? <RemoteState error={remote.error} retry={remote.reload} /> : null}
     {!remote.data && !remote.error ? <div role="status" className="flex items-center justify-center gap-2 rounded-2xl border bg-card p-10 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Carregando calendários…</div> : null}
@@ -157,5 +162,7 @@ export function PropertyChannels({ item }: { item: Entity }) {
     <div role="status" className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-amber-900 dark:text-amber-200">
       <Clock3 className="mt-0.5 size-4 shrink-0" /><div><p className="text-xs font-semibold">A atualização nas plataformas pode levar algumas horas</p><p className="mt-1 text-xs leading-relaxed opacity-80">“Atualizar agora” consulta os canais pelo ERP. Airbnb e Booking controlam quando leem o calendário do imóvel. Use a URL correspondente ao destino para evitar devolver eventos à própria origem.</p></div>
     </div>
+      </div>
+    </details>
   </div>;
 }

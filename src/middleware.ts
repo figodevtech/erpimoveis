@@ -82,6 +82,7 @@ function isPublicApi(pathname: string, method: string) {
   // Server-to-server endpoint: the handler validates its own Bearer secret.
   if (pathname === "/api/integracoes/site/webhook") return true;
   if (pathname === "/api/integracoes/imoveis/calendarios/processar") return true; // Bearer CRON_SECRET validado no handler.
+  if (pathname === "/api/integracoes/stays/webhook") return true; // Assinatura RSA Stays validada no handler.
   if (pathname === "/api/integracoes/site/checkout") return true;
   // Apenas a leitura aceita o token da loja; a rota valida o Bearer.
   // A escrita continua exigindo sessao e permissoes do ERP.

@@ -57,12 +57,7 @@ import {
 import { AnuncioPreview } from "./anuncio-preview";
 
 const EntityDialog = dynamic(() => import("./entity-dialog"), {
-  loading: () => (
-    <div className="flex items-center justify-center p-8 gap-2 text-sm text-muted-foreground">
-      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-      <span>Carregando cadastro…</span>
-    </div>
-  ),
+  loading: () => null,
 });
 
 export function RelationshipPanel({

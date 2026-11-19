@@ -55,7 +55,7 @@ export async function syncCalendar(id: number, force = false) {
 }
 
 export async function syncCalendars(imovelId?: number) {
-  let query = db.from("imovel_canal_calendario").select("id").order("ultima_tentativa", { ascending: true, nullsFirst: true }).order("id").limit(10);
+  let query = db.from("imovel_canal_calendario").select("id").neq("canal", "STAYS").order("ultima_tentativa", { ascending: true, nullsFirst: true }).order("id").limit(6);
   if (imovelId) query = query.eq("imovel_id", imovelId);
   else query = query.or(`ultima_tentativa.is.null,ultima_tentativa.lt.${new Date(Date.now() - 15 * 60000).toISOString()}`);
   const result = await query;

@@ -13,7 +13,7 @@ import { Pagination, Reserva, ReservasTab, StatusReserva } from "./types";
 import { useModulePermission } from "@/components/imobiliario/shared";
 
 const EntityDialog = dynamic(() => import("@/components/imobiliario/entity-dialog"), {
-  loading: () => <p role="status" className="p-3 text-sm">Carregando cadastro…</p>,
+  loading: () => null,
 });
 
 export default function ReservasPage() {
