@@ -24,9 +24,12 @@ import {
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
 import { AirbnbCodeLink } from "./airbnb";
+import { hospedesAConfirmar } from "@/lib/imobiliario/airbnb";
 import {
   AlertTriangle,
   ArrowRight,
+  Ban,
+  Home,
   CalendarCheck,
   CalendarRange,
   CalendarX,
@@ -64,11 +67,11 @@ export const todayCivil = () => new Date().toLocaleDateString("en-CA");
 export const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-// soft: dia ocupado no calendário (tom claro, legível com a faixa de seleção por cima); dot: marcador e lista.
-const KINDS: Record<string, { label: string; soft: string; dot: string }> = {
-  RESERVA: { label: "Reserva", soft: "bg-sky-500/15 text-sky-800 dark:text-sky-300", dot: "bg-sky-500" },
-  BLOQUEIO: { label: "Bloqueio", soft: "bg-slate-500/20 text-slate-700 dark:text-slate-300", dot: "bg-slate-500" },
-  MANUTENCAO: { label: "Manutenção", soft: "bg-orange-500/20 text-orange-800 dark:text-orange-300", dot: "bg-orange-600" },
+// dot: marcador da lista do mês, nas cores das faixas do calendário.
+const KINDS: Record<string, { label: string; dot: string }> = {
+  RESERVA: { label: "Reserva", dot: "bg-[#2f6684]" },
+  BLOQUEIO: { label: "Bloqueio", dot: "bg-[#c0392b]" },
+  MANUTENCAO: { label: "Manutenção", dot: "bg-[#c0392b]" },
 };
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -94,6 +97,202 @@ function periodText(row: Entity) {
 const shortDay = (date: string) =>
   new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "short" }).format(new Date(`${date}T12:00:00`));
 
+/* ------------------------------------------------------------------ calendário de ocupação
+   Mesmo desenho do calendário do painel do proprietário (site): semanas completas e cada
+   ocupação como uma faixa contínua por cima dos dias. A reserva vai da hora de entrada até a
+   hora de saída, então no dia de troca de hóspedes cada uma ocupa só a sua parte do dia; o
+   bloqueio ocupa os dias inteiros. Posições em dias desde 1970 (fração = hora do dia). */
+
+const DAY_MS = 86_400_000;
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)/;
+/** Fim de ocupação sem data (locação aberta): número finito bem à frente. */
+const OPEN_END = 1e7;
+/** Altura do cabeçalho do dia (número), de cada linha de faixas e da faixa, em px. */
+const CAL_HEAD = 26;
+const CAL_LANE = 22;
+const CAL_BAR = 18;
+
+/** Posição de um dia + hora ("HH:MM") na escala do calendário. */
+const position = (day: string, time = "00:00") => {
+  const match = TIME_RE.exec(time);
+  return Date.parse(`${String(day).slice(0, 10)}T00:00:00Z`) / DAY_MS + (match ? (Number(match[1]) * 60 + Number(match[2])) / 1440 : 0);
+};
+const validTime = (value: unknown, fallback: string) =>
+  typeof value === "string" && TIME_RE.test(value) ? value.slice(0, 5) : fallback;
+
+/** Dia civil e hora de um instante no fuso do imobiliário (João Pessoa). */
+function localMoment(iso: unknown) {
+  const time = typeof iso === "string" ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(time)) return null;
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Fortaleza",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(time)
+      .map((part) => [part.type, part.value])
+  );
+  return { day: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
+
+/** Cores das faixas: as mesmas do painel do proprietário, mais o tom do Airbnb. */
+const TONES = {
+  confirmada: { label: "Confirmada", bar: "bg-[#2f6684]" },
+  hospedado: { label: "Hospedado", bar: "bg-[#3f7d5c]" },
+  concluida: { label: "Concluída", bar: "bg-[#8d969c]" },
+  airbnb: { label: "Airbnb (não registrada)", bar: "bg-[#e0565b]" },
+  own: { label: "Uso próprio", bar: "bg-[#6b5b95]" },
+  busy: { label: "Ocupado (outro canal)", bar: "bg-[#4a5660]" },
+  block: { label: "Bloqueio ou manutenção", bar: "bg-[#c0392b]" },
+} as const;
+type Tone = keyof typeof TONES;
+
+const RESERVATION_STATUS: Record<string, { tone: Tone; label: string }> = {
+  CONFIRMADA: { tone: "confirmada", label: "Confirmada" },
+  EM_ANDAMENTO: { tone: "hospedado", label: "Hospedado" },
+  CONCLUIDA: { tone: "concluida", label: "Concluída" },
+};
+
+type CalendarEvent = {
+  key: string;
+  start: number;
+  end: number;
+  label: string;
+  description: string;
+  tone: Tone;
+  icon: "ban" | "wrench" | "lock" | "home" | null;
+  airbnb: boolean;
+  /** Reserva do ERP que a faixa abre ao ser clicada. */
+  reservaId: number | null;
+};
+
+/**
+ * Ocupações do imóvel como faixas. A hora da reserva: a registrada no ERP quando cai no próprio
+ * dia previsto (check-in antecipado, check-out tardio); senão a da reserva; senão a do imóvel.
+ */
+function occupancyEvents(rows: Entity[], defaults: { checkin?: unknown; checkout?: unknown }) {
+  const baseIn = validTime(defaults.checkin, "14:00");
+  const baseOut = validTime(defaults.checkout, "12:00");
+  const events: CalendarEvent[] = [];
+  for (const row of rows) {
+    if (!row.inicio) continue;
+    const reserva: Entity | null = row.reserva ?? null;
+    const asStay = kindOf(row) === "RESERVA" || row.tipo === "LOCACAO";
+    let start: number;
+    let end: number;
+    let entrada = "";
+    let saida = "";
+    if (asStay) {
+      const registeredIn = localMoment(reserva?.checkin_em);
+      const registeredOut = localMoment(reserva?.checkout_em);
+      const inTime = registeredIn?.day === String(row.inicio).slice(0, 10) ? registeredIn.time : validTime(reserva?.horario_checkin, baseIn);
+      const outTime =
+        row.fim && registeredOut?.day === String(row.fim).slice(0, 10) ? registeredOut.time : validTime(reserva?.horario_checkout, baseOut);
+      start = position(row.inicio, inTime);
+      end = row.fim ? position(row.fim, outTime) : OPEN_END;
+      entrada = `entrada ${dateLabel(row.inicio)} às ${inTime}`;
+      saida = row.fim ? `saída ${dateLabel(row.fim)} às ${outTime}` : "sem data de saída";
+    } else {
+      // Bloqueio [inicio, fim): vale até o fim do dia anterior a "fim".
+      start = position(row.inicio);
+      end = row.fim ? position(row.fim) : OPEN_END;
+    }
+    if (!Number.isFinite(start) || !(end > start)) continue;
+
+    const codigo = row.calendario_codigo ? String(row.calendario_codigo) : null;
+    const airbnb = Boolean(codigo) || reserva?.origem === "AIRBNB";
+    let tone: Tone;
+    let label: string;
+    let icon: CalendarEvent["icon"] = null;
+    if (row.reserva_id) {
+      const status = RESERVATION_STATUS[String(reserva?.status ?? "CONFIRMADA")] ?? RESERVATION_STATUS.CONFIRMADA;
+      const hospede = reserva?.cliente?.codigo_sistema ? null : reserva?.cliente?.nomerazaosocial;
+      tone = status.tone;
+      label = `#${row.reserva_id} · ${hospede || (airbnb ? "Airbnb" : status.label)}`;
+    } else if (row.calendario_tipo === "RESERVA") {
+      tone = "airbnb";
+      label = codigo ? `Airbnb · ${codigo}` : "Reserva Airbnb";
+    } else if (row.tipo === "LOCACAO") {
+      tone = "busy";
+      icon = "lock";
+      label = "Locação";
+    } else if (row.canal_calendario_id && row.calendario_tipo !== "BLOQUEIO") {
+      tone = "busy";
+      icon = "lock";
+      label = row.motivo || "Ocupado";
+    } else if (row.solicitado_por) {
+      tone = "own";
+      icon = "home";
+      label = "Uso próprio";
+    } else {
+      tone = "block";
+      icon = row.tipo === "MANUTENCAO" ? "wrench" : "ban";
+      const tipo = row.tipo === "MANUTENCAO" ? "Manutenção" : "Bloqueio";
+      label = row.canal_calendario_id ? row.motivo || tipo : row.motivo ? `${tipo} · ${row.motivo}` : tipo;
+    }
+    events.push({
+      key: String(row.id ?? `${row.inicio}-${row.reserva_id ?? ""}`),
+      start,
+      end,
+      label,
+      description: asStay ? `${label}: ${entrada}, ${saida}` : `${label}: ${periodText(row)}`,
+      tone,
+      icon,
+      airbnb,
+      reservaId: row.reserva_id && reserva ? Number(row.reserva_id) : null,
+    });
+  }
+  return events.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+/** Semanas (domingo a sábado) que cobrem o mês. */
+function monthWeeks(month: string) {
+  const first = monthStart(month);
+  const weekday = new Date(`${first}T12:00:00Z`).getUTCDay();
+  const [year, monthNumber] = first.split("-").map(Number);
+  const last = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+  const weeks: string[][] = [];
+  for (let day = addDays(first, -weekday); day <= last; day = addDays(day, 7))
+    weeks.push(Array.from({ length: 7 }, (_, index) => addDays(day, index)));
+  return weeks;
+}
+
+/**
+ * Pedaços das faixas dentro da semana, cada um na sua linha. Faixas que só se encostam
+ * (saída às 12h e entrada às 14h, ou um bloqueio emendando no outro) dividem a linha;
+ * só sobreposição de fato abre outra.
+ */
+function weekSegments(events: CalendarEvent[], week: string[]) {
+  const weekStart = position(week[0]);
+  const weekEnd = weekStart + 7;
+  const laneEnds: number[] = [];
+  const segments: { event: CalendarEvent; left: number; width: number; lane: number; before: boolean; after: boolean }[] = [];
+  for (const event of events) {
+    const start = Math.max(event.start, weekStart);
+    const end = Math.min(event.end, weekEnd);
+    if (end <= start) continue;
+    let lane = laneEnds.findIndex((laneEnd) => laneEnd <= start + 1e-9);
+    if (lane === -1) lane = laneEnds.push(end) - 1;
+    else laneEnds[lane] = end;
+    segments.push({
+      event,
+      left: ((start - weekStart) / 7) * 100,
+      width: ((end - start) / 7) * 100,
+      lane,
+      before: event.start < weekStart,
+      after: event.end > weekEnd,
+    });
+  }
+  return { segments, lanes: laneEnds.length };
+}
+
+const BAR_ICONS = { ban: Ban, wrench: Wrench, lock: Lock, home: Home } as const;
+
 export function OccupancyCalendar({
   month,
   onMonth,
@@ -103,6 +302,9 @@ export function OccupancyCalendar({
   onDayClick,
   isDayDisabled,
   allowPast = false,
+  checkinTime,
+  checkoutTime,
+  onOpenReservation,
 }: {
   month: string;
   onMonth: (month: string) => void;
@@ -116,6 +318,11 @@ export function OccupancyCalendar({
   isDayDisabled?: (day: string) => boolean;
   /** Na reserva dá para registrar uma estadia que já começou; no painel, o passado não se escolhe. */
   allowPast?: boolean;
+  /** Horários padrão do imóvel, para a faixa da reserva sem horário próprio. */
+  checkinTime?: unknown;
+  checkoutTime?: unknown;
+  /** Clique na faixa de uma reserva abre a reserva. Sem ele, as faixas só mostram. */
+  onOpenReservation?: (id: number) => void;
 }) {
   const today = todayCivil();
   // Enquanto falta o fim, o intervalo acompanha o mouse para mostrar o que será escolhido.
@@ -125,13 +332,19 @@ export function OccupancyCalendar({
   const choosing = Boolean(start && !selection?.end);
   const end = selection?.end ?? (choosing && hover && hover >= start! ? hover : start);
   const [year, monthIndex] = month.split("-").map(Number);
-  const daysInMonth = new Date(year, monthIndex, 0).getDate();
-  const leading = new Date(year, monthIndex - 1, 1).getDay();
   const title = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(year, monthIndex - 1, 15));
   const shift = (step: 1 | -1) => {
     setDirection(step);
     onMonth(monthStart(new Date(year, monthIndex - 1 + step, 15).toLocaleDateString("en-CA")));
   };
+  const events = useMemo(
+    () => occupancyEvents(rows, { checkin: checkinTime, checkout: checkoutTime }),
+    [rows, checkinTime, checkoutTime]
+  );
+  const weeks = monthWeeks(month);
+  const agora = localMoment(new Date().toISOString());
+  const now = agora ? position(agora.day, agora.time) : null;
+  const usedTones = new Set(events.map((event) => event.tone));
 
   return (
     <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-xs sm:p-4" onMouseLeave={() => setHover(null)}>
@@ -173,118 +386,184 @@ export function OccupancyCalendar({
         </Button>
       </div>
 
-      <div className="grid grid-cols-7 text-center">
-        {WEEKDAYS.map((d) => (
-          <span key={d} className="pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
-            {d}
-          </span>
-        ))}
-      </div>
-
       {/* key no mês: a grade entra deslizando a cada troca, no sentido da navegação. */}
       <div
         key={month}
         className={cn(
-          "grid grid-cols-7 gap-y-1 animate-in fade-in-0 duration-300",
+          "overflow-hidden rounded-xl border border-border/60 animate-in fade-in-0 duration-300",
           direction > 0 ? "slide-in-from-right-3" : "slide-in-from-left-3"
         )}
       >
-        {Array.from({ length: leading }, (_, i) => (
-          <span key={`blank-${i}`} />
-        ))}
-        {Array.from({ length: daysInMonth }, (_, i) => {
-          const day = `${month.slice(0, 7)}-${String(i + 1).padStart(2, "0")}`;
-          const weekday = (leading + i) % 7;
-          const occupation = rows.find((row) => covers(row, day));
-          const tariff = tariffs.find((t) => t.ativo !== false && covers(t, day));
-          const kind = occupation ? KINDS[kindOf(occupation)] ?? KINDS.BLOQUEIO : null;
-          const past = day < today;
-          const pickable = Boolean(onDayClick) && (allowPast || !past) && !isDayDisabled?.(day);
-          const inRange = Boolean(start && end && day >= start && day <= end);
-          const isStart = day === start;
-          const isEnd = Boolean(end && day === end);
-          const edge = isStart || isEnd;
-          const band = inRange && start !== end;
-          const label = [
-            dateLabel(day),
-            occupation
-              ? occupation.canal_calendario_id && occupation.motivo
-                ? occupation.motivo
-                : `${kind?.label}${occupation.motivo ? `: ${occupation.motivo}` : ""}`
-              : past
-              ? "Passado"
-              : "Livre",
-            tariff
-              ? `Tarifa ${money(tariff.diaria)}${tariff.descricao ? ` (${tariff.descricao})` : ""}${tariff.reserva_exclusiva ? ", pacote fechado" : ""}`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-
+        <div className="grid grid-cols-7 border-b border-border/60 bg-muted/40">
+          {WEEKDAYS.map((d) => (
+            <span key={d} className="py-1.5 text-center text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+              {d}
+            </span>
+          ))}
+        </div>
+        {weeks.map((week, weekIndex) => {
+          const { segments, lanes } = weekSegments(events, week);
+          const weekStart = position(week[0]);
+          const nowLeft = now !== null && now >= weekStart && now < weekStart + 7 ? ((now - weekStart) / 7) * 100 : null;
           return (
-            <div key={day} className="relative h-11">
-              {/* Faixa contínua do período: começa no meio do 1º dia, termina no meio do último,
-                  e arredonda nas quebras de semana e de mês. */}
-              {band ? (
-                <span
-                  aria-hidden
-                  className={cn(
-                    "absolute inset-y-1 transition-colors duration-200",
-                    choosing ? "bg-primary/[0.07]" : "bg-primary/12",
-                    isStart ? "left-1/2" : "left-0",
-                    isEnd ? "right-1/2" : "right-0",
-                    !isStart && (weekday === 0 || i === 0) && "left-1 rounded-l-full",
-                    !isEnd && (weekday === 6 || i === daysInMonth - 1) && "right-1 rounded-r-full"
-                  )}
-                />
+            <div
+              key={week[0]}
+              className={cn("relative", weekIndex > 0 && "border-t border-border/60")}
+              style={{ minHeight: Math.max(CAL_HEAD + Math.max(lanes, 1) * CAL_LANE + 6, 60) }}
+            >
+              <div className="absolute inset-0 grid grid-cols-7">
+                {week.map((day, index) => {
+                  const outside = day.slice(0, 7) !== month.slice(0, 7);
+                  const past = day < today;
+                  const pickable = Boolean(onDayClick) && (allowPast || !past) && !isDayDisabled?.(day);
+                  const inRange = Boolean(start && end && day >= start && day <= end);
+                  const edge = day === start || Boolean(end && day === end);
+                  const tariff = tariffs.find((t) => t.ativo !== false && covers(t, day));
+                  const occupied = rows.filter((row) => covers(row, day));
+                  const label = [
+                    dateLabel(day),
+                    occupied.length
+                      ? occupied
+                          .map((row) => events.find((event) => event.key === String(row.id))?.label ?? KINDS[kindOf(row)]?.label ?? "Ocupado")
+                          .join(", ")
+                      : past
+                      ? "Passado"
+                      : "Livre",
+                    tariff
+                      ? `Tarifa ${money(tariff.diaria)}${tariff.descricao ? ` (${tariff.descricao})` : ""}${tariff.reserva_exclusiva ? ", pacote fechado" : ""}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      title={label}
+                      aria-label={label}
+                      aria-pressed={edge || undefined}
+                      disabled={!pickable}
+                      onClick={() => pickable && onDayClick?.(day)}
+                      onMouseEnter={() => pickable && setHover(day)}
+                      className={cn(
+                        "relative flex items-start justify-end gap-1 px-1.5 pt-1 outline-none transition-colors duration-150",
+                        "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50",
+                        index > 0 && "border-l border-border/50",
+                        outside ? "bg-muted/45" : past ? "bg-muted/20" : "bg-card",
+                        inRange && (choosing ? "bg-primary/[0.07]" : "bg-primary/[0.12]"),
+                        edge && "bg-primary/[0.2]",
+                        pickable ? "hover:cursor-pointer hover:bg-primary/10" : "cursor-default"
+                      )}
+                    >
+                      {tariff ? <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#c9a96a]" /> : null}
+                      <span
+                        className={cn(
+                          "inline-grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px] font-semibold tabular-nums leading-none",
+                          edge
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : day === today
+                            ? "bg-primary/15 text-primary ring-1 ring-primary/40"
+                            : outside || (past && !allowPast)
+                            ? "font-medium text-muted-foreground/50"
+                            : past
+                            ? "font-medium text-muted-foreground"
+                            : onDayClick && !pickable
+                            ? "text-muted-foreground/60"
+                            : "text-foreground"
+                        )}
+                      >
+                        {Number(day.slice(8))}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <ul className="pointer-events-none absolute inset-0 m-0 list-none p-0" aria-label={`Ocupação de ${dateLabel(week[0])} a ${dateLabel(week[6])}`}>
+                {segments.map(({ event, left, width, lane, before, after }) => {
+                  const Icon = event.icon ? BAR_ICONS[event.icon] : null;
+                  const clickable = Boolean(onOpenReservation && event.reservaId);
+                  const barClass = cn(
+                    "flex h-full items-center gap-1 overflow-hidden whitespace-nowrap rounded-full px-2 text-left text-[10.5px] font-semibold leading-none text-white shadow-[0_1px_2px_rgba(16,31,36,0.18)]",
+                    TONES[event.tone].bar,
+                    before && "rounded-l-none",
+                    after && "rounded-r-none",
+                    clickable && "hover:cursor-pointer hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                  );
+                  const style = {
+                    marginLeft: before ? 0 : 1,
+                    marginRight: after ? 0 : 1,
+                    width: `calc(100% - ${(before ? 0 : 1) + (after ? 0 : 1)}px)`,
+                  };
+                  const content = (
+                    <>
+                      {event.airbnb && event.tone !== "airbnb" ? (
+                        <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ff8a8d] ring-1 ring-white/80" />
+                      ) : null}
+                      {Icon ? <Icon aria-hidden className="h-3 w-3 shrink-0" /> : null}
+                      <span className="truncate">{event.label}</span>
+                    </>
+                  );
+                  return (
+                    <li
+                      key={`${event.key}-${week[0]}`}
+                      className={cn("absolute", clickable && "pointer-events-auto")}
+                      style={{ left: `${left}%`, width: `${width}%`, minWidth: 6, top: CAL_HEAD + lane * CAL_LANE, height: CAL_BAR }}
+                    >
+                      {clickable ? (
+                        <button
+                          type="button"
+                          className={barClass}
+                          style={style}
+                          title={`${event.description}. Clique para abrir a reserva.`}
+                          aria-label={`${event.description}. Abrir a reserva.`}
+                          onClick={() => event.reservaId && onOpenReservation?.(event.reservaId)}
+                        >
+                          {content}
+                        </button>
+                      ) : (
+                        <span className={barClass} style={style} title={event.description} aria-label={event.description} role="img">
+                          {content}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+
+              {nowLeft !== null ? (
+                <i aria-hidden className="pointer-events-none absolute inset-y-0 -ml-px w-0.5 bg-primary/70" style={{ left: `${nowLeft}%` }}>
+                  <i className="absolute -left-[3px] top-0.5 h-2 w-2 rounded-full bg-primary" />
+                </i>
               ) : null}
-              <button
-                type="button"
-                title={label}
-                aria-label={label}
-                aria-pressed={edge || undefined}
-                disabled={!pickable}
-                onClick={() => pickable && onDayClick?.(day)}
-                onMouseEnter={() => pickable && setHover(day)}
-                className={cn(
-                  "relative z-10 mx-auto flex h-10 w-10 flex-col items-center justify-center rounded-full text-[13px] tabular-nums outline-none transition-[background-color,color,box-shadow,transform] duration-200 ease-out",
-                  "focus-visible:ring-2 focus-visible:ring-primary/50",
-                  kind && !edge ? kind.soft : "text-foreground",
-                  past && !edge && (allowPast ? "text-muted-foreground" : "text-muted-foreground/40"),
-                  past && kind && "opacity-50",
-                  pickable ? "hover:cursor-pointer" : "cursor-default",
-                  pickable && !edge && "hover:bg-primary/10 hover:text-foreground",
-                  day === today && !edge && "font-semibold text-primary ring-1 ring-primary/30",
-                  edge &&
-                    (choosing && isEnd && !isStart
-                      ? "bg-primary/75 text-primary-foreground"
-                      : "scale-105 bg-primary font-semibold text-primary-foreground shadow-md shadow-primary/25")
-                )}
-              >
-                <span className="leading-none">{i + 1}</span>
-                {/* Marcadores discretos: tipo de ocupação (nas pontas do período) e tarifa especial. */}
-                <span className="absolute bottom-1.5 flex gap-0.5">
-                  {kind && edge ? <span className={cn("h-1 w-1 rounded-full ring-1 ring-white/70", kind.dot)} /> : null}
-                  {tariff ? (
-                    <span className={cn("h-1 w-1 rounded-full", edge ? "bg-white/90" : "bg-[#c9a96a]")} />
-                  ) : null}
-                </span>
-              </button>
             </div>
           );
         })}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/50 pt-3 text-[11px] text-muted-foreground">
-        {Object.entries(KINDS).map(([key, kind]) => (
-          <span key={key} className="inline-flex items-center gap-1.5">
-            <span className={cn("h-3 w-3 rounded-full", kind.soft)} />
-            {kind.label}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/50 pt-3 text-[11px] text-muted-foreground">
+        {(Object.keys(TONES) as Tone[])
+          // Sempre as das reservas e do bloqueio; as demais só quando aparecem no imóvel.
+          .filter((tone) => ["confirmada", "hospedado", "concluida", "block"].includes(tone) || usedTones.has(tone))
+          .map((tone) => (
+            <span key={tone} className="inline-flex items-center gap-1.5">
+              <span className={cn("h-2.5 w-4 rounded-full", TONES[tone].bar)} />
+              {TONES[tone].label}
+            </span>
+          ))}
+        {events.some((event) => event.airbnb && event.tone !== "airbnb") ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#e0565b]" />
+            Veio do Airbnb
           </span>
-        ))}
+        ) : null}
         <span className="inline-flex items-center gap-1.5">
           <span className="h-1.5 w-1.5 rounded-full bg-[#c9a96a]" />
           Tarifa especial
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-0.5 rounded-full bg-primary/70" />
+          Agora
         </span>
       </div>
     </div>
@@ -311,8 +590,7 @@ export function DateChip({ label, date, placeholder }: { label: string; date: st
    os dados chegam (o RemoteState trocaria a seção por um spinner de 300px). */
 function CalendarSkeleton({ month }: { month: string }) {
   // Mesmo número de semanas do mês que vai aparecer (5 ou 6), para a altura bater.
-  const [year, monthIndex] = month.split("-").map(Number);
-  const cells = Math.ceil((new Date(year, monthIndex - 1, 1).getDay() + new Date(year, monthIndex, 0).getDate()) / 7) * 7;
+  const weeks = monthWeeks(month).length;
   return (
     <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-xs sm:p-4" aria-hidden>
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -320,19 +598,26 @@ function CalendarSkeleton({ month }: { month: string }) {
         <Skeleton className="h-5 w-36" />
         <Skeleton className="h-9 w-9 rounded-full" />
       </div>
-      <div className="grid grid-cols-7 pb-2">
-        {WEEKDAYS.map((d) => (
-          <Skeleton key={d} className="mx-auto h-3 w-7" />
-        ))}
-      </div>
-      <div className="grid grid-cols-7 gap-y-1">
-        {Array.from({ length: cells }, (_, i) => (
-          <div key={i} className="flex h-11 items-center justify-center">
-            <Skeleton className="h-10 w-10 rounded-full" />
+      <div className="overflow-hidden rounded-xl border border-border/60">
+        <div className="grid grid-cols-7 border-b border-border/60 bg-muted/40 py-2">
+          {WEEKDAYS.map((d) => (
+            <Skeleton key={d} className="mx-auto h-3 w-7" />
+          ))}
+        </div>
+        {Array.from({ length: weeks }, (_, w) => (
+          <div key={w} className={cn("relative h-[60px]", w > 0 && "border-t border-border/60")}>
+            <div className="grid h-full grid-cols-7">
+              {Array.from({ length: 7 }, (_, d) => (
+                <div key={d} className={cn("flex justify-end p-1", d > 0 && "border-l border-border/50")}>
+                  <Skeleton className="h-4 w-5 rounded-full" />
+                </div>
+              ))}
+            </div>
+            {w % 2 === 0 ? <Skeleton className="absolute top-[26px] h-[18px] rounded-full" style={{ left: `${10 + w * 9}%`, width: "34%" }} /> : null}
           </div>
         ))}
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/50 pt-3">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/50 pt-3">
         {[64, 64, 68, 84, 92].map((w, i) => (
           <Skeleton key={i} className="h-3" style={{ width: w }} />
         ))}
@@ -677,8 +962,16 @@ function OperationCard({
   const abrir = onOpen && operacao ? () => onOpen("reservas", id) : undefined;
   // Reserva do Airbnb cadastrada sozinha: hóspede e valores chegam depois, pelo operador.
   const hospedeAIdentificar = operacao?.cliente?.codigo_sistema === "hospede_airbnb";
+  const quantidadeAConfirmar = hospedesAConfirmar(operacao);
   const valorAInformar = operacao?.origem === "AIRBNB" && Number(valor ?? 0) <= 0;
-  const accent = "before:bg-sky-500";
+  const pendencias = [
+    hospedeAIdentificar ? "hóspede" : null,
+    quantidadeAConfirmar ? "nº de hóspedes" : null,
+    valorAInformar ? "valores" : null,
+  ].filter(Boolean);
+  // Mesma cor da faixa da reserva no calendário.
+  const accent =
+    status === "EM_ANDAMENTO" ? "before:bg-[#3f7d5c]" : status === "CONCLUIDA" ? "before:bg-[#8d969c]" : "before:bg-[#2f6684]";
   const avatar = "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300";
 
   return (
@@ -709,7 +1002,11 @@ function OperationCard({
                     · Airbnb <AirbnbCodeLink codigo={String(row.calendario_codigo)} />
                   </span>
                 ) : null}
-                {operacao?.hospedes ? (
+                {quantidadeAConfirmar ? (
+                  <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300" title="O Airbnb não informa quantos hóspedes são">
+                    · <Users className="h-3 w-3" /> hóspedes a confirmar
+                  </span>
+                ) : operacao?.hospedes ? (
                   <span className="inline-flex items-center gap-1">
                     · <Users className="h-3 w-3" /> {plural(Number(operacao.hospedes), "hóspede", "hóspedes")}
                   </span>
@@ -740,10 +1037,10 @@ function OperationCard({
         <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/50 pt-3">
           {status ? <Pill config={OPERATION_STATUS[status]} fallback={status} /> : null}
           {pagamento && !valorAInformar ? <Pill config={PAYMENT_STATUS[pagamento]} fallback={pagamento} /> : null}
-          {hospedeAIdentificar || valorAInformar ? (
+          {pendencias.length ? (
             <Pill
               config={{
-                label: hospedeAIdentificar && valorAInformar ? "Completar hóspede e valores" : hospedeAIdentificar ? "Hóspede a identificar" : "Valores a informar",
+                label: `Completar: ${pendencias.join(", ")}`,
                 icon: AlertTriangle,
                 className: "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300",
               }}
@@ -773,11 +1070,11 @@ function OperationCard({
 function AirbnbReservationCard({ row, onRegister }: { row: Entity; onRegister?: (row: Entity) => void }) {
   const codigo = row.calendario_codigo ? String(row.calendario_codigo) : null;
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-dashed border-sky-500/40 bg-card p-4 pl-5 shadow-xs before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-sky-500/60">
+    <div className="relative overflow-hidden rounded-2xl border border-dashed border-[#e0565b]/40 bg-card p-4 pl-5 shadow-xs before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-[#e0565b]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-sm bg-sky-500" />
+            <span className="h-2.5 w-2.5 shrink-0 rounded-sm bg-[#e0565b]" />
             Reserva Airbnb
             {codigo ? <AirbnbCodeLink codigo={codigo} /> : null}
           </p>
@@ -991,6 +1288,9 @@ export function AvailabilityPanel({
                 tariffs={tariffs}
                 selection={editable ? range : undefined}
                 onDayClick={editable ? pickDay : undefined}
+                checkinTime={item.horario_checkin}
+                checkoutTime={item.horario_checkout}
+                onOpenReservation={onOpenOperation ? (id) => onOpenOperation("reservas", id) : undefined}
               />
               {editable ? (
                 <RangeActions

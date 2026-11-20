@@ -45,7 +45,7 @@ import { type Entity, clientName, dateLabel, money, propertyName } from "@/compo
 import dynamic from "next/dynamic";
 import { RowActions, type RowExtraAction } from "@/components/imobiliario/row-actions";
 import { avisarFeitoNoAirbnb } from "@/components/imobiliario/airbnb";
-import { AIRBNB_EXCLUIR_NO_AIRBNB, ehReservaAirbnb } from "@/lib/imobiliario/airbnb";
+import { AIRBNB_EXCLUIR_NO_AIRBNB, ehReservaAirbnb, hospedesAConfirmar } from "@/lib/imobiliario/airbnb";
 import { cn } from "@/lib/utils";
 
 const ReservationsCalendar = dynamic(
@@ -339,19 +339,34 @@ export default function ReservasDataTable({
                         const nomeImovel = propertyName(reserva as any);
                         const nomeCliente = clientName(reserva as any);
                         const nights = getNights(reserva.inicio, reserva.fim);
+                        // Reserva do Airbnb: linha no tom do Airbnb, para não confundir com as do sistema.
+                        const doAirbnb = ehReservaAirbnb(reserva);
 
                         return (
                           <TableRow
                             key={reserva.id}
-                            className="hover:cursor-pointer hover:bg-muted/30 transition-colors group"
+                            className={cn(
+                              "hover:cursor-pointer hover:bg-muted/30 transition-colors group",
+                              doAirbnb && "bg-[#ff5a5f]/[0.06] hover:bg-[#ff5a5f]/[0.11] dark:bg-[#ff5a5f]/[0.09] dark:hover:bg-[#ff5a5f]/[0.14]"
+                            )}
                             // Dois cliques abrem, como nas outras listas; o menu de ações da linha também abre.
                             onDoubleClick={() => onSelectReserva(reserva.id)}
                           >
                             {/* Código */}
-                            <TableCell className="font-mono">
-                              <span className="inline-block rounded bg-muted/60 px-2 py-0.5 text-[11px] font-semibold text-foreground border border-border/50">
-                                #{reserva.codigo ?? reserva.id}
-                              </span>
+                            <TableCell className={cn("font-mono", doAirbnb && "shadow-[inset_3px_0_0_0_#ff5a5f]")}>
+                              <div className="flex flex-col items-start gap-1">
+                                <span className="inline-block rounded bg-muted/60 px-2 py-0.5 text-[11px] font-semibold text-foreground border border-border/50">
+                                  #{reserva.codigo ?? reserva.id}
+                                </span>
+                                {doAirbnb ? (
+                                  <span
+                                    title={reserva.codigo_externo ? `Reserva do Airbnb ${reserva.codigo_externo}` : "Reserva do Airbnb"}
+                                    className="inline-flex items-center rounded-full bg-[#ff5a5f]/12 px-1.5 py-0.5 font-sans text-[10px] font-semibold text-[#e0484e] dark:text-[#ff8a8d]"
+                                  >
+                                    Airbnb
+                                  </span>
+                                ) : null}
+                              </div>
                             </TableCell>
 
                             {/* Imóvel */}
@@ -404,13 +419,25 @@ export default function ReservasDataTable({
 
                             {/* Hóspedes */}
                             <TableCell className="text-center">
-                              <Badge
-                                variant="outline"
-                                className="inline-flex items-center gap-1 text-xs font-medium border-border/60 bg-muted/20"
-                              >
-                                <Users className="h-3 w-3 text-primary" />
-                                {reserva.hospedes ?? 1} {Number(reserva.hospedes) === 1 ? "hóspede" : "hóspedes"}
-                              </Badge>
+                              {hospedesAConfirmar(reserva) ? (
+                                // Importada do Airbnb e ainda não salva: o Airbnb não informa quantos são.
+                                <Badge
+                                  variant="outline"
+                                  title="O Airbnb não informa quantos hóspedes são. Abra a reserva, confira no Airbnb e salve."
+                                  className="inline-flex items-center gap-1 text-xs font-medium border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                                >
+                                  <Users className="h-3 w-3" />
+                                  A confirmar
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="inline-flex items-center gap-1 text-xs font-medium border-border/60 bg-muted/20"
+                                >
+                                  <Users className="h-3 w-3 text-primary" />
+                                  {reserva.hospedes ?? 1} {Number(reserva.hospedes) === 1 ? "hóspede" : "hóspedes"}
+                                </Badge>
+                              )}
                             </TableCell>
 
                             {/* Situação */}

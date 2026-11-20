@@ -46,6 +46,8 @@ export interface Reserva {
   origem?: string;
   /** Código HM… da reserva do Airbnb. */
   codigo_externo?: string | null;
+  /** registro_automatico: importada do Airbnb e ainda não salva (hóspedes a confirmar). */
+  cotacao_snapshot?: { registro_automatico?: unknown } | null;
 }
 
 export interface Pagination {

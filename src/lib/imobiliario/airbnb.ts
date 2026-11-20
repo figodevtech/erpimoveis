@@ -11,6 +11,19 @@ export const AIRBNB_EXCLUIR_NO_AIRBNB =
 export const ehReservaAirbnb = (reserva: { origem?: unknown; codigo_externo?: unknown } | null | undefined) =>
   Boolean(reserva && (reserva.origem === "AIRBNB" || reserva.codigo_externo));
 
+/**
+ * Número de hóspedes ainda provisório: a reserva foi cadastrada sozinha pelo calendário do Airbnb
+ * (que não informa quantos são; o banco exige ao menos 1) e ninguém a salvou ainda. Salvar a
+ * reserva troca a cotação e tira a marca `registro_automatico`, então vale como confirmação.
+ * Aceita a reserva completa (`cotacao_snapshot`) ou só a marca, como a lista do calendário traz.
+ */
+export const hospedesAConfirmar = (
+  reserva: { cotacao_snapshot?: { registro_automatico?: unknown } | null; registro_automatico?: unknown } | null | undefined
+) => {
+  const marca = reserva?.cotacao_snapshot?.registro_automatico ?? reserva?.registro_automatico;
+  return marca === true || marca === "true";
+};
+
 /** Página da reserva no painel de anfitrião do Airbnb. */
 export const airbnbReservationUrl = (codigo: string) =>
   `https://www.airbnb.com.br/hosting/reservations/details/${encodeURIComponent(codigo)}`;

@@ -20,6 +20,7 @@ import {
 import { requestJson, useRemote } from "./shared";
 import { DateChip, OccupancyCalendar, covers, monthStart, todayCivil } from "./availability-panel";
 import { AirbnbCodeLink } from "./airbnb";
+import { hospedesAConfirmar } from "@/lib/imobiliario/airbnb";
 import { type Entity, type ModuleKind, dateInput, dateLabel, money, titleCase } from "./model";
 import ProprietarioSelect from "@/app/(app)/components/proprietarioSelect";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
@@ -1219,6 +1220,7 @@ function AirbnbReservationNotice({
   // O que a reserva cadastrada sozinha ainda espera do operador (o iCal não traz hóspede nem valores).
   const pendencias = [
     value.cliente?.codigo_sistema === "hospede_airbnb" ? "trocar o Hóspede Airbnb pelo hóspede real (cliente com CPF ou CNPJ)" : null,
+    hospedesAConfirmar(value) ? "confirmar o número de hóspedes (o Airbnb não informa)" : null,
     value.id && Number(value.valor_total ?? 0) <= 0 ? "informar os valores da reserva (obrigatório para o check-in)" : null,
   ].filter(Boolean);
 
@@ -1737,6 +1739,8 @@ function ReservationGeneralFields({
               onDayClick={disabled || codigoAirbnb ? undefined : escolherDia}
               isDayDisabled={diaIndisponivel}
               allowPast
+              checkinTime={imovel?.horario_checkin}
+              checkoutTime={imovel?.horario_checkout}
             />
             <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
               {!imovelId ? (
@@ -1828,11 +1832,17 @@ function ReservationGeneralFields({
                 onChange={(n) => set("hospedes", n)}
                 className="h-10 sm:h-11"
               />
-              <p className="text-[11px] text-muted-foreground">
-                {imovel?.capacidade
-                  ? `Capacidade máx: ${imovel.capacidade} hóspedes`
-                  : "Total de pessoas hospedadas"}
-              </p>
+              {hospedesAConfirmar(value) ? (
+                <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                  A confirmar: o Airbnb não informa quantos são. Confira na reserva do Airbnb e salve.
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  {imovel?.capacidade
+                    ? `Capacidade máx: ${imovel.capacidade} hóspedes`
+                    : "Total de pessoas hospedadas"}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -1847,6 +1857,7 @@ function ReservationGeneralFields({
                 </Badge>
                 <span className="text-xs text-muted-foreground font-medium">
                   • {value.hospedes ?? 1} {Number(value.hospedes) === 1 ? "hóspede" : "hóspedes"}
+                  {hospedesAConfirmar(value) ? " (a confirmar)" : ""}
                 </span>
                 {imovel?.diaria ? (
                   <span className="text-xs text-muted-foreground">

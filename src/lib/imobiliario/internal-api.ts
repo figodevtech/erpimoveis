@@ -100,7 +100,9 @@ async function reservasDasOcupacoes(rows: Record<string, any>[], permissoes: unk
   if (!permissionSetHas(permissoes as string[] | undefined, PERMS.RESERVAS)) return reservas;
   const ids = [...new Set(rows.map((r) => r.reserva_id).filter((v) => v != null).map(Number))];
   if (!ids.length) return reservas;
-  const result = await db.from("reserva_imovel").select("id,status,financeiro_status,valor_total,hospedes,inicio,fim,origem,cliente:cliente_id(id,nomerazaosocial,codigo_sistema)").in("id", ids);
+  // Horários (previstos e registrados) posicionam a faixa da reserva no calendário de ocupação.
+  // registro_automatico: importada do Airbnb e ainda não salva (hóspedes a confirmar).
+  const result = await db.from("reserva_imovel").select("id,status,financeiro_status,valor_total,hospedes,inicio,fim,origem,horario_checkin,horario_checkout,checkin_em,checkout_em,registro_automatico:cotacao_snapshot->registro_automatico,cliente:cliente_id(id,nomerazaosocial,codigo_sistema)").in("id", ids);
   if (result.error) throw result.error;
   for (const r of result.data ?? []) reservas.set(Number(r.id), r);
   return reservas;
