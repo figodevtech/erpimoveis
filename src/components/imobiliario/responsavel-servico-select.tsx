@@ -4,14 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { SearchCombobox } from "@/app/(app)/(pages)/(financeiro)/fluxodecaixa/components/search-combobox";
 import { requestJson } from "./shared";
 
-type Usuario = { id: string; nome: string; email: string };
+export type Usuario = { id: string; nome: string; email: string };
 
 const ORDENADOR = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true });
-const nomeExibido = (u: Usuario) => u.nome.trim() || u.email.trim() || "Usuário sem nome";
+export const nomeExibido = (u: Usuario) => u.nome.trim() || u.email.trim() || "Usuário sem nome";
 
-// A lista muda pouco: uma leitura por sessão da página serve ao check-out, à Execução e às configurações.
+// A lista muda pouco: uma leitura por sessão da página serve ao check-out, aos serviços do imóvel, à Execução e às configurações.
 let pendente: Promise<Usuario[]> | null = null;
-function carregarUsuarios() {
+export function carregarUsuarios() {
   if (!pendente) {
     pendente = requestJson("/api/imobiliario/lookup?tipo=usuarios")
       .then((r) => (r.items ?? []) as Usuario[])
@@ -24,10 +24,10 @@ function carregarUsuarios() {
 }
 
 /**
- * Responsável pela limpeza: qualquer usuário ativo do ERP, ou nenhum. Um id que não está na
+ * Responsável (realizador) pelo serviço: qualquer usuário ativo do ERP, ou nenhum. Um id que não está na
  * lista (usuário inativado depois de virar padrão) é descartado ao carregar.
  */
-export function ResponsavelLimpezaSelect({
+export function ResponsavelServicoSelect({
   value,
   onValueChange,
   disabled,

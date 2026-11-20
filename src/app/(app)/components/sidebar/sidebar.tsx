@@ -36,7 +36,7 @@ import {
   FileText,
   Building2,
   RadioTower,
-  Sparkles,
+  ClipboardCheck,
 } from "lucide-react";
 
 import { NavMain } from "./components/nav-main";
@@ -82,8 +82,8 @@ const data = {
     { title: "Imóveis", url: "/imoveis", icon: Building2, isActive: true, perm: PERMS.IMOVEIS },
     { title: "Proprietários", url: "/proprietarios", icon: Users, isActive: true, perm: PERMS.PROPRIETARIOS },
     { title: "Reservas", url: "/reservas", icon: FileClock, isActive: true, perm: PERMS.RESERVAS },
-    // Sem permissão: todo usuário pode ser responsável por limpeza e vê as suas aqui.
-    { title: "Execução", url: "/execucao", icon: Sparkles, isActive: true },
+    // Serviços dos imóveis (limpeza, manutenção...). Com só esta permissão, é o acesso do prestador de serviço.
+    { title: "Execução", url: "/execucao", icon: ClipboardCheck, isActive: true, perm: PERMS.EXECUCAO },
     {
       title: "Estoque",
       url: "#",
@@ -232,6 +232,9 @@ const data = {
       title: "Seu Plano",
       url: "/plano",
       icon: CreditCard,
+      // A assinatura é da empresa: fica com quem mexe nas configurações. Com o plano bloqueado, o
+      // menu mostra este item para todos (o filtro de `billingBlocked` é pela URL).
+      perm: PERMS.CONFIG,
     },
   ],
   navSettings: [

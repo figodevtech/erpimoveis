@@ -102,6 +102,9 @@ const ROUTE_PERMS: Array<{ prefix: string; perm: Permission }> = [
   { prefix: "/proprietarios", perm: PERMS.PROPRIETARIOS },
   { prefix: "/imoveis", perm: PERMS.IMOVEIS },
   { prefix: "/reservas", perm: PERMS.RESERVAS },
+  // Só a página: /api/execucao também recebe as ações da aba Serviços do imóvel (de quem edita
+  // imóveis sem ter a Execução), e cada rota confere o que a pessoa pode fazer.
+  { prefix: "/execucao", perm: PERMS.EXECUCAO },
   { prefix: "/api/central-operacional", perm: PERMS.ACOMPANHAMENTO },
   { prefix: "/api/dashboard", perm: PERMS.DASHBOARD },
   { prefix: "/api/customers", perm: PERMS.CLIENTES },

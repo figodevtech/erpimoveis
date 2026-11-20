@@ -21,6 +21,8 @@ const ROUTE_PRIORITY: Array<{ perm: string; href: string }> = [
   { perm: PERMS.CONFIG, href: "/configuracoes/geral" },
   { perm: PERMS.TIPOS, href: "/configuracoes/tipos" },
   { perm: PERMS.USUARIOS, href: "/usuarios" },
+  // Por último: quem tem outra tela entra nela; o prestador de serviço, que só tem a Execução, cai aqui.
+  { perm: PERMS.EXECUCAO, href: "/execucao" },
 ];
 
 export function getDefaultRouteForPerms(permissoes: unknown, fallback = "/nao-autorizado") {

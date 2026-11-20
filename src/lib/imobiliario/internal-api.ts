@@ -8,7 +8,7 @@ import { deleteFile, enrich, filesFor, fileScope, fileUrl, publicationValid, rem
 import { cotacaoPublica, hojeImobiliario } from "./types";
 import bairrosPorMunicipio from "@/data/bairros-por-municipio.json";
 import { financeAccess, financeReport, payCharge, scopeFromUrl, type FinanceScope } from "./finance";
-import { concluirLimpezaDoImovel, servicosDoImovel } from "./limpezas";
+import { concluirLimpezaDoImovel, servicosDoImovel, solicitarServico } from "./servicos";
 import { estadiaDaReserva } from "./estadia";
 import { alterarEventoDaReserva, cancelarConsumoDaReserva, criarEventoDaReserva, editarLancamentoDaReserva, estornarLancamentoDaReserva, excluirEventoDaReserva, excluirLancamentoDaReserva, listarEventosDaReserva, registrarConsumoDaReserva } from "./reserva-eventos";
 
@@ -413,6 +413,20 @@ export async function internalResource(request: Request, resource: Resource, pat
   const id = path[0] ? identifier(path[0]) : null;
   const segment = path[1];
   if (!id && method === "GET") return json(await list(resource, url));
+  // Exclusão definitiva da reserva com tudo o que ela movimentou (imob_excluir_reserva). O GET
+  // devolve o impacto para o aviso; o DELETE apaga e, com dinheiro movimentado, exige
+  // confirmar_valores. O storage dos arquivos é limpo depois que o banco confirmou.
+  if (resource === "reservas" && id && segment === "exclusao" && !path[2] && method === "GET") {
+    const editor = await internal(PERMS.RESERVAS_EXCLUIR);
+    return json(await rpc("imob_excluir_reserva", { p_id: id, p_actor: editor.id, p_executar: false, p_confirmar_valores: false }));
+  }
+  if (resource === "reservas" && id && !segment && method === "DELETE") {
+    const editor = await internal(PERMS.RESERVAS_EXCLUIR);
+    const body = await bodyOf(request).catch(() => ({} as Record<string, unknown>));
+    const outcome = await rpc("imob_excluir_reserva", { p_id: id, p_actor: editor.id, p_executar: true, p_confirmar_valores: body.confirmar_valores === true });
+    await removeStoredFiles(outcome?.arquivos ?? []);
+    return json(outcome);
+  }
   if (id && segment === "acesso" && resource === "proprietarios") {
     await internal(PERMS.PROPRIETARIOS_ACESSO_PORTAL);
     if (method === "GET") return json(await ownerAccessState(id));
@@ -529,8 +543,13 @@ export async function internalResource(request: Request, resource: Resource, pat
       if (result.error) throw result.error;
       return json({ item: result.data });
     }
-    // Aba Serviços do imóvel: histórico das limpezas dele (quem vê o imóvel vê o histórico).
+    // Aba Serviços do imóvel: histórico dos serviços dele (quem vê o imóvel vê o histórico) e
+    // "Solicitar serviço" (quem edita imóveis).
     if (segment === "servicos" && !path[2] && method === "GET") return json(await servicosDoImovel(id, url));
+    if (segment === "servicos" && !path[2] && method === "POST") {
+      const editor = await internal(PERMS.IMOVEIS_EDITAR);
+      return json({ item: await solicitarServico(id, await bodyOf(request), editor.id) }, 201);
+    }
     // Concluir pelo cadastro do imóvel a limpeza pendente dele, sem precisar do id da limpeza.
     if (segment === "limpeza" && path[2] === "concluir" && !path[3] && method === "POST") {
       const editor = await internal(PERMS.IMOVEIS_EDITAR);
@@ -694,8 +713,9 @@ export async function internalShared(request: Request, path: string[]) {
   const url = new URL(request.url), method = request.method;
   if (path[0] === "visitas") return visits(request, path.slice(1));
   if (path[0] === "lookup" && method === "GET" && url.searchParams.get("tipo") === "usuarios") {
-    // Responsável pela limpeza: qualquer usuário ativo. Só nome e e-mail, sem o cadastro do usuário.
-    await internalAny([PERMS.RESERVAS_CHECKIN_CHECKOUT, PERMS.CONFIG_EDITAR, PERMS.LIMPEZAS_GERENCIAR, PERMS.IMOVEIS_EDITAR]);
+    // Responsável pelo serviço: qualquer usuário ativo. Só nome e e-mail, sem o cadastro do usuário.
+    // Quem vê as tarefas de todos usa a lista no filtro por executor da Execução.
+    await internalAny([PERMS.RESERVAS_CHECKIN_CHECKOUT, PERMS.CONFIG_EDITAR, PERMS.EXECUCAO_TROCAR_REALIZADOR, PERMS.EXECUCAO_VER_TODAS, PERMS.IMOVEIS_EDITAR]);
     const result = await db.from("usuario").select("id,nome,email").eq("ativo", true).order("nome");
     if (result.error) throw result.error;
     return json({ items: (result.data ?? []).map((u) => ({ id: String(u.id), nome: String(u.nome ?? ""), email: String(u.email ?? "") })) });

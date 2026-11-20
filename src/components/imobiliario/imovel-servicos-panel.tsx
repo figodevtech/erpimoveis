@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2, LogOut, MoreHorizontal, Pencil, RotateCcw, Sparkles, User } from "lucide-react";
+import { CheckCircle2, Hourglass, LogOut, MoreHorizontal, Pencil, Plus, RotateCcw, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -12,19 +12,26 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { RemoteState, useModulePermission, useRemote } from "./shared";
 import {
-  ConcluirLimpezaServicoDialog,
-  EditarLimpezaDialog,
-  ReabrirLimpezaDialog,
-  SituacaoLimpezaBadge,
+  ConcluirServicoDialog,
+  EditarServicoDialog,
+  IconeServico,
+  ReabrirServicoDialog,
+  SituacaoServicoBadge,
+  SolicitarServicoDialog,
+  contagemPrazo,
+  ehLimpeza,
   espera,
   momento,
   nomeDe,
-  type Limpeza,
-} from "./limpeza-detalhes";
+  nomeDoServico,
+  useTiposServico,
+  type ServicoImovel,
+} from "./servico-detalhes";
 
 const PAGE_SIZE = 20;
 type Filtro = "TODOS" | "PENDENTE" | "CONCLUIDA" | "CANCELADA";
@@ -34,6 +41,15 @@ const FILTROS: { value: Filtro; label: string }[] = [
   { value: "CONCLUIDA", label: "Concluídos" },
   { value: "CANCELADA", label: "Cancelados" },
 ];
+const TODOS_OS_TIPOS = "todos";
+
+/** Cores do texto do prazo, nos tons da contagem da Execução. */
+const COR_DO_PRAZO = {
+  atrasado: "text-red-700 dark:text-red-400",
+  urgente: "text-orange-700 dark:text-orange-400",
+  breve: "text-amber-700 dark:text-amber-300",
+  folga: "text-emerald-700 dark:text-emerald-400",
+} as const;
 
 const iniciais = (nome: string) =>
   nome
@@ -43,19 +59,20 @@ const iniciais = (nome: string) =>
     .map((parte) => parte[0]?.toUpperCase())
     .join("");
 
-/** Data principal da linha: a conclusão, quando houver; senão, o pedido. */
-function datas(limpeza: Limpeza) {
-  if (limpeza.status === "CONCLUIDA") {
-    return { rotulo: "Concluída", principal: momento(limpeza.concluida_em), secundaria: `Pedida ${momento(limpeza.solicitada_em)}` };
+/** Data principal da linha: a conclusão, quando houver; senão, o pedido (e o prazo, se pendente). */
+function datas(servico: ServicoImovel) {
+  if (servico.status === "CONCLUIDA") {
+    return { rotulo: "Concluído", principal: momento(servico.concluida_em), secundaria: `Pedido ${momento(servico.solicitada_em)}`, prazo: null };
   }
-  if (limpeza.status === "PENDENTE") {
-    return { rotulo: "Pedida", principal: momento(limpeza.solicitada_em), secundaria: `Aguardando ${espera(limpeza.solicitada_em)}` };
+  if (servico.status === "PENDENTE") {
+    const prazo = servico.prazo_em ? contagemPrazo(servico.prazo_em, Date.now()) : null;
+    return { rotulo: "Pedido", principal: momento(servico.solicitada_em), secundaria: `Aguardando ${espera(servico.solicitada_em)}`, prazo };
   }
-  return { rotulo: "Pedida", principal: momento(limpeza.solicitada_em), secundaria: "Cancelada" };
+  return { rotulo: "Pedido", principal: momento(servico.solicitada_em), secundaria: "Cancelado", prazo: null };
 }
 
-function Responsavel({ limpeza }: { limpeza: Limpeza }) {
-  const nome = nomeDe(limpeza.responsavel);
+function Responsavel({ servico }: { servico: ServicoImovel }) {
+  const nome = nomeDe(servico.responsavel);
   if (!nome) {
     return (
       <span className="inline-flex items-center gap-1.5 text-muted-foreground">
@@ -74,21 +91,27 @@ function Responsavel({ limpeza }: { limpeza: Limpeza }) {
   );
 }
 
-function Servico({ limpeza }: { limpeza: Limpeza }) {
-  const hospede = limpeza.reserva?.cliente?.nomerazaosocial;
+function Servico({ servico }: { servico: ServicoImovel }) {
+  const hospede = servico.reserva?.cliente?.nomerazaosocial;
+  const limpeza = ehLimpeza(servico.servico);
   return (
     <div className="flex min-w-0 items-start gap-2.5">
-      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-        <Sparkles className="h-3.5 w-3.5" />
+      <span
+        className={cn(
+          "mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg",
+          limpeza ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" : "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+        )}
+      >
+        <IconeServico tipo={servico.servico} className="h-3.5 w-3.5" />
       </span>
       <div className="min-w-0 space-y-0.5">
-        <p className="font-semibold text-foreground">Limpeza</p>
-        <p className="line-clamp-1 text-[11px] text-muted-foreground">{limpeza.descricao || "Limpeza padrão"}</p>
-        {limpeza.reserva ? (
+        <p className="font-semibold text-foreground">{nomeDoServico(servico)}</p>
+        <p className="line-clamp-1 text-[11px] text-muted-foreground">{servico.descricao || "Sem instruções além do serviço padrão"}</p>
+        {servico.reserva ? (
           <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
             <LogOut className="h-3 w-3 shrink-0" />
             <span className="truncate">
-              {hospede ? `Saída de ${hospede} · ` : ""}Reserva #{limpeza.reserva.id}
+              {hospede ? `Saída de ${hospede} · ` : ""}Reserva #{servico.reserva.id}
             </span>
           </p>
         ) : null}
@@ -97,22 +120,36 @@ function Servico({ limpeza }: { limpeza: Limpeza }) {
   );
 }
 
+/** Prazo do serviço pendente: quando e quanto falta, no tom da contagem. */
+function Prazo({ prazo, className }: { prazo: ReturnType<typeof contagemPrazo>; className?: string }) {
+  return (
+    <p className={cn("flex items-center gap-1 text-[11px] font-medium", COR_DO_PRAZO[prazo.tom], className)}>
+      <Hourglass className="h-3 w-3 shrink-0" />
+      <span>
+        {prazo.curto} · {prazo.quando}
+      </span>
+    </p>
+  );
+}
+
 function Acoes({
-  limpeza,
-  podeAgir,
+  servico,
+  podeEditar,
+  podeConcluir,
   onEditar,
   onConcluir,
   onReabrir,
 }: {
-  limpeza: Limpeza;
-  podeAgir: boolean;
+  servico: ServicoImovel;
+  podeEditar: boolean;
+  podeConcluir: boolean;
   onEditar: () => void;
   onConcluir: () => void;
   onReabrir: () => void;
 }) {
-  const pendente = limpeza.status === "PENDENTE";
+  const pendente = servico.status === "PENDENTE";
   // Sem permissão de editar, concluir ou reabrir, o menu ficaria vazio.
-  if (!podeAgir) return null;
+  if (!podeEditar && !podeConcluir) return null;
   return (
     // modal={false}: o diálogo aberto pelo menu não briga com o foco do menu ao fechar.
     <DropdownMenu modal={false}>
@@ -127,17 +164,19 @@ function Acoes({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault();
-            onEditar();
-          }}
-        >
-          <Pencil className="h-4 w-4" />
-          <span>Editar</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {pendente ? (
+        {podeEditar ? (
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              onEditar();
+            }}
+          >
+            <Pencil className="h-4 w-4" />
+            <span>Editar</span>
+          </DropdownMenuItem>
+        ) : null}
+        {podeEditar && podeConcluir ? <DropdownMenuSeparator /> : null}
+        {podeConcluir && pendente ? (
           <DropdownMenuItem
             onSelect={(e) => {
               e.preventDefault();
@@ -145,10 +184,10 @@ function Acoes({
             }}
           >
             <CheckCircle2 className="h-4 w-4" />
-            <span>Concluir limpeza</span>
+            <span>Concluir serviço</span>
           </DropdownMenuItem>
         ) : null}
-        {!pendente ? (
+        {podeConcluir && !pendente ? (
           <DropdownMenuItem
             onSelect={(e) => {
               e.preventDefault();
@@ -221,31 +260,46 @@ function ServicosSkeleton() {
   );
 }
 
-/** Aba Serviços do imóvel: as limpezas (pendentes, concluídas e canceladas) e o andamento de cada uma. */
-export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number; onChanged?: () => void }) {
+/** Aba Serviços do imóvel: os serviços pedidos (limpeza, manutenção...) e o andamento de cada um. */
+export function ImovelServicosPanel({
+  imovelId,
+  imovel,
+  onChanged,
+}: {
+  imovelId: number;
+  /** Para o cabeçalho do "Solicitar serviço" e o aviso de limpeza já pendente. */
+  imovel?: { titulo?: string | null; codigo?: string | null; situacao_operacional?: string | null };
+  onChanged?: () => void;
+}) {
   const { can } = useModulePermission();
-  // Editar, concluir e voltar para pendente: quem edita imóveis ou gerencia limpezas (o servidor confere de novo).
-  const podeAgir = can("imoveis:editar") || can("limpezas:gerenciar");
+  // Pedir e editar: quem edita imóveis. Concluir e voltar para pendente: também quem vê as
+  // tarefas de todos na Execução (o servidor confere de novo).
+  const podeEditar = can("imoveis:editar");
+  const podeConcluir = podeEditar || can("execucao:ver_todas");
+  const { tipos } = useTiposServico();
   const [filtro, setFiltro] = useState<Filtro>("TODOS");
+  const [tipo, setTipo] = useState(TODOS_OS_TIPOS);
   const [page, setPage] = useState(1);
-  const remote = useRemote<{ items: Limpeza[]; total: number }>(
-    `/api/imoveis/${imovelId}/servicos?status=${filtro}&page=${page}&pageSize=${PAGE_SIZE}`
-  );
-  const [editando, setEditando] = useState<Limpeza | null>(null);
-  const [concluindo, setConcluindo] = useState<Limpeza | null>(null);
-  const [reabrindo, setReabrindo] = useState<Limpeza | null>(null);
+  const params = new URLSearchParams({ status: filtro, page: String(page), pageSize: String(PAGE_SIZE) });
+  if (tipo !== TODOS_OS_TIPOS) params.set("servico_id", tipo);
+  const remote = useRemote<{ items: ServicoImovel[]; total: number }>(`/api/imoveis/${imovelId}/servicos?${params}`);
+  const [solicitando, setSolicitando] = useState(false);
+  const [editando, setEditando] = useState<ServicoImovel | null>(null);
+  const [concluindo, setConcluindo] = useState<ServicoImovel | null>(null);
+  const [reabrindo, setReabrindo] = useState<ServicoImovel | null>(null);
 
   const itens = remote.data?.items ?? [];
   const total = remote.data?.total ?? 0;
   const totalPaginas = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const carregandoPrimeira = !remote.data && !remote.error;
   const recarregando = Boolean(remote.data && remote.loading);
+  const filtrando = filtro !== "TODOS" || tipo !== TODOS_OS_TIPOS;
 
   // Dois cliques na linha também editam, para quem pode.
-  const abrirEdicao = (limpeza: Limpeza) => {
-    if (podeAgir) setEditando(limpeza);
+  const abrirEdicao = (servico: ServicoImovel) => {
+    if (podeEditar) setEditando(servico);
   };
-  // Concluir ou reabrir muda a situação do imóvel (Limpeza): o cadastro recarrega junto.
+  // Pedir, concluir ou reabrir uma limpeza muda a situação do imóvel (Limpeza): o cadastro recarrega junto.
   const depoisDeAgir = () => {
     remote.reload();
     onChanged?.();
@@ -253,17 +307,26 @@ export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-sm font-semibold text-foreground sm:text-base">Serviços do imóvel</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Limpezas pedidas nos check-outs das reservas, com o responsável e o andamento de cada uma.
+            Limpezas dos check-outs e os demais serviços pedidos, com o responsável e o andamento de cada um.
           </p>
         </div>
+        {podeEditar ? (
+          <Button size="sm" onClick={() => setSolicitando(true)} className="h-9 gap-1.5 self-start hover:cursor-pointer sm:self-auto">
+            <Plus className="h-4 w-4" />
+            Solicitar serviço
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div
           role="tablist"
           aria-label="Filtrar serviços pela situação"
-          className="inline-flex max-w-full items-center gap-1 self-start overflow-x-auto rounded-xl border bg-muted/40 p-1 [scrollbar-width:none] sm:self-auto [&::-webkit-scrollbar]:hidden"
+          className="inline-flex max-w-full items-center gap-1 self-start overflow-x-auto rounded-xl border bg-muted/40 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {FILTROS.map((opcao) => {
             const ativo = filtro === opcao.value;
@@ -287,6 +350,26 @@ export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number;
             );
           })}
         </div>
+        <Select
+          value={tipo}
+          onValueChange={(valor) => {
+            setTipo(valor);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger aria-label="Filtrar pelo tipo de serviço" className="h-9 w-full text-xs hover:cursor-pointer sm:w-52">
+            <SelectValue placeholder="Todos os tipos" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={TODOS_OS_TIPOS} className="hover:cursor-pointer">Todos os tipos</SelectItem>
+            {(tipos ?? []).map((t) => (
+              <SelectItem key={t.id} value={String(t.id)} className="hover:cursor-pointer">
+                {t.descricao}
+                {t.ativo === false ? " (inativo)" : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {carregandoPrimeira ? (
@@ -295,15 +378,21 @@ export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number;
         <RemoteState error={remote.data ? null : remote.error} retry={remote.reload}>
           {itens.length === 0 ? (
             <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed bg-card p-10 text-center">
-              <span className="grid h-10 w-10 place-items-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <Sparkles className="h-5 w-5" />
+              <span className="grid h-10 w-10 place-items-center rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400">
+                <IconeServico tipo={null} className="h-5 w-5" />
               </span>
               <p className="text-sm font-medium text-foreground">
-                {filtro === "TODOS" ? "Nenhum serviço neste imóvel" : "Nenhum serviço nesta situação"}
+                {filtrando ? "Nenhum serviço com esses filtros" : "Nenhum serviço neste imóvel"}
               </p>
               <p className="max-w-sm text-xs text-muted-foreground">
-                As limpezas pedidas no check-out das reservas aparecem aqui, das mais recentes para as mais antigas.
+                As limpezas pedidas no check-out e os serviços solicitados aqui aparecem nesta aba, dos mais recentes para os mais antigos.
               </p>
+              {podeEditar && !filtrando ? (
+                <Button size="sm" variant="outline" onClick={() => setSolicitando(true)} className="mt-1 gap-1.5 hover:cursor-pointer">
+                  <Plus className="h-4 w-4" />
+                  Solicitar serviço
+                </Button>
+              ) : null}
             </div>
           ) : (
             <div className={cn("space-y-3 transition-opacity", recarregando && "opacity-60")}>
@@ -320,22 +409,22 @@ export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number;
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {itens.map((limpeza) => {
-                      const d = datas(limpeza);
+                    {itens.map((servico) => {
+                      const d = datas(servico);
                       return (
                         <TableRow
-                          key={limpeza.id}
-                          className={cn("group transition-colors hover:bg-muted/30", podeAgir && "hover:cursor-pointer")}
-                          onDoubleClick={() => abrirEdicao(limpeza)}
+                          key={servico.id}
+                          className={cn("group transition-colors hover:bg-muted/30", podeEditar && "hover:cursor-pointer")}
+                          onDoubleClick={() => abrirEdicao(servico)}
                         >
                           <TableCell className="max-w-[280px] py-3">
-                            <Servico limpeza={limpeza} />
+                            <Servico servico={servico} />
                           </TableCell>
                           <TableCell className="max-w-[200px]">
-                            <Responsavel limpeza={limpeza} />
+                            <Responsavel servico={servico} />
                           </TableCell>
                           <TableCell>
-                            <SituacaoLimpezaBadge status={limpeza.status} />
+                            <SituacaoServicoBadge status={servico.status} />
                           </TableCell>
                           <TableCell className="whitespace-nowrap">
                             <p className="text-foreground">
@@ -343,14 +432,16 @@ export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number;
                               {d.principal}
                             </p>
                             <p className="text-[11px] text-muted-foreground">{d.secundaria}</p>
+                            {d.prazo ? <Prazo prazo={d.prazo} className="mt-0.5" /> : null}
                           </TableCell>
                           <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                             <Acoes
-                              limpeza={limpeza}
-                              podeAgir={podeAgir}
-                              onEditar={() => abrirEdicao(limpeza)}
-                              onConcluir={() => setConcluindo(limpeza)}
-                              onReabrir={() => setReabrindo(limpeza)}
+                              servico={servico}
+                              podeEditar={podeEditar}
+                              podeConcluir={podeConcluir}
+                              onEditar={() => abrirEdicao(servico)}
+                              onConcluir={() => setConcluindo(servico)}
+                              onReabrir={() => setReabrindo(servico)}
                             />
                           </TableCell>
                         </TableRow>
@@ -362,28 +453,30 @@ export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number;
 
               {/* Celular: cartões com as mesmas informações. */}
               <div className="space-y-2.5 sm:hidden">
-                {itens.map((limpeza) => {
-                  const d = datas(limpeza);
+                {itens.map((servico) => {
+                  const d = datas(servico);
                   return (
-                    <div key={limpeza.id} className="space-y-3 rounded-xl border bg-card p-3.5 text-xs shadow-xs">
+                    <div key={servico.id} className="space-y-3 rounded-xl border bg-card p-3.5 text-xs shadow-xs">
                       <div className="flex items-start justify-between gap-2">
-                        <Servico limpeza={limpeza} />
+                        <Servico servico={servico} />
                         <Acoes
-                          limpeza={limpeza}
-                          podeAgir={podeAgir}
-                          onEditar={() => abrirEdicao(limpeza)}
-                          onConcluir={() => setConcluindo(limpeza)}
-                          onReabrir={() => setReabrindo(limpeza)}
+                          servico={servico}
+                          podeEditar={podeEditar}
+                          podeConcluir={podeConcluir}
+                          onEditar={() => abrirEdicao(servico)}
+                          onConcluir={() => setConcluindo(servico)}
+                          onReabrir={() => setReabrindo(servico)}
                         />
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <SituacaoLimpezaBadge status={limpeza.status} />
+                        <SituacaoServicoBadge status={servico.status} />
                         <span className="text-muted-foreground">
                           {d.rotulo} {d.principal}
                         </span>
                       </div>
+                      {d.prazo ? <Prazo prazo={d.prazo} /> : null}
                       <div className="border-t border-border/50 pt-2.5">
-                        <Responsavel limpeza={limpeza} />
+                        <Responsavel servico={servico} />
                       </div>
                     </div>
                   );
@@ -410,9 +503,20 @@ export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number;
         </RemoteState>
       )}
 
+      {solicitando ? (
+        <SolicitarServicoDialog
+          imovel={{ id: imovelId, ...imovel }}
+          onClose={() => setSolicitando(false)}
+          onDone={() => {
+            setSolicitando(false);
+            depoisDeAgir();
+          }}
+        />
+      ) : null}
+
       {editando ? (
-        <EditarLimpezaDialog
-          limpeza={editando}
+        <EditarServicoDialog
+          servico={editando}
           onClose={() => setEditando(null)}
           onDone={() => {
             setEditando(null);
@@ -422,8 +526,8 @@ export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number;
       ) : null}
 
       {concluindo ? (
-        <ConcluirLimpezaServicoDialog
-          limpeza={concluindo}
+        <ConcluirServicoDialog
+          servico={concluindo}
           onClose={() => setConcluindo(null)}
           onDone={() => {
             setConcluindo(null);
@@ -433,8 +537,8 @@ export function ImovelServicosPanel({ imovelId, onChanged }: { imovelId: number;
       ) : null}
 
       {reabrindo ? (
-        <ReabrirLimpezaDialog
-          limpeza={reabrindo}
+        <ReabrirServicoDialog
+          servico={reabrindo}
           onClose={() => setReabrindo(null)}
           onDone={() => {
             setReabrindo(null);

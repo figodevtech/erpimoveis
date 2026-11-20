@@ -71,7 +71,7 @@ export default function TiposConfigPage({ permissoes, abaInicial }: { permissoes
       id: "servicos",
       icon: Wrench,
       title: "Serviços",
-      subtitle: "Mão de obra / diagnósticos",
+      subtitle: "Limpeza, manutenção, vistoria...",
     },
     {
       id: "fornecedores",

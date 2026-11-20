@@ -2,58 +2,81 @@
 
 import { PageLoading } from "@/components/page-loading";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   CalendarClock,
   CheckCircle2,
+  ClipboardCheck,
   ClipboardList,
   Clock,
+  Hourglass,
   Info,
   LogOut,
   MapPin,
   RefreshCw,
-  Sparkles,
   User,
+  UserCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { requestJson } from "@/components/imobiliario/shared";
-// Mesmo diálogo de detalhes e de ações da aba Serviços do imóvel.
+import { carregarUsuarios, nomeExibido, type Usuario } from "@/components/imobiliario/responsavel-servico-select";
+// Mesmos diálogos de detalhes e de ações da aba Serviços do imóvel.
 import {
-  AtribuirLimpezaDialog,
-  ConcluirLimpezaServicoDialog,
-  LimpezaDetalhesDialog,
-  ReabrirLimpezaDialog,
+  ConcluirServicoDialog,
+  IconeServico,
+  ReabrirServicoDialog,
+  ServicoDetalhesDialog,
   TONS_CHECKIN,
+  TrocarRealizadorDialog,
   contagemCheckin,
+  contagemPrazo,
   enderecoDe,
   espera,
   momento,
   nomeDe,
-  type Limpeza,
-} from "@/components/imobiliario/limpeza-detalhes";
+  nomeDoServico,
+  tituloDoImovel,
+  useTiposServico,
+  type ServicoImovel,
+} from "@/components/imobiliario/servico-detalhes";
 
-type Resposta = { items: Limpeza[]; total: number; page: number; pageSize: number; escopo: Escopo; podeGerenciar: boolean };
 type Situacao = "PENDENTE" | "CONCLUIDA";
-type Escopo = "minhas" | "todas" | "sem_responsavel";
+/** todas · minhas · sem_responsavel · o id de um executor. */
+type Escopo = string;
+type Resposta = {
+  items: ServicoImovel[];
+  total: number;
+  page: number;
+  pageSize: number;
+  escopo: Escopo;
+  permissoes: { verTodas: boolean; trocarRealizador: boolean };
+};
 
 const PAGE_SIZE = 30;
+const TODOS_OS_TIPOS = "todos";
+const ORDENADOR = new Intl.Collator("pt-BR", { sensitivity: "base", numeric: true });
 
 export function ExecucaoClient() {
   const [situacao, setSituacao] = useState<Situacao>("PENDENTE");
+  const [tipo, setTipo] = useState(TODOS_OS_TIPOS);
+  // Quem vê as tarefas de todos começa vendo todas; sem a permissão, o servidor devolve só as próprias.
+  const [escopo, setEscopo] = useState<Escopo>("todas");
   const [page, setPage] = useState(1);
   const [dados, setDados] = useState<Resposta | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
-  const [concluindo, setConcluindo] = useState<Limpeza | null>(null);
-  const [atribuindo, setAtribuindo] = useState<Limpeza | null>(null);
-  const [reabrindo, setReabrindo] = useState<Limpeza | null>(null);
-  const [detalhes, setDetalhes] = useState<Limpeza | null>(null);
-  // Relógio da contagem até o próximo check-in: atualiza a cada minuto sem buscar de novo.
+  const [concluindo, setConcluindo] = useState<ServicoImovel | null>(null);
+  const [trocando, setTrocando] = useState<ServicoImovel | null>(null);
+  const [reabrindo, setReabrindo] = useState<ServicoImovel | null>(null);
+  const [detalhes, setDetalhes] = useState<ServicoImovel | null>(null);
+  const { tipos } = useTiposServico();
+  const [usuarios, setUsuarios] = useState<Usuario[] | null>(null);
+  // Relógio das contagens (prazo e próximo check-in): atualiza a cada minuto sem buscar de novo.
   const [agora, setAgora] = useState(() => Date.now());
   useEffect(() => {
     const relogio = window.setInterval(() => setAgora(Date.now()), 60_000);
@@ -66,40 +89,62 @@ export function ExecucaoClient() {
     setCarregando(true);
     setErro("");
     try {
-      // Pede todas: quem gerencia limpezas vê as de todos (inclusive sem responsável); o servidor
-      // devolve só as do próprio usuário para quem não tem a permissão.
-      const params = new URLSearchParams({ status: situacao, escopo: "todas", page: String(page), pageSize: String(PAGE_SIZE) });
-      const resposta = (await requestJson(`/api/execucao/limpezas?${params}`)) as Resposta;
+      const params = new URLSearchParams({ status: situacao, escopo, page: String(page), pageSize: String(PAGE_SIZE) });
+      if (tipo !== TODOS_OS_TIPOS) params.set("servico_id", tipo);
+      const resposta = (await requestJson(`/api/execucao/servicos?${params}`)) as Resposta;
       if (id === sequencia.current) setDados(resposta);
     } catch (error) {
       if (id === sequencia.current) setErro((error as Error).message);
     } finally {
       if (id === sequencia.current) setCarregando(false);
     }
-  }, [situacao, page]);
+  }, [situacao, escopo, tipo, page]);
 
   useEffect(() => {
     void carregar();
   }, [carregar]);
 
-  const podeGerenciar = dados?.podeGerenciar ?? false;
+  const verTodas = dados?.permissoes.verTodas ?? false;
+  const trocarRealizador = dados?.permissoes.trocarRealizador ?? false;
+
+  // A lista de executores só serve ao filtro de quem vê as tarefas de todos.
+  useEffect(() => {
+    if (!verTodas || usuarios) return;
+    let ativo = true;
+    carregarUsuarios()
+      .then((lista) => ativo && setUsuarios(lista))
+      .catch(() => ativo && setUsuarios([]));
+    return () => {
+      ativo = false;
+    };
+  }, [verTodas, usuarios]);
+
+  const executores = useMemo(
+    () => [...(usuarios ?? [])].sort((a, b) => ORDENADOR.compare(nomeExibido(a), nomeExibido(b))),
+    [usuarios]
+  );
+
   const itens = dados?.items ?? [];
   const totalPaginas = dados ? Math.max(1, Math.ceil(dados.total / PAGE_SIZE)) : 1;
+  const filtrando = tipo !== TODOS_OS_TIPOS || (verTodas && escopo !== "todas");
 
-  if (carregando) return <PageLoading />;
+  // Só a primeira carga ocupa a tela; trocar filtro ou atualizar mantém os cartões, esmaecidos.
+  if (!dados && !erro) return <PageLoading />;
+
+  const depoisDeAgir = () => void carregar();
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
           <h1 className="flex items-center gap-2 text-xl font-semibold">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Limpezas
+            <ClipboardCheck className="h-5 w-5 text-primary" />
+            Execução de serviços
           </h1>
           <p className="text-sm text-muted-foreground">
-            {podeGerenciar
-              ? "Limpezas pedidas no check-out das reservas, de toda a equipe. O responsável muda nos detalhes."
-              : "Imóveis em limpeza sob a sua responsabilidade. Conclua quando o imóvel estiver pronto."}
+            {verTodas
+              ? "Serviços dos imóveis de toda a equipe: limpezas dos check-outs, manutenções e o que mais for pedido."
+              : "Os serviços sob a sua responsabilidade. Conclua quando o serviço estiver feito."}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void carregar()} disabled={carregando} className="gap-1.5 self-start hover:cursor-pointer sm:self-auto">
@@ -108,13 +153,47 @@ export function ExecucaoClient() {
         </Button>
       </div>
 
-      <div className="flex justify-center">
-        <Tabs value={situacao} onValueChange={(v) => { setSituacao(v as Situacao); setPage(1); }}>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <Tabs value={situacao} onValueChange={(v) => { setSituacao(v as Situacao); setPage(1); }} className="self-center md:self-auto">
           <TabsList>
             <TabsTrigger value="PENDENTE" className="px-4 hover:cursor-pointer">Pendentes</TabsTrigger>
-            <TabsTrigger value="CONCLUIDA" className="px-4 hover:cursor-pointer">Concluídas</TabsTrigger>
+            <TabsTrigger value="CONCLUIDA" className="px-4 hover:cursor-pointer">Concluídos</TabsTrigger>
           </TabsList>
         </Tabs>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:flex md:items-center">
+          <Select value={tipo} onValueChange={(v) => { setTipo(v); setPage(1); }}>
+            <SelectTrigger aria-label="Filtrar pelo tipo de serviço" className="h-9 w-full hover:cursor-pointer md:w-52">
+              <SelectValue placeholder="Todos os tipos" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={TODOS_OS_TIPOS} className="hover:cursor-pointer">Todos os tipos</SelectItem>
+              {(tipos ?? []).map((t) => (
+                <SelectItem key={t.id} value={String(t.id)} className="hover:cursor-pointer">
+                  {t.descricao}
+                  {t.ativo === false ? " (inativo)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {verTodas ? (
+            <Select value={escopo} onValueChange={(v) => { setEscopo(v); setPage(1); }}>
+              <SelectTrigger aria-label="Filtrar pelo executor" className="h-9 w-full hover:cursor-pointer md:w-56">
+                <SelectValue placeholder="Todos os executores" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todas" className="hover:cursor-pointer">Todos os executores</SelectItem>
+                <SelectItem value="minhas" className="hover:cursor-pointer">Minhas tarefas</SelectItem>
+                <SelectItem value="sem_responsavel" className="hover:cursor-pointer">Sem responsável</SelectItem>
+                {executores.length ? <SelectSeparator /> : null}
+                {executores.map((u) => (
+                  <SelectItem key={u.id} value={u.id} className="hover:cursor-pointer">
+                    {nomeExibido(u)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+        </div>
       </div>
 
       {erro ? (
@@ -122,33 +201,32 @@ export function ExecucaoClient() {
           <span>{erro}</span>
           <Button variant="outline" size="sm" onClick={() => void carregar()} className="hover:cursor-pointer">Tentar de novo</Button>
         </div>
-      ) : carregando && !dados ? (
-        <div className="grid grid-cols-2 gap-2.5 sm:gap-4 xl:grid-cols-3">
-          {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-64 rounded-xl sm:h-80" />)}
-        </div>
       ) : itens.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed p-10 text-center">
+        <div className={`flex flex-col items-center gap-2 rounded-xl border border-dashed p-10 text-center ${carregando ? "opacity-60" : ""}`}>
           <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
           <p className="font-medium">
-            {situacao === "PENDENTE" ? "Nenhuma limpeza pendente" : "Nenhuma limpeza concluída ainda"}
+            {situacao === "PENDENTE"
+              ? filtrando ? "Nenhum serviço pendente com esses filtros" : "Nenhum serviço pendente"
+              : filtrando ? "Nenhum serviço concluído com esses filtros" : "Nenhum serviço concluído ainda"}
           </p>
           <p className="max-w-sm text-sm text-muted-foreground">
             {situacao === "PENDENTE"
-              ? podeGerenciar
-                ? "Nenhum imóvel aguardando limpeza."
-                : "Quando um check-out pedir limpeza com você como responsável, o imóvel aparece aqui."
-              : "As limpezas concluídas aparecem aqui, das mais recentes para as mais antigas."}
+              ? verTodas
+                ? "Nenhum imóvel aguardando serviço."
+                : "Quando um serviço for pedido com você como responsável, ele aparece aqui."
+              : "Os serviços concluídos aparecem aqui, dos mais recentes para os mais antigos."}
           </p>
         </div>
       ) : (
-        <div className={`grid grid-cols-2 gap-2.5 sm:gap-4 xl:grid-cols-3 ${carregando ? "opacity-60" : ""}`}>
-          {itens.map((limpeza) => (
-            <LimpezaCard
-              key={limpeza.id}
-              limpeza={limpeza}
+        <div className={`grid grid-cols-2 gap-2.5 transition-opacity sm:gap-4 xl:grid-cols-3 ${carregando ? "opacity-60" : ""}`}>
+          {itens.map((servico) => (
+            <ServicoCard
+              key={servico.id}
+              servico={servico}
               agora={agora}
-              onConcluir={() => setConcluindo(limpeza)}
-              onDetalhes={() => setDetalhes(limpeza)}
+              onConcluir={() => setConcluindo(servico)}
+              onTrocarRealizador={trocarRealizador ? () => setTrocando(servico) : undefined}
+              onDetalhes={() => setDetalhes(servico)}
             />
           ))}
         </div>
@@ -157,7 +235,7 @@ export function ExecucaoClient() {
       {dados && dados.total > PAGE_SIZE ? (
         <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
           <span>
-            Página {page} de {totalPaginas} · {dados.total} limpezas
+            Página {page} de {totalPaginas} · {dados.total} serviços
           </span>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1 || carregando} onClick={() => setPage((p) => p - 1)} className="hover:cursor-pointer">Anterior</Button>
@@ -166,24 +244,27 @@ export function ExecucaoClient() {
         </div>
       ) : null}
 
-      {/* Um diálogo por vez: concluir ou trocar o responsável a partir dos detalhes fecha os detalhes. */}
+      {/* Um diálogo por vez: concluir ou trocar o realizador a partir dos detalhes fecha os detalhes. */}
       {detalhes ? (
-        <LimpezaDetalhesDialog
-          limpeza={detalhes}
+        <ServicoDetalhesDialog
+          servico={detalhes}
           agora={agora}
-          podeGerenciar={podeGerenciar}
           onClose={() => setDetalhes(null)}
           onConcluir={() => {
             setDetalhes(null);
             setConcluindo(detalhes);
           }}
-          onAtribuir={() => {
-            setDetalhes(null);
-            setAtribuindo(detalhes);
-          }}
-          // Reabrir uma concluída pela Execução fica com quem gerencia limpezas.
+          onTrocarRealizador={
+            trocarRealizador
+              ? () => {
+                  setDetalhes(null);
+                  setTrocando(detalhes);
+                }
+              : undefined
+          }
+          // Reabrir um concluído pela Execução fica com quem vê as tarefas de todos.
           onReabrir={
-            podeGerenciar
+            verTodas
               ? () => {
                   setDetalhes(null);
                   setReabrindo(detalhes);
@@ -194,34 +275,34 @@ export function ExecucaoClient() {
       ) : null}
 
       {concluindo ? (
-        <ConcluirLimpezaServicoDialog
-          limpeza={concluindo}
+        <ConcluirServicoDialog
+          servico={concluindo}
           onClose={() => setConcluindo(null)}
           onDone={() => {
             setConcluindo(null);
-            void carregar();
+            depoisDeAgir();
           }}
         />
       ) : null}
 
-      {atribuindo ? (
-        <AtribuirLimpezaDialog
-          limpeza={atribuindo}
-          onClose={() => setAtribuindo(null)}
+      {trocando ? (
+        <TrocarRealizadorDialog
+          servico={trocando}
+          onClose={() => setTrocando(null)}
           onDone={() => {
-            setAtribuindo(null);
-            void carregar();
+            setTrocando(null);
+            depoisDeAgir();
           }}
         />
       ) : null}
 
       {reabrindo ? (
-        <ReabrirLimpezaDialog
-          limpeza={reabrindo}
+        <ReabrirServicoDialog
+          servico={reabrindo}
           onClose={() => setReabrindo(null)}
           onDone={() => {
             setReabrindo(null);
-            void carregar();
+            depoisDeAgir();
           }}
         />
       ) : null}
@@ -229,30 +310,36 @@ export function ExecucaoClient() {
   );
 }
 
-function LimpezaCard({
-  limpeza,
+function ServicoCard({
+  servico,
   agora,
   onConcluir,
+  onTrocarRealizador,
   onDetalhes,
 }: {
-  limpeza: Limpeza;
+  servico: ServicoImovel;
   agora: number;
   onConcluir: () => void;
+  /** Só com a permissão de trocar o realizador. */
+  onTrocarRealizador?: () => void;
   onDetalhes: () => void;
 }) {
-  const titulo = limpeza.imovel?.titulo || `Imóvel #${limpeza.imovel_id}`;
-  const endereco = enderecoDe(limpeza.imovel);
-  const responsavel = nomeDe(limpeza.responsavel);
-  const pendente = limpeza.status === "PENDENTE";
-  // Só faz sentido na limpeza pendente: é o prazo para o imóvel ficar pronto.
-  const checkin = pendente && limpeza.proximo_checkin ? contagemCheckin(limpeza.proximo_checkin, agora) : null;
+  const titulo = tituloDoImovel(servico);
+  const tipo = nomeDoServico(servico);
+  const endereco = enderecoDe(servico.imovel);
+  const responsavel = nomeDe(servico.responsavel);
+  const pendente = servico.status === "PENDENTE";
+  // Só no pendente: o prazo do pedido, quando houver; senão, a próxima entrada de hóspede.
+  const prazo = pendente && servico.prazo_em ? contagemPrazo(servico.prazo_em, agora) : null;
+  const checkin = pendente && !prazo && servico.proximo_checkin ? contagemCheckin(servico.proximo_checkin, agora) : null;
+  const contagem = prazo ?? checkin;
 
-  const foto = limpeza.imovel?.foto_capa;
+  const foto = servico.imovel?.foto_capa;
 
   // No celular são dois cartões por linha (~170px cada): espaçamentos, textos e botões encolhem.
   return (
     <Card className="flex h-full flex-col gap-0 overflow-hidden py-0">
-      {/* Foto de capa do imóvel: quem vai limpar reconhece o imóvel de relance. */}
+      {/* Foto de capa do imóvel: quem vai executar reconhece o imóvel de relance. */}
       <div className="relative aspect-[4/3] w-full shrink-0 bg-muted sm:aspect-[16/9]">
         {foto ? (
           // eslint-disable-next-line @next/next/no-img-element -- URL pública do Storage, como nos cards de imóveis.
@@ -269,9 +356,16 @@ function LimpezaCard({
             </Badge>
           ) : (
             <Badge className="border border-emerald-500/40 bg-emerald-100 px-1.5 text-[10px] font-semibold text-emerald-800 shadow-sm hover:bg-emerald-100 sm:px-2 sm:text-[11px] dark:bg-emerald-950 dark:text-emerald-300">
-              Concluída
+              Concluído
             </Badge>
           )}
+        </div>
+        {/* O tipo do serviço em cima da foto: limpeza, manutenção... */}
+        <div className="absolute bottom-1.5 left-1.5 right-1.5 sm:bottom-2 sm:left-2 sm:right-auto">
+          <span className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 bg-background/95 px-1.5 py-0.5 text-[10px] font-semibold text-foreground shadow-sm sm:gap-1.5 sm:px-2 sm:text-xs">
+            <IconeServico tipo={servico.servico} className="h-3 w-3 shrink-0 text-primary sm:h-3.5 sm:w-3.5" />
+            <span className="truncate">{tipo}</span>
+          </span>
         </div>
       </div>
       <CardHeader className="space-y-1 border-b p-2.5 sm:space-y-1.5 sm:p-4">
@@ -279,36 +373,40 @@ function LimpezaCard({
           <Building2 className="hidden h-4 w-4 shrink-0 text-primary sm:block" />
           <span className="line-clamp-2 sm:truncate">{titulo}</span>
         </CardTitle>
-        {limpeza.imovel?.codigo ? (
+        {servico.imovel?.codigo ? (
           <span className="w-fit rounded border border-border/40 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-            #{limpeza.imovel.codigo}
+            #{servico.imovel.codigo}
           </span>
         ) : null}
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-2 p-2.5 text-xs sm:gap-2.5 sm:p-4 sm:text-sm">
         {pendente ? (
-          checkin ? (
-            <div className={`flex items-start gap-1.5 rounded-lg border px-2 py-1.5 sm:gap-2 sm:px-2.5 sm:py-2 ${TONS_CHECKIN[checkin.tom]}`}>
-              <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+          contagem ? (
+            <div className={`flex items-start gap-1.5 rounded-lg border px-2 py-1.5 sm:gap-2 sm:px-2.5 sm:py-2 ${TONS_CHECKIN[contagem.tom]}`}>
+              {prazo ? (
+                <Hourglass className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+              ) : (
+                <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" />
+              )}
               <div className="min-w-0 leading-tight">
                 <p className="font-semibold">
-                  <span className="sm:hidden">{checkin.curto}</span>
-                  <span className="hidden sm:inline">{checkin.longo}</span>
+                  <span className="sm:hidden">{contagem.curto}</span>
+                  <span className="hidden sm:inline">{contagem.longo}</span>
                 </p>
-                <p className="mt-0.5 text-[11px] opacity-80 sm:text-xs">{checkin.quando}</p>
+                <p className="mt-0.5 text-[11px] opacity-80 sm:text-xs">{contagem.quando}</p>
               </div>
             </div>
           ) : (
             <p className="flex items-center gap-1.5 rounded-lg border border-dashed px-2 py-1.5 text-muted-foreground sm:gap-2 sm:px-2.5">
               <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-              <span>Sem check-in agendado</span>
+              <span>Sem prazo nem check-in</span>
             </p>
           )
         ) : null}
-        {limpeza.descricao ? (
+        {servico.descricao ? (
           <p className="flex items-start gap-1.5 rounded-lg border border-primary/20 bg-primary/5 p-2 font-medium text-foreground sm:gap-2 sm:p-2.5">
             <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary sm:h-4 sm:w-4" />
-            <span className="whitespace-pre-line break-words">{limpeza.descricao}</span>
+            <span className="whitespace-pre-line break-words">{servico.descricao}</span>
           </p>
         ) : null}
         {endereco ? (
@@ -321,33 +419,33 @@ function LimpezaCard({
           <p className="flex items-start gap-1.5 sm:items-center sm:gap-2">
             <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 sm:mt-0 dark:text-amber-400" />
             <span>
-              Aguardando {espera(limpeza.solicitada_em)}
-              <span className="hidden text-muted-foreground sm:inline"> ({momento(limpeza.solicitada_em)})</span>
+              Aguardando {espera(servico.solicitada_em)}
+              <span className="hidden text-muted-foreground sm:inline"> ({momento(servico.solicitada_em)})</span>
             </span>
           </p>
         ) : (
           <p className="flex items-start gap-1.5 sm:items-center sm:gap-2">
             <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 sm:mt-0 dark:text-emerald-400" />
             <span>
-              Concluída em {momento(limpeza.concluida_em)}
-              {nomeDe(limpeza.concluinte) ? <span className="text-muted-foreground"> por {nomeDe(limpeza.concluinte)}</span> : null}
+              Concluído em {momento(servico.concluida_em)}
+              {nomeDe(servico.concluinte) ? <span className="text-muted-foreground"> por {nomeDe(servico.concluinte)}</span> : null}
             </span>
           </p>
         )}
-        {limpeza.reserva ? (
+        {servico.reserva ? (
           <p className="flex min-w-0 items-center gap-1.5 text-muted-foreground sm:gap-2">
             <LogOut className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">
               <span className="hidden sm:inline">Saída </span>
-              {limpeza.reserva.cliente?.nomerazaosocial ? (
+              {servico.reserva.cliente?.nomerazaosocial ? (
                 <>
                   <span className="hidden sm:inline">de </span>
-                  {limpeza.reserva.cliente.nomerazaosocial}
+                  {servico.reserva.cliente.nomerazaosocial}
                 </>
               ) : (
-                `Reserva #${limpeza.reserva.id}`
+                `Reserva #${servico.reserva.id}`
               )}
-              {limpeza.reserva.cliente?.nomerazaosocial ? <span className="hidden sm:inline"> · Reserva #{limpeza.reserva.id}</span> : null}
+              {servico.reserva.cliente?.nomerazaosocial ? <span className="hidden sm:inline"> · Reserva #{servico.reserva.id}</span> : null}
             </span>
           </p>
         ) : null}
@@ -355,8 +453,8 @@ function LimpezaCard({
           <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {responsavel ? <span className="truncate">{responsavel}</span> : <span className="text-muted-foreground">Sem responsável</span>}
         </p>
-        {limpeza.observacoes ? (
-          <p className="rounded-lg bg-muted/50 p-2 text-[11px] text-muted-foreground sm:text-xs">{limpeza.observacoes}</p>
+        {servico.observacoes ? (
+          <p className="rounded-lg bg-muted/50 p-2 text-[11px] text-muted-foreground sm:text-xs">{servico.observacoes}</p>
         ) : null}
 
         {/* mt-auto: os botões ficam no pé do cartão, alinhados entre cartões da mesma linha. */}
@@ -364,8 +462,20 @@ function LimpezaCard({
           {pendente ? (
             <Button size="sm" onClick={onConcluir} className="h-8 gap-1.5 px-2 text-xs hover:cursor-pointer sm:h-9 sm:flex-1 sm:text-sm">
               <CheckCircle2 className="h-4 w-4" />
-              <span className="sm:hidden">Concluída</span>
-              <span className="hidden sm:inline">Limpeza concluída</span>
+              <span className="sm:hidden">Concluir</span>
+              <span className="hidden sm:inline">Concluir serviço</span>
+            </Button>
+          ) : null}
+          {pendente && onTrocarRealizador ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onTrocarRealizador}
+              className="h-8 gap-1.5 px-2 text-xs hover:cursor-pointer sm:h-9 sm:text-sm"
+            >
+              <UserCog className="h-4 w-4" />
+              <span className="sm:hidden">Trocar</span>
+              <span className="hidden sm:inline">Trocar realizador</span>
             </Button>
           ) : null}
           <Button

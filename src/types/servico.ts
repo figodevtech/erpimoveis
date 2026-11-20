@@ -11,6 +11,8 @@ export interface Servico {
   tiposervicoid?: number | null;      // FK -> tiposervico(id)
   /** Quando false, realizadores deste serviço não recebem comissão. */
   gera_comissao?: boolean | null;
+  /** Serviço usado pelo próprio sistema (LIMPEZA): não sai do catálogo, não fica inativo nem muda de código. */
+  chave_sistema?: string | null;
   createdat?: string | null;
   updatedat?: string | null;
 }

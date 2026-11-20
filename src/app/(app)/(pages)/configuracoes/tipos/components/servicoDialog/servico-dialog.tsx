@@ -79,6 +79,8 @@ export default function ServicoDialog({
   onRegister,
 }: ServicoDialogProps) {
   const [isSaving, setIsSaving] = useState(false);
+  // A Limpeza do sistema (pedida no check-out) não fica inativa nem muda de código.
+  const doSistema = Boolean(editing?.chave_sistema);
 
   const handleChange = (field: keyof ServicoForm, value: string | boolean) => {
     setForm({
@@ -152,6 +154,7 @@ export default function ServicoDialog({
               <label className="text-sm font-medium">Código</label>
               <Input
                 value={form.codigo}
+                disabled={doSistema}
                 onChange={(e) => handleChange("codigo", e.target.value)}
                 placeholder="Ex.: ALINH001"
               />
@@ -182,14 +185,16 @@ export default function ServicoDialog({
             <div className="space-y-0.5">
               <span className="text-sm font-medium">Status do serviço</span>
               <p className="text-xs text-muted-foreground">
-                Defina se este serviço está ativo para uso nas ordens de serviço.
+                {doSistema
+                  ? "Serviço do sistema: é o que o check-out pede, por isso fica sempre ativo e com o mesmo código."
+                  : "Serviço ativo aparece ao solicitar serviços para os imóveis."}
               </p>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground hidden sm:inline">
                 {form.ativo ? "Ativo" : "Inativo"}
               </span>
-              <Switch checked={form.ativo} onCheckedChange={(val) => handleChange("ativo", val)} />
+              <Switch checked={form.ativo} disabled={doSistema} onCheckedChange={(val) => handleChange("ativo", val)} />
             </div>
           </div>
 

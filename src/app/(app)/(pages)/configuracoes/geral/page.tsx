@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
-import { ResponsavelLimpezaSelect } from "@/components/imobiliario/responsavel-limpeza-select";
+import { ResponsavelServicoSelect } from "@/components/imobiliario/responsavel-servico-select";
 
 type GeneralSettings = {
   impressao_cor_primaria: string;
@@ -168,7 +168,7 @@ function ReservasTemporadaCard({
                   </span>
                 </div>
                 <div className="w-full sm:w-72">
-                  <ResponsavelLimpezaSelect
+                  <ResponsavelServicoSelect
                     value={limpezaResponsavelId}
                     onValueChange={onLimpezaResponsavelChange}
                   />

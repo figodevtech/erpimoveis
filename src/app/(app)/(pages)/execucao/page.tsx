@@ -3,7 +3,7 @@ import { ExecucaoClient } from "./execucao-client";
 
 export const metadata: Metadata = {
   title: "Execução | ERP Imóveis",
-  description: "Limpezas de imóveis sob a sua responsabilidade.",
+  description: "Serviços dos imóveis (limpeza, manutenção...) sob a sua responsabilidade.",
 };
 
 export default function ExecucaoPage() {
