@@ -15,6 +15,25 @@ function parseId(paramId: string): number | null {
   return n;
 }
 
+/**
+ * Serviço do sistema (a Limpeza que o check-out pede): não fica inativo nem muda de código.
+ * Devolve o motivo da recusa, ou null. O banco recusa de novo (imob_proteger_servico_sistema).
+ */
+async function recusaDoServicoSistema(servicoId: number, mudanca: { codigo?: string; ativo?: unknown }) {
+  const { data, error } = await supabaseAdmin
+    .from("servico")
+    .select("codigo,descricao,chave_sistema")
+    .eq("id", servicoId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data?.chave_sistema) return null;
+  if (mudanca.ativo === false) return `O serviço ${data.descricao} é usado pelo sistema e não pode ser desativado.`;
+  if (mudanca.codigo !== undefined && mudanca.codigo !== data.codigo) {
+    return `O serviço ${data.descricao} é usado pelo sistema: o código dele não pode mudar.`;
+  }
+  return null;
+}
+
 // PUT /api/tipos/servicos/[id] -> editar cadastro completo (inclui 'ativo')
 export async function PUT(
   req: NextRequest,
@@ -53,6 +72,9 @@ export async function PUT(
       );
     }
 
+    const recusa = await recusaDoServicoSistema(servicoId, { codigo: codigo.trim(), ativo });
+    if (recusa) return NextResponse.json({ error: recusa }, { status: 409 });
+
     const now = new Date().toISOString();
 
     const payload: Record<string, any> = {
@@ -85,7 +107,8 @@ export async function PUT(
         itemlistaservico,
         tiposervicoid,
         ativo,
-        gera_comissao
+        gera_comissao,
+        chave_sistema
       `)
       .maybeSingle();
 
@@ -112,6 +135,7 @@ export async function PUT(
       tiposervicoid: (data.tiposervicoid as number | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
       gera_comissao: typeof data.gera_comissao === "boolean" ? data.gera_comissao : true,
+      chave_sistema: (data.chave_sistema as string | null) ?? null,
     };
 
     return NextResponse.json({ item });
@@ -156,6 +180,9 @@ export async function PATCH(
       );
     }
 
+    const recusa = await recusaDoServicoSistema(servicoId, { ativo });
+    if (recusa) return NextResponse.json({ error: recusa }, { status: 409 });
+
     const now = new Date().toISOString();
 
     const { data, error } = await supabaseAdmin
@@ -173,7 +200,8 @@ export async function PATCH(
         itemlistaservico,
         tiposervicoid,
         ativo,
-        gera_comissao
+        gera_comissao,
+        chave_sistema
       `)
       .maybeSingle();
 
@@ -200,6 +228,7 @@ export async function PATCH(
       tiposervicoid: (data.tiposervicoid as number | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : ativo,
       gera_comissao: typeof data.gera_comissao === "boolean" ? data.gera_comissao : true,
+      chave_sistema: (data.chave_sistema as string | null) ?? null,
     };
 
     return NextResponse.json({ item });

@@ -41,6 +41,8 @@ type Servico = {
   tiposervicoid?: number | null;
   ativo?: boolean | null;
   gera_comissao?: boolean | null;
+  /** LIMPEZA: o serviço que o check-out pede; não fica inativo nem muda de código. */
+  chave_sistema?: string | null;
 };
 
 type ServicoForm = {
@@ -241,7 +243,16 @@ export default function ServicosSection() {
               pageItems.map((s) => (
                 <TableRow key={s.id} className="hover:cursor-default">
                   <TableCell className="font-mono text-xs">{s.codigo}</TableCell>
-                  <TableCell>{s.descricao}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      {s.descricao}
+                      {s.chave_sistema ? (
+                        <Badge variant="secondary" className="text-[10px]" title="Usado no check-out; não pode ser desativado">
+                          Sistema
+                        </Badge>
+                      ) : null}
+                    </span>
+                  </TableCell>
                   <TableCell>{s.precohora != null ? formatCurrencyBRL(s.precohora) : "—"}</TableCell>
                   <TableCell>
                     <Badge

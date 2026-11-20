@@ -55,6 +55,10 @@ const ReservationsCalendar = dynamic(
 const OperationAction = dynamic(
   () => import("@/components/imobiliario/actions-dialog").then(module => module.OperationAction),
 );
+// Exclusão definitiva: mostra os valores que saem junto antes de apagar.
+const ExcluirReservaDialog = dynamic(
+  () => import("@/components/imobiliario/excluir-reserva-dialog").then(module => module.ExcluirReservaDialog),
+);
 
 interface ReservasDataTableProps {
   reservas: Reserva[];
@@ -111,7 +115,9 @@ export default function ReservasDataTable({
 }: ReservasDataTableProps) {
   const { can } = useModulePermission();
   const podeCheckinCheckout = can("reservas:checkin_checkout");
+  const podeExcluir = can("reservas:excluir");
   const [acao, setAcao] = useState<{ reserva: Reserva; action: "CHECKIN" | "CHECKOUT" } | null>(null);
+  const [excluindo, setExcluindo] = useState<Reserva | null>(null);
 
   // Check-in na reserva confirmada; check-out na que está em andamento.
   const acoesDaReserva = (reserva: Reserva): RowExtraAction[] => {
@@ -426,6 +432,7 @@ export default function ReservasDataTable({
                                 canEdit={canEdit}
                                 onOpen={() => onSelectReserva(reserva.id)}
                                 extraActions={acoesDaReserva(reserva)}
+                                onRequestDelete={podeExcluir ? () => setExcluindo(reserva) : undefined}
                               />
                             </TableCell>
                           </TableRow>
@@ -542,6 +549,17 @@ export default function ReservasDataTable({
           onClose={() => setAcao(null)}
           onSaved={() => {
             setAcao(null);
+            onRefresh();
+          }}
+        />
+      ) : null}
+
+      {excluindo ? (
+        <ExcluirReservaDialog
+          reserva={excluindo as Entity}
+          onClose={() => setExcluindo(null)}
+          onDone={() => {
+            setExcluindo(null);
             onRefresh();
           }}
         />

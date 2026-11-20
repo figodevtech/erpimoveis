@@ -368,7 +368,7 @@ export default function EntityDialog({
         { key: "disponibilidade", label: "Disponibilidade" },
         { key: "canais", label: "Booking e Airbnb" },
         { key: "reservas", label: "Reservas" },
-        // Limpezas pedidas nos check-outs e o andamento de cada uma.
+        // Serviços do imóvel (limpezas dos check-outs, manutenção...) e o andamento de cada um.
         { key: "servicos", label: "Serviços" }
       );
       // Sem aba Pagamentos: o imóvel não é cobrado; os pagamentos ficam na reserva.
@@ -754,7 +754,11 @@ export default function EntityDialog({
               >
                 <div className="h-full min-h-0 overflow-auto bg-muted-foreground/5 px-4 py-4 space-y-6 sm:px-6">
                   {tab === "servicos" && currentId && kind === "imoveis" ? (
-                    <ImovelServicosPanel imovelId={currentId} onChanged={saved} />
+                    <ImovelServicosPanel
+                      imovelId={currentId}
+                      imovel={{ titulo: value.titulo, codigo: value.codigo, situacao_operacional: value.situacao_operacional }}
+                      onChanged={saved}
+                    />
                   ) : null}
                 </div>
               </TabsContent>

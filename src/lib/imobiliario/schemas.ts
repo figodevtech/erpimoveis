@@ -53,3 +53,27 @@ export const tarifaSchema = z.object({ inicio: civilDate, fim: civilDate, diaria
   .refine((v) => v.fim > v.inicio, { path: ["fim"], message: "Fim deve ser posterior ao início" });
 
 export const visitaSchema = z.object({ imovel_id: id, cliente_id: id.nullish(), inicio: text.datetime({ offset: true }), fim: text.datetime({ offset: true }).nullish(), status: z.enum(["SOLICITADA", "CONFIRMADA", "REALIZADA", "CANCELADA"]).default("SOLICITADA"), responsavel_id: z.string().uuid().nullish(), observacoes: text.max(10000).default("") });
+
+// --------------------------------------------------------------------------- serviços do imóvel
+const horaCivil = text.regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Hora inválida");
+const vazioComoNulo = <T extends z.ZodTypeAny>(schema: T) => z.union([schema, z.literal(""), z.null()]).optional().transform((v) => (v ? v : null));
+
+/**
+ * Prazo do serviço: dia e hora no fuso do imobiliário (UTC−3, sem horário de verão) como o instante
+ * gravado. Sem dia, sem prazo; dia sem hora vale até o fim do dia.
+ */
+export function prazoDoServico(data: string | null | undefined, hora: string | null | undefined) {
+  if (!data) return null;
+  return new Date(`${data}T${hora || "23:59"}:00-03:00`).toISOString();
+}
+
+/** "Solicitar serviço" da aba Serviços do imóvel. O banco confere o tipo ativo, o responsável e o prazo. */
+export const solicitacaoServicoSchema = z
+  .object({
+    servico_id: id,
+    responsavel_id: vazioComoNulo(z.string().uuid("Responsável inválido.")),
+    descricao: vazioComoNulo(text.max(500, "A descrição do serviço deve ter até 500 caracteres.")),
+    prazo_data: vazioComoNulo(civilDate),
+    prazo_hora: vazioComoNulo(horaCivil),
+  })
+  .refine((v) => !v.prazo_hora || v.prazo_data, { path: ["prazo_data"], message: "Informe o dia do prazo." });

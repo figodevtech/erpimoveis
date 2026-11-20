@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { civilDate, imovelSchema, proprietarioSchema, reservaSchema } from "./schemas";
+import { civilDate, imovelSchema, prazoDoServico, proprietarioSchema, reservaSchema, solicitacaoServicoSchema } from "./schemas";
 import { cotacaoPublica, hojeImobiliario, statusReservaPublico } from "./types";
 
 test("cadastro de proprietário valida documento PF/PJ e descarta campos de autorização", () => {
@@ -39,4 +39,23 @@ test("cotação pública expõe preços e confirmação sem vínculos privados",
   assert.equal("proprietario_id" in quote, false);
   assert.equal(statusReservaPublico("CONFIRMADA"), "CONFIRMED");
   assert.equal(hojeImobiliario(new Date("2027-01-02T01:00:00Z")), "2027-01-01");
+});
+
+test("pedido de serviço: vazio vira nulo, descrição tem limite e hora do prazo pede o dia", () => {
+  const pedido = solicitacaoServicoSchema.parse({ servico_id: "3", responsavel_id: "", descricao: "  Trocar chuveiro  ", prazo_data: "", prazo_hora: null });
+  assert.deepEqual(pedido, { servico_id: 3, responsavel_id: null, descricao: "Trocar chuveiro", prazo_data: null, prazo_hora: null });
+  assert.equal(solicitacaoServicoSchema.parse({ servico_id: 1, prazo_data: "2027-03-10" }).prazo_hora, null);
+  assert.throws(() => solicitacaoServicoSchema.parse({ servico_id: 1, prazo_hora: "10:00" }));
+  assert.throws(() => solicitacaoServicoSchema.parse({ servico_id: 1, descricao: "x".repeat(501) }));
+  assert.throws(() => solicitacaoServicoSchema.parse({ servico_id: 1, responsavel_id: "não-é-uuid" }));
+  assert.throws(() => solicitacaoServicoSchema.parse({ servico_id: 1, prazo_data: "2027-02-30" }));
+  assert.throws(() => solicitacaoServicoSchema.parse({ servico_id: 1, prazo_data: "2027-03-10", prazo_hora: "24:00" }));
+  assert.throws(() => solicitacaoServicoSchema.parse({ servico_id: 0 }));
+});
+
+test("prazo do serviço é lido no fuso do imobiliário (UTC−3) e sem hora vale até o fim do dia", () => {
+  assert.equal(prazoDoServico("2027-03-10", "10:00"), "2027-03-10T13:00:00.000Z");
+  assert.equal(prazoDoServico("2027-03-10", null), "2027-03-11T02:59:00.000Z");
+  assert.equal(prazoDoServico(null, "10:00"), null);
+  assert.equal(prazoDoServico("", ""), null);
 });
