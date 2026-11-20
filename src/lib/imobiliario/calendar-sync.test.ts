@@ -18,7 +18,7 @@ function load(fetcher: typeof fetch) {
   };
   const loaded = { exports: {} as any };
   const source = ts.transpileModule(readFileSync("src/lib/imobiliario/calendar-sync.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  runInNewContext(source, { exports: loaded.exports, fetch: fetcher, AbortSignal, TextDecoder, Date,
+  runInNewContext(source, { exports: loaded.exports, fetch: fetcher, AbortSignal, TextDecoder, Date, URL,
     require(name: string) {
       if (name === "server-only") return {};
       if (name === "node:crypto") return { randomUUID };
@@ -34,9 +34,29 @@ test("download restrito a hosts oficiais, sem redirecionar tokens", async () => 
   let options: RequestInit | undefined, calls = 0;
   const api = load((async (_url, init) => { calls++; options = init; return new Response("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n"); }) as typeof fetch);
   await api.downloadCalendar("https://www.airbnb.com/calendar/ical/test.ics", "AIRBNB");
-  assert.equal(options?.redirect, "error"); assert.equal(options?.cache, "no-store");
+  assert.equal(options?.redirect, "manual"); assert.equal(options?.cache, "no-store");
   await assert.rejects(api.downloadCalendar("https://localhost/private", "AIRBNB"));
   assert.equal(calls, 1);
+});
+test("segue redirecionamento regional apenas para calendários oficiais do mesmo canal", async () => {
+  const calls: string[] = [];
+  const api = load((async (url) => {
+    calls.push(String(url));
+    return calls.length === 1 ? new Response(null, { status: 302, headers: { location: "https://www.airbnb.com/calendar/ical/123.ics?t=example-token" } })
+      : new Response("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n");
+  }) as typeof fetch);
+  await api.downloadCalendar("https://www.airbnb.com.br/calendar/ical/123.ics?t=example-token", "AIRBNB");
+  assert.equal(calls.length, 2);
+  for (const location of ["https://evil.test/calendar.ics", "http://www.airbnb.com/calendar/ical/123.ics", "https://www.airbnb.com/login", "https://ical.booking.com/v1/export?t=x"]) {
+    let count = 0;
+    const invalid = load((async () => { count++; return new Response(null, { status: 302, headers: { location } }); }) as typeof fetch);
+    await assert.rejects(invalid.downloadCalendar("https://www.airbnb.com.br/calendar/ical/123.ics", "AIRBNB"));
+    assert.equal(count, 1);
+  }
+  let count = 0;
+  const loop = load((async () => { count++; return new Response(null, { status: 302, headers: { location: "/calendar/ical/123.ics" } }); }) as typeof fetch);
+  await assert.rejects(loop.downloadCalendar("https://www.airbnb.com.br/calendar/ical/123.ics", "AIRBNB"));
+  assert.equal(count, 4);
 });
 test("falha HTTP, HTML e corpo excessivo não aplicam snapshot nem apagam ocupações", async () => {
   for (const response of [() => new Response("unavailable", { status: 503 }), () => new Response("<html>Login</html>"), () => new Response("x".repeat(2_000_001))]) {

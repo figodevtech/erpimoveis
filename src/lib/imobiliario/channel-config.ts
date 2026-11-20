@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const AIRBNB_CALENDAR_HOSTS = ["www.airbnb.com", "airbnb.com", "www.airbnb.com.br", "airbnb.com.br"];
+
 export const channelConfigSchema = z.object({
   imovel_id: z.number().int().positive(),
   canal: z.enum(["AIRBNB", "BOOKING"]),
@@ -10,7 +12,7 @@ export const channelConfigSchema = z.object({
     try { url = new URL(value); } catch { return; }
     const channelHost = url.hostname.toLowerCase();
     if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443") ||
-        !["www.airbnb.com", "airbnb.com", "ical.booking.com"].includes(channelHost)) {
+        ![...AIRBNB_CALENDAR_HOSTS, "ical.booking.com"].includes(channelHost)) {
       ctx.addIssue({ code: "custom", message: "Use o link HTTPS de exportação do Airbnb ou ical.booking.com." });
     }
   }),
@@ -19,7 +21,7 @@ export const channelConfigSchema = z.object({
   let url: URL;
   try { url = new URL(value.calendario_url); } catch { return; }
   const valid = value.canal === "AIRBNB"
-    ? ["www.airbnb.com", "airbnb.com"].includes(url.hostname) && /^\/calendar\/ical\/[^/]+\.ics$/.test(url.pathname)
+    ? AIRBNB_CALENDAR_HOSTS.includes(url.hostname) && /^\/calendar\/ical\/[^/]+\.ics$/.test(url.pathname)
     : url.hostname === "ical.booking.com" && url.pathname.startsWith("/v1/export");
   if (!valid) ctx.addIssue({ code: "custom", path: ["calendario_url"], message: "O link precisa ser o calendário exportado pelo canal escolhido, não a página do anúncio." });
 });

@@ -7,8 +7,22 @@ import { parseOccupancyCalendar } from "./ical-import";
 export async function downloadCalendar(url: string, canal: "AIRBNB" | "BOOKING", fetcher: typeof fetch = fetch) {
   const checked = channelConfigSchema.safeParse({ imovel_id: 1, canal, calendario_url: url });
   if (!checked.success) throw new Error("Link de calendário inválido. Copie novamente o link de exportação do canal.");
-  // Somente hosts oficiais, sem redirects: nenhum token pode ser encaminhado a outro destino.
-  const response = await fetcher(checked.data.calendario_url, { cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15000), headers: { Accept: "text/calendar" } });
+  // Domínios regionais podem redirecionar ao .com. Validar cada destino antes de acessá-lo.
+  let target = checked.data.calendario_url;
+  const signal = AbortSignal.timeout(15000);
+  let response: Response;
+  for (let redirects = 0; ; redirects++) {
+    response = await fetcher(target, { cache: "no-store", redirect: "manual", signal, headers: { Accept: "text/calendar" } });
+    if (![301, 302, 303, 307, 308].includes(response.status)) break;
+    const location = response.headers.get("location");
+    await response.body?.cancel();
+    if (!location || redirects >= 3) throw new Error("Redirecionamento inválido no calendário do canal.");
+    let next: string;
+    try { next = new URL(location, target).href; } catch { throw new Error("Redirecionamento inválido no calendário do canal."); }
+    const destination = channelConfigSchema.safeParse({ imovel_id: 1, canal, calendario_url: next });
+    if (!destination.success) throw new Error("O canal redirecionou para um endereço de calendário não permitido.");
+    target = destination.data.calendario_url;
+  }
   if (!response.ok || !response.body) throw new Error("O canal não disponibilizou o calendário. Confira o link e tente novamente.");
   if (Number(response.headers.get("content-length")) > 2_000_000) throw new Error("Calendário maior que o limite permitido.");
   const reader = response.body.getReader();
