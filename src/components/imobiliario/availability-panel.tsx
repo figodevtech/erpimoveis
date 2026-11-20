@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/app/(app)/(pages)/config-context";
+import { AirbnbCodeLink } from "./airbnb";
 import {
   AlertTriangle,
   ArrowRight,
@@ -71,7 +72,9 @@ const KINDS: Record<string, { label: string; soft: string; dot: string }> = {
 };
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-const kindOf = (row: Entity) => String(row.tipo ?? row.origem ?? "").toUpperCase();
+// Evento do Airbnb marcado como reserva conta como reserva (cor, rótulo), embora no banco seja um bloqueio externo.
+const kindOf = (row: Entity) =>
+  row.calendario_tipo === "RESERVA" ? "RESERVA" : String(row.tipo ?? row.origem ?? "").toUpperCase();
 const isBlock = (row: Entity) => ["BLOQUEIO", "MANUTENCAO"].includes(kindOf(row)) || Boolean(row.bloqueio_id);
 /** Ocupa a noite `day`? (início incluso, fim exclusivo; sem fim segue aberta). */
 export const covers = (row: Entity, day: string) => row.inicio <= day && (!row.fim || day < row.fim);
@@ -204,7 +207,13 @@ export function OccupancyCalendar({
           const band = inRange && start !== end;
           const label = [
             dateLabel(day),
-            occupation ? `${kind?.label}${occupation.motivo ? `: ${occupation.motivo}` : ""}` : past ? "Passado" : "Livre",
+            occupation
+              ? occupation.canal_calendario_id && occupation.motivo
+                ? occupation.motivo
+                : `${kind?.label}${occupation.motivo ? `: ${occupation.motivo}` : ""}`
+              : past
+              ? "Passado"
+              : "Livre",
             tariff
               ? `Tarifa ${money(tariff.diaria)}${tariff.descricao ? ` (${tariff.descricao})` : ""}${tariff.reserva_exclusiva ? ", pacote fechado" : ""}`
               : null,
@@ -666,6 +675,9 @@ function OperationCard({
   const status = String(operacao?.status ?? "");
   const pagamento = String(operacao?.financeiro_status ?? "");
   const abrir = onOpen && operacao ? () => onOpen("reservas", id) : undefined;
+  // Reserva do Airbnb cadastrada sozinha: hóspede e valores chegam depois, pelo operador.
+  const hospedeAIdentificar = operacao?.cliente?.codigo_sistema === "hospede_airbnb";
+  const valorAInformar = operacao?.origem === "AIRBNB" && Number(valor ?? 0) <= 0;
   const accent = "before:bg-sky-500";
   const avatar = "bg-sky-500/10 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300";
 
@@ -692,6 +704,11 @@ function OperationCard({
                 <span className="font-mono">
                   {kind.label} #{id}
                 </span>
+                {row.calendario_codigo ? (
+                  <span className="inline-flex items-center gap-1">
+                    · Airbnb <AirbnbCodeLink codigo={String(row.calendario_codigo)} />
+                  </span>
+                ) : null}
                 {operacao?.hospedes ? (
                   <span className="inline-flex items-center gap-1">
                     · <Users className="h-3 w-3" /> {plural(Number(operacao.hospedes), "hóspede", "hóspedes")}
@@ -699,7 +716,12 @@ function OperationCard({
                 ) : null}
               </p>
             </div>
-            {valor != null ? (
+            {valorAInformar ? (
+              <div className="shrink-0 text-right">
+                <p className="text-sm font-semibold leading-tight text-amber-700 dark:text-amber-300">A informar</p>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</p>
+              </div>
+            ) : valor != null ? (
               <div className="shrink-0 text-right">
                 <p className="text-base font-bold leading-tight tabular-nums text-foreground">{money(valor)}</p>
                 <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</p>
@@ -717,7 +739,17 @@ function OperationCard({
       {status || pagamento || abrir ? (
         <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border/50 pt-3">
           {status ? <Pill config={OPERATION_STATUS[status]} fallback={status} /> : null}
-          {pagamento ? <Pill config={PAYMENT_STATUS[pagamento]} fallback={pagamento} /> : null}
+          {pagamento && !valorAInformar ? <Pill config={PAYMENT_STATUS[pagamento]} fallback={pagamento} /> : null}
+          {hospedeAIdentificar || valorAInformar ? (
+            <Pill
+              config={{
+                label: hospedeAIdentificar && valorAInformar ? "Completar hóspede e valores" : hospedeAIdentificar ? "Hóspede a identificar" : "Valores a informar",
+                icon: AlertTriangle,
+                className: "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300",
+              }}
+              fallback=""
+            />
+          ) : null}
           {abrir ? (
             <button
               type="button"
@@ -734,16 +766,60 @@ function OperationCard({
   );
 }
 
+/**
+ * Reserva que chegou pelo calendário do Airbnb e ainda não foi registrada no ERP: período, código
+ * (abre no Airbnb) e o atalho para registrá-la com hóspede e valores.
+ */
+function AirbnbReservationCard({ row, onRegister }: { row: Entity; onRegister?: (row: Entity) => void }) {
+  const codigo = row.calendario_codigo ? String(row.calendario_codigo) : null;
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-dashed border-sky-500/40 bg-card p-4 pl-5 shadow-xs before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-sky-500/60">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-sm bg-sky-500" />
+            Reserva Airbnb
+            {codigo ? <AirbnbCodeLink codigo={codigo} /> : null}
+          </p>
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <CalendarRange className="h-3.5 w-3.5 shrink-0" />
+            <span>{periodText(row)}</span>
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            {codigo
+              ? "Não está no ERP: já tinha terminado na primeira leitura ou não pôde ser cadastrada sozinha."
+              : "O Airbnb não informou o código desta reserva; não dá para registrá-la no ERP."}
+          </p>
+        </div>
+        {codigo && onRegister ? (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => onRegister(row)}
+            className="h-8 shrink-0 gap-1.5 rounded-full text-xs hover:cursor-pointer"
+          >
+            <CalendarCheck className="h-3.5 w-3.5" />
+            Registrar no ERP
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function AvailabilityPanel({
   item,
   editable,
   onOpenOperation,
+  onRegisterAirbnb,
   versao = 0,
 }: {
   item: Entity;
   editable: boolean;
   /** Abre o diálogo da reserva a partir da lista do mês. */
   onOpenOperation?: (kind: "reservas", id: number) => void;
+  /** Abre uma reserva nova já com o imóvel, as datas e o código do evento do Airbnb. */
+  onRegisterAirbnb?: (row: Entity) => void;
   /** Muda quando uma operação aberta daqui é salva: recarrega sem perder o mês exibido. */
   versao?: number;
 }) {
@@ -950,6 +1026,9 @@ export function AvailabilityPanel({
                       onOpen={onOpenOperation}
                     />
                   );
+                }
+                if (row.canal_calendario_id && row.calendario_tipo === "RESERVA") {
+                  return <AirbnbReservationCard key={row.id ?? index} row={row} onRegister={onRegisterAirbnb} />;
                 }
                 return (
                   <div key={row.id ?? index} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card p-3.5 shadow-xs">

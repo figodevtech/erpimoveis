@@ -6,6 +6,7 @@ import { db, identifier, ImobError, internal, internalAny, json, bodyOf, one, pa
 import { civilDate, imovelSchema, proprietarioSchema, reservaSchema, tarifaSchema, visitaSchema } from "./schemas";
 import { deleteFile, enrich, filesFor, fileScope, fileUrl, publicationValid, removeStoredFiles, reorderGallery, uploadFile } from "./data";
 import { cotacaoPublica, hojeImobiliario } from "./types";
+import { AIRBNB_CANCELAR_NO_AIRBNB, AIRBNB_EXCLUIR_NO_AIRBNB } from "./airbnb";
 import bairrosPorMunicipio from "@/data/bairros-por-municipio.json";
 import { financeAccess, financeReport, payCharge, scopeFromUrl, type FinanceScope } from "./finance";
 import { concluirLimpezaDoImovel, servicosDoImovel, solicitarServico } from "./servicos";
@@ -81,6 +82,16 @@ async function list(resource: Resource, url: URL, extra: Record<string, unknown>
 }
 
 /**
+ * Reserva do Airbnb não se cancela nem se exclui no ERP: o cancelamento é feito no Airbnb e chega
+ * pela sincronização do calendário. O banco também recusa; aqui o aviso sai antes de qualquer efeito.
+ */
+async function semGerenciarNoAirbnb(id: number, mensagem: string) {
+  const result = await db.from("reserva_imovel").select("origem").eq("id", id).maybeSingle();
+  if (result.error) throw result.error;
+  if (result.data?.origem === "AIRBNB") throw new ImobError(409, mensagem, { code: "RESERVA_AIRBNB" });
+}
+
+/**
  * Hóspede, valor e situação de cada reserva do calendário do imóvel. Só para quem pode ver
  * reservas: a ocupação em si (o período) segue visível a todos que veem o imóvel.
  */
@@ -89,7 +100,7 @@ async function reservasDasOcupacoes(rows: Record<string, any>[], permissoes: unk
   if (!permissionSetHas(permissoes as string[] | undefined, PERMS.RESERVAS)) return reservas;
   const ids = [...new Set(rows.map((r) => r.reserva_id).filter((v) => v != null).map(Number))];
   if (!ids.length) return reservas;
-  const result = await db.from("reserva_imovel").select("id,status,financeiro_status,valor_total,hospedes,inicio,fim,cliente:cliente_id(id,nomerazaosocial)").in("id", ids);
+  const result = await db.from("reserva_imovel").select("id,status,financeiro_status,valor_total,hospedes,inicio,fim,origem,cliente:cliente_id(id,nomerazaosocial,codigo_sistema)").in("id", ids);
   if (result.error) throw result.error;
   for (const r of result.data ?? []) reservas.set(Number(r.id), r);
   return reservas;
@@ -418,10 +429,12 @@ export async function internalResource(request: Request, resource: Resource, pat
   // confirmar_valores. O storage dos arquivos é limpo depois que o banco confirmou.
   if (resource === "reservas" && id && segment === "exclusao" && !path[2] && method === "GET") {
     const editor = await internal(PERMS.RESERVAS_EXCLUIR);
+    await semGerenciarNoAirbnb(id, AIRBNB_EXCLUIR_NO_AIRBNB);
     return json(await rpc("imob_excluir_reserva", { p_id: id, p_actor: editor.id, p_executar: false, p_confirmar_valores: false }));
   }
   if (resource === "reservas" && id && !segment && method === "DELETE") {
     const editor = await internal(PERMS.RESERVAS_EXCLUIR);
+    await semGerenciarNoAirbnb(id, AIRBNB_EXCLUIR_NO_AIRBNB);
     const body = await bodyOf(request).catch(() => ({} as Record<string, unknown>));
     const outcome = await rpc("imob_excluir_reserva", { p_id: id, p_actor: editor.id, p_executar: true, p_confirmar_valores: body.confirmar_valores === true });
     await removeStoredFiles(outcome?.arquivos ?? []);
@@ -472,6 +485,21 @@ export async function internalResource(request: Request, resource: Resource, pat
             throw error;
           })
         : await rpc("imob_cotar_reserva", args);
+      const codigo = url.searchParams.get("codigo_externo");
+      if (codigo) {
+        // Reserva do Airbnb: o evento dela (mesmo código) é a ocupação da reserva, não conflito; e as
+        // regras de tarifa do ERP não valem para uma estadia vendida no Airbnb. O banco repete as duas regras.
+        const codigoAirbnb = z.string().trim().toUpperCase().regex(/^[A-Z0-9]{4,40}$/).parse(codigo);
+        const airbnb = await db.from("imovel_canal_calendario").select("id").eq("imovel_id", id).eq("canal", "AIRBNB").maybeSingle();
+        if (airbnb.error) throw airbnb.error;
+        const sobrepostas = await db.from("imovel_ocupacao").select("canal_calendario_id,calendario_codigo").eq("imovel_id", id).eq("ativo", true)
+          .lt("inicio", args.p_fim).or(`fim.is.null,fim.gt.${args.p_inicio}`);
+        if (sobrepostas.error) throw sobrepostas.error;
+        const propria = (row: { canal_calendario_id: number | null; calendario_codigo: string | null }) =>
+          Boolean(airbnb.data) && Number(row.canal_calendario_id) === Number(airbnb.data!.id) && row.calendario_codigo === codigoAirbnb;
+        const ajustada = { ...quote, disponivel: sobrepostas.data.every(propria), violacoes: [] };
+        return json({ ...cotacaoPublica(ajustada), ...ajustada });
+      }
       return json({ ...cotacaoPublica(quote), ...quote });
     }
     if (segment === "disponibilidade" && method === "GET") {
@@ -480,9 +508,21 @@ export async function internalResource(request: Request, resource: Resource, pat
       if (url.searchParams.get("fim")) query = query.lt("inicio", civilDate.parse(url.searchParams.get("fim")));
       const result = await query;
       if (result.error) throw result.error;
-      const reservas = await reservasDasOcupacoes(result.data, access.permissoes);
+      // Evento do Airbnb já registrado como reserva no ERP: a linha aponta para ela (ligação pelo código HM).
+      const codigos = [...new Set(result.data.map((r) => r.calendario_codigo).filter(Boolean))];
+      const porCodigo = new Map<string, number>();
+      if (codigos.length) {
+        const ligadas = await db.from("reserva_imovel").select("id,codigo_externo").eq("imovel_id", id).eq("origem", "AIRBNB")
+          .neq("status", "CANCELADA").in("codigo_externo", codigos);
+        if (ligadas.error) throw ligadas.error;
+        for (const r of ligadas.data) porCodigo.set(String(r.codigo_externo), Number(r.id));
+      }
+      const linhas = result.data.map((r) =>
+        r.calendario_codigo && porCodigo.has(r.calendario_codigo) ? { ...r, reserva_id: porCodigo.get(r.calendario_codigo) } : r
+      );
+      const reservas = await reservasDasOcupacoes(linhas, access.permissoes);
       return json({
-        items: result.data.map((r) => ({
+        items: linhas.map((r) => ({
           ...r,
           operacao_id: r.reserva_id ?? r.id,
           ...(r.reserva_id ? { reserva: reservas.get(Number(r.reserva_id)) ?? null } : {}),
@@ -590,6 +630,7 @@ export async function internalResource(request: Request, resource: Resource, pat
     // Registrar ou editar (aba Check-in / Check-out) usam a mesma permissão.
     const entradaSaida = ["CHECKIN", "CHECKOUT", "EDITAR_CHECKIN", "EDITAR_CHECKOUT"].includes(action);
     await internal(`${config.perm}:${entradaSaida ? "checkin_checkout" : action === "CANCELAR" ? "cancelar" : "confirmar"}`);
+    if (action === "CANCELAR") await semGerenciarNoAirbnb(id, AIRBNB_CANCELAR_NO_AIRBNB);
     body.tratamento_financeiro = body.tratamento_recebidos ?? body.tratamento_financeiro;
     // Limpeza pedida no check-out: o banco abre na mesma transação (imob_acao_reserva). Na edição do
     // check-out, a limpeza só muda se o diálogo mandar solicitar_limpeza (true ou false).
@@ -632,7 +673,10 @@ export async function internalResource(request: Request, resource: Resource, pat
     for (const k of ["email", "estado", "fim", "responsavel_id"]) if (body[k] === "") body[k] = null;
     if (resource === "imoveis" && !id && !body.slug) body.slug = `${body.titulo ?? "imovel"}-${body.codigo ?? randomUUID().slice(0, 8)}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 180);
     // O imóvel é sempre de temporada: o que vier do cadastro antigo ou do cliente não muda isso.
-    const data = config.schema.parse({ ...previous, ...body, ...(resource === "imoveis" ? { modalidades: ["TEMPORADA"] } : {}), ...(resource === "reservas" ? { idempotency_key: body.idempotency_key ?? previous.idempotency_key ?? randomUUID(), origem: "ERP" } : {}) }) as Record<string, any>;
+    // Reserva criada aqui é do ERP, salvo a registrada a partir de um evento do Airbnb (com o código HM),
+    // que continua do Airbnb nas edições. O banco confere o código no calendário do imóvel.
+    const origemReserva = previous.origem === "AIRBNB" || (!id && body.codigo_externo) ? "AIRBNB" : "ERP";
+    const data = config.schema.parse({ ...previous, ...body, ...(resource === "imoveis" ? { modalidades: ["TEMPORADA"] } : {}), ...(resource === "reservas" ? { idempotency_key: body.idempotency_key ?? previous.idempotency_key ?? randomUUID(), origem: origemReserva, codigo_externo: id ? previous.codigo_externo ?? null : body.codigo_externo ?? null } : {}) }) as Record<string, any>;
     if (resource === "proprietarios") data.cpfcnpj = data.cpfcnpj.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
     if (resource === "imoveis") await publicationValid(data, id ?? undefined);
     // Troca de proprietário nunca é um update solto: reservas, cobranças e extrato acompanham o

@@ -44,6 +44,8 @@ import { StatusBadge, useModulePermission } from "@/components/imobiliario/share
 import { type Entity, clientName, dateLabel, money, propertyName } from "@/components/imobiliario/model";
 import dynamic from "next/dynamic";
 import { RowActions, type RowExtraAction } from "@/components/imobiliario/row-actions";
+import { avisarFeitoNoAirbnb } from "@/components/imobiliario/airbnb";
+import { AIRBNB_EXCLUIR_NO_AIRBNB, ehReservaAirbnb } from "@/lib/imobiliario/airbnb";
 import { cn } from "@/lib/utils";
 
 const ReservationsCalendar = dynamic(
@@ -432,7 +434,15 @@ export default function ReservasDataTable({
                                 canEdit={canEdit}
                                 onOpen={() => onSelectReserva(reserva.id)}
                                 extraActions={acoesDaReserva(reserva)}
-                                onRequestDelete={podeExcluir ? () => setExcluindo(reserva) : undefined}
+                                onRequestDelete={
+                                  podeExcluir
+                                    ? () =>
+                                        // Reserva do Airbnb não se exclui aqui: o aviso manda cancelar no Airbnb.
+                                        ehReservaAirbnb(reserva)
+                                          ? avisarFeitoNoAirbnb("Exclusão feita pelo Airbnb", AIRBNB_EXCLUIR_NO_AIRBNB, reserva.codigo_externo)
+                                          : setExcluindo(reserva)
+                                    : undefined
+                                }
                               />
                             </TableCell>
                           </TableRow>

@@ -42,6 +42,10 @@ export interface Reserva {
   cliente_nome?: string;
   observacoes?: string | null;
   created_at?: string;
+  /** ERP, SITE ou AIRBNB. A do Airbnb é cancelada no Airbnb e chega pela sincronização. */
+  origem?: string;
+  /** Código HM… da reserva do Airbnb. */
+  codigo_externo?: string | null;
 }
 
 export interface Pagination {

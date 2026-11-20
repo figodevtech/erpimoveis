@@ -10,7 +10,7 @@ export async function enrich(items: Record<string, any>[]): Promise<Record<strin
 
   const [imoveis, clientes, proprietarios, fotos] = await Promise.all([
     ids("imovel_id").length ? db.from("imovel_resumo").select("id,titulo,slug,codigo,modalidades,tipo,capacidade,quartos,banheiros,vagas,area,diaria,endereco,endereco_publico,situacao_operacional,ativo").in("id", ids("imovel_id")) : Promise.resolve({ data: [], error: null }),
-    ids("cliente_id").length ? db.from("cliente").select("id,nomerazaosocial,cpfcnpj,telefone,email,cidade,estado,tipopessoa,status").in("id", ids("cliente_id")) : Promise.resolve({ data: [], error: null }),
+    ids("cliente_id").length ? db.from("cliente").select("id,nomerazaosocial,cpfcnpj,telefone,email,cidade,estado,tipopessoa,status,codigo_sistema").in("id", ids("cliente_id")) : Promise.resolve({ data: [], error: null }),
     ids("proprietario_id").length ? db.from("proprietario").select("id,nomerazaosocial,cpfcnpj,telefone,email,tipopessoa,ativo").in("id", ids("proprietario_id")) : Promise.resolve({ data: [], error: null }),
     imovelIds.length ? db.from("imovel_arquivo").select("imovel_id,path,ordem").in("imovel_id", imovelIds).eq("tipo", "FOTO").eq("bucket", IMOBILIARIO_BUCKET_FOTOS).eq("publico", true).order("ordem").order("id") : Promise.resolve({ data: [], error: null }),
   ]);

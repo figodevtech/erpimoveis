@@ -39,6 +39,44 @@ ERP público em HTTPS; não importar localhost ou preview protegido nas platafor
   exclusão de bloqueio manual. Remover o canal exclui somente suas ocupações externas.
   Para desconectar completamente, também remover na plataforma o calendário importado.
 
+## Reservas do Airbnb no ERP (migration `20261120140000`)
+
+O iCal do Airbnb separa reserva (`SUMMARY:Reserved`, com o link da reserva na descrição) de
+bloqueio (`SUMMARY:Airbnb (Not available)`). A leitura guarda em `imovel_ocupacao` o tipo
+(`calendario_tipo`: `RESERVA`/`BLOQUEIO`) e o código da reserva (`calendario_codigo`, HM…).
+Telefone, nome e o restante da descrição não são gravados. Booking e Stays seguem sem tipo.
+
+**Cadastro automático.** A cada leitura do calendário do Airbnb (`imob_sincronizar_reservas_airbnb`,
+chamada por `imob_aplicar_calendario`), a reserva que ainda não terminou vira reserva no ERP com
+origem `AIRBNB`, em nome do cadastro do sistema **HÓSPEDE AIRBNB** (sem documento, intocável como o
+Consumidor Final, fora da busca de clientes) e com valores **R$ 0,00 a informar**. O operador troca
+o Hóspede Airbnb pelo hóspede real (só esse cliente pode ser trocado) e informa os valores; o
+check-in recusa reserva do Airbnb sem valores. Reserva que já tinha terminado na primeira leitura
+não é cadastrada; o botão **Registrar no ERP** da aba **Disponibilidade** cobre esses casos.
+
+- Datas alteradas no Airbnb atualizam a reserva (depois do check-in, só a saída). O iCal só traz
+  datas de hoje em diante: a entrada da estadia em andamento chega cortada em hoje e não conta
+  como mudança, e a reserva que terminou some sem ser cancelamento.
+- **O Airbnb manda no cancelamento.** Reserva do Airbnb não é cancelada nem excluída no ERP — nem
+  pela tela, nem pela rota, nem por SQL (gatilho `imob_reserva_airbnb_regras`). Os botões avisam
+  que o cancelamento é feito no Airbnb, com atalho para a reserva lá.
+- Reserva confirmada que sai do calendário do Airbnb antes de terminar é cancelada pela
+  sincronização ("Cancelada no Airbnb"), mesmo já começada ou com lançamentos; os lançamentos
+  ficam como estão, para o financeiro tratar. Com check-in feito, o hóspede está no imóvel: fica
+  para o check-out (a reserva mostra o aviso). Se o Airbnb a reativar, volta a ser cadastrada.
+- Uma falha ao cadastrar uma reserva não impede as outras nem a atualização da disponibilidade.
+
+- A reserva se liga ao evento pelo código (`reserva_imovel.codigo_externo`), não pelo UID: se o
+  hóspede muda as datas no Airbnb, o ERP avisa e oferece "Usar as datas do Airbnb".
+- A reserva do Airbnb não cria ocupação própria: o evento do calendário do Airbnb é a ocupação.
+  Um cancelamento no Airbnb libera as datas e cancela a reserva na sincronização seguinte.
+- Regras de tarifa do ERP (mínimo de noites, pacote fechado) não barram a reserva do Airbnb;
+  ficam anotadas em `cotacao_snapshot.regras_ignoradas`. Nasce sem cobrança, como a do ERP.
+- Uma reserva do Airbnb vira no máximo uma reserva ativa no ERP (índice único por código).
+
+Testes: `npm run test:calendarios-imoveis` (leitura do feed) e `npm run db:test:reservas-airbnb`
+(cenários no banco, sempre revertidos).
+
 ## Execução periódica e publicação
 
 As migrations `20261119120000` e `20261119130000` estão aplicadas no banco Cespedes Living.

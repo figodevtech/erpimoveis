@@ -38,7 +38,7 @@ export async function downloadCalendar(url: string, canal: "AIRBNB" | "BOOKING",
     }
     body += decoder.decode();
   } finally { await reader.cancel().catch(() => undefined); }
-  return parseOccupancyCalendar(body);
+  return parseOccupancyCalendar(body, canal);
 }
 
 export async function syncCalendar(id: number, force = false) {

@@ -44,6 +44,8 @@ import { notifyRemoval } from "./row-actions";
 import { OperationAction } from "./actions-dialog";
 import { ConcluirLimpezaDialog } from "./concluir-limpeza-dialog";
 import { PropertyReservations } from "./property-reservations";
+import { avisarFeitoNoAirbnb } from "./airbnb";
+import { AIRBNB_CANCELAR_NO_AIRBNB, ehReservaAirbnb } from "@/lib/imobiliario/airbnb";
 import { CustomerDialog } from "@/app/(app)/(pages)/clientes/components/customerDialogRegister/customerDialog";
 import {
   MODULES,
@@ -166,6 +168,8 @@ export default function EntityDialog({
   const [operation, setOperation] = useState<ModuleKind | null>(null);
   // Reserva aberta a partir da aba Disponibilidade do imóvel.
   const [aberta, setAberta] = useState<{ kind: ModuleKind; id: number } | null>(null);
+  // Reserva do Airbnb sendo registrada no ERP a partir da aba Disponibilidade (imóvel, datas e código).
+  const [reservaAirbnb, setReservaAirbnb] = useState<Entity | null>(null);
   // Cadastro do cliente aberto pelo nome do hóspede, na reserva.
   const [clienteAberto, setClienteAberto] = useState<number | null>(null);
   // Confirmação de "Concluir limpeza" do imóvel em LIMPEZA.
@@ -198,6 +202,10 @@ export default function EntityDialog({
       ["imovel_id", "cliente_id", "inicio", "fim", "hospedes"].some(
         (key) => String(value[key] ?? "") !== String(original?.[key] ?? "")
       ));
+  // Reserva do Airbnb: chega sem valores (o calendário não os traz). Até o check-in, os valores
+  // ficam editáveis direto na reserva, e o total pode seguir zerado ("a informar").
+  const doAirbnb = kind === "reservas" && Boolean(value.codigo_externo);
+  const valoresEditaveis = reservationChanged || (doAirbnb && Boolean(currentId) && value.status === "CONFIRMADA");
 
   const saved = () => {
     remote.reload();
@@ -227,7 +235,7 @@ export default function EntityDialog({
     };
     if (reservationChanged && !quote) return block("A cotação destas datas ainda não foi calculada ou o imóvel não está disponível no período.");
     if (value.inicio && value.fim && value.fim <= value.inicio) return block("A data final deve ser posterior ao início.");
-    if (reservationChanged && Number(value.valor_diarias ?? 0) + Number(value.taxa_limpeza ?? 0) <= 0)
+    if (reservationChanged && !doAirbnb && Number(value.valor_diarias ?? 0) + Number(value.taxa_limpeza ?? 0) <= 0)
       return block("O valor total da reserva deve ser maior que zero.");
     if (reservationChanged && quote?.violacoes?.length && !ignorarRegras) {
       setRulesToConfirm(quote.violacoes.map((violacao) => violacao.mensagem));
@@ -613,7 +621,7 @@ export default function EntityDialog({
                       }
                     />
 
-                    {kind === "reservas" && reservationChanged && editable ? (
+                    {kind === "reservas" && valoresEditaveis && editable ? (
                       <ReservationQuote
                         key={quoteKey(value)}
                         value={value}
@@ -700,6 +708,19 @@ export default function EntityDialog({
                       item={value}
                       editable={editable}
                       onOpenOperation={(operacao, operacaoId) => setAberta({ kind: operacao, id: operacaoId })}
+                      onRegisterAirbnb={
+                        can("reservas:criar")
+                          ? (row) =>
+                              setReservaAirbnb({
+                                imovel_id: currentId,
+                                imovel: value,
+                                inicio: String(row.inicio).slice(0, 10),
+                                fim: String(row.fim).slice(0, 10),
+                                origem: "AIRBNB",
+                                codigo_externo: row.calendario_codigo,
+                              })
+                          : undefined
+                      }
                     />
                   ) : null}
                 </div>
@@ -928,6 +949,19 @@ export default function EntityDialog({
         />
       ) : null}
 
+      {reservaAirbnb ? (
+        <EntityDialog
+          key={`airbnb-${reservaAirbnb.codigo_externo}`}
+          kind="reservas"
+          initial={reservaAirbnb}
+          open
+          onOpenChange={(open) => {
+            if (!open) setReservaAirbnb(null);
+          }}
+          onSaved={() => setDisponibilidadeVersao((versao) => versao + 1)}
+        />
+      ) : null}
+
       {/* Fora do <form> da reserva: o submit do cadastro do cliente não pode disparar o salvamento dela. */}
       {clienteAberto ? (
         <CustomerDialog
@@ -1056,6 +1090,8 @@ function OperationButtons({
 }) {
   const { can } = useModulePermission();
   const status = rowStatus(item);
+  // Reserva do Airbnb: o botão de cancelar fica, mas explica que o cancelamento é feito no Airbnb.
+  const doAirbnb = kind === "reservas" && ehReservaAirbnb(item);
   const choices: {
     action: string;
     label: string;
@@ -1108,7 +1144,11 @@ function OperationButtons({
                   ? "text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
                   : ""
               }`}
-              onClick={() => onAction(choice.action)}
+              onClick={() =>
+                doAirbnb && choice.action === "CANCELAR"
+                  ? avisarFeitoNoAirbnb("Cancele a reserva no Airbnb", AIRBNB_CANCELAR_NO_AIRBNB, item.codigo_externo)
+                  : onAction(choice.action)
+              }
             >
               {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
               <span>{choice.label}</span>

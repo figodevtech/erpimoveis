@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/select";
 import { requestJson, useRemote } from "./shared";
 import { DateChip, OccupancyCalendar, covers, monthStart, todayCivil } from "./availability-panel";
-import { type Entity, type ModuleKind, dateInput, money, titleCase } from "./model";
+import { AirbnbCodeLink } from "./airbnb";
+import { type Entity, type ModuleKind, dateInput, dateLabel, money, titleCase } from "./model";
 import ProprietarioSelect from "@/app/(app)/components/proprietarioSelect";
 import CustomerSelect from "@/app/(app)/components/customerSelect";
 import ImovelSelect, { type ImovelItem } from "@/app/(app)/components/imovelSelect";
@@ -1183,6 +1184,95 @@ function LinkedName({ label, title, onOpen }: { label: string; title: string; on
   );
 }
 
+/**
+ * Reserva do Airbnb: de onde veio (código que abre no Airbnb) e se o calendário do Airbnb ainda
+ * confirma as mesmas datas. O ERP não cancela nem muda a reserva sozinho: avisa e deixa o operador agir.
+ */
+function AirbnbReservationNotice({
+  codigo,
+  value,
+  inicio,
+  fim,
+  evento,
+  carregado,
+  onUseDates,
+}: {
+  codigo: string;
+  value: Entity;
+  inicio: string | null;
+  fim: string | null;
+  evento: Entity | null;
+  carregado: boolean;
+  onUseDates?: () => void;
+}) {
+  const status = String(value.status ?? "CONFIRMADA");
+  const aberta = ["CONFIRMADA", "EM_ANDAMENTO"].includes(status);
+  // Reserva já encerrada sai do calendário do Airbnb com o tempo; aí não é sinal de cancelamento.
+  const sumiu = carregado && !evento && aberta && (!value.id || !fim || fim >= todayCivil());
+  const eventoFim = evento ? dateInput(evento.fim) : null;
+  // O iCal só traz de hoje em diante: na estadia em andamento a entrada chega cortada em hoje.
+  const hoje = todayCivil();
+  const eventoInicioBruto = evento ? dateInput(evento.inicio) : null;
+  const eventoInicio =
+    eventoInicioBruto && inicio && eventoInicioBruto > inicio && eventoInicioBruto <= hoje ? inicio : eventoInicioBruto;
+  const mudou = Boolean(evento && aberta && inicio && fim && (eventoInicio !== inicio || eventoFim !== fim));
+  // O que a reserva cadastrada sozinha ainda espera do operador (o iCal não traz hóspede nem valores).
+  const pendencias = [
+    value.cliente?.codigo_sistema === "hospede_airbnb" ? "trocar o Hóspede Airbnb pelo hóspede real (cliente com CPF ou CNPJ)" : null,
+    value.id && Number(value.valor_total ?? 0) <= 0 ? "informar os valores da reserva (obrigatório para o check-in)" : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-start gap-3 rounded-xl border border-[#e0565b]/25 bg-[#e0565b]/[0.06] p-4">
+        <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-[#e0565b]" />
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
+            Reserva do Airbnb <AirbnbCodeLink codigo={codigo} />
+          </p>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {value.cotacao_snapshot?.registro_automatico || value.cliente?.codigo_sistema === "hospede_airbnb"
+              ? "Cadastrada automaticamente pelo calendário do Airbnb. "
+              : ""}
+            O imóvel e as datas seguem o Airbnb (mudanças lá chegam aqui sozinhas). Cancelamento é feito no Airbnb: na
+            sincronização do calendário, o ERP cancela a reserva aqui. Ela não pode ser cancelada nem excluída no ERP.
+          </p>
+          {pendencias.length ? (
+            <p className="text-xs font-medium leading-relaxed text-foreground">
+              Falta {pendencias.join(" e ")}.
+            </p>
+          ) : null}
+        </div>
+      </div>
+      {sumiu ? (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300" role="status">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            {!value.id
+              ? "Esta reserva não está no calendário do Airbnb deste imóvel. Atualize o calendário na aba Booking e Airbnb e tente de novo."
+              : status === "EM_ANDAMENTO"
+              ? "Esta reserva saiu do calendário do Airbnb com o hóspede em check-in. Confira no Airbnb e registre o check-out."
+              : "Esta reserva não aparece mais no calendário do Airbnb: na próxima sincronização, o ERP a cancela aqui."}
+          </span>
+        </div>
+      ) : null}
+      {mudou && eventoInicio && eventoFim ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300" role="status">
+          <span className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            No Airbnb, a entrada agora é {dateLabel(eventoInicio)} e a saída {dateLabel(eventoFim)}.
+          </span>
+          {onUseDates ? (
+            <Button type="button" variant="outline" size="sm" className="h-7 px-2.5 text-xs hover:cursor-pointer" onClick={onUseDates}>
+              Usar as datas do Airbnb
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ReservationGeneralFields({
   value,
   onChange,
@@ -1212,16 +1302,25 @@ function ReservationGeneralFields({
   // Disponibilidade do imóvel: o calendário aparece sempre e marca as ocupações quando há imóvel.
   const imovelId = value.imovel_id ? Number(value.imovel_id) : null;
   const reservaId = value.id ? Number(value.id) : null;
+  // Reserva do Airbnb: imóvel e datas seguem o evento do calendário do Airbnb com este código.
+  const codigoAirbnb = value.codigo_externo ? String(value.codigo_externo) : null;
   const ocupacao = useRemote<{ items?: Entity[] }>(imovelId ? `/api/imoveis/${imovelId}/disponibilidade` : null);
   const tarifas = useRemote<{ items?: Entity[] }>(imovelId ? `/api/imoveis/${imovelId}/tarifas` : null);
-  // A ocupação da própria reserva não conta; dados de outro imóvel (troca em andamento) também não.
+  // A ocupação da própria reserva não conta (na do Airbnb, o evento dela); dados de outro imóvel
+  // (troca em andamento) também não.
   const ocupadas = useMemo(
     () =>
       (ocupacao.data?.items ?? []).filter(
-        (row) => Number(row.imovel_id) === imovelId && !(reservaId && Number(row.reserva_id) === reservaId)
+        (row) =>
+          Number(row.imovel_id) === imovelId &&
+          !(reservaId && Number(row.reserva_id) === reservaId) &&
+          !(codigoAirbnb && row.calendario_codigo === codigoAirbnb)
       ),
-    [ocupacao.data, imovelId, reservaId]
+    [ocupacao.data, imovelId, reservaId, codigoAirbnb]
   );
+  const eventoAirbnb = codigoAirbnb
+    ? (ocupacao.data?.items ?? []).find((row) => Number(row.imovel_id) === imovelId && row.calendario_codigo === codigoAirbnb) ?? null
+    : null;
   const tarifasDoImovel = useMemo(
     () => (tarifas.data?.items ?? []).filter((row) => Number(row.imovel_id) === imovelId),
     [tarifas.data, imovelId]
@@ -1303,6 +1402,22 @@ function ReservationGeneralFields({
 
   return (
     <div className="space-y-6">
+      {codigoAirbnb ? (
+        <AirbnbReservationNotice
+          codigo={codigoAirbnb}
+          value={value}
+          inicio={inicio}
+          fim={fim}
+          evento={eventoAirbnb}
+          carregado={disponibilidadeCarregada}
+          onUseDates={
+            disabled || !eventoAirbnb
+              ? undefined
+              : () => onChange({ ...value, inicio: dateInput(eventoAirbnb.inicio), fim: dateInput(eventoAirbnb.fim) })
+          }
+        />
+      ) : null}
+
       {/* 1. CARD: IMÓVEL VINCULADO */}
       <div className="rounded-xl border bg-card p-4 sm:p-5 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1324,14 +1439,15 @@ function ReservationGeneralFields({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={disabled}
+                disabled={disabled || Boolean(codigoAirbnb)}
+                title={codigoAirbnb ? "A reserva do Airbnb fica no imóvel do anúncio" : undefined}
                 onClick={() => setImovelSelectOpen(true)}
                 className="h-8 text-xs gap-1.5 hover:cursor-pointer"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Trocar Imóvel
               </Button>
-              {!disabled ? (
+              {!disabled && !codigoAirbnb ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -1618,7 +1734,7 @@ function ReservationGeneralFields({
               rows={ocupadas}
               tariffs={tarifasDoImovel}
               selection={{ start: inicio, end: fim }}
-              onDayClick={disabled ? undefined : escolherDia}
+              onDayClick={disabled || codigoAirbnb ? undefined : escolherDia}
               isDayDisabled={diaIndisponivel}
               allowPast
             />
@@ -1643,6 +1759,8 @@ function ReservationGeneralFields({
                 </span>
               ) : disabled ? (
                 <span />
+              ) : codigoAirbnb ? (
+                <span>Entrada e saída definidas pelo Airbnb.</span>
               ) : !inicio ? (
                 <span>Clique no dia da entrada e depois no dia da saída.</span>
               ) : !fim ? (
@@ -1650,7 +1768,7 @@ function ReservationGeneralFields({
               ) : (
                 <span />
               )}
-              {inicio && !disabled ? (
+              {inicio && !disabled && !codigoAirbnb ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -1970,13 +2088,18 @@ export function ReservationQuote({
         });
         // Regras de tarifa voltam como aviso: no ERP dá para passar por cima, com confirmação ao salvar.
         params.set("regras", "avisar");
+        // Reserva do Airbnb: o evento dela no calendário não conta como ocupado.
+        if (value.codigo_externo) params.set("codigo_externo", String(value.codigo_externo));
         const result = await requestJson(`/api/imoveis/${value.imovel_id}/cotacao?${params}`);
         if (!active) return;
         setQuote(result);
         if (result.available) {
           onQuote(result);
-          // Valores padrão do imóvel e das tarifas; daqui em diante, editáveis.
-          onAdjust({ valor_diarias: Number(result.subtotal), taxa_limpeza: Number(result.fees ?? 0) });
+          // Valores padrão do imóvel e das tarifas; daqui em diante, editáveis. Na reserva do Airbnb
+          // ficam os da reserva (zerados até alguém informar): a tarifa do ERP não é o preço do Airbnb.
+          if (value.codigo_externo)
+            onAdjust({ valor_diarias: Number(value.valor_diarias ?? 0), taxa_limpeza: Number(value.taxa_limpeza ?? 0) });
+          else onAdjust({ valor_diarias: Number(result.subtotal), taxa_limpeza: Number(result.fees ?? 0) });
         } else setError("O imóvel não está disponível no período solicitado.");
       } catch (error) {
         if (!active) return;

@@ -44,7 +44,9 @@ export const reservaSchema = z.object({
   imovel_id: id, cliente_id: id, inicio: civilDate, fim: civilDate,
   hospedes: z.coerce.number().int().min(1).max(1000), observacoes: text.max(10000).default(""),
   cotacao_id: z.string().uuid().optional(), expected_total: money.optional(),
-  idempotency_key: text.min(8).max(200), origem: z.enum(["ERP", "SITE"]).default("ERP"),
+  idempotency_key: text.min(8).max(200), origem: z.enum(["ERP", "SITE", "AIRBNB"]).default("ERP"),
+  // Reserva do Airbnb: código HM… do evento do calendário do Airbnb a que ela se liga.
+  codigo_externo: text.toUpperCase().regex(/^[A-Z0-9]{4,40}$/, "Código da reserva do Airbnb inválido").nullish(),
   // Só o caminho do ERP lê: valores ajustados pelo operador e a confirmação de passar por cima das regras de tarifa.
   valor_diarias: money.optional(), taxa_limpeza: money.optional(), ignorar_regras: z.boolean().optional(),
 }).refine((v) => v.fim > v.inicio, { path: ["fim"], message: "Saída deve ser posterior à entrada" });

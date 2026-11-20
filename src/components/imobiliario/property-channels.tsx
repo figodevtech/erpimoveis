@@ -29,7 +29,13 @@ function ChannelCalendar({ channel, saved, endpoint, editable, reload }: {
       const response = await requestJson(endpoint, { method: "POST", body: JSON.stringify({ canal: channel.id, calendario_url: url,
         anuncio: saved?.anuncio ?? "", responsavel: saved?.responsavel ?? "", exportacao_confirmada: saved?.exportacao_confirmada ?? false }) });
       if (response.sync?.status === "ERRO") toast.error("Link salvo, mas o calendário não pôde ser lido", { description: response.sync.erro });
-      else toast.success("Calendário salvo e atualizado.");
+      else {
+        // Reservas do Airbnb cadastradas sozinhas nesta leitura (em nome do Hóspede Airbnb, valores a informar).
+        const criadas = Number(response.sync?.reservas_criadas ?? 0);
+        toast.success("Calendário salvo e atualizado.", criadas ? {
+          description: `${criadas} ${criadas === 1 ? "reserva do Airbnb cadastrada" : "reservas do Airbnb cadastradas"} no ERP. Informe hóspede e valores em cada uma.`,
+        } : undefined);
+      }
       reload();
     } catch (error) { toast.error((error as Error).message); }
     finally { setBusy(false); }

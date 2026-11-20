@@ -110,6 +110,10 @@ export async function GET(req: Request) {
 
     if (!incluirConsumidorFinal) {
       query = query.is("codigo_sistema", null);
+    } else {
+      // O Hóspede Airbnb também é cadastro do sistema, mas só das reservas do Airbnb: não entra na venda.
+      const hospedeAirbnb = await supabaseAdmin.from("cliente").select("id").eq("codigo_sistema", "hospede_airbnb").maybeSingle();
+      if (hospedeAirbnb.data) query = query.neq("id", hospedeAirbnb.data.id);
     }
 
     if (tipopessoaParam === "FISICA" || tipopessoaParam === "JURIDICA") {
