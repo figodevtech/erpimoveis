@@ -76,7 +76,8 @@ export function useModulePermission() {
   const { data: session, status } = useSession();
   const perms = (session?.user as { permissoes?: string[] } | undefined)?.permissoes;
   // Estável entre renderizações: as telas usam `can` nas dependências dos efeitos que buscam dados.
-  const can = useCallback((permission: string) => permissionSetHas(perms, permission), [perms]);
+  const permissionKey = JSON.stringify(perms ?? []);
+  const can = useCallback((permission: string) => permissionSetHas(JSON.parse(permissionKey), permission), [permissionKey]);
   return { ready: status !== "loading", can };
 }
 export function RemoteState({ loading, error, retry, empty, children }: { loading?: boolean; error?: string | null; retry?: () => void; empty?: boolean; children?: ReactNode }) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useCallback, useEffect, useState } from "react";
@@ -50,7 +51,9 @@ export default function TelegramConfigurationPage() {
     finally { setAction(null); }
   }
 
-  if (loading) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(loading);
+
+  if (initialPageLoading) return <PageLoading />;
   const environmentOk = status?.environment.configured && status.environment.hasWebhookSecret && status.environment.hasCronSecret && status.environment.hasAppUrl;
   const webhookOk = Boolean(status?.webhook?.url) && (
     !status?.webhook?.last_error_message

@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import * as React from "react";
@@ -102,7 +103,9 @@ export default function PerfisClient() {
   const carregandoPermissoesDialog = permissoes.length === 0 && carregando;
   const carregandoConteudoDialog = carregandoDialog || carregandoPermissoesDialog;
 
-  if (carregando) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(carregando);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <>

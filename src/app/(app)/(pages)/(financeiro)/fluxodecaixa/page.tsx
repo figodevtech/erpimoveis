@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
@@ -245,7 +246,9 @@ export default function FinanceiroPage() {
   }, [tipo, viewMode]);
 
 
-  if (isLoading) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(isLoading);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="p-y-4 space-y-4">

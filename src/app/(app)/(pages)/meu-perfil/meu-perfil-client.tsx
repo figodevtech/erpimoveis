@@ -1,6 +1,7 @@
 // src/app/(app)/(pages)/meu-perfil/meu-perfil-client.tsx
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -170,7 +171,9 @@ export function MeuPerfilClient() {
     [chavePerfil, usuarioId],
   );
 
-  if (carregandoPerfil || carregandoResumo) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(carregandoPerfil || carregandoResumo);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     // `reducedMotion="user"` respeita a preferencia do sistema em toda a arvore:

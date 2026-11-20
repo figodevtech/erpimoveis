@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -182,6 +183,8 @@ export default function ReservasPage() {
     setSelectedDialog({ id, seed });
   };
 
+  const initialPageLoading = useInitialPageLoading(!ready || isLoading || loadingStatusCounter);
+
   if (ready && !can("reservas:visualizar")) {
     return (
       <p role="alert" className="rounded-xl border p-6 text-sm">
@@ -190,7 +193,7 @@ export default function ReservasPage() {
     );
   }
 
-  if (!ready || isLoading || loadingStatusCounter) return <PageLoading />;
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="space-y-6">

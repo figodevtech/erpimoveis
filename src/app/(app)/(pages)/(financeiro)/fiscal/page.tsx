@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -203,7 +204,9 @@ export default function FiscalPage() {
     return () => window.clearTimeout(timer);
   }, [handleGetKpis]);
 
-  if (isLoading || isLoadingKpis) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(isLoading || isLoadingKpis);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="space-y-4">

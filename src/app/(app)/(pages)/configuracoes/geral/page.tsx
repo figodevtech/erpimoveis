@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import Link from "next/link";
@@ -244,7 +245,9 @@ export default function ConfigGeralPage() {
   }, [settings, saving, loading, loadError]);
 
   const disabled = loading || saving || Boolean(loadError);
-  if (loading) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(loading);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="container mx-auto min-w-0 max-w-7xl space-y-5 px-3 py-1 sm:space-y-6 sm:px-6 lg:px-8">

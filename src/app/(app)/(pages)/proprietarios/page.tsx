@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -124,6 +125,8 @@ export default function ProprietariosPage() {
     setIsDialogOpen(true);
   };
 
+  const initialPageLoading = useInitialPageLoading(!ready || isLoading || loadingStatusCounter);
+
   if (ready && !can("proprietarios:visualizar")) {
     return (
       <p role="alert" className="rounded-xl border p-6 text-sm">
@@ -132,7 +135,7 @@ export default function ProprietariosPage() {
     );
   }
 
-  if (!ready || isLoading || loadingStatusCounter) return <PageLoading />;
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="space-y-6">

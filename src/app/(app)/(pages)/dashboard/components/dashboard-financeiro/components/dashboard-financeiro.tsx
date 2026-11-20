@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import * as React from "react";
@@ -178,7 +179,9 @@ export default function DashboardFinanceiro({
     setMetodoSelecionado(null);
   }
 
-  if (carregando) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(carregando);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <Card className={clsx("dashboard-root w-full py-2", className)}>

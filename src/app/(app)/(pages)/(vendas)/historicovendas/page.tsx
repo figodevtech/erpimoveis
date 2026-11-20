@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Cards from "./components/cards";
@@ -131,7 +132,9 @@ export default function HistoricoVendas() {
     return () => window.clearTimeout(timer);
   }, [fetchMetrics]);
 
-  if (isLoading || loadingStatusCounter) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(isLoading || loadingStatusCounter);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="mx-auto space-y-6">

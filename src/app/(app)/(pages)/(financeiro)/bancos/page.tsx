@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import * as React from "react";
@@ -279,7 +280,9 @@ export default function BancosFinanceiroPage() {
   const isPrimeiroCarregamentoTransacoes =
     isLoadingTransacoes && transacoesPageData.bancoId == null && transacoesSelecionadas.length === 0;
 
-  if (isLoading) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(isLoading);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="space-y-4">

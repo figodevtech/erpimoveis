@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useMemo, useState } from "react";
@@ -342,7 +343,9 @@ function TarefasContent() {
     { id: "favoritas", label: "Fixadas", icon: Pin },
   ];
 
-  if (isLoading) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(isLoading);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 pb-12">

@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import axios, { isAxiosError } from "axios";
@@ -276,7 +277,9 @@ export default function UsoConsumoClient({ escopo = "USOCONSUMO" }: UsoConsumoCl
     window.location.href = `/api/usoconsumo/itens/export?${params}`;
   }
 
-  if (loading || loadingCounts) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(loading || loadingCounts);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="mx-auto space-y-6">

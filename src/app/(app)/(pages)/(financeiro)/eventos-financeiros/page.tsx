@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import axios from "axios";
@@ -249,7 +250,9 @@ export default function EventosFinanceirosPage() {
   const rotuloDoPeriodo =
     `em ${totais.ordens} OS e ${totais.vendas ?? 0} vendas`;
 
-  if (isLoading || carregandoUsuarios) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(isLoading || carregandoUsuarios);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="space-y-6 py-5">

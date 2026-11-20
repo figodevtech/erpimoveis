@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { baseRtcParaEdicao, valorRtcParaEdicao } from "@/lib/nfe/baseIbsCbs";
@@ -2343,7 +2344,9 @@ export default function NFeAvulsaPage() {
 
   const currentStep = Math.min(Math.max(draft.currentStep, 0), steps.length - 1);
 
-  if (loading) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(loading);
+
+  if (initialPageLoading) return <PageLoading />;
 
   if (isAutorizada) {
     return (

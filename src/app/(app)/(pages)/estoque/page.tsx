@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useEffect, useRef, useState } from "react";
@@ -103,7 +104,9 @@ export default function EstoquePage() {
     }
   }, [selectedProductId]);
 
-  if (isLoading || loadingStatusCounter) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(isLoading || loadingStatusCounter);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="mx-auto space-y-6">

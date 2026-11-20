@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -133,7 +134,9 @@ export function DocumentosLista({ moduloInicial }: { moduloInicial: ModuloDocume
 
   const linkNovo = `/configuracoes/documentos/novo?modulo=${aba}`;
 
-  if (carregando) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(carregando);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">

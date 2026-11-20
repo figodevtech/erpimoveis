@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 import axios from "axios";
 import { useEffect, useRef, useState } from "react";
@@ -117,7 +118,9 @@ export default function ClientesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, search, devedores]);
 
-  if (isLoading || loadingStatusCounter) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(isLoading || loadingStatusCounter);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="space-y-6">

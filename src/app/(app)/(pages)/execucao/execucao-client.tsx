@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -86,7 +87,9 @@ export function ExecucaoClient() {
   const itens = dados?.items ?? [];
   const totalPaginas = dados ? Math.max(1, Math.ceil(dados.total / PAGE_SIZE)) : 1;
 
-  if (carregando) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(carregando);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="space-y-6">

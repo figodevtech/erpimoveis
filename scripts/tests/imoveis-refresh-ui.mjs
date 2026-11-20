@@ -1,0 +1,26 @@
+﻿import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { chromium, expect } from '@playwright/test';
+import { mkdir, readFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import path from 'node:path';
+const root=process.cwd(),out=path.join(root,'artifacts/configuracoes-imobiliarias/imoveis-refresh');
+await mkdir(out,{recursive:true});
+const mocks={
+ auth:`export function useSession(){return {status:'authenticated',data:{user:{permissoes:['imoveis:visualizar','imoveis:criar','imoveis:editar']}}}}`,
+ nav:`const router={replace(){}};const params=new URLSearchParams();export function useRouter(){return router}export function useSearchParams(){return params}`,
+ dynamic:`import React from 'react';export default function dynamic(loader){const Lazy=React.lazy(loader);return props=><React.Suspense fallback={null}><Lazy {...props}/></React.Suspense>}`,
+ dialog:`import React,{useState,useEffect}from'react';export default function Dialog({onSaved,onOpenChange}){const[draft,setDraft]=useState('');useEffect(()=>{window.dialogMounts=(window.dialogMounts||0)+1},[]);return <section role="dialog" aria-label="Editar imóvel"><input aria-label="Rascunho" value={draft} onChange={e=>setDraft(e.target.value)}/><button onClick={onSaved}>Atualizar dados</button><button onClick={()=>onOpenChange(false)}>Fechar</button></section>}`,
+ cards:`export default function Cards(){return <div data-testid="cards">Indicadores</div>}`,
+ search:`export default function Search(){return <div>Filtros</div>}`,
+ table:`export default function Table({onSelectImovel}){return <button onClick={()=>{onSelectImovel(1)}}>Abrir imóvel</button>}`,
+};
+// Preserve o carregamento e os efeitos reais da página; isole apenas os controles visuais.
+const plugin={name:'controlled-ui',setup(b){b.onResolve({filter:/^(next-auth\/react|next\/navigation|next\/dynamic)$/},a=>({path:a.path==='next-auth/react'?'auth':a.path==='next/navigation'?'nav':'dynamic',namespace:'mock'}));b.onResolve({filter:/entity-dialog$/},()=>({path:'dialog',namespace:'mock'}));b.onResolve({filter:/^\.\/components\/(cards|searchfilter|imoveis-data-table)$/},a=>a.importer.replaceAll('\\','/').endsWith('/imoveis/page.tsx')?{path:a.path.endsWith('cards')?'cards':a.path.endsWith('searchfilter')?'search':'table',namespace:'mock'}:undefined);b.onLoad({filter:/.*/,namespace:'mock'},a=>({contents:mocks[a.path],loader:'tsx',resolveDir:root}));}};
+await build({stdin:{resolveDir:root,loader:'tsx',contents:`import React from 'react';import{createRoot}from'react-dom/client';import Page from '@/app/(app)/(pages)/imoveis/page';createRoot(document.getElementById('root')).render(<Page/>);`},plugins:[plugin],bundle:true,outfile:path.join(out,'app.js'),platform:'browser',jsx:'automatic',tsconfig:path.join(root,'tsconfig.json'),define:{'process.env.NODE_ENV':'"development"','process.env':'{}'},logLevel:'warning'});
+let finishInitial,finishRefresh;const initial=new Promise(r=>finishInitial=r),refresh=new Promise(r=>finishRefresh=r);const calls={list:0,counters:0};
+const server=createServer(async(req,res)=>{if(req.url.startsWith('/api/imoveis')){const key=req.url.startsWith('/api/imoveis/status-counter')?'counters':'list';const count=++calls[key];await(count===1?initial:refresh);res.setHeader('Content-Type','application/json');return res.end(JSON.stringify(key==='list'?{items:[{id:1,titulo:'Imóvel teste'}],total:1}:{countsByStatus:{DISPONIVEL:1},total:1,disponiveis:1,ocupados:0}));}if(req.url==='/app.js'){res.setHeader('Content-Type','text/javascript');return res.end(await readFile(path.join(out,'app.js')));}res.setHeader('Content-Type','text/html');res.end('<html><body><div id="root"></div><script src="/app.js"></script></body></html>');});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));let browser;
+try{browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(`http://127.0.0.1:${server.address().port}`);await expect(page.getByRole('status',{name:'Carregando página'})).toBeVisible();await expect(page.getByRole('button',{name:'Abrir imóvel'})).toHaveCount(0);await expect.poll(()=>({...calls})).toEqual({list:1,counters:1});finishInitial();await page.getByRole('button',{name:'Abrir imóvel'}).click();await page.getByLabel('Rascunho').fill('Edição ainda não salva');await page.getByRole('button',{name:'Atualizar dados'}).click();await expect.poll(()=>({...calls})).toEqual({list:2,counters:2});await expect(page.getByRole('dialog')).toBeVisible();await expect(page.getByRole('status',{name:'Carregando página'})).toHaveCount(0);await expect(page.getByLabel('Rascunho')).toHaveValue('Edição ainda não salva');assert.equal(await page.evaluate(()=>window.dialogMounts),1);finishRefresh();await expect(page.getByRole('dialog')).toBeVisible();await expect(page.getByLabel('Rascunho')).toHaveValue('Edição ainda não salva');await expect.poll(()=>({...calls})).toEqual({list:2,counters:2});assert.deepEqual(errors,[]);console.log('OK: spinner somente inicial; refresh mantém diálogo e rascunho; permissões equivalentes não repetem buscas.');}finally{finishInitial();finishRefresh();await browser?.close();await new Promise(r=>server.close(r));}
+
+

@@ -1,5 +1,6 @@
 "use client";
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 
 import { useCallback, useEffect, useState } from "react";
@@ -89,7 +90,9 @@ export default function ConfigEmpresaPage() {
     }
   }
 
-  if (carregando) return <PageLoading />;
+  const initialPageLoading = useInitialPageLoading(carregando);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
     <div className="container mx-auto max-w-7xl space-y-6 px-4 py-1 animate-in fade-in duration-500 sm:px-6 lg:px-8">

@@ -1,5 +1,6 @@
 "use client"
 
+import { useInitialPageLoading } from "@/hooks/use-initial-page-loading";
 import { PageLoading } from "@/components/page-loading";
 import { useEffect, useState } from "react";
 import axios from "axios";
@@ -65,7 +66,9 @@ export default function AssistentePagamentoVendas (){
     handleGetVendas(vendaStatus.PAGAMENTO);
   },[])
 
-    if (isLoading) return <PageLoading />;
+    const initialPageLoading = useInitialPageLoading(isLoading);
+
+  if (initialPageLoading) return <PageLoading />;
 
   return (
 
