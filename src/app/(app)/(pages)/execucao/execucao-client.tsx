@@ -129,16 +129,12 @@ export function ExecucaoClient() {
   const totalPaginas = dados ? Math.max(1, Math.ceil(dados.total / PAGE_SIZE)) : 1;
   const filtrando = tipo !== TODOS_OS_TIPOS || (verTodas && escopo !== "todas");
 
-<<<<<<< HEAD
+  // Só a primeira carga ocupa a tela; trocar filtro ou atualizar mantém os cartões, esmaecidos.
   const initialPageLoading = useInitialPageLoading(carregando);
 
   if (initialPageLoading) return <PageLoading />;
-=======
-  // Só a primeira carga ocupa a tela; trocar filtro ou atualizar mantém os cartões, esmaecidos.
-  if (!dados && !erro) return <PageLoading />;
 
   const depoisDeAgir = () => void carregar();
->>>>>>> 903fd7033763abed71b63048f4c61c3a90ce71c1
 
   return (
     <div className="space-y-6">
