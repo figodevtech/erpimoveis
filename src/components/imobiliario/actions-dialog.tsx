@@ -15,7 +15,7 @@ import {
   StatusBadge,
   requestJson,
 } from "./shared";
-import { ResponsavelLimpezaSelect } from "./responsavel-limpeza-select";
+import { ResponsavelServicoSelect } from "./responsavel-servico-select";
 import {
   type Entity,
   type ModuleKind,
@@ -529,7 +529,7 @@ export function OperationAction({
               <div className="space-y-3 pl-7">
                 <div className="space-y-1.5">
                   <p className="text-xs font-medium text-foreground">Responsável pela limpeza</p>
-                  <ResponsavelLimpezaSelect
+                  <ResponsavelServicoSelect
                     value={limpeza.responsavel}
                     onValueChange={(responsavel) => setLimpeza((atual) => ({ ...atual, responsavel }))}
                     disabled={busy}

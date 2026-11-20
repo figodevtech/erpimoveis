@@ -30,8 +30,12 @@ export const PERMS = {
   RESERVAS_CANCELAR: "reservas:cancelar",
   RESERVAS_CHECKIN_CHECKOUT: "reservas:checkin_checkout",
   RESERVAS_FINANCEIRO: "reservas:financeiro",
-  // Sem ela, a Execução mostra só as limpezas sob a responsabilidade do próprio usuário.
-  LIMPEZAS_GERENCIAR: "limpezas:gerenciar",
+  // Execução de serviços. Só `visualizar`: as tarefas sob a responsabilidade do próprio usuário
+  // (o perfil do prestador de serviço). `ver_todas` mostra as de todos os executores, inclusive
+  // as sem responsável; `trocar_realizador` passa a tarefa para outra pessoa.
+  EXECUCAO: "execucao:visualizar",
+  EXECUCAO_VER_TODAS: "execucao:ver_todas",
+  EXECUCAO_TROCAR_REALIZADOR: "execucao:trocar_realizador",
 
   ESTOQUE: "estoque:visualizar",
   ESTOQUE_CRIAR: "estoque:criar",
@@ -152,16 +156,31 @@ export const PERMS_TELAS_FINANCEIRO: Permission[] = [
  * ate 24h sem as permissoes novas — quem estivesse logado no deploy perderia o
  * Fluxo de Caixa ate sair e entrar. `permissoesDoToken` le esse token como o
  * sistema o lia quando ele foi emitido.
+ *
+ * 3: a Execucao passou a pedir `execucao:visualizar` (antes todo usuario ativo
+ * a abria) e `limpezas:gerenciar` virou `execucao:ver_todas` +
+ * `execucao:trocar_realizador`.
  */
-export const VERSAO_PERMISSOES_TOKEN = 2;
+export const VERSAO_PERMISSOES_TOKEN = 3;
+
+/** Permissao das limpezas que existia antes da versao 3 do token. */
+const LIMPEZAS_GERENCIAR_LEGADO = "limpezas:gerenciar";
 
 export function permissoesDoToken(permissoes: unknown, versao: unknown): string[] {
   const lista = Array.isArray(permissoes) ? (permissoes as unknown[]).map(String) : [];
-  if (Number(versao) >= VERSAO_PERMISSOES_TOKEN) return lista;
+  const emitidoNa = Number(versao) || 0;
+  if (emitidoNa >= VERSAO_PERMISSOES_TOKEN) return lista;
 
   const normalizadas = new Set(lista.map(normalizePermission));
-  if (!normalizadas.has(normalizePermission(PERMS.FINANCEIRO))) return lista;
-  return [...lista, ...PERMS_TELAS_FINANCEIRO.map(normalizePermission)];
+  const extras: string[] = [];
+  if (emitidoNa < 2 && normalizadas.has(normalizePermission(PERMS.FINANCEIRO))) extras.push(...PERMS_TELAS_FINANCEIRO);
+  if (emitidoNa < 3) {
+    extras.push(PERMS.EXECUCAO);
+    if (normalizadas.has(normalizePermission(LIMPEZAS_GERENCIAR_LEGADO))) {
+      extras.push(PERMS.EXECUCAO_VER_TODAS, PERMS.EXECUCAO_TROCAR_REALIZADOR);
+    }
+  }
+  return [...lista, ...extras.map(normalizePermission)];
 }
 
 export function normalizePermission(perm: unknown) {
@@ -172,6 +191,9 @@ const IMPLIED_PERMISSIONS: Record<string, Permission[]> = {
   ...Object.fromEntries(
     TIPO_IDS.map((id) => [normalizePermission(tipoPermission(id, "visualizar")), [PERMS.TIPOS]]),
   ),
+  // Ver as tarefas de todos ou trocar o realizador já supõe entrar na Execução.
+  [normalizePermission(PERMS.EXECUCAO_VER_TODAS)]: [PERMS.EXECUCAO],
+  [normalizePermission(PERMS.EXECUCAO_TROCAR_REALIZADOR)]: [PERMS.EXECUCAO],
   [normalizePermission(PERMS.FISCAL_SPED_GERENCIAR)]: [PERMS.FISCAL_SPED],
   [normalizePermission(PERMS.FISCAL_DIFAL_GERENCIAR)]: [PERMS.FISCAL_DIFAL],
   [normalizePermission(PERMS.FINANCEIRO_NOTAS_FISCAIS)]: [PERMS.FINANCEIRO],

@@ -71,14 +71,16 @@ const ACTION_LABELS: Record<string, string> = {
  */
 const PERMISSION_LABELS: Record<string, string> = {
   "financeiro:visualizar": "Acesso base (financeiro na OS e na venda)",
-  "limpezas:gerenciar": "Ver e gerenciar todas as limpezas (atribuir e concluir)",
+  "execucao:visualizar": "Acessar e ver as próprias tarefas",
+  "execucao:ver_todas": "Ver as tarefas de todos os executores",
+  "execucao:trocar_realizador": "Trocar o realizador da tarefa",
 };
 
 const MODULE_LABELS: Record<string, string> = {
   proprietarios: "Proprietários",
   imoveis: "Imóveis",
   reservas: "Reservas",
-  limpezas: "Limpezas (Execução)",
+  execucao: "Execução de serviços",
   alugueis: "Aluguéis",
   usoconsumo: "Uso/Consumo",
   radios: "Rádio",

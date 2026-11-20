@@ -27,7 +27,8 @@ export async function GET() {
         itemlistaservico,
         tiposervicoid,
         ativo,
-        gera_comissao
+        gera_comissao,
+        chave_sistema
       `)
       .order("descricao", { ascending: true });
 
@@ -49,6 +50,7 @@ export async function GET() {
       ativo: typeof s.ativo === "boolean" ? s.ativo : true,
       // Serviços anteriores à coluna geram comissão, igual ao default do banco.
       gera_comissao: typeof s.gera_comissao === "boolean" ? s.gera_comissao : true,
+      chave_sistema: (s.chave_sistema as string | null) ?? null,
     }));
 
     return NextResponse.json({ items });
@@ -119,7 +121,8 @@ export async function POST(req: Request) {
         itemlistaservico,
         tiposervicoid,
         ativo,
-        gera_comissao
+        gera_comissao,
+        chave_sistema
       `)
       .maybeSingle();
 
@@ -146,6 +149,7 @@ export async function POST(req: Request) {
       tiposervicoid: (data.tiposervicoid as number | null) ?? null,
       ativo: typeof data.ativo === "boolean" ? data.ativo : true,
       gera_comissao: typeof data.gera_comissao === "boolean" ? data.gera_comissao : true,
+      chave_sistema: (data.chave_sistema as string | null) ?? null,
     };
 
     return NextResponse.json({ item }, { status: 201 });

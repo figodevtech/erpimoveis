@@ -67,12 +67,17 @@ interface RowActionsProps {
   onOpen: () => void;
   onDelete?: () => Promise<unknown>;
   deleteDescription?: string;
+  /**
+   * "Excluir" abre o diálogo do próprio módulo, no lugar da confirmação genérica (ex.: a reserva,
+   * que mostra os valores que saem junto). Tem precedência sobre `onDelete`.
+   */
+  onRequestDelete?: () => void;
   /** Aparecem logo abaixo de Editar/Visualizar, separadas por uma linha. */
   extraActions?: RowExtraAction[];
 }
 
 /** Menu de ações da linha, no mesmo padrão da listagem de clientes. */
-export function RowActions({ canEdit, onOpen, onDelete, deleteDescription, extraActions = [] }: RowActionsProps) {
+export function RowActions({ canEdit, onOpen, onDelete, deleteDescription, onRequestDelete, extraActions = [] }: RowActionsProps) {
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -111,11 +116,12 @@ export function RowActions({ canEdit, onOpen, onDelete, deleteDescription, extra
             </DropdownMenuItem>
           ))}
 
-          {onDelete ? (
+          {onDelete || onRequestDelete ? (
             <DropdownMenuItem
               onSelect={(e) => {
                 e.preventDefault();
-                setIsAlertOpen(true);
+                if (onRequestDelete) onRequestDelete();
+                else setIsAlertOpen(true);
               }}
               className="text-destructive focus:text-destructive"
             >

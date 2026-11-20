@@ -44,9 +44,42 @@ test("token da versao atual vale como esta", () => {
   assert.equal(permissionSetHas(atual, PERMS.FINANCEIRO_FLUXO_DE_CAIXA), false);
 });
 
-test("token antigo sem o financeiro nao ganha nada", () => {
-  assert.deepEqual(permissoesDoToken(["ORDENS:VISUALIZAR"], undefined), ["ORDENS:VISUALIZAR"]);
-  assert.deepEqual(permissoesDoToken(undefined, undefined), []);
+test("token antigo sem o financeiro so ganha a Execucao, que todo usuario abria", () => {
+  assert.deepEqual(permissoesDoToken(["ORDENS:VISUALIZAR"], undefined), ["ORDENS:VISUALIZAR", "EXECUCAO:VISUALIZAR"]);
+  assert.deepEqual(permissoesDoToken(undefined, undefined), ["EXECUCAO:VISUALIZAR"]);
+});
+
+test("token da versao 2 continua sem as telas do financeiro e ganha a Execucao", () => {
+  const v2 = permissoesDoToken(["FINANCEIRO:VISUALIZAR"], 2);
+  assert.equal(permissionSetHas(v2, PERMS.FINANCEIRO_FLUXO_DE_CAIXA), false);
+  assert.equal(permissionSetHas(v2, PERMS.EXECUCAO), true);
+  assert.equal(permissionSetHas(v2, PERMS.EXECUCAO_VER_TODAS), false);
+});
+
+test("token antigo com limpezas:gerenciar le como ver todas e trocar o realizador", () => {
+  const gerente = permissoesDoToken(["LIMPEZAS:GERENCIAR"], 2);
+  assert.equal(permissionSetHas(gerente, PERMS.EXECUCAO_VER_TODAS), true);
+  assert.equal(permissionSetHas(gerente, PERMS.EXECUCAO_TROCAR_REALIZADOR), true);
+});
+
+test("token da versao atual sem a Execucao nao a ganha", () => {
+  assert.deepEqual(permissoesDoToken(["IMOVEIS:VISUALIZAR"], VERSAO_PERMISSOES_TOKEN), ["IMOVEIS:VISUALIZAR"]);
+});
+
+test("ver todas ou trocar o realizador incluem entrar na Execucao, e nao o contrario", () => {
+  assert.equal(permissionSetHas([PERMS.EXECUCAO_VER_TODAS], PERMS.EXECUCAO), true);
+  assert.equal(permissionSetHas([PERMS.EXECUCAO_TROCAR_REALIZADOR], PERMS.EXECUCAO), true);
+  assert.equal(permissionSetHas([PERMS.EXECUCAO], PERMS.EXECUCAO_VER_TODAS), false);
+  assert.equal(permissionSetHas([PERMS.EXECUCAO], PERMS.EXECUCAO_TROCAR_REALIZADOR), false);
+  assert.equal(permissionSetHas([PERMS.EXECUCAO_TROCAR_REALIZADOR], PERMS.EXECUCAO_VER_TODAS), false);
+});
+
+test("o prestador de servico entra direto na Execucao", () => {
+  assert.equal(getDefaultRouteForPerms([PERMS.EXECUCAO]), "/execucao");
+  assert.equal(getDefaultRouteForPerms([PERMS.EXECUCAO_VER_TODAS]), "/execucao");
+  assert.equal(getDefaultRouteForPerms([]), "/nao-autorizado");
+  // Quem tem outra tela continua entrando nela.
+  assert.equal(getDefaultRouteForPerms([PERMS.EXECUCAO, PERMS.IMOVEIS]), "/imoveis");
 });
 
 test("a entrada no sistema segue a primeira tela do financeiro que a pessoa abre", () => {

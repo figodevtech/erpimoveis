@@ -44,10 +44,15 @@ const FIELD_LABELS: Record<string, string> = {
   hospedes: "Hóspedes",
   observacoes: "Observações",
   valor_total: "Valor total",
+  // Serviços do imóvel.
+  servico_id: "Tipo de serviço",
+  responsavel_id: "Responsável",
+  prazo_data: "Dia do prazo",
+  prazo_hora: "Hora do prazo",
 };
 
 /** Campos que guardam o ID de outro cadastro: vazio chega como 0 ou NaN e significa "não selecionado". */
-const REFERENCE_FIELDS = new Set(["proprietario_id", "imovel_id", "cliente_id"]);
+const REFERENCE_FIELDS = new Set(["proprietario_id", "imovel_id", "cliente_id", "servico_id"]);
 
 function fieldLabel(path: PropertyKey[]) {
   const [head, ...rest] = path.map(String);
